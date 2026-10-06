@@ -9,6 +9,10 @@ application command dispatcher.
 """
 
 from collections.abc import Callable, Mapping
+from hashlib import sha256
+import hmac
+import json
+import secrets
 from typing import Any, Protocol, runtime_checkable
 
 from .full_product_actions import FullProductActionRouter
@@ -77,13 +81,28 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
         router: FullProductActionRouter,
         *,
         language: UILanguage = UILanguage.UA,
+        document_warnings: tuple[str, ...] = (),
     ) -> None:
         if not isinstance(workspace, PgnWorkspacePort):
             raise TypeError("workspace does not satisfy the PGN workspace port")
         if not isinstance(router, FullProductActionRouter):
             raise TypeError("PGN workspace router must be FullProductActionRouter")
+        if type(document_warnings) is not tuple or any(
+            type(item) is not str for item in document_warnings
+        ):
+            raise TypeError("PGN document warnings must be a built-in tuple of plain text")
         self._workspace = workspace
+        self._document_warning_count = len(document_warnings)
+        self._document_warnings = tuple(
+            warning
+            for warning in (
+                self._bounded_document_warning(item)
+                for item in document_warnings[:256]
+            )
+            if warning
+        )
         self._router = router
+        self._presentation_key = secrets.token_bytes(32)
         presenter, view = self._capture_presenter(language)
         self._workspace_view = view
         super().__init__(
@@ -92,6 +111,20 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
             lambda: int(getattr(self._workspace_view, "game_count")),
             language=language,
         )
+
+    @staticmethod
+    def _bounded_document_warning(value: str) -> str:
+        # Recovery warnings are passive presentation data. Bound and normalize
+        # them before they cross into the browser/NVDA surface; never let
+        # untrusted warning text become command or GameTree authority.
+        prefix = value[:720]
+        normalized = "".join(
+            character
+            if ord(character) >= 32 and not 0xD800 <= ord(character) <= 0xDFFF
+            else " "
+            for character in prefix
+        )
+        return " ".join(normalized.split())
 
     @staticmethod
     def _view_identity(view: object) -> tuple[object, ...]:
@@ -134,6 +167,48 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
             record_digest,
         )
 
+    def _presentation_token(self, view: object) -> str:
+        identity = self._view_identity(view)
+        cursor = identity[2]
+        assert isinstance(cursor, GameTreeCursor)
+        payload = json.dumps(
+            {
+                "language": self._language.value,
+                "game_count": identity[0],
+                "selected_game_index": identity[1],
+                "line_path": tuple(
+                    (step.parent_move_index, step.variation_index)
+                    for step in cursor.line_path
+                ),
+                "next_move_index": cursor.next_move_index,
+                "dirty": identity[3],
+                "content_revision": identity[4],
+                "content_digest": identity[5],
+                "current_record_digest": identity[6],
+            },
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+        return hmac.new(self._presentation_key, payload, sha256).hexdigest()
+
+    def browser_presentation_guard(
+        self,
+        token: str | None,
+    ) -> PgnWebViewEvent | None:
+        if token is None:
+            # Retain compatibility for non-browser callers. Current production
+            # WebView snapshots always carry an opaque lease and therefore get
+            # the stronger stale-render guarantee below.
+            return None
+        try:
+            expected = self._presentation_token(self._workspace_view)
+        except Exception:
+            return self._unavailable_event()
+        if not hmac.compare_digest(token, expected):
+            return self._resync_rejected_action()
+        return None
+
     def _capture_presenter(self, language: UILanguage) -> tuple[PgnTreePresenter, object]:
         before = self._workspace.view()
         before_identity = self._view_identity(before)
@@ -160,15 +235,87 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
     def _refresh(self) -> None:
         self._presenter, self._workspace_view = self._capture_presenter(self._language)
 
+    def _try_refresh(self) -> bool:
+        # A concurrent canonical navigation/edit may invalidate one capture.
+        # Retry once from the authoritative workspace; never reuse a mixed or
+        # stale presenter snapshot.
+        for _attempt in range(2):
+            try:
+                self._refresh()
+            except Exception:
+                continue
+            return True
+        return False
+
+    def _current_action_rejected_event(self) -> PgnWebViewEvent:
+        snapshot = self._snapshot_current()
+        return PgnWebViewEvent(
+            "selection",
+            {
+                "snapshot": snapshot,
+                "focus_target": snapshot.get("focus_target", ""),
+                "announcement": str(snapshot.get("error_message", "")),
+            },
+        )
+
+    def _resync_rejected_action(self) -> PgnWebViewEvent:
+        # A browser/NVDA command belongs to the presentation the user actually
+        # read.  If canonical workspace state moved independently, never
+        # reinterpret the stale intent against the newer game/cursor.
+        if not self._try_refresh():
+            return self._unavailable_event()
+        return self._current_action_rejected_event()
+
+    def _prepare_browser_action(self) -> PgnWebViewEvent | None:
+        try:
+            presented_identity = self._view_identity(self._workspace_view)
+            current_identity = self._view_identity(self._workspace.view())
+        except Exception:
+            return self._unavailable_event()
+
+        if current_identity != presented_identity:
+            return self._resync_rejected_action()
+
+        # Preserve #1435's pre-action capture guarantee.  A failed or drifting
+        # capture must not permit the browser command to act from stale state.
+        if not self._try_refresh():
+            return self._unavailable_event()
+        try:
+            refreshed_identity = self._view_identity(self._workspace_view)
+        except Exception:
+            return self._unavailable_event()
+        if refreshed_identity != presented_identity:
+            return self._current_action_rejected_event()
+        return None
+
     def _snapshot_current(self) -> dict[str, object]:
         snapshot = PgnWebViewProjection.snapshot(self)
+        game = snapshot.get("game")
+        if isinstance(game, dict) and self._document_warning_count:
+            existing = game.get("warnings", ())
+            if type(existing) is not tuple:
+                existing = ()
+            document_warnings = self._document_warnings
+            if self._document_warning_count > len(document_warnings):
+                omitted = (
+                    "Додаткові попередження відновлення не показано."
+                    if self._language is UILanguage.UA
+                    else "Additional recovery warnings are not shown."
+                )
+                if len(document_warnings) >= 256:
+                    document_warnings = document_warnings[:255]
+                document_warnings = document_warnings + (omitted,)
+            remaining = max(0, 256 - len(document_warnings))
+            game["warnings"] = document_warnings + existing[:remaining]
+        snapshot["presentation_token"] = self._presentation_token(self._workspace_view)
         snapshot["workspace"] = {
             "dirty": bool(getattr(self._workspace_view, "dirty", False)),
         }
         return snapshot
 
     def snapshot(self) -> dict[str, object]:
-        self._refresh()
+        if not self._try_refresh():
+            return self._unavailable_snapshot()
         return self._snapshot_current()
 
     def _render_event(self, *, announce: str = "") -> PgnWebViewEvent:
@@ -181,6 +328,22 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
                 "announcement": announce,
             },
         )
+
+    def _trusted_current_target(self) -> dict[str, object]:
+        identity = self._view_identity(self._workspace.view())
+        cursor = identity[2]
+        assert isinstance(cursor, GameTreeCursor)
+        return {
+            "game_index": identity[1],
+            "line_path": tuple(
+                (step.parent_move_index, step.variation_index)
+                for step in cursor.line_path
+            ),
+            "move_index": cursor.next_move_index - 1 if cursor.next_move_index else None,
+            "expected_record_digest": identity[6],
+            "expected_content_digest": identity[5],
+            "content_revision": identity[4],
+        }
 
     def _trusted_target(
         self,
@@ -204,6 +367,7 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
             "line_path": line_path,
             "move_index": cursor.next_move_index - 1 if cursor.next_move_index else None,
             "expected_record_digest": identity[6],
+            "expected_content_digest": identity[5],
             "content_revision": identity[4],
         }
         if extra:
@@ -246,48 +410,91 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
             )
         return self._dispatch_registered(action_id, trusted)
 
-    def _navigate_to(self, action_id: str, node_id: str) -> PgnWebViewEvent:
-        payload = self._trusted_target(node_id, require_current=False)
-        try:
-            self._dispatch_registered(action_id, payload)
-        finally:
-            self._refresh()
+    def _refresh_after_operation(self) -> PgnWebViewEvent:
+        if not self._try_refresh():
+            # The canonical operation may already be committed. Returning an
+            # ordinary error would leave the browser/NVDA DOM describing the
+            # previous state, so replace it with a non-authoritative recovery
+            # surface instead.
+            return self._unavailable_event()
         return self._render_event()
 
+    def _operate_and_render(self, operation: Callable[[], object]) -> PgnWebViewEvent:
+        try:
+            presented_identity = self._view_identity(self._workspace_view)
+            before_identity = self._view_identity(self._workspace.view())
+        except Exception:
+            return self._unavailable_event()
+        if before_identity != presented_identity:
+            return self._resync_rejected_action()
+        try:
+            operation()
+        except Exception:
+            # Domain commands are expected to be atomic, but fail closed if a
+            # provider ever raises after changing canonical workspace state.
+            try:
+                after_identity = self._view_identity(self._workspace.view())
+            except Exception:
+                return self._unavailable_event()
+            if after_identity != before_identity:
+                return self._refresh_after_operation()
+            # Keep the trusted presenter aligned after a rejected operation
+            # without allowing a refresh failure to mask the domain error.
+            self._try_refresh()
+            raise
+        return self._refresh_after_operation()
+
+    def _navigate_to(self, action_id: str, node_id: str) -> PgnWebViewEvent:
+        payload = self._trusted_target(node_id, require_current=False)
+        return self._operate_and_render(
+            lambda: self._dispatch_registered(action_id, payload)
+        )
+
     def select(self, node_id: str) -> PgnWebViewEvent:
-        self._refresh()
+        rejected = self._prepare_browser_action()
+        if rejected is not None:
+            return rejected
         selected = self._presenter.select(node_id)
         return self._navigate_to("pgn.select_item", selected.node_id)
 
     def move_selection(self, delta: int) -> PgnWebViewEvent:
-        self._refresh()
+        rejected = self._prepare_browser_action()
+        if rejected is not None:
+            return rejected
         selected = self._presenter.move_selection(delta)
         action_id = "pgn.previous_item" if delta < 0 else "pgn.next_item"
         return self._navigate_to(action_id, selected.node_id)
 
     def select_parent(self) -> PgnWebViewEvent:
-        self._refresh()
+        rejected = self._prepare_browser_action()
+        if rejected is not None:
+            return rejected
         selected = self._presenter.select_parent()
         return self._navigate_to("pgn.parent_variation", selected.node_id)
 
     def previous_game(self) -> PgnWebViewEvent:
-        try:
-            self._dispatch_registered("pgn.previous_game", {})
-        finally:
-            self._refresh()
-        return self._render_event()
+        rejected = self._prepare_browser_action()
+        if rejected is not None:
+            return rejected
+        payload = self._trusted_current_target()
+        return self._operate_and_render(
+            lambda: self._dispatch_registered("pgn.previous_game", payload)
+        )
 
     def next_game(self) -> PgnWebViewEvent:
-        try:
-            self._dispatch_registered("pgn.next_game", {})
-        finally:
-            self._refresh()
-        return self._render_event()
+        rejected = self._prepare_browser_action()
+        if rejected is not None:
+            return rejected
+        payload = self._trusted_current_target()
+        return self._operate_and_render(
+            lambda: self._dispatch_registered("pgn.next_game", payload)
+        )
 
     def _mutate_and_render(self, operation: Callable[[], PgnWebViewEvent]) -> PgnWebViewEvent:
-        operation()
-        self._refresh()
-        return self._render_event()
+        rejected = self._prepare_browser_action()
+        if rejected is not None:
+            return rejected
+        return self._operate_and_render(operation)
 
     def edit_comment(self, text: str) -> PgnWebViewEvent:
         return self._mutate_and_render(lambda: PgnWebViewProjection.edit_comment(self, text))

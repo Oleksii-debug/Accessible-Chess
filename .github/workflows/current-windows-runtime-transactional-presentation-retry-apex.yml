@@ -1,0 +1,107 @@
+name: Current Windows Runtime Transactional Presentation Retry Apex
+
+on:
+  push:
+    branches:
+      - test/windows-runtime-transactional-retry-apex-20261006-hy6ez0h
+  pull_request:
+    branches:
+      - converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
+    paths:
+      - tests/test_v2_windows_host_runtime.py
+      - .github/workflows/current-windows-runtime-transactional-presentation-retry-apex.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-windows-runtime-transactional-presentation-retry-apex-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+env:
+  EXPECTED_PARENT: 06157d9cef5123f203e4c52975c66089e077902d
+  PARENT_BRANCH: converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
+  EXPECTED_RUNTIME_TEST_BLOB: 52dd8d02890af3c84d50e36b5eceac5bb2797969
+  EXPECTED_RUNTIME_SOURCE_BLOB: 5033d79b06e20caec772ac3c3ceda3e029f4b202
+  EXPECTED_PUMP_SOURCE_BLOB: 2551c9a3a06cef24b1a849154e9ced66aac6f23b
+  EXPECTED_MAILBOX_SOURCE_BLOB: 7228b28e3db3c8a9375bd4bafcdafcf190cb87f1
+  EXPECTED_FILE_WORKFLOW_SOURCE_BLOB: 9c33d9121d8378144dd12e6bb9884063ac78f64b
+  EXPECTED_APPLICATION_SOURCE_BLOB: 9aa783700d0fc928a3c160ed7f2588082843a4eb
+
+jobs:
+  runtime-transactional-retry-apex:
+    name: Runtime transactional retry apex / ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out exact candidate head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prove exact current-shipping verification child
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_head="${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(git rev-parse HEAD)" = "$expected_head"
+          git fetch --no-tags origin "+refs/heads/$PARENT_BRANCH:refs/remotes/origin/runtime-retry-apex-parent"
+          live_parent="$(git rev-parse refs/remotes/origin/runtime-retry-apex-parent)"
+          test "$live_parent" = "$EXPECTED_PARENT" || {
+            echo "RUNTIME_RETRY_APEX_PARENT_MOVED expected=$EXPECTED_PARENT live=$live_parent" >&2
+            exit 1
+          }
+          git merge-base --is-ancestor "$EXPECTED_PARENT" HEAD
+          test "$(git merge-base "$EXPECTED_PARENT" HEAD)" = "$EXPECTED_PARENT"
+          git diff --check "$EXPECTED_PARENT"...HEAD
+          mapfile -t paths < <(git diff --name-only "$EXPECTED_PARENT"...HEAD | sort)
+          expected=(
+            ".github/workflows/current-windows-runtime-transactional-presentation-retry-apex.yml"
+            "tests/test_v2_windows_host_runtime.py"
+          )
+          test "${#paths[@]}" -eq "${#expected[@]}"
+          for index in "${!expected[@]}"; do
+            test "${paths[$index]}" = "${expected[$index]}"
+          done
+          test "$(git rev-parse HEAD:tests/test_v2_windows_host_runtime.py)" = "$EXPECTED_RUNTIME_TEST_BLOB"
+          test "$(git rev-parse HEAD:acs/version2_windows_host_runtime.py)" = "$EXPECTED_RUNTIME_SOURCE_BLOB"
+          test "$(git rev-parse HEAD:acs/version2_windows_import_ui_pump.py)" = "$EXPECTED_PUMP_SOURCE_BLOB"
+          test "$(git rev-parse HEAD:acs/version2_windows_import_event_mailbox.py)" = "$EXPECTED_MAILBOX_SOURCE_BLOB"
+          test "$(git rev-parse HEAD:acs/version2_windows_file_workflows.py)" = "$EXPECTED_FILE_WORKFLOW_SOURCE_BLOB"
+          test "$(git rev-parse HEAD:acs/version2_application.py)" = "$EXPECTED_APPLICATION_SOURCE_BLOB"
+
+      - name: Set up exact Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile exact runtime handoff stack
+        run: >-
+          python -m py_compile
+          acs/version2_windows_host_runtime.py
+          acs/version2_windows_import_ui_pump.py
+          acs/version2_windows_import_event_mailbox.py
+          acs/version2_windows_file_workflows.py
+          acs/version2_application.py
+          tests/test_v2_windows_host_runtime.py
+
+      - name: Run current integrated transactional-delivery regressions
+        run: >-
+          python -m unittest -v
+          tests.test_v2_windows_host_runtime
+          tests.test_v2_windows_import_ui_pump
+          tests.test_v2_windows_import_event_mailbox
+          tests.test_v2_windows_pgn_open_worker
+          tests.test_v2_windows_pgn_save_worker
+          tests.test_version2_application
+
+      - name: Run core selftest
+        run: python -m acs --selftest

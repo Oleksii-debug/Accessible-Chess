@@ -19,7 +19,7 @@ import stat
 import subprocess
 import threading
 import time
-from typing import Iterable
+from typing import Callable, Iterable
 
 from .chessbase_adapter import probe_chessbase_source
 from .chessbase_integrity import (
@@ -204,11 +204,18 @@ def _run_backend(
     executable: Path,
     source: Path,
     config: ExternalChessBaseDecoderConfig,
+    *,
+    control_checkpoint: Callable[[], None] | None = None,
 ) -> bytes:
+    if control_checkpoint is not None:
+        control_checkpoint()
     library_directory = _validate_library_directory(config.library_directory)
     creationflags = 0
     if os.name == "nt":
-        creationflags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        creationflags = (
+            getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+            | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        )
     try:
         process = subprocess.Popen(
             [os.fspath(executable), "--json-v1", os.fspath(source)],
@@ -248,7 +255,15 @@ def _run_backend(
     deadline = time.monotonic() + float(config.timeout_seconds)
     timed_out = False
     overflow = False
+    control_error: Exception | None = None
     while process.poll() is None:
+        if control_checkpoint is not None:
+            try:
+                control_checkpoint()
+            except Exception as exc:
+                control_error = exc
+                process.kill()
+                break
         if stdout.overflow.is_set() or stderr.overflow.is_set():
             overflow = True
             process.kill()
@@ -267,6 +282,10 @@ def _run_backend(
     for thread in threads:
         thread.join(timeout=2.0)
 
+    if control_error is not None:
+        raise control_error
+    if control_checkpoint is not None:
+        control_checkpoint()
     if timed_out:
         raise _decode_error(
             "ChessBase decoder backend exceeded its time limit",
@@ -386,23 +405,6 @@ def _apply_comments(node: MoveNode, comments: object) -> None:
             node.comments_after.append(comment)
 
 
-def _null_move(board: Board) -> str:
-    parts = board.fen().split()
-    if len(parts) != 6:
-        raise _decode_error(
-            "canonical board produced an invalid FEN while decoding a null move",
-            ChessBaseDecodeCode.INVALID_MOVE,
-        )
-    was_black = parts[1] == "b"
-    parts[1] = "w" if was_black else "b"
-    parts[3] = "-"
-    parts[4] = str(int(parts[4]) + 1)
-    if was_black:
-        parts[5] = str(int(parts[5]) + 1)
-    board.set_fen(" ".join(parts))
-    return "--"
-
-
 _PROMOTIONS = {2: "Q", 3: "R", 4: "B", 5: "N", 7: None}
 
 
@@ -411,7 +413,7 @@ def _decode_move(board: Board, token: dict[str, object]) -> str:
     to = _exact_int(token.get("to"), "move.to", 0, 63)
     promote = _exact_int(token.get("promote"), "move.promote", 0, 255)
     if promote == 6:
-        return _null_move(board)
+        return board.push_null()
     if promote == 1:
         candidates = [
             move
@@ -705,6 +707,8 @@ def _decode_game(raw: object, expected_index: int, total_budget: list[int]) -> t
 def decode_chessbase_external(
     path: str | Path,
     config: ExternalChessBaseDecoderConfig,
+    *,
+    control_checkpoint: Callable[[], None] | None = None,
 ) -> ChessBaseDecodedDatabase:
     """Decode one classic CBH family into canonical GameTrees.
 
@@ -712,8 +716,15 @@ def decode_chessbase_external(
     the external process exits.  Any source mutation invalidates all decoder
     output.  Only classic ``.cbh`` is enabled by protocol v1; other recognized
     ChessBase families remain explicitly unsupported rather than guessed.
+    An optional trusted-host control checkpoint can raise cancellation/control
+    failure before work, while the backend runs and between decoded games. The
+    running child is reaped before such a failure returns to its Library owner.
     """
 
+    if control_checkpoint is not None:
+        if not callable(control_checkpoint):
+            raise TypeError("control_checkpoint must be callable")
+        control_checkpoint()
     source_path = Path(path)
     probe = probe_chessbase_source(source_path)
     if not probe.recognized or not probe.is_primary_source or probe.extension != ".cbh":
@@ -725,7 +736,10 @@ def decode_chessbase_external(
     executable = _validate_backend_path(config.executable)
     try:
         snapshot = capture_integrity_snapshot(source_path)
-        output = _run_backend(executable, snapshot.primary_path, config)
+        control = {} if control_checkpoint is None else {"control_checkpoint": control_checkpoint}
+        output = _run_backend(executable, snapshot.primary_path, config, **control)
+        if control_checkpoint is not None:
+            control_checkpoint()
         verify_integrity_snapshot(snapshot)
     except ChessBaseSourceChangedError as exc:
         raise _decode_error(
@@ -763,12 +777,16 @@ def decode_chessbase_external(
     warnings: list[ChessBaseDecodeWarning] = []
     total_budget = [0]
     for index, raw_game in enumerate(raw_games):
+        if control_checkpoint is not None:
+            control_checkpoint()
         game, warning = _decode_game(raw_game, index, total_budget)
         if game is not None:
             games.append(game)
         if warning is not None:
             warnings.append(warning)
 
+    if control_checkpoint is not None:
+        control_checkpoint()
     return ChessBaseDecodedDatabase(
         source=snapshot,
         backend_name="libcbh",

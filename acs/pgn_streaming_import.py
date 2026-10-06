@@ -18,7 +18,9 @@ import codecs
 from dataclasses import dataclass
 from enum import Enum
 import hashlib
+import os
 from pathlib import Path
+import stat
 import tempfile
 from typing import BinaryIO, overload
 
@@ -34,7 +36,6 @@ from .library_import_service import (
     LibraryImportControlError,
     LibraryImportProgress,
     LibraryImportResult,
-    LibraryImportService,
     LibraryImportStorageError,
 )
 from .pgn_roundtrip import (
@@ -341,6 +342,92 @@ def _normalize_decoded_newlines(text: str, carry_cr: bool) -> tuple[str, bool]:
     return text.replace("\r\n", "\n").replace("\r", "\n"), next_carry
 
 
+_WINDOWS_1251_PGN_HEADER_ANCHORS = (
+    b"[event",
+    b"[site",
+    b"[date",
+    b"[round",
+    b"[white",
+    b"[black",
+    b"[result",
+    b"[fen",
+    b"[setup",
+)
+_WINDOWS_1251_CYRILLIC_BYTES = frozenset((*range(0xC0, 0x100), 0xA8, 0xB8))
+
+
+def _looks_like_windows_1251_pgn(
+    source: SourceFingerprint,
+    *,
+    expected_identity: tuple[int, int],
+    chunk_size: int,
+    cancel_check: CancelCheck | None,
+    accepted_games: int,
+) -> bool:
+    """Recognize a real legacy Cyrillic PGN before attempting cp1251 decode.
+
+    Fallback is deliberately evidence-gated.  A random invalid UTF-8 byte must
+    remain INVALID_ENCODING rather than being silently reinterpreted as a
+    legacy code page.  The source must still be the exact bound regular file,
+    contain an ASCII PGN tag anchor, contain a run of at least two Windows-1251
+    Cyrillic letters, and contain no NUL bytes.
+    """
+
+    fd = _open_bound_source_fd(
+        source,
+        expected_identity=expected_identity,
+        chunk_size=chunk_size,
+        accepted_games=accepted_games,
+    )
+    saw_header = False
+    saw_cyrillic_run = False
+    previous_cyrillic = False
+    saw_nul = False
+    bytes_read = 0
+    digest = hashlib.sha256()
+    tail = b""
+    try:
+        while True:
+            _poll_cancel(cancel_check, accepted_games=accepted_games)
+            chunk = os.read(fd, chunk_size)
+            if not chunk:
+                break
+            bytes_read += len(chunk)
+            if bytes_read > source.size:
+                raise StreamingPgnImportError(
+                    "PGN source changed during encoding detection",
+                    code=StreamingPgnErrorCode.SOURCE_CHANGED,
+                    accepted_games=accepted_games,
+                )
+            digest.update(chunk)
+            if b"\x00" in chunk:
+                saw_nul = True
+
+            probe = (tail + chunk).lower()
+            if any(anchor in probe for anchor in _WINDOWS_1251_PGN_HEADER_ANCHORS):
+                saw_header = True
+            tail = probe[-16:]
+
+            for value in chunk:
+                current_cyrillic = value in _WINDOWS_1251_CYRILLIC_BYTES
+                if current_cyrillic and previous_cyrillic:
+                    saw_cyrillic_run = True
+                previous_cyrillic = current_cyrillic
+
+            # Do not return early after positive evidence or NUL detection.
+            # The encoding decision is valid only for the exact fingerprinted
+            # byte snapshot, so the complete candidate must be hashed.
+        if bytes_read != source.size or digest.hexdigest() != source.sha256:
+            raise StreamingPgnImportError(
+                "PGN source changed during encoding detection",
+                code=StreamingPgnErrorCode.SOURCE_CHANGED,
+                accepted_games=accepted_games,
+            )
+        return not saw_nul and saw_header and saw_cyrillic_run
+    finally:
+        os.close(fd)
+
+
 def _semantic_failure(exc: PgnRoundTripError) -> _ParseFailure:
     return _ParseFailure(
         code=f"pgn_{exc.code.value}",
@@ -391,12 +478,81 @@ def _raise_budget_failure(
     ) from exc
 
 
+def _open_bound_source_fd(
+    source: SourceFingerprint,
+    *,
+    expected_identity: tuple[int, int],
+    chunk_size: int,
+    accepted_games: int,
+) -> int:
+    """Bind streaming reads to the originally observed regular-file object.
+
+    The descriptor is opened non-blocking/no-follow where supported. Before any
+    bytes are consumed, both the opened object identity and the path snapshot must
+    still match the identity observed before canonical fingerprinting. The held
+    descriptor remains open through parsing so later path replacement cannot
+    redirect reads.
+    """
+
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_BINARY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_NONBLOCK", 0)
+    )
+    try:
+        fd = os.open(source.path, flags)
+    except OSError as exc:
+        raise StreamingPgnImportError(
+            "PGN source changed before streaming",
+            code=StreamingPgnErrorCode.SOURCE_CHANGED,
+            accepted_games=accepted_games,
+        ) from exc
+
+    try:
+        opened = os.fstat(fd)
+        opened_identity = (int(opened.st_dev), int(opened.st_ino))
+        if not stat.S_ISREG(opened.st_mode) or opened_identity != expected_identity:
+            raise StreamingPgnImportError(
+                "PGN source changed before streaming",
+                code=StreamingPgnErrorCode.SOURCE_CHANGED,
+                accepted_games=accepted_games,
+            )
+        rebound = fingerprint(source.path, chunk_size=chunk_size)
+        rebound_stat = os.stat(rebound.path, follow_symlinks=False)
+        same_identity = opened_identity == (
+            int(rebound_stat.st_dev),
+            int(rebound_stat.st_ino),
+        )
+        same_snapshot = (
+            rebound.size == source.size
+            and rebound.sha256 == source.sha256
+        )
+        if not same_identity or not same_snapshot:
+            raise StreamingPgnImportError(
+                "PGN source changed before streaming",
+                code=StreamingPgnErrorCode.SOURCE_CHANGED,
+                accepted_games=accepted_games,
+            )
+        return fd
+    except StreamingPgnImportError:
+        os.close(fd)
+        raise
+    except Exception as exc:
+        os.close(fd)
+        raise StreamingPgnImportError(
+            "PGN source changed before streaming",
+            code=StreamingPgnErrorCode.SOURCE_CHANGED,
+            accepted_games=accepted_games,
+        ) from exc
+
+
 class StreamingPgnLibraryImporter:
     """Incrementally parse a PGN file and publish canonical games via Library."""
 
-    def __init__(self, library: LibraryImportService) -> None:
-        if not isinstance(library, LibraryImportService):
-            raise TypeError("library must be a LibraryImportService")
+    def __init__(self, library: object) -> None:
+        if not callable(getattr(library, "import_games", None)):
+            raise TypeError("library must expose canonical import_games")
         self._library = library
 
     def import_file(
@@ -428,7 +584,12 @@ class StreamingPgnLibraryImporter:
 
         submitted = Path(path)
         try:
-            preliminary_size = submitted.stat().st_size
+            preliminary_stat = submitted.stat()
+            preliminary_size = preliminary_stat.st_size
+            expected_identity = (
+                int(preliminary_stat.st_dev),
+                int(preliminary_stat.st_ino),
+            )
         except OSError as exc:
             raise StreamingPgnImportError(
                 "PGN source is unavailable",
@@ -462,10 +623,38 @@ class StreamingPgnLibraryImporter:
             failure = self._stream_source(
                 source,
                 spool,
+                expected_identity=expected_identity,
                 limits=limits,
                 cancel_check=cancel_check,
                 progress_callback=progress_callback,
+                encoding="utf-8-sig",
             )
+            if (
+                failure is not None
+                and failure.code == "pgn_invalid_encoding"
+                and _looks_like_windows_1251_pgn(
+                    source,
+                    expected_identity=expected_identity,
+                    chunk_size=limits.read_chunk_bytes,
+                    cancel_check=cancel_check,
+                    accepted_games=len(spool),
+                )
+            ):
+                replacement = _CanonicalGameSpool(
+                    max_bytes=limits.max_spool_bytes,
+                    cancel_check=cancel_check,
+                )
+                spool.close()
+                spool = replacement
+                failure = self._stream_source(
+                    source,
+                    spool,
+                    expected_identity=expected_identity,
+                    limits=limits,
+                    cancel_check=cancel_check,
+                    progress_callback=progress_callback,
+                    encoding="cp1251",
+                )
             accepted_games = len(spool)
             if accepted_games < 1:
                 if failure is not None:
@@ -490,10 +679,26 @@ class StreamingPgnLibraryImporter:
                     semantic_code=failure.code,
                 )
 
-            # Bind publication to the exact bytes fingerprinted before parsing.
-            # Prefix publication is never permitted for a source that changed.
+            # Bind publication to the same object and exact bytes trusted before
+            # parsing. A byte-identical path replacement must still fail closed.
             try:
+                publication_stat = os.stat(submitted, follow_symlinks=False)
+                publication_identity = (
+                    int(publication_stat.st_dev),
+                    int(publication_stat.st_ino),
+                )
+                if (
+                    not stat.S_ISREG(publication_stat.st_mode)
+                    or publication_identity != expected_identity
+                ):
+                    raise StreamingPgnImportError(
+                        "PGN source changed before publication",
+                        code=StreamingPgnErrorCode.SOURCE_CHANGED,
+                        accepted_games=accepted_games,
+                    )
                 unchanged = verify_source_unchanged(source, submitted)
+            except StreamingPgnImportError:
+                raise
             except Exception as exc:
                 raise StreamingPgnImportError(
                     "PGN source changed before publication",
@@ -531,6 +736,12 @@ class StreamingPgnLibraryImporter:
                     cancel_check=cancel_check,
                     progress_callback=library_progress,
                 )
+                if not isinstance(library_result, LibraryImportResult):
+                    raise StreamingPgnImportError(
+                        "PGN Library publication returned an invalid result",
+                        code=StreamingPgnErrorCode.LIBRARY_ERROR,
+                        accepted_games=accepted_games,
+                    )
             except StreamingPgnImportCancelledError:
                 raise
             except LibraryImportCancelledError as exc:
@@ -561,11 +772,15 @@ class StreamingPgnLibraryImporter:
         source: SourceFingerprint,
         spool: _CanonicalGameSpool,
         *,
+        expected_identity: tuple[int, int],
         limits: StreamingPgnLimits,
         cancel_check: CancelCheck | None,
         progress_callback: ProgressCallback | None,
+        encoding: str,
     ) -> _ParseFailure | None:
-        decoder = codecs.getincrementaldecoder("utf-8-sig")("strict")
+        if encoding not in {"utf-8-sig", "cp1251"}:
+            raise AssertionError("unsupported internal PGN decoder")
+        decoder = codecs.getincrementaldecoder(encoding)("strict")
         framer = CanonicalPgnGameFramer(max_frame_bytes=limits.max_game_bytes)
         source_budget = limits.source_budget()
         digest = hashlib.sha256()
@@ -629,10 +844,16 @@ class StreamingPgnLibraryImporter:
                 ) from exc
 
         try:
-            with open(source.path, "rb", buffering=0) as handle:
+            fd = _open_bound_source_fd(
+                source,
+                expected_identity=expected_identity,
+                chunk_size=limits.read_chunk_bytes,
+                accepted_games=len(spool),
+            )
+            try:
                 while True:
                     _poll_cancel(cancel_check, accepted_games=len(spool))
-                    chunk = handle.read(limits.read_chunk_bytes)
+                    chunk = os.read(fd, limits.read_chunk_bytes)
                     if not chunk:
                         break
                     bytes_read += len(chunk)
@@ -652,7 +873,7 @@ class StreamingPgnLibraryImporter:
                     except UnicodeDecodeError as exc:
                         return _ParseFailure(
                             code="pgn_invalid_encoding",
-                            public_message="PGN source is not valid UTF-8 text",
+                            public_message="PGN source uses an unsupported or invalid text encoding",
                         )
                     try:
                         source_budget.claim_text_chars(len(decoded))
@@ -691,7 +912,7 @@ class StreamingPgnLibraryImporter:
                 except UnicodeDecodeError:
                     return _ParseFailure(
                         code="pgn_invalid_encoding",
-                        public_message="PGN source is not valid UTF-8 text",
+                        public_message="PGN source uses an unsupported or invalid text encoding",
                     )
                 try:
                     source_budget.claim_text_chars(len(decoded))
@@ -717,6 +938,8 @@ class StreamingPgnLibraryImporter:
                     failure = accept_frame(completed.text)
                     if failure is not None:
                         return failure
+            finally:
+                os.close(fd)
         except StreamingPgnImportError:
             raise
         except OSError as exc:

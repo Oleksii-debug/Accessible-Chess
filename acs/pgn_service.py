@@ -14,11 +14,12 @@ contract.
 """
 
 from dataclasses import dataclass
+import hashlib
 import os
 from pathlib import Path
 import stat
 import tempfile
-from typing import Iterable, TextIO
+from typing import Callable, Iterable, TextIO
 
 from .gametree import PgnGame, parse_games, serialize_game
 from .import_contract import (
@@ -26,6 +27,9 @@ from .import_contract import (
     ImportReport,
     ImportedRecord,
     SourceFingerprint,
+    _open_readonly_no_reparse,
+    _publish_opened_fingerprint,
+    _validate_source_path,
     fingerprint,
 )
 from .pgn_roundtrip import PgnRoundTripError, PgnRoundTripErrorCode, parse_pgn_text
@@ -67,6 +71,33 @@ class PgnUnsafePathError(PgnFileError):
     """Raised when export would traverse filesystem indirection."""
 
 
+class PgnPublicationUnverifiedError(PgnFileError):
+    """Raised after publication when final destination provenance is unverified.
+
+    The atomic publication primitive has already crossed the point where the
+    destination may have changed. Callers must therefore not describe this as a
+    pre-publication save failure or blindly retry against stale provenance.
+    """
+
+
+class PgnPublishedPathChangedError(
+    PgnUnsafePathError,
+    PgnPublicationUnverifiedError,
+):
+    """Published bytes exist, but the selected pathname stopped naming them."""
+
+
+def _same_direct_path(left: str | Path, right: str | Path) -> bool:
+    """Compare direct path spellings with platform path/case normalization."""
+
+    def key(value: str | Path) -> str:
+        return os.path.normcase(
+            os.path.abspath(os.fspath(Path(value).expanduser()))
+        )
+
+    return key(left) == key(right)
+
+
 @dataclass(frozen=True)
 class PgnOpenResult:
     source: SourceFingerprint
@@ -102,11 +133,22 @@ class PgnFileImporter:
             )
             return report
 
-        lossy_source = bool(opened.global_warnings)
+        lossy_source = any(
+            warning.startswith("Invalid UTF-8 bytes were replaced")
+            for warning in opened.global_warnings
+        )
+        legacy_windows_1251 = any(
+            warning.startswith("Legacy Windows-1251 PGN was decoded losslessly")
+            for warning in opened.global_warnings
+        )
         for game in opened.games:
             warnings = list(game.warnings)
             if lossy_source:
                 warnings.append("Source text required lossy UTF-8 replacement during decoding.")
+            if legacy_windows_1251:
+                warnings.append(
+                    "Source text was decoded losslessly from legacy Windows-1251."
+                )
             report.add(
                 ImportedRecord(
                     source_record_id=str(game.source_index),
@@ -159,21 +201,232 @@ def _bounded_source_size(path: Path) -> int | None:
     return size
 
 
-def _read_text_snapshot(path: Path) -> tuple[SourceFingerprint, str, bool]:
-    _bounded_source_size(path)
-    before = fingerprint(path)
-    if before.size > MAX_PGN_SOURCE_BYTES:
+def _source_identity(st: os.stat_result) -> tuple[int, int]:
+    return int(st.st_dev), int(st.st_ino)
+
+
+def _export_parent_identity(path: Path) -> tuple[int, int]:
+    """Bind publication to one direct destination-directory object."""
+
+    try:
+        current = path.lstat()
+    except OSError as exc:
+        raise PgnUnsafePathError("PGN export directory could not be bound safely") from exc
+    if (
+        not stat.S_ISDIR(current.st_mode)
+        or stat.S_ISLNK(current.st_mode)
+        or _is_reparse_point(current)
+    ):
+        raise PgnUnsafePathError("PGN export parent must be a direct directory")
+    return _source_identity(current)
+
+
+def _assert_bound_export_parent(
+    path: Path,
+    expected_identity: tuple[int, int],
+) -> None:
+    if _export_parent_identity(path) != expected_identity:
+        raise PgnUnsafePathError("PGN export directory changed during save")
+
+
+def _open_direct_source(path: Path):
+    """Open one submitted source through the canonical no-follow source primitive."""
+
+    try:
+        descriptor = _open_readonly_no_reparse(path)
+    except ValueError as exc:
+        raise PgnFileError("PGN source must be a direct regular file") from exc
+    except OSError as exc:
+        raise PgnFileError("PGN source could not be opened safely") from exc
+
+    try:
+        return os.fdopen(descriptor, "rb", closefd=True)
+    except BaseException:
+        os.close(descriptor)
+        raise
+
+
+def _opened_source_identity(handle: object) -> tuple[int, int] | None:
+    """Return the real opened object identity; `None` is a focused test-double seam."""
+
+    try:
+        fileno = handle.fileno()  # type: ignore[attr-defined]
+    except (AttributeError, ValueError):
+        return None
+    try:
+        opened = os.fstat(fileno)
+    except OSError as exc:
+        raise PgnSourceChangedError("PGN source identity could not be verified") from exc
+    if not stat.S_ISREG(opened.st_mode):
+        raise PgnSourceChangedError("PGN source changed while being opened")
+    return _source_identity(opened)
+
+
+def _assert_bound_source_path(path: Path, expected_identity: tuple[int, int]) -> None:
+    """Require the public path to still name the held direct regular-file object."""
+
+    try:
+        _, current = _validate_source_path(path)
+    except (OSError, ValueError) as exc:
+        raise PgnSourceChangedError("PGN source changed while being read") from exc
+    if _source_identity(current) != expected_identity:
+        raise PgnSourceChangedError("PGN source changed while being read")
+
+
+def _rehash_open_source(handle: object) -> tuple[str, int]:
+    """Re-hash the exact held source object with a finite second pass."""
+
+    try:
+        handle.seek(0)  # type: ignore[attr-defined]
+    except (AttributeError, OSError, ValueError) as exc:
+        raise PgnSourceChangedError("PGN source could not be revalidated") from exc
+
+    digest = hashlib.sha256()
+    total = 0
+    while True:
+        remaining = MAX_PGN_SOURCE_BYTES + 1 - total
+        if remaining <= 0:
+            raise PgnResourceLimitError("PGN source exceeds the safety limit")
+        try:
+            chunk = handle.read(min(1024 * 1024, remaining))  # type: ignore[attr-defined]
+        except OSError as exc:
+            raise PgnSourceChangedError("PGN source could not be revalidated") from exc
+        if not chunk:
+            return digest.hexdigest(), total
+        if not isinstance(chunk, bytes):
+            raise PgnSourceChangedError("PGN source verification returned unsupported payload")
+        total += len(chunk)
+        if total > MAX_PGN_SOURCE_BYTES:
+            raise PgnResourceLimitError("PGN source exceeds the safety limit")
+        digest.update(chunk)
+
+
+_WINDOWS_1251_PGN_HEADER_ANCHORS = (
+    b"[event",
+    b"[site",
+    b"[date",
+    b"[round",
+    b"[white",
+    b"[black",
+    b"[result",
+    b"[fen",
+    b"[setup",
+)
+_WINDOWS_1251_CYRILLIC_BYTES = frozenset((*range(0xC0, 0x100), 0xA8, 0xB8))
+
+
+def _looks_like_windows_1251_pgn_bytes(payload: bytes) -> bool:
+    """Gate legacy Cyrillic decoding without hiding arbitrary invalid UTF-8."""
+
+    if not payload or b"\x00" in payload:
+        return False
+    lowered = payload.lower()
+    if not any(anchor in lowered for anchor in _WINDOWS_1251_PGN_HEADER_ANCHORS):
+        return False
+    previous_cyrillic = False
+    for value in payload:
+        current_cyrillic = value in _WINDOWS_1251_CYRILLIC_BYTES
+        if current_cyrillic and previous_cyrillic:
+            return True
+        previous_cyrillic = current_cyrillic
+    return False
+
+
+def _read_text_snapshot(path: Path) -> tuple[SourceFingerprint, str, bool, bool]:
+    submitted = Path(path)
+    try:
+        absolute, path_before = _validate_source_path(submitted)
+    except ValueError as exc:
+        raise PgnFileError("PGN source must be a direct regular file") from exc
+    except OSError as exc:
+        raise PgnFileError("PGN source is unavailable") from exc
+    if path_before.st_size > MAX_PGN_SOURCE_BYTES:
         raise PgnResourceLimitError(
             f"PGN source exceeds the {MAX_PGN_SOURCE_BYTES}-byte safety limit"
         )
+
+    source: SourceFingerprint
     try:
-        with path.open("rb") as handle:
-            payload = handle.read(MAX_PGN_SOURCE_BYTES + 1)
+        with _open_direct_source(absolute) as handle:
+            opened_identity = _opened_source_identity(handle)
+
+            if opened_identity is None:
+                # Focused bounded-text test doubles do not expose a descriptor.
+                # Preserve that seam without using it in production file reads.
+                try:
+                    before = fingerprint(absolute)
+                except (OSError, ValueError) as exc:
+                    raise PgnFileError("PGN source could not be fingerprinted safely") from exc
+                payload = handle.read(MAX_PGN_SOURCE_BYTES + 1)
+                try:
+                    after = fingerprint(absolute)
+                except (OSError, ValueError) as exc:
+                    raise PgnSourceChangedError("PGN source changed while being read") from exc
+                if before.size != after.size or before.sha256 != after.sha256:
+                    raise PgnSourceChangedError("PGN changed while being read")
+                source = before
+            else:
+                expected_identity = _source_identity(path_before)
+                if opened_identity != expected_identity:
+                    raise PgnSourceChangedError("PGN source changed while being opened")
+
+                try:
+                    fd_before = os.fstat(handle.fileno())
+                except (AttributeError, OSError, ValueError) as exc:
+                    raise PgnSourceChangedError(
+                        "PGN source identity could not be verified"
+                    ) from exc
+                if (
+                    not stat.S_ISREG(fd_before.st_mode)
+                    or _source_identity(fd_before) != opened_identity
+                ):
+                    raise PgnSourceChangedError("PGN source changed while being opened")
+                if fd_before.st_size > MAX_PGN_SOURCE_BYTES:
+                    raise PgnResourceLimitError(
+                        f"PGN source exceeds the {MAX_PGN_SOURCE_BYTES}-byte safety limit"
+                    )
+                _assert_bound_source_path(absolute, opened_identity)
+
+                payload = handle.read(MAX_PGN_SOURCE_BYTES + 1)
+                if not isinstance(payload, bytes):
+                    raise PgnFileError("PGN source returned an unsupported payload")
+                if len(payload) > MAX_PGN_SOURCE_BYTES:
+                    raise PgnResourceLimitError("PGN source exceeds the safety limit")
+
+                first_sha256 = hashlib.sha256(payload).hexdigest()
+                verified_sha256, verified_size = _rehash_open_source(handle)
+                try:
+                    fd_after = os.fstat(handle.fileno())
+                except (AttributeError, OSError, ValueError) as exc:
+                    raise PgnSourceChangedError(
+                        "PGN source identity could not be verified"
+                    ) from exc
+                if (
+                    verified_size != len(payload)
+                    or fd_after.st_size != verified_size
+                    or first_sha256 != verified_sha256
+                ):
+                    raise PgnSourceChangedError("PGN source changed while being read")
+
+                _assert_bound_source_path(absolute, opened_identity)
+                try:
+                    source = _publish_opened_fingerprint(
+                        submitted,
+                        absolute,
+                        path_before,
+                        fd_before,
+                        fd_after,
+                        verified_sha256,
+                    )
+                except (OSError, ValueError) as exc:
+                    raise PgnSourceChangedError("PGN source changed while being read") from exc
+                _assert_bound_source_path(absolute, opened_identity)
+    except PgnFileError:
+        raise
     except OSError as exc:
         raise PgnFileError("PGN source could not be read safely") from exc
-    # Some focused tests provide a bounded text-handle double.  Real file
-    # reads are bytes; accepting exact text here keeps that test seam without
-    # weakening production decoding or performing a second race-prone read.
+
+    legacy_windows_1251 = False
     if isinstance(payload, str):
         text = payload
         decode_replaced = False
@@ -182,19 +435,29 @@ def _read_text_snapshot(path: Path) -> tuple[SourceFingerprint, str, bool]:
     else:
         if not isinstance(payload, bytes):
             raise PgnFileError("PGN source returned an unsupported payload")
-        if len(payload) > MAX_PGN_SOURCE_BYTES:
-            raise PgnResourceLimitError("PGN source exceeds the safety limit")
         try:
             text = payload.decode("utf-8-sig", errors="strict")
             decode_replaced = False
         except UnicodeDecodeError:
-            text = payload.decode("utf-8-sig", errors="replace")
-            decode_replaced = True
+            if _looks_like_windows_1251_pgn_bytes(payload):
+                try:
+                    text = payload.decode("cp1251", errors="strict")
+                except UnicodeDecodeError:
+                    # Windows-1251 has one undefined byte (0x98). A malformed
+                    # source that merely resembles legacy Cyrillic PGN must
+                    # retain the pre-fallback fail-safe behavior rather than
+                    # leaking a raw codec exception from the file boundary.
+                    text = payload.decode("utf-8-sig", errors="replace")
+                    decode_replaced = True
+                else:
+                    decode_replaced = False
+                    legacy_windows_1251 = True
+            else:
+                text = payload.decode("utf-8-sig", errors="replace")
+                decode_replaced = True
+
     text = text.replace("\r\n", "\n").replace("\r", "\n")
-    after = fingerprint(path)
-    if before.size != after.size or before.sha256 != after.sha256:
-        raise PgnSourceChangedError("PGN changed while being read")
-    return before, text, decode_replaced
+    return source, text, decode_replaced, legacy_windows_1251
 
 
 def _parse_file_games(text: str) -> tuple[PgnGame, ...]:
@@ -221,15 +484,19 @@ def _parse_file_games(text: str) -> tuple[PgnGame, ...]:
 
 
 def open_pgn(path: str | Path) -> PgnOpenResult:
-    """Open a PGN without mutating it and preserve recursive GameTree content."""
+    """Open one source-bound PGN snapshot without mutating the source."""
 
     source_path = Path(path)
-    source, text, decode_replaced = _read_text_snapshot(source_path)
+    source, text, decode_replaced, legacy_windows_1251 = _read_text_snapshot(source_path)
     games = _parse_file_games(text)
     warnings: list[str] = []
     if decode_replaced:
         warnings.append(
             "Invalid UTF-8 bytes were replaced while reading; save to a new file before editing the source."
+        )
+    if legacy_windows_1251:
+        warnings.append(
+            "Legacy Windows-1251 PGN was decoded losslessly; use Save As so the original legacy-encoded source is not overwritten."
         )
     return PgnOpenResult(source=source, games=games, global_warnings=tuple(warnings))
 
@@ -270,6 +537,71 @@ def _create_hardlink_snapshot(destination: Path) -> Path:
     raise PgnFileError("PGN commit snapshot could not reserve a unique path")
 
 
+_MOVEFILE_REPLACE_EXISTING = 0x00000001
+_MOVEFILE_WRITE_THROUGH = 0x00000008
+_WINDOWS_FILE_EXISTS_ERRORS = frozenset({80, 183})
+
+
+def _windows_move_write_through(
+    source: Path,
+    destination: Path,
+    *,
+    replace: bool,
+) -> None:
+    """Move one prepared PGN into place with Windows write-through semantics."""
+
+    import ctypes
+
+    move_file_ex = ctypes.WinDLL("kernel32", use_last_error=True).MoveFileExW
+    move_file_ex.argtypes = (
+        ctypes.c_wchar_p,
+        ctypes.c_wchar_p,
+        ctypes.c_uint32,
+    )
+    move_file_ex.restype = ctypes.c_int
+    flags = _MOVEFILE_WRITE_THROUGH
+    if replace:
+        flags |= _MOVEFILE_REPLACE_EXISTING
+    if move_file_ex(os.fspath(source), os.fspath(destination), flags):
+        return
+    error_code = ctypes.get_last_error()
+    if not replace and error_code in _WINDOWS_FILE_EXISTS_ERRORS:
+        raise FileExistsError(error_code, "PGN destination already exists", os.fspath(destination))
+    raise OSError(
+        error_code,
+        f"durable Windows PGN publication failed (Win32 {error_code})",
+        os.fspath(destination),
+    )
+
+
+def _replace_published_path(source: Path, destination: Path) -> None:
+    """Replace one PGN namespace entry with platform durability intent."""
+
+    if os.name == "nt":
+        _windows_move_write_through(source, destination, replace=True)
+        return
+    os.replace(source, destination)
+
+
+def _sync_published_namespace(path: Path) -> None:
+    """Confirm a successful PGN namespace publication reached stable storage."""
+
+    if os.name == "nt":
+        # Every Windows publication path below uses MoveFileExW with
+        # MOVEFILE_WRITE_THROUGH, so the namespace move itself is the durability
+        # barrier. The serialized temp file was fsynced before that move.
+        return
+
+    flags = os.O_RDONLY
+    if hasattr(os, "O_DIRECTORY"):
+        flags |= os.O_DIRECTORY
+    directory_fd = os.open(os.fspath(path.parent), flags)
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
+
+
 def _cleanup_redundant_link_after_commit(path: Path) -> None:
     """Best-effort cleanup after publication has already committed.
 
@@ -287,14 +619,14 @@ def _cleanup_redundant_link_after_commit(path: Path) -> None:
         return
     except FileNotFoundError:
         return
-    except OSError:
+    except BaseException:
         pass
 
     try:
         os.unlink(path)
     except FileNotFoundError:
         pass
-    except OSError:
+    except BaseException:
         # The destination is already committed. Residual cleanup is maintenance,
         # not a reason to misreport the save as failed.
         pass
@@ -302,6 +634,12 @@ def _cleanup_redundant_link_after_commit(path: Path) -> None:
 
 def _publish_no_clobber(tmp_path: Path, destination: Path) -> None:
     """Atomically publish ``tmp_path`` only if ``destination`` is still absent."""
+
+    if os.name == "nt":
+        # MoveFileExW without REPLACE_EXISTING preserves no-clobber semantics;
+        # WRITE_THROUGH makes the namespace move itself a durability barrier.
+        _windows_move_write_through(tmp_path, destination, replace=False)
+        return
 
     try:
         os.link(tmp_path, destination)
@@ -330,28 +668,34 @@ def _publish_expected_hash(
         if _current_sha256(snapshot) != expected_sha256:
             raise PgnConcurrentWriteError(f"PGN changed since it was opened: {destination}")
 
-        os.replace(tmp_path, destination)
+        _replace_published_path(tmp_path, destination)
 
         # ``snapshot`` references the pre-publication inode. A competing writer
         # that modified that inode immediately before our replace changes this
         # digest too. Restore those newer bytes before reporting the conflict.
         try:
             snapshot_sha256 = _current_sha256(snapshot)
-        except (OSError, ValueError, PgnFileError) as exc:
+        except BaseException as exc:
             preserve_snapshot = True
-            raise PgnFileError(
-                "PGN publication could not be verified safely; recovery snapshot was preserved"
+            raise PgnPublicationUnverifiedError(
+                "PGN publication crossed the commit boundary but recovery verification failed"
             ) from exc
 
         if snapshot_sha256 != expected_sha256:
             try:
-                os.replace(snapshot, destination)
-            except OSError as exc:
+                _replace_published_path(snapshot, destination)
+            except BaseException as exc:
                 preserve_snapshot = True
-                raise PgnFileError(
-                    "PGN concurrent-write rollback failed; recovery snapshot was preserved"
+                raise PgnPublicationUnverifiedError(
+                    "PGN publication crossed the commit boundary and rollback could not be verified"
                 ) from exc
             snapshot = None
+            try:
+                _sync_published_namespace(destination)
+            except BaseException as exc:
+                raise PgnPublicationUnverifiedError(
+                    "PGN concurrent-write rollback completed but durability could not be confirmed"
+                ) from exc
             raise PgnConcurrentWriteError(f"PGN changed during publication: {destination}")
     finally:
         if snapshot is not None and not preserve_snapshot:
@@ -372,12 +716,27 @@ def _write_games_incrementally(handle: TextIO, games: Iterable[PgnGame]) -> None
         handle.write("\n")
 
 
+def _validated_expected_sha256(value: object) -> str | None:
+    """Validate optimistic-CAS identity before any filesystem mutation."""
+
+    if value is None:
+        return None
+    # Digests cross CLI/application boundaries. Require passive canonical text
+    # before equality/hash work so a str subclass cannot execute provider hooks.
+    if type(value) is not str:
+        raise TypeError("expected_sha256 must be lowercase SHA-256 hex or None")
+    if len(value) != 64 or any(character not in "0123456789abcdef" for character in value):
+        raise ValueError("expected_sha256 must be lowercase SHA-256 hex")
+    return value
+
+
 def save_pgn_atomic(
     path: str | Path,
     games: Iterable[PgnGame],
     *,
     overwrite: bool = False,
     expected_sha256: str | None = None,
+    pre_publish_check: Callable[[], None] | None = None,
 ) -> SourceFingerprint:
     """Serialize GameTree content and commit one complete PGN file safely.
 
@@ -392,8 +751,18 @@ def save_pgn_atomic(
     inode snapshot so an in-place writer racing at publication is detected and
     restored instead of silently lost. Plain ``overwrite=True`` without an
     expected digest intentionally requests unconditional replacement.
+
+    ``pre_publish_check`` runs after the temporary file has been completely
+    written, flushed and fsynced, but before any publication primitive can make
+    it visible at ``destination``. If it raises, the temporary file is
+    cleaned and the destination remains unchanged.
     """
 
+    if type(overwrite) is not bool:
+        raise TypeError("overwrite must be a boolean")
+    if pre_publish_check is not None and not callable(pre_publish_check):
+        raise TypeError("pre_publish_check must be callable")
+    expected_sha256 = _validated_expected_sha256(expected_sha256)
     destination = Path(path)
     _reject_export_indirection(destination)
     if destination.exists() and not overwrite:
@@ -405,6 +774,7 @@ def save_pgn_atomic(
 
     destination.parent.mkdir(parents=True, exist_ok=True)
     _reject_export_indirection(destination)
+    parent_identity = _export_parent_identity(destination.parent)
 
     tmp_path: Path | None = None
     try:
@@ -418,11 +788,20 @@ def save_pgn_atomic(
             delete=False,
         ) as handle:
             tmp_path = Path(handle.name)
+            # NamedTemporaryFile resolves the parent pathname again. Re-check
+            # the exact directory object before consuming any user chess data,
+            # so a direct-directory substitution cannot redirect the payload.
+            _assert_bound_export_parent(destination.parent, parent_identity)
             _write_games_incrementally(handle, games)
             handle.flush()
             os.fsync(handle.fileno())
 
         _reject_export_indirection(destination)
+        _assert_bound_export_parent(destination.parent, parent_identity)
+        if pre_publish_check is not None:
+            pre_publish_check()
+        _reject_export_indirection(destination)
+        _assert_bound_export_parent(destination.parent, parent_identity)
         if not overwrite:
             _publish_no_clobber(tmp_path, destination)
             tmp_path = None
@@ -430,16 +809,49 @@ def save_pgn_atomic(
             _publish_expected_hash(tmp_path, destination, expected_sha256)
             tmp_path = None
         else:
-            os.replace(tmp_path, destination)
+            _replace_published_path(tmp_path, destination)
             tmp_path = None
     finally:
         if tmp_path is not None:
             try:
                 tmp_path.unlink()
-            except FileNotFoundError:
+            except BaseException:
+                # Temporary-file cleanup is secondary to the already selected
+                # pre-publication failure/cancellation. Never replace that
+                # terminal truth with a cleanup abort; a residual temp file is
+                # safer than inviting a blind retry or hiding the real cause.
                 pass
 
-    return fingerprint(destination)
+    # Publication has crossed the commit boundary. Bind the returned
+    # provenance to the same destination-directory object as the write;
+    # otherwise a post-commit directory substitution could make fingerprint()
+    # authenticate unrelated bytes at the same pathname and falsely report them
+    # as this save. Any failure from this point is materially different from a
+    # pre-publication failure: the destination may already contain the new
+    # bytes, so propagate a distinct terminal truth and never invite a blind
+    # retry against stale in-memory provenance.
+    try:
+        _sync_published_namespace(destination)
+    except BaseException as exc:
+        raise PgnPublicationUnverifiedError(
+            "PGN publication completed but namespace durability could not be confirmed"
+        ) from exc
+    try:
+        _assert_bound_export_parent(destination.parent, parent_identity)
+        published = fingerprint(destination)
+        _assert_bound_export_parent(destination.parent, parent_identity)
+    except PgnUnsafePathError as exc:
+        # Preserve the historical path-safety type for security callers while
+        # also marking the failure as post-publication uncertainty for the
+        # Windows terminal-truth layer.
+        raise PgnPublishedPathChangedError(
+            "PGN publication completed but the selected pathname changed before confirmation"
+        ) from exc
+    except BaseException as exc:
+        raise PgnPublicationUnverifiedError(
+            "PGN publication completed but final destination provenance could not be verified"
+        ) from exc
+    return published
 
 
 def export_game_atomic(

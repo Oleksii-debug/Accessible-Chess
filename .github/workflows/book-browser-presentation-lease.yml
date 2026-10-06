@@ -1,0 +1,134 @@
+name: Books Browser Presentation Lease
+
+on:
+  push:
+    branches:
+      - fix/book-browser-presentation-lease-20261004-ooxple7
+  pull_request:
+    branches:
+      - fix/training-progress-target-inode-cas-20261004-c2mbezb
+    paths:
+      - "acs/version2_application.py"
+      - "acs/version2_starter_content_application.py"
+      - "web/full_product_books_training.js"
+      - "tests/js/books_training_surface_dom_test.js"
+      - "tests/test_book_browser_presentation_lease_required.py"
+      - ".github/workflows/book-browser-presentation-lease.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: books-browser-presentation-lease-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-22.04
+          - windows-2025
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 55
+
+    steps:
+      - name: Checkout exact candidate head
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12.10"
+
+      - name: Prove stacked parent and bounded delta
+        shell: bash
+        env:
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          expected_head='${{ github.event.pull_request.head.sha || github.sha }}'
+          test "$(git rev-parse HEAD)" = "$expected_head"
+
+          if test -n "$EVENT_BASE_REF"; then
+            git fetch --no-tags origin "$EVENT_BASE_REF"
+            live_base="$(git rev-parse "origin/$EVENT_BASE_REF")"
+            if test -n "$EVENT_BASE_SHA"; then
+              git merge-base --is-ancestor "$EVENT_BASE_SHA" "$live_base"
+            fi
+          else
+            live_base='b6aaaf50e20aec31f908da80249cb285a090fc23'
+          fi
+
+          git cat-file -e "$live_base^{commit}"
+          git merge-base --is-ancestor "$live_base" HEAD
+          test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+
+          BASE_SHA="$live_base" python - <<'PY'
+          import os
+          import subprocess
+
+          base = os.environ["BASE_SHA"]
+          expected = {
+              ".github/workflows/book-browser-presentation-lease.yml",
+              "acs/version2_application.py",
+              "acs/version2_starter_content_application.py",
+              "tests/js/books_training_surface_dom_test.js",
+              "tests/test_book_browser_presentation_lease_required.py",
+              "web/full_product_books_training.js",
+          }
+          changed = set(
+              filter(
+                  None,
+                  subprocess.check_output(
+                      ["git", "diff", "--name-only", f"{base}...HEAD"],
+                      text=True,
+                  ).splitlines(),
+              )
+          )
+          if changed != expected:
+              raise SystemExit(
+                  f"unexpected scope: {sorted(changed)!r}; expected={sorted(expected)!r}"
+              )
+          PY
+          git diff --check "$live_base"...HEAD
+
+      - name: Compile Book lease production and regressions
+        run: >-
+          python -m py_compile
+          acs/version2_application.py
+          acs/version2_starter_content_application.py
+          tests/test_book_browser_presentation_lease_required.py
+
+      - name: Execute exact Books DOM lease contract
+        run: |
+          node --check web/full_product_books_training.js
+          node --check tests/js/books_training_surface_dom_test.js
+          node tests/js/books_training_surface_dom_test.js
+
+      - name: Execute Book lease and adjacent application regressions
+        run: >-
+          python -m unittest -v
+          tests.test_book_browser_presentation_lease_required
+          tests.test_version2_application
+          tests.test_version2_book_workspace
+          tests.test_v2_book_board_workflow
+          tests.test_full_product_book_command_authority
+          tests.test_w3_p0f_starter_books_training_content
+
+      - name: Execute native keyboard and NVDA contract regressions
+        run: >-
+          python -m unittest -v
+          tests.test_version2_accessibility_convergence
+          tests.test_nvda_p0_contract
+          tests.test_v2_remapped_keyboard_routing
+          tests.test_v2_windows_book_board_adapter
+
+      - name: Core selftest
+        run: python -m acs.selftest

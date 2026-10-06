@@ -1,0 +1,150 @@
+name: Child Coaching Current Apex
+
+on:
+  push:
+    branches:
+      - converge/child-coaching-current-apex-20261004-sol56
+  pull_request:
+    paths:
+      - .github/workflows/child-coaching-current-apex-20261004.yml
+      - acs/child_coaching.py
+      - acs/child_coaching_store.py
+      - acs/child_coaching_application.py
+      - acs/child_coaching_projection.py
+      - acs/child_coaching_rotation.py
+      - acs/child_coaching_rotation_store.py
+      - acs/child_coaching_prepared_positions.py
+      - tests/test_child_coaching.py
+      - tests/test_child_coaching_pointer_contract.py
+      - tests/test_child_coaching_application.py
+      - tests/test_child_coaching_projection.py
+      - tests/test_child_coaching_rotation.py
+      - tests/test_child_coaching_rotation_completed_recovery.py
+      - tests/test_child_coaching_prepared_positions.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: child-coaching-current-apex-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  child-coaching-current-apex:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    env:
+      PYTHONUTF8: "1"
+      EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+      EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+      FOCUSED_BASE_REF: converge/books-training-owner-current-20261004-zftrkmo
+      EXACT_BASE: ece44ad8526b0a2845c993cf0eec0ef31d6cb056
+      INTEGRATED_HEAD: 35dfe040609e9ef257b8fed0e14f04309c38a32d
+    steps:
+      - name: Checkout exact candidate head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.EXPECTED_HEAD }}
+          fetch-depth: 0
+
+      - name: Prove exact apex ancestry, scope and canonical child-coaching blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test "$(git merge-base "$EXACT_BASE" HEAD)" = "$EXACT_BASE"
+          if [ "${EVENT_BASE_REF:-}" = "$FOCUSED_BASE_REF" ]; then
+            export CHILD_COACHING_FOCUSED_SCOPE=1
+          else
+            git cat-file -e "$INTEGRATED_HEAD^{commit}"
+            git merge-base --is-ancestor "$INTEGRATED_HEAD" HEAD
+            export CHILD_COACHING_FOCUSED_SCOPE=0
+          fi
+          python - <<'PY'
+          import os
+          import subprocess
+
+          base = os.environ["EXACT_BASE"]
+          expected = {
+              ".github/workflows/child-coaching-current-apex-20261004.yml",
+              "acs/child_coaching.py",
+              "tests/test_child_coaching_pointer_contract.py",
+          }
+          if os.environ["CHILD_COACHING_FOCUSED_SCOPE"] == "1":
+              actual = set(
+                  subprocess.check_output(
+                      ["git", "diff", "--name-only", base, "HEAD"],
+                      text=True,
+                  ).splitlines()
+              )
+              if actual != expected:
+                  raise SystemExit(f"unexpected child-coaching scope: {sorted(actual ^ expected)}")
+
+          canonical = {
+              "acs/child_coaching.py": "0d9bc76db6ddb0bc943a4569361859ba8ba0ac6a",
+              "acs/child_coaching_store.py": "73e4f981efef1bdabf34acc99cc59c9659650469",
+              "acs/child_coaching_application.py": "d7b1ae384311514f93c64e4d68f98e6d570d51c1",
+              "acs/child_coaching_projection.py": "48b71553685e05be435388a31b44b8df2aeb5dc1",
+              "acs/child_coaching_rotation.py": "6db594aa3ab21b637588142a9c9e86ff3c9dd63c",
+              "acs/child_coaching_rotation_store.py": "c8f224fa220b1570a71782d27a20c2594551f9a7",
+              "acs/child_coaching_prepared_positions.py": "060fb8cee23c7fe22465208268b4b8fef5760d14",
+              "tests/test_child_coaching.py": "8b1c4686d94ff8c234123ef905e0e4144a5f2a4e",
+              "tests/test_child_coaching_pointer_contract.py": "c410b32d7ef4ac05bc45921b859a283bad452b68",
+              "tests/test_child_coaching_application.py": "a59dfaa0055f156b64ddd9e22704bf3d1814b9c5",
+              "tests/test_child_coaching_projection.py": "d3de779725cf54c100675098a22fd41330d5d790",
+              "tests/test_child_coaching_rotation.py": "3acee0fa67f1d1e9320cdc9985912d5ca4edc8c3",
+              "tests/test_child_coaching_rotation_completed_recovery.py": "5a3233b611cca861de497d3e7692560f7d9b449e",
+              "tests/test_child_coaching_prepared_positions.py": "6999fca59274c9e1afd7159bab23e544ca6614a7",
+          }
+          for path, expected_sha in canonical.items():
+              actual_sha = subprocess.check_output(
+                  ["git", "hash-object", path], text=True
+              ).strip()
+              if actual_sha != expected_sha:
+                  raise SystemExit(f"canonical child-coaching blob drift: {path} {actual_sha}")
+          PY
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.11"
+
+      - name: Compile child-coaching boundary
+        run: >-
+          python -m py_compile
+          acs/child_coaching.py
+          acs/child_coaching_store.py
+          acs/child_coaching_application.py
+          acs/child_coaching_projection.py
+          acs/child_coaching_rotation.py
+          acs/child_coaching_rotation_store.py
+          acs/child_coaching_prepared_positions.py
+          tests/test_child_coaching.py
+          tests/test_child_coaching_pointer_contract.py
+          tests/test_child_coaching_application.py
+          tests/test_child_coaching_projection.py
+          tests/test_child_coaching_rotation.py
+          tests/test_child_coaching_rotation_completed_recovery.py
+          tests/test_child_coaching_prepared_positions.py
+
+      - name: Run child-coaching contracts
+        run: >-
+          python -m unittest -v
+          tests.test_child_coaching
+          tests.test_child_coaching_pointer_contract
+          tests.test_child_coaching_application
+          tests.test_child_coaching_projection
+          tests.test_child_coaching_rotation
+          tests.test_child_coaching_rotation_completed_recovery
+          tests.test_child_coaching_prepared_positions
+
+      - name: Run adjacent teaching and D10 authority contracts
+        run: >-
+          python -m unittest -v
+          tests.test_teaching_session
+          tests.test_education_records
+          tests.test_education_workspace

@@ -13,9 +13,14 @@
   }
 
   function safeInvoke(invoke, command, payload, onResult, announce, fallbackMessage) {
-    Promise.resolve(invoke(command, payload || {})).then(onResult).catch(function () {
+    function failed() {
       if (fallbackMessage) announce(String(fallbackMessage));
-    });
+    }
+    try {
+      Promise.resolve(invoke(command, payload || {})).then(onResult).catch(failed);
+    } catch (_error) {
+      failed();
+    }
   }
 
   function focusTarget(root, targetId) {
@@ -29,6 +34,24 @@
     }
   }
 
+  function renderDetail(detail) {
+    const wrapper = node("section");
+    wrapper.id = "education-detail";
+    wrapper.setAttribute("aria-labelledby", "education-detail-heading");
+    if (!detail || typeof detail !== "object") {
+      wrapper.setAttribute("hidden", "hidden");
+      return wrapper;
+    }
+
+    const heading = node("h2", detail.heading || "");
+    heading.id = "education-detail-heading";
+    heading.tabIndex = -1;
+    wrapper.appendChild(heading);
+    if (detail.secondary) wrapper.appendChild(node("p", detail.secondary));
+    if (detail.status) wrapper.appendChild(node("p", detail.status));
+    return wrapper;
+  }
+
   function applyEducationEvent(root, result, invoke, announce, fallbackMessage) {
     if (!root || !result || typeof result !== "object") return;
     const payload = result.payload && typeof result.payload === "object" ? result.payload : {};
@@ -36,6 +59,12 @@
       const previous = root.querySelector("#" + String(payload.snapshot.dom_id || ""));
       if (previous && typeof previous.replaceWith === "function") {
         previous.replaceWith(renderSection(payload.snapshot, invoke, announce, fallbackMessage));
+      }
+    }
+    if (result.kind === "delegated" && payload.detail && typeof payload.detail === "object") {
+      const previousDetail = root.querySelector("#education-detail");
+      if (previousDetail && typeof previousDetail.replaceWith === "function") {
+        previousDetail.replaceWith(renderDetail(payload.detail));
       }
     }
     if (payload.announcement) announce(String(payload.announcement));
@@ -128,20 +157,43 @@
         }, rootForEvents(), announce, fallbackMessage);
       });
       option.addEventListener("keydown", function (event) {
+        const resolve = global.accessibleChessKeymapAction;
+        let actionId = "";
+        let resolverReady = false;
+        if (typeof resolve === "function") {
+          const resolved = resolve(event, "education_list");
+          if (resolved !== null && resolved !== undefined) {
+            resolverReady = true;
+            actionId = typeof resolved === "string" ? resolved : "";
+          }
+        }
+        if (
+          !resolverReady &&
+          !event.altKey && !event.ctrlKey && !event.shiftKey && !event.metaKey
+        ) {
+          if (event.key === "ArrowUp") actionId = "education.previous_item";
+          else if (event.key === "ArrowDown") actionId = "education.next_item";
+          else if (event.key === "Enter") actionId = "education.open_selected";
+        }
+
         let command = "";
         let payload = {};
-        if (event.key === "ArrowUp") {
+        if (actionId === "education.previous_item") {
           command = "education.move";
           payload = { kind: section.kind, direction: -1 };
-        } else if (event.key === "ArrowDown") {
+        } else if (actionId === "education.next_item") {
           command = "education.move";
           payload = { kind: section.kind, direction: 1 };
-        } else if (event.key === "Enter" && section.open_enabled) {
+        } else if (
+          actionId === "education.open_selected" &&
+          section.open_enabled
+        ) {
           command = "education.open";
           payload = { kind: section.kind };
         }
         if (!command) return;
         event.preventDefault();
+        if (typeof event.stopPropagation === "function") event.stopPropagation();
         invokeSection(invoke, command, payload, rootForEvents(), announce, fallbackMessage);
       });
       list.appendChild(option);
@@ -177,6 +229,7 @@
     sections.forEach(function (section) {
       main.appendChild(renderSection(section || {}, invoke, announce, fallbackMessage));
     });
+    main.appendChild(renderDetail(snapshot.detail || null));
     fragment.appendChild(main);
     root.replaceChildren(fragment);
     focusTarget(root, requestedFocus || "");

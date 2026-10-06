@@ -62,7 +62,7 @@ _LABELS_EN = {
 }
 
 _MNEMONIC = {
-    "uk": {"file": "&Файл", "game": "&Гра", "board": "&Дошка", "analysis": "&Аналіз", "settings": "&Налаштування", "help": "&Довідка"},
+    "uk": {"file": "&Файл", "game": "&Гра", "board": "Д&ошка", "analysis": "&Аналіз", "settings": "&Налаштування", "help": "&Довідка"},
     "en": {"file": "&File", "game": "&Game", "board": "&Board", "analysis": "&Analysis", "settings": "&Settings", "help": "&Help"},
 }
 
@@ -153,10 +153,21 @@ def _safe_js(window: Any, code: str) -> None:
 
 
 def _invoke_api(window: Any, fn: Callable[[], Any]) -> None:
+    result: Any = None
     try:
-        fn()
+        result = fn()
     finally:
-        _safe_js(window, "refreshState()")
+        is_new_game = getattr(fn, "__name__", "") == "new_game"
+        if is_new_game and isinstance(result, dict) and result.get("ok"):
+            _safe_js(
+                window,
+                "refreshState().then(() => {"
+                "if (window.startNewGameVisualSequence) "
+                "window.startNewGameVisualSequence();"
+                "})",
+            )
+        else:
+            _safe_js(window, "refreshState()")
 
 
 def _optional_api_action(api: Any, name: str, *args: Any) -> Any:
@@ -184,7 +195,7 @@ def make_keymap_menu(webview: Any, api: Any, window_holder: dict[str, Any]):
 
     return [
         Menu(text["file"], [
-            MenuAction(text["new"], refresh(api.new_game)),
+            MenuAction(menu_caption(api, text["new"], "file.new"), refresh(api.new_game)),
             MenuAction(text["empty"], refresh(api.clear_board)),
             MenuSeparator(),
             MenuAction(text["exit"], lambda: window() and window().destroy()),
@@ -342,7 +353,7 @@ def install_windows_native_menu(window: Any, api: Any) -> bool:
 
     top_menus = (
         submenu(mn["file"], [
-            item(text["new"], lambda: _invoke_api(window, api.new_game)),
+            item(menu_caption(api, text["new"], "file.new"), lambda: _invoke_api(window, api.new_game)),
             item(text["empty"], lambda: _invoke_api(window, api.clear_board)),
             separator(), item(text["exit"], window.destroy),
         ]),

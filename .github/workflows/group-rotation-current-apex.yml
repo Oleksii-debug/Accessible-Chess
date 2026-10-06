@@ -1,0 +1,140 @@
+name: Group Rotation Current Apex
+
+on:
+  push:
+    branches:
+      - converge/books-training-owner-current-20261004-zftrkmo
+    paths:
+      - acs/child_coaching_rotation.py
+      - acs/child_coaching_rotation_store.py
+      - acs/classroom_pairing.py
+      - acs/version2_final_product_application.py
+      - acs/version2_release_app.py
+      - run_accessible_chess_v2.py
+      - acs/version2_education_mutation_release.py
+      - acs/version2_packaged_starter_application.py
+      - tests/test_v2_packaged_starter_application.py
+      - tests/test_child_coaching_rotation.py
+      - tests/test_version2_group_rotation_binding.py
+      - tests/test_child_coaching_final_product_binding.py
+      - tests/test_child_coaching_rotation_completed_recovery.py
+      - .github/workflows/group-rotation-current-apex.yml
+  pull_request:
+    paths:
+      - acs/child_coaching_rotation.py
+      - acs/child_coaching_rotation_store.py
+      - acs/classroom_pairing.py
+      - acs/version2_final_product_application.py
+      - acs/version2_release_app.py
+      - run_accessible_chess_v2.py
+      - acs/version2_education_mutation_release.py
+      - acs/version2_packaged_starter_application.py
+      - tests/test_v2_packaged_starter_application.py
+      - tests/test_child_coaching_rotation.py
+      - tests/test_version2_group_rotation_binding.py
+      - tests/test_child_coaching_final_product_binding.py
+      - tests/test_child_coaching_rotation_completed_recovery.py
+      - .github/workflows/group-rotation-current-apex.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: group-rotation-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  group-rotation:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    env:
+      EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+      EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      ROTATION_BLOB: 6db594aa3ab21b637588142a9c9e86ff3c9dd63c
+      ROTATION_STORE_BLOB: c8f224fa220b1570a71782d27a20c2594551f9a7
+      ROTATION_TEST_BLOB: 3acee0fa67f1d1e9320cdc9985912d5ca4edc8c3
+      ROTATION_RECOVERY_TEST_BLOB: 5a3233b611cca861de497d3e7692560f7d9b449e
+      PAIRING_BLOB: fee36f2029759d0c948c58cd3ca37ac20bbb0be4
+      FINAL_PRODUCT_APP_BLOB: 5fd141b9c8832658273fe49fdf857f0fabf4e86c
+      RELEASE_APP_BLOB: d0a5188175afdc6f3e707745b525abe10c8bf411
+      PACKAGED_V2_ENTRY_BLOB: b6b40023d1e59fb7ec74e30d151d5d009a14bbad
+      GROUP_ROTATION_BINDING_TEST_BLOB: a3d8e457673b48bc707c938a9d4cc5ac5b942344
+      EDUCATION_RELEASE_BLOB: 12a0681fb69e377ebf65e4bd822d5c02458a0aa5
+      PACKAGED_STARTER_APP_BLOB: 67b83f8e605ef7534fc5834064e2c2427a4439b6
+      PACKAGED_STARTER_TEST_BLOB: 707cc45e1be42a37a40c111c52220cbbb1ab2ea0
+    steps:
+      - name: Checkout exact candidate head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.EXPECTED_HEAD }}
+          fetch-depth: 0
+
+      - name: Prove exact rotation and pairing authorities
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          assert_inherited() {
+            path="$1"
+            fallback_blob="$2"
+            if [ -n "${EVENT_BASE_SHA:-}" ]; then
+              git cat-file -e "${EVENT_BASE_SHA}^{commit}"
+              test "$(git rev-parse "${EVENT_BASE_SHA}:${path}")" = "$(git hash-object "${path}")"
+            else
+              test "$(git hash-object "${path}")" = "$fallback_blob"
+            fi
+          }
+          assert_inherited acs/classroom_pairing.py "$PAIRING_BLOB"
+          assert_inherited acs/version2_education_mutation_release.py "$EDUCATION_RELEASE_BLOB"
+          assert_inherited acs/version2_packaged_starter_application.py "$PACKAGED_STARTER_APP_BLOB"
+          assert_inherited tests/test_v2_packaged_starter_application.py "$PACKAGED_STARTER_TEST_BLOB"
+          test "$(git hash-object acs/child_coaching_rotation.py)" = "$ROTATION_BLOB"
+          test "$(git hash-object acs/child_coaching_rotation_store.py)" = "$ROTATION_STORE_BLOB"
+          test "$(git hash-object tests/test_child_coaching_rotation.py)" = "$ROTATION_TEST_BLOB"
+          test "$(git hash-object tests/test_child_coaching_rotation_completed_recovery.py)" = "$ROTATION_RECOVERY_TEST_BLOB"
+          test "$(git hash-object acs/version2_final_product_application.py)" = "$FINAL_PRODUCT_APP_BLOB"
+          test "$(git hash-object acs/version2_release_app.py)" = "$RELEASE_APP_BLOB"
+          test "$(git hash-object run_accessible_chess_v2.py)" = "$PACKAGED_V2_ENTRY_BLOB"
+          test "$(git hash-object tests/test_version2_group_rotation_binding.py)" = "$GROUP_ROTATION_BINDING_TEST_BLOB"
+          git diff --check
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile rotation composition
+        run: >-
+          python -m py_compile
+          acs/child_coaching_rotation.py
+          acs/child_coaching_rotation_store.py
+          acs/classroom_pairing.py
+          acs/version2_final_product_application.py
+          acs/version2_release_app.py
+          run_accessible_chess_v2.py
+          acs/version2_education_mutation_release.py
+          acs/version2_packaged_starter_application.py
+          tests/test_child_coaching_rotation.py
+          tests/test_v2_packaged_starter_application.py
+          tests/test_version2_group_rotation_binding.py
+          tests/test_child_coaching_final_product_binding.py
+          tests/test_child_coaching_rotation_completed_recovery.py
+
+      - name: Run rotation, pairing and adjacent contracts
+        run: >-
+          python -m unittest -v
+          tests.test_version2_group_rotation_binding
+          tests.test_child_coaching_rotation
+          tests.test_child_coaching_rotation_completed_recovery
+          tests.test_classroom_pairing
+          tests.test_version2_classroom_orchestration_binding
+          tests.test_child_coaching_final_product_binding
+          tests.test_v2_packaged_starter_application
+          tests.test_version2_teacher_session_runtime_binding
+
+      - name: Run core selftest
+        run: python -m acs.selftest

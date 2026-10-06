@@ -1,0 +1,922 @@
+name: W4 V2 P0 Fresh Windows Candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      owner_final_candidate_approved:
+        description: Repository owner explicitly approved creating the user-facing Windows test candidate
+        required: true
+        default: false
+        type: boolean
+      product_sha:
+        description: Exact integrated Full Product commit to package
+        required: true
+        type: string
+      sound_pack_url:
+        description: HTTPS URL for the exact user-supplied Accessible Chess sound-pack ZIP
+        required: true
+        type: string
+      sound_pack_sha256:
+        description: SHA-256 of the sound-pack ZIP supplied by sound_pack_url
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: w4-v2-p0-fresh-windows-candidate
+  cancel-in-progress: false
+
+env:
+  FULL_PRODUCT_BRANCH: ${{ github.event.repository.default_branch }}
+  WORKFLOW_REGISTRATION_BRANCH: ${{ github.event.repository.default_branch }}
+  PYTHON_VERSION: '3.12.10'
+  PYWEBVIEW_VERSION: '6.2.1'
+  PYTHONNET_VERSION: '3.1.0'
+  CLR_LOADER_VERSION: '0.3.1'
+  CFFI_VERSION: '2.1.1'
+  PYCPARSER_VERSION: '3.0'
+  TYPING_EXTENSIONS_VERSION: '4.16.0'
+  NUITKA_UPSTREAM_FIX_COMMIT: b7ea05bf570e0b6950de6db7c4c8e579e1b77d29
+  ORDERED_SET_VERSION: '4.1.0'
+  ZSTANDARD_VERSION: '0.25.0'
+  QA_WRAPPER_COMMIT: bf4a4c1c71860c90d1b086ea4f91fa34b665cb81
+  QA_BASELINE_COMMIT: 0549391267073f9d006ec8271af148fe17edcdb6
+  STOCKFISH_URL: https://github.com/official-stockfish/Stockfish/releases/download/sf_18/stockfish-windows-x86-64.zip
+  STOCKFISH_SHA256: 40cc975817e7eee270b03f354810d20956df565420d320f6dd37d454dc81a139
+  USER_SOUND_WAV_COUNT: '330'
+  USER_SOUND_INVENTORY_SHA256: 41f3223040e0720b2268e5c28f3ccec140a4f9d3386c12ffa7a82fc283a1f920
+
+jobs:
+  candidate:
+    runs-on: windows-2025
+    timeout-minutes: 110
+    steps:
+      - name: Checkout W4 workflow authority
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+
+      - name: Bind requested SHA to live integrated Full Product head
+        shell: bash
+        run: |
+          set -euo pipefail
+          test '${{ inputs.owner_final_candidate_approved }}' = 'true' || {
+            echo 'OWNER_FINAL_CANDIDATE_APPROVAL_REQUIRED' >&2
+            exit 1
+          }
+          test "$GITHUB_REF_TYPE" = "branch" || {
+            echo 'W4 candidate must be dispatched from a branch ref' >&2
+            exit 1
+          }
+          test "$GITHUB_REF_NAME" = "$WORKFLOW_REGISTRATION_BRANCH" || {
+            printf 'W4 candidate workflow must be dispatched from registered default branch %s, got %s\n' "$WORKFLOW_REGISTRATION_BRANCH" "$GITHUB_REF_NAME" >&2
+            exit 1
+          }
+          requested='${{ inputs.product_sha }}'
+          [[ "$requested" =~ ^[0-9a-fA-F]{40}$ ]] || {
+            echo 'product_sha must be one exact 40-hex commit' >&2
+            exit 1
+          }
+          requested="${requested,,}"
+          workflow_sha="$(git rev-parse HEAD)"
+          git fetch --no-tags origin "$WORKFLOW_REGISTRATION_BRANCH" "$FULL_PRODUCT_BRANCH"
+          workflow_live="$(git rev-parse "origin/$WORKFLOW_REGISTRATION_BRANCH")"
+          test "$workflow_sha" = "$workflow_live" || {
+            printf 'W4 workflow checkout %s is stale versus registered default head %s\n' "$workflow_sha" "$workflow_live" >&2
+            exit 1
+          }
+          live="$(git rev-parse "origin/$FULL_PRODUCT_BRANCH")"
+          test "$requested" = "$live" || {
+            printf 'Requested SHA %s is not live Full Product head %s\n' "$requested" "$live" >&2
+            exit 1
+          }
+          test "$requested" = "$workflow_sha" || {
+            printf 'Requested SHA %s is not the exact registered release apex %s\n' "$requested" "$workflow_sha" >&2
+            exit 1
+          }
+          git cat-file -e "${requested}^{commit}"
+          short="${requested:0:7}"
+          echo "PRODUCT_SHA=$requested" >> "$GITHUB_ENV"
+          echo "SOURCE_INTEGRATION_SHA=$requested" >> "$GITHUB_ENV"
+          echo "WORKFLOW_AUTHORITY_SHA=$workflow_sha" >> "$GITHUB_ENV"
+          echo "CANDIDATE_FILE=Accessible-Chess-V2-${short}-NVDA-test-candidate.zip" >> "$GITHUB_ENV"
+          echo "W4_WORKFLOW_REGISTRATION_IDENTITY=PASS"
+          echo "W4_WORKFLOW_PRODUCT_IDENTITY=PASS"
+          echo "W4_EXACT_APEX_IDENTITY=PASS"
+          echo "INTEGRATED_FULL_PRODUCT_IDENTITY=PASS"
+
+      - name: Materialize exact integrated Product worktree
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf product-source
+          git worktree add --detach product-source "$PRODUCT_SHA"
+          test "$(git -C product-source rev-parse HEAD)" = "$PRODUCT_SHA"
+          test -f product-source/run_accessible_chess_v2.py
+          test -f product-source/acs/version2_release_payload.py
+          test -f product-source/acs/version2_package_assembler.py
+          test -f product-source/acs/version2_package_preflight.py
+          test -f product-source/scripts/run_p0_packaged_acceptance.ps1
+          test -f product-source/tools/p0f_lawful_starter_bundle.py
+          git -C product-source diff --check
+          echo 'EXACT_PRODUCT_WORKTREE=PASS'
+
+      - name: Setup exact Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install qualified pinned Windows compiler stack
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $nuitkaUrl="https://github.com/Nuitka/Nuitka/archive/$env:NUITKA_UPSTREAM_FIX_COMMIT.zip"
+          python -m pip install --disable-pip-version-check "pywebview==$env:PYWEBVIEW_VERSION" "pythonnet==$env:PYTHONNET_VERSION" "clr-loader==$env:CLR_LOADER_VERSION" "cffi==$env:CFFI_VERSION" "pycparser==$env:PYCPARSER_VERSION" "typing-extensions==$env:TYPING_EXTENSIONS_VERSION" "Nuitka @ $nuitkaUrl" "ordered-set==$env:ORDERED_SET_VERSION" "zstandard==$env:ZSTANDARD_VERSION"
+          if($LASTEXITCODE -ne 0){throw 'Pinned Windows runtime/compiler installation failed'}
+          @'
+          import os
+          import sys
+          from importlib.metadata import version
+          from pathlib import Path
+          import nuitka
+          expected = {
+              'pywebview': os.environ['PYWEBVIEW_VERSION'],
+              'pythonnet': os.environ['PYTHONNET_VERSION'],
+              'clr-loader': os.environ['CLR_LOADER_VERSION'],
+              'cffi': os.environ['CFFI_VERSION'],
+              'pycparser': os.environ['PYCPARSER_VERSION'],
+              'typing_extensions': os.environ['TYPING_EXTENSIONS_VERSION'],
+              'ordered-set': os.environ['ORDERED_SET_VERSION'],
+              'zstandard': os.environ['ZSTANDARD_VERSION'],
+          }
+          assert sys.version_info[:3] == (3, 12, 10)
+          for distribution, wanted in expected.items():
+              resolved = version(distribution)
+              print(f'PINNED_RUNTIME_VERSION {distribution}={resolved}')
+              assert resolved == wanted, (distribution, resolved, wanted)
+          plugin = Path(nuitka.__file__).parent / 'plugins' / 'standard' / 'PyWebViewPlugin.py'
+          assert 'webview.platforms.win32' in plugin.read_text(encoding='utf-8')
+          print('QUALIFIED_COMPILER_STACK=PASS')
+          '@ | python -
+          if($LASTEXITCODE -ne 0){throw 'Qualified compiler stack verification failed'}
+
+      - name: Materialize immutable strict packaged UIA helpers
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "$QA_WRAPPER_COMMIT" "$QA_BASELINE_COMMIT"
+          mkdir -p .v2-uia-evidence
+          git show "$QA_WRAPPER_COMMIT:tools/qa/stage1_packaged_e2e_crossprocess.ps1" > .v2-uia-evidence/stage1_packaged_e2e_crossprocess.ps1
+          git show "$QA_WRAPPER_COMMIT:tools/qa/stage1_uia_topology_v5.ps1" > .v2-uia-evidence/stage1_uia_topology_v5.ps1
+          git show "$QA_WRAPPER_COMMIT:tools/qa/stage1_uia_topology_classify.py" > .v2-uia-evidence/stage1_uia_topology_classify.py
+          test -s .v2-uia-evidence/stage1_packaged_e2e_crossprocess.ps1
+          test -s .v2-uia-evidence/stage1_uia_topology_v5.ps1
+          test -s .v2-uia-evidence/stage1_uia_topology_classify.py
+          echo 'IMMUTABLE_STRICT_PACKAGED_UIA_HELPERS=READY'
+
+      - name: Qualify exact Product source before compilation
+        shell: pwsh
+        working-directory: product-source
+        run: |
+          $ErrorActionPreference='Stop'
+          python run_accessible_chess_v2.py --diagnostic
+          if($LASTEXITCODE -ne 0){throw 'SOURCE_V2_DIAGNOSTIC_FAILURE'}
+          python -m unittest -v tests.test_p0_semantic_document_copy tests.test_p0_packaged_document_copy_probe tests.test_verify_p0_packaged_document_copy_evidence tests.test_verify_p0_packaged_document_copy_evidence_hardening tests.test_verify_p0_packaged_document_copy_cli tests.test_p0_packaged_acceptance_orchestrator tests.test_p0g_accessible_results tests.test_verify_p0g_packaged_hotkey_result_evidence tests.test_verify_p0g_packaged_hotkey_result_cli tests.test_p0f_packaged_starter_application tests.test_w3_p0f_starter_books_training_content tests.test_d08_training_canonical_resume
+          if($LASTEXITCODE -ne 0){throw 'SOURCE_RELEASE_CRITICAL_P0_CONTRACT_FAILURE'}
+          Write-Host 'SOURCE_P0F_BOOKS_TRAINING_RESUME=PASS'
+          Write-Host 'SOURCE_RELEASE_CRITICAL_P0_CONTRACTS=PASS'
+
+          python -m unittest -v tests.test_version2_epub_application_reachability tests.test_v2_book_epub_import tests.test_v2_native_dialog_language tests.test_version2_application tests.test_bookreader tests.test_bookdocument tests.test_v2_book_progress_store tests.test_v2_book_progress_store_production
+          if($LASTEXITCODE -ne 0){throw 'SOURCE_EPUB_APPLICATION_REACHABILITY_FAILURE'}
+          Write-Host 'SOURCE_EPUB_APPLICATION_REACHABILITY=PASS'
+
+      - name: Build standalone AccessibleChess.exe
+        shell: pwsh
+        working-directory: product-source
+        run: |
+          $ErrorActionPreference='Stop'
+          $report=Join-Path $env:RUNNER_TEMP 'nuitka-compilation-report.xml'
+          python -m nuitka --standalone --assume-yes-for-downloads --windows-console-mode=disable --output-filename=AccessibleChess.exe --include-data-dir=web=web "--report=$report" run_accessible_chess_v2.py
+          if($LASTEXITCODE -ne 0){throw 'NUITKA_BUILD_TOOLCHAIN_FAILURE'}
+          $dist=(Resolve-Path 'run_accessible_chess_v2.dist').Path
+          $exe=Join-Path $dist 'AccessibleChess.exe'
+          if(-not (Test-Path -LiteralPath $exe -PathType Leaf)){throw 'AccessibleChess.exe missing'}
+          $leaks=@(Get-ChildItem -LiteralPath $dist -Recurse -File | Where-Object {$_.Extension -in '.py','.pyc','.pyo'})
+          if($leaks.Count -ne 0){throw 'RAW_PYTHON_SOURCE_OR_BYTECODE_LEAK'}
+          $reports=@(Get-ChildItem -LiteralPath $dist -Recurse -File | Where-Object {$_.Name -match '(?i)(nuitka.*report|compilation[-_ ]?report)'})
+          if($reports.Count -ne 0){throw 'COMPILATION_REPORT_LEAK'}
+          Write-Host "STANDALONE_EXE_SHA256=$((Get-FileHash -Algorithm SHA256 -LiteralPath $exe).Hash.ToLowerInvariant())"
+          Write-Host 'STANDALONE_BUILD=PASS'
+
+      - name: Materialize exact user-supplied 330-WAV sound pack
+        shell: pwsh
+        working-directory: product-source
+        env:
+          USER_SOUND_PACK_URL: ${{ inputs.sound_pack_url }}
+          USER_SOUND_PACK_SHA256: ${{ inputs.sound_pack_sha256 }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $url=[string]$env:USER_SOUND_PACK_URL
+          $wanted=([string]$env:USER_SOUND_PACK_SHA256).Trim().ToLowerInvariant()
+          if($url -notmatch '^https://'){throw 'USER_SOUND_PACK_URL_MUST_BE_HTTPS'}
+          if($wanted -notmatch '^[0-9a-f]{64}$'){throw 'USER_SOUND_PACK_SHA256_INVALID'}
+
+          New-Item -ItemType Directory -Force -Path release-inputs | Out-Null
+          $archive='release-inputs\user-sound-pack.zip'
+          Invoke-WebRequest -Uri $url -OutFile $archive
+          $actual=(Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash.ToLowerInvariant()
+          if($actual -ne $wanted){throw "USER_SOUND_PACK_ZIP_SHA256_MISMATCH actual=$actual expected=$wanted"}
+          $env:USER_SOUND_PACK_ZIP_SHA256=$actual
+
+          python scripts/build_user_sound_pack.py $archive release-inputs/sounds --expected-source-archive-sha256 $wanted
+          if($LASTEXITCODE -ne 0){throw 'USER_SOUND_PACK_CANONICALIZATION_FAILED'}
+
+          @'
+          import json, os
+          from pathlib import Path
+          from scripts.build_user_sound_pack import (
+              DEFAULT_EVENT_FILES,
+              EVENT_VARIANTS,
+              EXPECTED_SOURCE_INVENTORY_SHA256,
+              EXPECTED_SOURCE_WAV_COUNT,
+              NEW_GAME_DURATION_SECONDS_BY_VARIANT,
+              NEW_GAME_IMPACTS_BY_VARIANT,
+              SOUND_LAYERS,
+          )
+
+          root = Path('release-inputs/sounds')
+          inventory = json.loads((root / 'inventory.json').read_text(encoding='utf-8'))
+          if inventory.get('file_count') != EXPECTED_SOURCE_WAV_COUNT:
+              raise SystemExit('USER_SOUND_PACK_WAV_COUNT_MISMATCH')
+          if inventory.get('source_inventory_sha256') != EXPECTED_SOURCE_INVENTORY_SHA256:
+              raise SystemExit('USER_SOUND_PACK_INVENTORY_SHA256_MISMATCH')
+          if inventory.get('source_archive_sha256') != os.environ['USER_SOUND_PACK_ZIP_SHA256']:
+              raise SystemExit('USER_SOUND_PACK_SOURCE_ZIP_SHA256_MISMATCH')
+          if int(inventory.get('source_archive_bytes', -1)) != Path('release-inputs/user-sound-pack.zip').stat().st_size:
+              raise SystemExit('USER_SOUND_PACK_SOURCE_ZIP_SIZE_MISMATCH')
+          if EXPECTED_SOURCE_WAV_COUNT != int(os.environ['USER_SOUND_WAV_COUNT']):
+              raise SystemExit('USER_SOUND_PACK_WORKFLOW_COUNT_AUTHORITY_MISMATCH')
+          if EXPECTED_SOURCE_INVENTORY_SHA256 != os.environ['USER_SOUND_INVENTORY_SHA256']:
+              raise SystemExit('USER_SOUND_PACK_WORKFLOW_DIGEST_AUTHORITY_MISMATCH')
+
+          variants = json.loads((root / 'variants.json').read_text(encoding='utf-8'))
+          layers = json.loads((root / 'layers.json').read_text(encoding='utf-8'))
+          impacts = json.loads((root / 'newgame_impacts.json').read_text(encoding='utf-8'))
+          if variants['events']['move'][0]['id'] != '1':
+              raise SystemExit('USER_SOUND_PACK_DEFAULT_MOVE_VARIANT_INVALID')
+          if layers['events']['move']['1'][-1] != 'library/Board/MOVEHIT1.WAV':
+              raise SystemExit('USER_SOUND_PACK_MOVE_LAYER_INVALID')
+          if layers['events']['capture']['1'][-1] != 'library/Board/CAPHIT1.WAV':
+              raise SystemExit('USER_SOUND_PACK_CAPTURE_LAYER_INVALID')
+          manifest = json.loads((root / 'manifest.json').read_text(encoding='utf-8'))
+          if manifest['files'].get('mate') != 'library/Server/Gong.WAV':
+              raise SystemExit('USER_SOUND_PACK_MATE_DEFAULT_INVALID')
+          if manifest['files'].get('draw') != 'library/Server/Gong.WAV':
+              raise SystemExit('USER_SOUND_PACK_DRAW_DEFAULT_INVALID')
+          mate_files = {item.get('file') for item in variants['events'].get('mate', [])}
+          draw_files = {item.get('file') for item in variants['events'].get('draw', [])}
+          if 'library/Russian/Notation/Mate.wav' not in mate_files:
+              raise SystemExit('USER_SOUND_PACK_MATE_VOICE_MISSING')
+          if {
+              'library/English/Draw.wav',
+              'library/Russian/Draw.wav',
+          } - draw_files:
+              raise SystemExit('USER_SOUND_PACK_DRAW_VOICES_MISSING')
+          if manifest['files'].get('low_time') != 'library/Server/aooga.wav':
+              raise SystemExit('USER_SOUND_PACK_LOW_TIME_DEFAULT_INVALID')
+          low_time_files = {
+              item.get('file') for item in variants['events'].get('low_time', [])
+          }
+          if 'library/Server/ping.wav' not in low_time_files:
+              raise SystemExit('USER_SOUND_PACK_LOW_TIME_ALTERNATIVE_MISSING')
+          if impacts.get('schema_version') != 2:
+              raise SystemExit('USER_SOUND_PACK_NEWGAME_TIMING_INVALID')
+          if any(item.get('impact_count') != 32 for item in impacts['variants'].values()):
+              raise SystemExit('USER_SOUND_PACK_NEWGAME_IMPACT_COUNT_INVALID')
+
+          expected_manifest = {
+              'schema_version': 1,
+              'files': DEFAULT_EVENT_FILES,
+          }
+          expected_variants = {
+              'schema_version': 1,
+              'events': {
+                  event: [
+                      {
+                          'id': variant_id,
+                          'file': file_name,
+                          'label_uk': label_uk,
+                          'label_en': label_en,
+                      }
+                      for variant_id, file_name, label_uk, label_en in options
+                  ]
+                  for event, options in EVENT_VARIANTS.items()
+              },
+          }
+          expected_layers = {
+              'schema_version': 1,
+              'events': {
+                  event: {
+                      variant_id: list(sequence)
+                      for variant_id, sequence in by_variant.items()
+                  }
+                  for event, by_variant in SOUND_LAYERS.items()
+              },
+          }
+          expected_impacts = {
+              'schema_version': 2,
+              'default_variant': '1',
+              'variants': {
+                  variant_id: {
+                      'source_file': next(
+                          file_name
+                          for current_id, file_name, _uk, _en
+                          in EVENT_VARIANTS['start']
+                          if current_id == variant_id
+                      ),
+                      'duration_seconds': NEW_GAME_DURATION_SECONDS_BY_VARIANT[variant_id],
+                      'impact_count': len(impact_values),
+                      'impacts_ms': list(impact_values),
+                  }
+                  for variant_id, impact_values in NEW_GAME_IMPACTS_BY_VARIANT.items()
+              },
+              'analysis': {
+                  'window_ms': 20,
+                  'hop_ms': 5,
+                  'threshold_percentile': 60,
+                  'minimum_peak_separation_ms': 90,
+                  'three_d_selection': '32 strongest separated candidate peaks',
+              },
+          }
+          if manifest != expected_manifest:
+              raise SystemExit('USER_SOUND_PACK_MANIFEST_SEMANTICS_MISMATCH')
+          if variants != expected_variants:
+              raise SystemExit('USER_SOUND_PACK_VARIANT_SEMANTICS_MISMATCH')
+          if layers != expected_layers:
+              raise SystemExit('USER_SOUND_PACK_LAYER_SEMANTICS_MISMATCH')
+          if impacts != expected_impacts:
+              raise SystemExit('USER_SOUND_PACK_NEWGAME_SEMANTICS_MISMATCH')
+          wavs = [path for path in (root / 'library').rglob('*') if path.is_file() and path.suffix.lower() == '.wav']
+          if len(wavs) != EXPECTED_SOURCE_WAV_COUNT:
+              raise SystemExit('USER_SOUND_PACK_LIBRARY_WAV_COUNT_MISMATCH')
+          print(f'USER_SOUND_PACK_WAV_COUNT={len(wavs)}')
+          print(f'USER_SOUND_PACK_INVENTORY_SHA256={EXPECTED_SOURCE_INVENTORY_SHA256}')
+          print('USER_SOUND_PACK_CATALOG_SEMANTICS=PASS')
+          print('USER_SOUND_PACK_EXACT=PASS')
+          '@ | python -
+          if($LASTEXITCODE -ne 0){throw 'USER_SOUND_PACK_VALIDATION_FAILED'}
+
+          "USER_SOUND_PACK_ZIP_SHA256=$actual" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "USER_SOUND_PACK_ZIP_SHA256=$actual"
+          Write-Host 'USER_SOUND_PACK_CANONICAL=PASS'
+
+      - name: Download pinned official Stockfish 18 and lawful starter corpus
+        shell: pwsh
+        working-directory: product-source
+        run: |
+          $ErrorActionPreference='Stop'
+          New-Item -ItemType Directory -Force -Path release-inputs | Out-Null
+          Invoke-WebRequest -Uri $env:STOCKFISH_URL -OutFile 'release-inputs\stockfish.zip'
+          $digest=(Get-FileHash -Algorithm SHA256 -LiteralPath 'release-inputs\stockfish.zip').Hash.ToLowerInvariant()
+          if($digest -ne $env:STOCKFISH_SHA256){throw "STOCKFISH_SHA256_MISMATCH $digest"}
+          python tools/p0f_lawful_starter_bundle.py release-inputs/w2-starter
+          if($LASTEXITCODE -ne 0){throw 'P0-F lawful starter bundle materialization failed'}
+          Write-Host "STOCKFISH_RELEASE_SHA256=$digest"
+          Write-Host 'P0F_LAWFUL_STARTER_BUNDLE=PASS'
+
+      - name: Prepare release payload and inject qualified P0-F package content
+        shell: pwsh
+        working-directory: product-source
+        run: |
+          $ErrorActionPreference='Stop'
+          @'
+          from pathlib import Path
+          import shutil
+          from acs.version2_release_payload import prepare_version2_release_payload
+          prepared = prepare_version2_release_payload(
+              Path('run_accessible_chess_v2.dist'),
+              Path('release-inputs/stockfish.zip'),
+              Path('release-inputs/sounds'),
+              Path('candidate-output/prepared'),
+          )
+          destination = prepared.product_dir / 'release-content' / 'w2-starter'
+          if destination.exists():
+              raise SystemExit('P0-F packaged starter destination unexpectedly exists')
+          destination.parent.mkdir(parents=True, exist_ok=True)
+          shutil.copytree(Path('release-inputs/w2-starter'), destination, symlinks=False)
+          expected = {'starter_uk.pgn', 'stress_uk.pgn', 'sample_library.acsdb', 'manifest.json'}
+          actual = {path.name for path in destination.iterdir() if path.is_file()}
+          if actual != expected:
+              raise SystemExit(f'P0-F packaged starter inventory mismatch: {sorted(actual)}')
+          print('PREPARED_PAYLOAD_WITH_P0F_STARTER=PASS')
+          '@ | python -
+          if($LASTEXITCODE -ne 0){throw 'Release payload/P0-F composition failed'}
+
+      - name: Assemble canonical V2 package and deterministic ZIP
+        shell: pwsh
+        working-directory: product-source
+        run: |
+          $ErrorActionPreference='Stop'
+          @'
+          import hashlib, os
+          from pathlib import Path
+          from acs.version2_package_assembler import assemble_version2_package_tree, write_version2_package_zip
+          sha = os.environ['PRODUCT_SHA']
+          candidate = os.environ['CANDIDATE_FILE']
+          out = Path('candidate-output')
+          assembled = assemble_version2_package_tree(
+              out / 'prepared' / 'prepared-product',
+              out / 'prepared' / 'third-party-notices',
+              out / 'package',
+              integration_sha=sha,
+          )
+          primary = out / candidate
+          repro = out / (candidate + '.repro.zip')
+          first = write_version2_package_zip(assembled.package_root, primary, expected_integration_sha=sha)
+          second = write_version2_package_zip(assembled.package_root, repro, expected_integration_sha=sha)
+          one = hashlib.sha256(primary.read_bytes()).hexdigest()
+          two = hashlib.sha256(repro.read_bytes()).hexdigest()
+          if one != two:
+              raise SystemExit(f'DETERMINISTIC_ZIP_MISMATCH {one} {two}')
+          repro.unlink()
+          print(f'CANDIDATE_ZIP_SHA256={one}')
+          print(f'CANDIDATE_INTEGRATION_SHA={first.integration_sha}')
+          print(f'CANDIDATE_FILE_COUNT={len(first.inventory)}')
+          print('CANONICAL_V2_PACKAGE_AND_ZIP=PASS')
+          '@ | python -
+          if($LASTEXITCODE -ne 0){throw 'Canonical V2 candidate assembly failed'}
+
+      - name: Fresh extract and canonical package preflight
+        shell: pwsh
+        working-directory: product-source
+        run: |
+          $ErrorActionPreference='Stop'
+          New-Item -ItemType Directory -Path fresh-extraction | Out-Null
+          Expand-Archive -LiteralPath (Join-Path 'candidate-output' $env:CANDIDATE_FILE) -DestinationPath fresh-extraction
+          @'
+          import os
+          import json
+          from pathlib import Path
+          from acs.version2_package_preflight import validate_version2_package_tree
+          from scripts.build_user_sound_pack import (
+              DEFAULT_EVENT_FILES,
+              EVENT_VARIANTS,
+              EXPECTED_SOURCE_INVENTORY_SHA256,
+              EXPECTED_SOURCE_WAV_COUNT,
+              NEW_GAME_DURATION_SECONDS_BY_VARIANT,
+              NEW_GAME_IMPACTS_BY_VARIANT,
+              SOUND_LAYERS,
+          )
+
+          extraction = Path('fresh-extraction')
+          report = validate_version2_package_tree(
+              extraction,
+              expected_integration_sha=os.environ['PRODUCT_SHA'],
+          )
+          sound_root = extraction / 'AccessibleChess' / 'assets' / 'sounds'
+          inventory = json.loads(
+              (sound_root / 'inventory.json').read_text(encoding='utf-8')
+          )
+          inventory_notice = json.loads(
+              (
+                  extraction
+                  / 'THIRD_PARTY_NOTICES'
+                  / 'SOUND_INVENTORY.json'
+              ).read_text(encoding='utf-8')
+          )
+          if inventory_notice != inventory:
+              raise SystemExit('FRESH_EXTRACTION_USER_SOUND_AUDIT_NOTICE_MISMATCH')
+          if inventory.get('file_count') != EXPECTED_SOURCE_WAV_COUNT:
+              raise SystemExit('FRESH_EXTRACTION_USER_SOUND_COUNT_MISMATCH')
+          if inventory.get('source_inventory_sha256') != EXPECTED_SOURCE_INVENTORY_SHA256:
+              raise SystemExit('FRESH_EXTRACTION_USER_SOUND_DIGEST_MISMATCH')
+          expected_archive_sha = os.environ['USER_SOUND_PACK_ZIP_SHA256'].strip().lower()
+          if inventory.get('source_archive_sha256') != expected_archive_sha:
+              raise SystemExit('FRESH_EXTRACTION_USER_SOUND_ARCHIVE_SHA256_MISMATCH')
+          if int(inventory.get('source_archive_bytes', -1)) <= 0:
+              raise SystemExit('FRESH_EXTRACTION_USER_SOUND_ARCHIVE_SIZE_MISSING')
+
+          manifest = json.loads((sound_root / 'manifest.json').read_text(encoding='utf-8'))
+          variants = json.loads((sound_root / 'variants.json').read_text(encoding='utf-8'))
+          layers = json.loads((sound_root / 'layers.json').read_text(encoding='utf-8'))
+          impacts = json.loads((sound_root / 'newgame_impacts.json').read_text(encoding='utf-8'))
+          if variants.get('schema_version') != 1:
+              raise SystemExit('FRESH_EXTRACTION_USER_SOUND_VARIANTS_INVALID')
+          if variants['events']['move'][0].get('id') != '1':
+              raise SystemExit('FRESH_EXTRACTION_USER_SOUND_DEFAULT_MOVE_VARIANT_INVALID')
+          if layers.get('schema_version') != 1:
+              raise SystemExit('FRESH_EXTRACTION_USER_SOUND_LAYERS_INVALID')
+          if layers['events']['move']['1'][-1] != 'library/Board/MOVEHIT1.WAV':
+              raise SystemExit('FRESH_EXTRACTION_USER_SOUND_MOVE_LAYER_INVALID')
+          if layers['events']['capture']['1'][-1] != 'library/Board/CAPHIT1.WAV':
+              raise SystemExit('FRESH_EXTRACTION_USER_SOUND_CAPTURE_LAYER_INVALID')
+          if impacts.get('schema_version') != 2:
+              raise SystemExit('FRESH_EXTRACTION_USER_SOUND_NEWGAME_TIMING_INVALID')
+          if set(impacts.get('variants', {})) != {'1', '3d'}:
+              raise SystemExit('FRESH_EXTRACTION_USER_SOUND_NEWGAME_VARIANTS_INVALID')
+          if any(item.get('impact_count') != 32 for item in impacts['variants'].values()):
+              raise SystemExit('FRESH_EXTRACTION_USER_SOUND_NEWGAME_IMPACT_COUNT_INVALID')
+
+          expected_manifest = {
+              'schema_version': 1,
+              'files': DEFAULT_EVENT_FILES,
+          }
+          expected_variants = {
+              'schema_version': 1,
+              'events': {
+                  event: [
+                      {
+                          'id': variant_id,
+                          'file': file_name,
+                          'label_uk': label_uk,
+                          'label_en': label_en,
+                      }
+                      for variant_id, file_name, label_uk, label_en in options
+                  ]
+                  for event, options in EVENT_VARIANTS.items()
+              },
+          }
+          expected_layers = {
+              'schema_version': 1,
+              'events': {
+                  event: {
+                      variant_id: list(sequence)
+                      for variant_id, sequence in by_variant.items()
+                  }
+                  for event, by_variant in SOUND_LAYERS.items()
+              },
+          }
+          expected_impacts = {
+              'schema_version': 2,
+              'default_variant': '1',
+              'variants': {
+                  variant_id: {
+                      'source_file': next(
+                          file_name
+                          for current_id, file_name, _uk, _en
+                          in EVENT_VARIANTS['start']
+                          if current_id == variant_id
+                      ),
+                      'duration_seconds': NEW_GAME_DURATION_SECONDS_BY_VARIANT[variant_id],
+                      'impact_count': len(impact_values),
+                      'impacts_ms': list(impact_values),
+                  }
+                  for variant_id, impact_values in NEW_GAME_IMPACTS_BY_VARIANT.items()
+              },
+              'analysis': {
+                  'window_ms': 20,
+                  'hop_ms': 5,
+                  'threshold_percentile': 60,
+                  'minimum_peak_separation_ms': 90,
+                  'three_d_selection': '32 strongest separated candidate peaks',
+              },
+          }
+          if manifest != expected_manifest:
+              raise SystemExit('FRESH_EXTRACTION_USER_SOUND_MANIFEST_SEMANTICS_MISMATCH')
+          if variants != expected_variants:
+              raise SystemExit('FRESH_EXTRACTION_USER_SOUND_VARIANT_SEMANTICS_MISMATCH')
+          if layers != expected_layers:
+              raise SystemExit('FRESH_EXTRACTION_USER_SOUND_LAYER_SEMANTICS_MISMATCH')
+          if impacts != expected_impacts:
+              raise SystemExit('FRESH_EXTRACTION_USER_SOUND_NEWGAME_SEMANTICS_MISMATCH')
+          wavs = [
+              path for path in (sound_root / 'library').rglob('*')
+              if path.is_file() and path.suffix.lower() == '.wav'
+          ]
+          if len(wavs) != EXPECTED_SOURCE_WAV_COUNT:
+              raise SystemExit('FRESH_EXTRACTION_USER_SOUND_LIBRARY_MISMATCH')
+          print(f'FRESH_EXTRACTION_PREFLIGHT_FILES={len(report.inventory)}')
+          print(f'FRESH_EXTRACTION_USER_SOUND_WAV_COUNT={len(wavs)}')
+          print('FRESH_EXTRACTION_USER_SOUND_CATALOG_SEMANTICS=PASS')
+          print('FRESH_EXTRACTION_USER_SOUND_AUDIT_NOTICE=PASS')
+          print('FRESH_EXTRACTION_USER_SOUND_PACK=PASS')
+          print('FRESH_EXTRACTION_PREFLIGHT=PASS')
+          '@ | python -
+          if($LASTEXITCODE -ne 0){throw 'Fresh extraction canonical preflight failed'}
+
+      - name: Exercise exact packaged sound runtime at default volume
+        shell: pwsh
+        working-directory: product-source
+        run: |
+          $ErrorActionPreference='Stop'
+          @'
+          import sys
+          import types
+          import wave
+          from pathlib import Path
+
+          from acs.sound_events import SoundEvent
+          from acs.sound_windows import (
+              ASYNC_SOUND_EVENTS,
+              PackagedSoundAssetResolver,
+              WindowsSoundPlaybackAdapter,
+          )
+
+          product = Path('fresh-extraction/AccessibleChess').resolve()
+          cache = Path('candidate-output/sound-runtime-probe-cache').resolve()
+          resolver = PackagedSoundAssetResolver(product)
+          selected = {event: '1' for event in SoundEvent}
+          calls = []
+
+          fake_winsound = types.SimpleNamespace(
+              SND_FILENAME=0x00020000,
+              SND_NODEFAULT=0x00000002,
+              SND_ASYNC=0x00000001,
+              PlaySound=lambda sound, flags: calls.append((str(sound), int(flags))),
+          )
+          sys.modules['winsound'] = fake_winsound
+
+          adapter = WindowsSoundPlaybackAdapter(
+              resolver,
+              cache_dir=cache,
+              variant_provider=lambda event: selected[event],
+          )
+
+          expected_calls = 0
+          expected_async_flags = []
+          expected_call_labels = []
+          for event in SoundEvent:
+              options = resolver.variants_for(event)
+              if not options:
+                  raise SystemExit(f'FRESH_PACKAGED_SOUND_VARIANTS_EMPTY event={event.value}')
+              for option in options:
+                  selected[event] = option.variant_id
+                  sequence = resolver.resolve_sequence(event, variant_id=option.variant_id)
+                  expected_calls += len(sequence)
+                  is_async = event in ASYNC_SOUND_EVENTS
+                  if is_async and len(sequence) != 1:
+                      raise SystemExit(
+                          f'FRESH_PACKAGED_SOUND_ASYNC_LAYER_INVALID event={event.value}'
+                      )
+                  expected_async_flags.extend([is_async] * len(sequence))
+                  expected_call_labels.extend(
+                      [
+                          f'{event.value}:{option.variant_id}:{index}'
+                          for index in range(len(sequence))
+                      ]
+                  )
+                  adapter.play(event, volume=80)
+
+          if len(calls) != expected_calls:
+              raise SystemExit(
+                  f'FRESH_PACKAGED_SOUND_RUNTIME_CALL_COUNT_MISMATCH '
+                  f'actual={len(calls)} expected={expected_calls}'
+              )
+          if len(expected_async_flags) != len(calls):
+              raise SystemExit('FRESH_PACKAGED_SOUND_RUNTIME_EXPECTATION_COUNT_MISMATCH')
+          async_calls = 0
+          for index, (playable_text, flags) in enumerate(calls):
+              playable = Path(playable_text).resolve()
+              try:
+                  playable.relative_to(cache)
+              except ValueError as exc:
+                  raise SystemExit(
+                      f'FRESH_PACKAGED_SOUND_RUNTIME_CACHE_ESCAPE {playable}'
+                  ) from exc
+              if not playable.is_file():
+                  raise SystemExit(
+                      f'FRESH_PACKAGED_SOUND_RUNTIME_CACHE_MISSING {playable}'
+                  )
+              if not flags & fake_winsound.SND_FILENAME:
+                  raise SystemExit('FRESH_PACKAGED_SOUND_RUNTIME_FILENAME_FLAG_MISSING')
+              if not flags & fake_winsound.SND_NODEFAULT:
+                  raise SystemExit('FRESH_PACKAGED_SOUND_RUNTIME_NODEFAULT_FLAG_MISSING')
+              actual_async = bool(flags & fake_winsound.SND_ASYNC)
+              expected_async = expected_async_flags[index]
+              if actual_async != expected_async:
+                  raise SystemExit(
+                      f'FRESH_PACKAGED_SOUND_RUNTIME_ASYNC_FLAG_MISMATCH '
+                      f'call={expected_call_labels[index]} '
+                      f'actual={actual_async} expected={expected_async}'
+                  )
+              if actual_async:
+                  async_calls += 1
+              with wave.open(str(playable), 'rb') as reader:
+                  if reader.getcomptype() != 'NONE':
+                      raise SystemExit(
+                          f'FRESH_PACKAGED_SOUND_RUNTIME_CACHE_COMPRESSION {playable}'
+                      )
+                  if reader.getsampwidth() not in {1, 2}:
+                      raise SystemExit(
+                          f'FRESH_PACKAGED_SOUND_RUNTIME_CACHE_WIDTH {playable}'
+                      )
+                  frame_count = reader.getnframes()
+                  if frame_count < 1 or not reader.readframes(frame_count):
+                      raise SystemExit(
+                          f'FRESH_PACKAGED_SOUND_RUNTIME_CACHE_EMPTY {playable}'
+                      )
+          expected_async_calls = sum(expected_async_flags)
+          if async_calls != expected_async_calls:
+              raise SystemExit(
+                  f'FRESH_PACKAGED_SOUND_RUNTIME_ASYNC_COUNT_MISMATCH '
+                  f'actual={async_calls} expected={expected_async_calls}'
+              )
+          print(f'FRESH_PACKAGED_SOUND_RUNTIME_CALLS={len(calls)}')
+          print(f'FRESH_PACKAGED_SOUND_RUNTIME_ASYNC_CALLS={async_calls}')
+          print('FRESH_PACKAGED_SOUND_RUNTIME_DEFAULT_VOLUME=80')
+          print('FRESH_PACKAGED_SOUND_RUNTIME_TRANSFORM=PASS')
+          '@ | python -
+          if($LASTEXITCODE -ne 0){throw 'Fresh packaged sound runtime transform failed'}
+
+      - name: Fresh-extracted packaged diagnostic and Stockfish smoke
+        shell: pwsh
+        working-directory: product-source
+        run: |
+          $ErrorActionPreference='Stop'
+          $productRoot=(Resolve-Path 'fresh-extraction\AccessibleChess').Path
+          $exe=(Resolve-Path (Join-Path $productRoot 'AccessibleChess.exe')).Path
+          $stdout=Join-Path $env:RUNNER_TEMP 'packaged-v2-diagnostic.stdout.txt'
+          $stderr=Join-Path $env:RUNNER_TEMP 'packaged-v2-diagnostic.stderr.txt'
+          $proc=Start-Process -FilePath $exe -WorkingDirectory $productRoot -ArgumentList '--diagnostic' -Wait -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          if(Test-Path $stdout){Get-Content -LiteralPath $stdout | ForEach-Object {Write-Host $_}}
+          if(Test-Path $stderr){Get-Content -LiteralPath $stderr | ForEach-Object {Write-Host "STDERR: $_"}}
+          if($proc.ExitCode -ne 0){throw "PACKAGED_EXE_DIAGNOSTIC_FAILURE exit=$($proc.ExitCode)"}
+          $diag=(Get-Content -LiteralPath $stdout -Raw)
+          foreach($marker in @('ACCESSIBLE CHESS V2 FINAL-PRODUCT COMPOSITION DIAGNOSTIC PASS','P0-F PACKAGED W2 LIBRARY DIAGNOSTIC PASS','P0-F PACKAGED STARTER CONTENT DIAGNOSTIC PASS')){
+            if($diag -notmatch [regex]::Escape($marker)){throw "PACKAGED_DIAGNOSTIC_MARKER_MISSING $marker"}
+          }
+          $engine=(Resolve-Path (Join-Path $productRoot 'engines\stockfish\stockfish.exe')).Path
+          $engineOutput=(@('uci','isready','quit') | & $engine 2>&1 | Out-String)
+          if($LASTEXITCODE -ne 0 -or $engineOutput -notmatch 'uciok' -or $engineOutput -notmatch 'readyok'){throw 'PACKAGED_STOCKFISH_UCI_SMOKE_FAILURE'}
+          Write-Host 'PACKAGED_EXE_P0F_DIAGNOSTIC=PASS'
+          Write-Host 'PACKAGED_STOCKFISH_UCI_SMOKE=PASS'
+
+      - name: Run strict packaged UIA baseline
+        shell: pwsh
+        working-directory: product-source
+        run: |
+          $ErrorActionPreference='Stop'
+          $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS='--force-renderer-accessibility'
+          $productRoot=(Resolve-Path 'fresh-extraction\AccessibleChess').Path
+          $exe=(Resolve-Path (Join-Path $productRoot 'AccessibleChess.exe')).Path
+          $process=Start-Process -FilePath $exe -WorkingDirectory $productRoot -PassThru
+          try {
+            $ready=$false
+            $watch=[System.Diagnostics.Stopwatch]::StartNew()
+            while($watch.ElapsedMilliseconds -lt 30000){
+              if($process.HasExited){throw "Fresh-extracted V2 process exited before UIA proof with code $($process.ExitCode)"}
+              $process.Refresh()
+              if($process.MainWindowHandle -ne 0){$ready=$true;break}
+              Start-Sleep -Milliseconds 250
+            }
+            if(-not $ready){throw 'Fresh-extracted V2 window did not become ready for UIA proof'}
+            Start-Sleep -Seconds 4
+            & ..\.v2-uia-evidence\stage1_packaged_e2e_crossprocess.ps1 -AppPid $process.Id -ProductRoot $productRoot
+            if(-not (Test-Path packaged-uia-strict-summary.json)){throw 'Packaged UIA summary missing'}
+            $summary=Get-Content packaged-uia-strict-summary.json -Raw | ConvertFrom-Json
+            if([int]$summary.semantic_square_count -ne 64){throw 'Fresh candidate did not expose exactly 64 semantic squares'}
+            if([string]$summary.clipboard -ne 'e9'){throw 'Fresh candidate Move Input Ctrl+A/Ctrl+C proof did not pass'}
+            if(-not [bool]$summary.invalid_e9_fen_unchanged){throw 'Fresh candidate invalid-input atomicity proof did not pass'}
+            if(-not [bool]$summary.board_focus_continuity){throw 'Fresh candidate board focus continuity proof did not pass'}
+            foreach($name in @('human_tested','nvda_verified')){
+              $property=$summary.PSObject.Properties[$name]
+              if($null -ne $property -and ($property.Value -isnot [bool] -or $property.Value -ne $false)){
+                throw "Strict UIA machine evidence must never claim or malformed-declare $name"
+              }
+              $summary | Add-Member -NotePropertyName $name -NotePropertyValue $false -Force
+            }
+            $summary | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath packaged-uia-strict-summary.json -Encoding utf8
+            $evidenceDir='candidate-output\p0-evidence'
+            New-Item -ItemType Directory -Force -Path $evidenceDir | Out-Null
+            Copy-Item -LiteralPath 'packaged-uia-strict-summary.json' -Destination (Join-Path $evidenceDir 'packaged-uia-strict-summary.json')
+            Write-Host 'FRESH_PACKAGED_UIA_EVIDENCE_RETAINED=PASS'
+            Write-Host 'FRESH_PACKAGED_UIA_BASELINE=PASS'
+          }
+          finally {
+            $live=Get-Process -Id $process.Id -ErrorAction SilentlyContinue
+            if($live){Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue}
+          }
+
+      - name: Run combined P0 packaged acceptance on fresh extraction
+        shell: pwsh
+        working-directory: product-source
+        run: |
+          $ErrorActionPreference='Stop'
+          $productRoot=(Resolve-Path 'fresh-extraction\AccessibleChess').Path
+          & scripts\run_p0_packaged_acceptance.ps1 -ProductRoot $productRoot -ProductSha $env:PRODUCT_SHA -TopologyScript '..\.v2-uia-evidence\stage1_uia_topology_v5.ps1' -OutputDirectory 'candidate-output\p0-evidence'
+          if(-not (Test-Path 'candidate-output\p0-evidence\packaged-v2-document-copy-summary.json')){throw 'P0 copy evidence missing'}
+          if(-not (Test-Path 'candidate-output\p0-evidence\packaged-p0g-hotkey-result-summary.json')){throw 'P0-G evidence missing'}
+          Write-Host 'FRESH_PACKAGED_P0_ACCEPTANCE=PASS'
+
+      - name: Relaunch fresh package and re-prove P0-F after packaged interaction
+        shell: pwsh
+        working-directory: product-source
+        run: |
+          $ErrorActionPreference='Stop'
+          $productRoot=(Resolve-Path 'fresh-extraction\AccessibleChess').Path
+          $exe=(Resolve-Path (Join-Path $productRoot 'AccessibleChess.exe')).Path
+          $stdout=Join-Path $env:RUNNER_TEMP 'packaged-v2-post-acceptance-relaunch.stdout.txt'
+          $stderr=Join-Path $env:RUNNER_TEMP 'packaged-v2-post-acceptance-relaunch.stderr.txt'
+          $proc=Start-Process -FilePath $exe -WorkingDirectory $productRoot -ArgumentList '--diagnostic' -Wait -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          if(Test-Path $stdout){Get-Content -LiteralPath $stdout | ForEach-Object {Write-Host $_}}
+          if(Test-Path $stderr){Get-Content -LiteralPath $stderr | ForEach-Object {Write-Host "STDERR: $_"}}
+          if($proc.ExitCode -ne 0){throw "PACKAGED_POST_ACCEPTANCE_RELAUNCH_FAILURE exit=$($proc.ExitCode)"}
+          $diag=(Get-Content -LiteralPath $stdout -Raw)
+          foreach($marker in @('ACCESSIBLE CHESS V2 FINAL-PRODUCT COMPOSITION DIAGNOSTIC PASS','P0-F PACKAGED W2 LIBRARY DIAGNOSTIC PASS','P0-F PACKAGED STARTER CONTENT DIAGNOSTIC PASS')){
+            if($diag -notmatch [regex]::Escape($marker)){throw "PACKAGED_POST_ACCEPTANCE_RELAUNCH_MARKER_MISSING $marker"}
+          }
+          Write-Host 'FRESH_PACKAGED_POST_ACCEPTANCE_RELAUNCH=PASS'
+
+      - name: Recheck workflow and Full Product freshness before artifact publication
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "$WORKFLOW_REGISTRATION_BRANCH" "$FULL_PRODUCT_BRANCH"
+          workflow_live="$(git rev-parse "origin/$WORKFLOW_REGISTRATION_BRANCH")"
+          workflow_sha="$(git rev-parse HEAD)"
+          test "$workflow_sha" = "$workflow_live" || {
+            printf 'STALE_W4_WORKFLOW checkout=%s live=%s\n' "$workflow_sha" "$workflow_live" >&2
+            exit 1
+          }
+          live="$(git rev-parse "origin/$FULL_PRODUCT_BRANCH")"
+          test "$PRODUCT_SHA" = "$live" || {
+            printf 'STALE_W4_CANDIDATE requested=%s live=%s\n' "$PRODUCT_SHA" "$live" >&2
+            exit 1
+          }
+          test "$PRODUCT_SHA" = "$workflow_sha" || {
+            printf 'STALE_W4_EXACT_APEX product=%s workflow=%s\n' "$PRODUCT_SHA" "$workflow_sha" >&2
+            exit 1
+          }
+          echo 'W4_PRE_UPLOAD_WORKFLOW_FRESHNESS=PASS'
+          echo 'W4_PRE_UPLOAD_PRODUCT_FRESHNESS=PASS'
+          echo 'W4_PRE_UPLOAD_EXACT_APEX=PASS'
+          echo 'W4_PRE_UPLOAD_FRESHNESS=PASS'
+
+      - name: Write run-bound candidate metadata after freshness proof
+        shell: pwsh
+        working-directory: product-source
+        run: |
+          $ErrorActionPreference='Stop'
+          @'
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          hex40 = re.compile(r"^[0-9a-f]{40}$")
+          product_sha = os.environ["PRODUCT_SHA"].strip().lower()
+          workflow_sha = os.environ["WORKFLOW_AUTHORITY_SHA"].strip().lower()
+          if not hex40.fullmatch(product_sha):
+              raise SystemExit("RUN_METADATA_PRODUCT_SHA_INVALID")
+          if not hex40.fullmatch(workflow_sha):
+              raise SystemExit("RUN_METADATA_WORKFLOW_SHA_INVALID")
+          if product_sha != workflow_sha:
+              raise SystemExit("RUN_METADATA_EXACT_APEX_MISMATCH")
+          payload = {
+              "schema_version": 1,
+              "product_sha": product_sha,
+              "workflow_sha": workflow_sha,
+              "pre_upload_product_freshness": True,
+              "pre_upload_workflow_freshness": True,
+              "user_sound_pack_zip_sha256": os.environ["USER_SOUND_PACK_ZIP_SHA256"].strip().lower(),
+              "user_sound_inventory_sha256": os.environ["USER_SOUND_INVENTORY_SHA256"].strip().lower(),
+              "user_sound_wav_count": int(os.environ["USER_SOUND_WAV_COUNT"]),
+              "human_tested": False,
+              "nvda_verified": False,
+          }
+          path = Path("candidate-output/p0-evidence/w4-run-metadata.json")
+          path.parent.mkdir(parents=True, exist_ok=True)
+          temporary = path.with_suffix(".json.tmp")
+          temporary.write_text(
+              json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n",
+              encoding="utf-8",
+          )
+          temporary.replace(path)
+          print(f"W4_RUN_METADATA_PRODUCT_SHA={product_sha}")
+          print(f"W4_RUN_METADATA_WORKFLOW_SHA={workflow_sha}")
+          print("W4_RUN_METADATA=PASS")
+          '@ | python -
+          if($LASTEXITCODE -ne 0){throw 'Run-bound candidate metadata publication failed'}
+
+      - name: Candidate checkpoint
+        shell: pwsh
+        working-directory: product-source
+        run: |
+          $zip=Join-Path 'candidate-output' $env:CANDIDATE_FILE
+          $digest=(Get-FileHash -Algorithm SHA256 -LiteralPath $zip).Hash.ToLowerInvariant()
+          Write-Host "CANDIDATE_PRODUCT_SHA=$env:PRODUCT_SHA"
+          Write-Host "CANDIDATE_ZIP_SHA256=$digest"
+          Write-Host 'VERSION2_WINDOWS_ZIP=YES'
+          Write-Host 'FRESH_WINDOWS_CANDIDATE=YES'
+          Write-Host 'AUTOMATED_UIA_PROOF=PASS'
+          Write-Host 'P0_DOCUMENT_COPY_MACHINE_PROOF=PASS'
+          Write-Host 'P0G_HOTKEY_RESULT_MACHINE_PROOF=PASS'
+          Write-Host 'P0F_PACKAGED_STARTER_MACHINE_PROOF=PASS'
+          Write-Host "USER_SOUND_PACK_ZIP_SHA256=$env:USER_SOUND_PACK_ZIP_SHA256"
+          Write-Host "USER_SOUND_INVENTORY_SHA256=$env:USER_SOUND_INVENTORY_SHA256"
+          Write-Host 'USER_SOUND_PACK_330_WAV=YES'
+          Write-Host 'HUMAN_TESTED=NO'
+          Write-Host 'NVDA_VERIFIED=NO'
+
+      - name: Upload exact Windows NVDA test candidate and machine evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: Accessible-Chess-V2-NVDA-test-candidate
+          path: |
+            product-source/candidate-output/Accessible-Chess-V2-*-NVDA-test-candidate.zip
+            product-source/candidate-output/p0-evidence/*.json
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0

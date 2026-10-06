@@ -210,7 +210,6 @@ class KeymapAwareAccessibleChessAPI(AccessibleChessAPI):
         state["moves"] = self._moves_text()
         entitlement_view = project_entitlement(self._entitlement_payload, lang=self.lang)
         state["entitlement"] = semantic_contract(entitlement_view)
-        state["gameInfo"] = f"{state['gameInfo']}\n{entitlement_view.heading}: {entitlement_view.summary}"
         displayed_fen = str(state["fen"])
         try:
             self.analysis_ui.sync_position(displayed_fen)
@@ -562,6 +561,8 @@ class KeymapAwareAccessibleChessAPI(AccessibleChessAPI):
         pv_actions = {f"analysis.pv{i}": i for i in range(1, 6)}
         if action_id in pv_actions:
             return self.read_analysis_pv(pv_actions[action_id])
+        if action_id == "file.new":
+            return self.new_game()
         analysis_actions = {
             "analysis.start": self.start_analysis,
             "analysis.stop": self.stop_analysis,
@@ -613,7 +614,7 @@ class KeymapAwareAccessibleChessAPI(AccessibleChessAPI):
             self._record_position_after_move(san, side)
             return self._ok(("Зіграно: " if self.lang == "uk" else "Played: ") + _shared_spoken_san(san, self.lang))
         except Exception:
-            return self._error("Нелегальний хід." if self.lang == "uk" else "Illegal move.")
+            return self._error(self._t("move_invalid"))
 
     def _dispatch_move_entry_action(self, action_id: str) -> dict[str, Any]:
         handlers = {

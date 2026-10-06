@@ -1,0 +1,124 @@
+name: Current Apex Remappable Board And Submit Keys
+
+on:
+  push:
+    branches:
+      - 'fix/remappable-board-input-current-apex-20261004-c2mbezb'
+    paths:
+      - 'web/index.html'
+      - 'web/stage1_board_actions.js'
+      - 'tests/js/remappable_board_grid_controls_current_test.js'
+      - 'tests/js/remappable_input_submit_keys_current_test.js'
+      - 'tests/js/stage1_terminal_keymap_dom_test.js'
+      - '.github/workflows/current-apex-remappable-board-input.yml'
+      - '.github/workflows/keybindings-current-apex-dom-native.yml'
+  pull_request:
+    branches:
+      - 'converge/completion-launcher-books-20261004-sol56'
+    paths:
+      - 'web/index.html'
+      - 'web/stage1_board_actions.js'
+      - 'tests/js/remappable_board_grid_controls_current_test.js'
+      - 'tests/js/remappable_input_submit_keys_current_test.js'
+      - 'tests/js/stage1_terminal_keymap_dom_test.js'
+      - '.github/workflows/current-apex-remappable-board-input.yml'
+      - '.github/workflows/keybindings-current-apex-dom-native.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-apex-remappable-board-input-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove exact candidate and bounded PR scope
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          git diff --check
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            merge_base="$(git merge-base "$BASE_SHA" HEAD)"
+            git diff --check "$merge_base" HEAD
+            changed="$(git diff --name-only "$merge_base" HEAD | sort)"
+            focused_expected="$(printf '%s\n' \
+              '.github/workflows/current-apex-remappable-board-input.yml' \
+              '.github/workflows/keybindings-current-apex-dom-native.yml' \
+              'tests/js/remappable_board_grid_controls_current_test.js' \
+              'tests/js/remappable_input_submit_keys_current_test.js' \
+              'tests/js/stage1_terminal_keymap_dom_test.js' \
+              'web/index.html' \
+              'web/stage1_board_actions.js' | sort)"
+            aggregate_expected="$(printf '%s\n' \
+              '.github/workflows/current-apex-remappable-board-input.yml' \
+              '.github/workflows/keybindings-current-apex-dom-native.yml' \
+              '.github/workflows/p0-user-oneclick-portable-launcher.yml' \
+              '.github/workflows/pgn-post-commit-presentation-current.yml' \
+              '.github/workflows/portable-launch-report-reparse-safety.yml' \
+              'packaging/portable_launcher.c' \
+              'tests/js/remappable_board_grid_controls_current_test.js' \
+              'tests/js/remappable_input_submit_keys_current_test.js' \
+              'tests/js/stage1_terminal_keymap_dom_test.js' \
+              'tests/test_pgn_post_commit_presentation_recovery_current.py' \
+              'tests/test_portable_launcher_contract.py' \
+              'tests/test_portable_launcher_window_readiness.py' \
+              'tests/test_portable_localappdata_persistence_binding.py' \
+              'web/index.html' \
+              'web/stage1_board_actions.js' | sort)"
+            if [ "$changed" = "$focused_expected" ]; then
+              echo 'KEYMAP_SCOPE=FOCUSED'
+            elif [ "$HEAD_REF" = 'converge/current-product-launcher-keyboard-persistence-pgn-20261004-sol56-g255' ] \
+              && [ "$changed" = "$aggregate_expected" ]; then
+              echo 'KEYMAP_SCOPE=CONVERGED_PRODUCT'
+            else
+              printf 'Unexpected current-apex keymap/product scope:\n%s\n' "$changed" >&2
+              exit 1
+            fi
+          fi
+
+      - name: Setup exact Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile existing keymap authority
+        run: >-
+          python -m py_compile
+          acs/keybindings.py
+          acs/ui_keymap_adapter.py
+          tests/test_stage1_board_action_integration.py
+          tests/test_webview_keymap_bridge_contract.py
+
+      - name: Run registry and WebView bridge regressions
+        run: >-
+          python -m unittest -v
+          tests.test_keybindings
+          tests.test_stage1_board_action_integration
+          tests.test_webview_keymap_bridge_contract
+
+      - name: Prove remappable board runtime
+        run: node tests/js/remappable_board_grid_controls_current_test.js
+
+      - name: Prove remappable move and history submit runtime
+        run: node tests/js/remappable_input_submit_keys_current_test.js

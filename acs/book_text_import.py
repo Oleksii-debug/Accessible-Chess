@@ -14,9 +14,20 @@ from enum import Enum
 from hashlib import sha256
 import re
 from types import MappingProxyType
+from typing import Callable
 
-from .bookdocument import BookDocument, Diagram, Game, Heading, Note, Paragraph, Position
+from .bookdocument import (
+    BookDocument,
+    Diagram,
+    Game,
+    Heading,
+    ListBlock,
+    Note,
+    Paragraph,
+    Position,
+)
 from .chesscore import Board
+from .legacy_text_encoding import LegacyTextEncodingError, decode_book_text_bytes
 from .pgn_roundtrip import PgnRoundTripError, parse_pgn_text
 
 
@@ -76,7 +87,7 @@ def _optional_text(value: object, field: str) -> str | None:
     return _required_text(value, field)
 
 
-def _source_text(source: object) -> tuple[str, bytes]:
+def _source_text(source: object) -> tuple[str, bytes, bool]:
     if type(source) is str:
         try:
             raw = source.encode("utf-8")
@@ -90,7 +101,7 @@ def _source_text(source: object) -> tuple[str, bytes]:
                 "Text book source exceeds the supported size",
                 code=BookTextImportErrorCode.RESOURCE_LIMIT,
             )
-        return source, raw
+        return source, raw, False
     if type(source) is bytes:
         if len(source) > MAX_TEXT_SOURCE_BYTES:
             raise BookTextImportError(
@@ -98,12 +109,13 @@ def _source_text(source: object) -> tuple[str, bytes]:
                 code=BookTextImportErrorCode.RESOURCE_LIMIT,
             )
         try:
-            return source.decode("utf-8-sig"), source
-        except UnicodeDecodeError as exc:
+            decoded = decode_book_text_bytes(source)
+        except LegacyTextEncodingError as exc:
             raise BookTextImportError(
-                "Text book source must use UTF-8 encoding",
+                "Text book source must use UTF-8, BOM UTF-16 or qualified Windows-1251 encoding",
                 code=BookTextImportErrorCode.UNSUPPORTED_ENCODING,
             ) from exc
+        return decoded.text, source, decoded.legacy
     raise BookTextImportError(
         "Text book source must be text or bytes",
         code=BookTextImportErrorCode.INVALID_ARGUMENT,
@@ -144,6 +156,7 @@ class _Builder:
         self.source_format = source_format
         self.blocks: list[object] = []
         self.warnings: list[str] = []
+        self._warnings_suppressed = False
         self.pgn_games = 0
         self.positions = 0
         self._identities: dict[str, int] = {}
@@ -164,32 +177,86 @@ class _Builder:
         self.blocks.append(block)
 
     def warning(self, text: str) -> None:
+        if self._warnings_suppressed:
+            return
         if len(self.warnings) < MAX_TEXT_WARNINGS:
             self.warnings.append(text)
-        elif len(self.warnings) == MAX_TEXT_WARNINGS:
-            self.warnings.append("additional text import warnings were suppressed")
+            return
+        # MAX_TEXT_WARNINGS is the complete publication budget, including the
+        # suppression marker. Preserve every warning when there is no overflow;
+        # on the first overflow replace only the final budget slot.
+        if MAX_TEXT_WARNINGS > 0:
+            self.warnings[-1] = "additional text import warnings were suppressed"
+        self._warnings_suppressed = True
 
-    def paragraph(self, text: str, line: int) -> None:
+    def paragraph(
+        self,
+        text: str,
+        line: int,
+        *,
+        identity_text: str | None = None,
+    ) -> None:
         text = text.strip()
         if not text:
             return
+        identity = text if identity_text is None else identity_text.strip()
+        if not identity:
+            identity = text
         self._append(
             Paragraph(
                 text=text,
-                block_id=self._id("Paragraph", text),
+                block_id=self._id("Paragraph", identity),
                 source_anchor=f"line:{line}",
             )
         )
 
-    def heading(self, text: str, level: int, line: int) -> None:
+    def heading(
+        self,
+        text: str,
+        level: int,
+        line: int,
+        *,
+        identity_text: str | None = None,
+    ) -> None:
         text = text.strip()
         if not text:
             return
+        identity = text if identity_text is None else identity_text.strip()
+        if not identity:
+            identity = text
         self._append(
             Heading(
                 text=text,
                 level=level,
-                block_id=self._id("Heading", f"{level}\0{text}"),
+                block_id=self._id("Heading", f"{level}\0{identity}"),
+                source_anchor=f"line:{line}",
+            )
+        )
+
+    def list_block(
+        self,
+        items: list[str],
+        line: int,
+        *,
+        ordered: bool,
+        start: int | None,
+    ) -> None:
+        clean = [item.strip() for item in items if item.strip()]
+        if not clean:
+            return
+        identity = (
+            ("ordered" if ordered else "unordered")
+            + "\0"
+            + (str(start) if start is not None else "")
+            + "\0"
+            + "\0".join(clean)
+        )
+        self._append(
+            ListBlock(
+                items=clean,
+                ordered=ordered,
+                start=start,
+                block_id=self._id("List", identity),
                 source_anchor=f"line:{line}",
             )
         )
@@ -272,6 +339,10 @@ class _Builder:
                 code=BookTextImportErrorCode.MALFORMED_CHESS_CONTENT,
             )
         game = games[0]
+        if game.warnings:
+            self.warning(
+                "Explicit PGN block required canonical recovery; review the game before relying on recovered content"
+            )
         title = " — ".join(
             part for part in (game.tags.get("White"), game.tags.get("Black"))
             if part and part != "?"
@@ -288,19 +359,283 @@ class _Builder:
         self.pgn_games += 1
 
 
-_HEADING_RE = re.compile(r"^(#{1,6})[ \t]+(.+?)\s*#*\s*$")
-_FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})([^`]*)$")
-_IMAGE_RE = re.compile(r"!\[([^\]]+)\]\([^\)]+\)")
-_LIST_RE = re.compile(r"^\s*(?:[-+*]|\d+[.)])\s+(.+)$")
+_HEADING_RE = re.compile(r"^(#{1,6})[ \t]+(.+?)(?:[ \t]+#+)?[ \t]*$")
+_LEGACY_HEADING_ID_RE = re.compile(r"^(#{1,6})[ \t]+(.+?)\s*#*\s*$")
+_FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})([^`]*)$")
+_LIST_RE = re.compile(
+    r"^(?P<indent>[ \t]*)(?:(?P<bullet>[-+*])|(?P<number>[0-9]{1,9})(?P<delimiter>[.)]))\s+(?P<text>.+)$"
+)
 _QUOTE_RE = re.compile(r"^\s*>\s?(.*)$")
 
 
-def _parse_txt(text: str, builder: _Builder) -> None:
+def _semantic_image_opener(line: str, index: int) -> tuple[int, str] | None:
+    """Return destination start and accessible alt text for a bounded image opener."""
+
+    if not line.startswith("![", index):
+        return None
+    cursor = index + 2
+    alt: list[str] = []
+    while cursor < len(line):
+        char = line[cursor]
+        if char == "\\" and cursor + 1 < len(line):
+            escaped = line[cursor + 1]
+            if escaped in "\\[]()!":
+                alt.append(escaped)
+                cursor += 2
+                continue
+            alt.append(char)
+            cursor += 1
+            continue
+        if char == "]" and cursor + 1 < len(line) and line[cursor + 1] == "(":
+            return cursor + 2, "".join(alt)
+        alt.append(char)
+        cursor += 1
+    return None
+
+
+@dataclass(frozen=True, slots=True)
+class _SemanticImageMatch:
+    start_index: int
+    end_index: int
+    alt: str
+
+    def start(self) -> int:
+        return self.start_index
+
+    def end(self) -> int:
+        return self.end_index
+
+    def group(self, index: int) -> str:
+        if index != 1:
+            raise IndexError("semantic image match exposes only alt-text group 1")
+        return self.alt
+
+
+def _semantic_image_end(line: str, destination_start: int) -> int | None:
+    """Return the exclusive end of one bounded CommonMark inline-image target."""
+
+    length = len(line)
+    cursor = destination_start
+    leading_whitespace = False
+    while cursor < length and line[cursor] in " \t":
+        leading_whitespace = True
+        cursor += 1
+    if cursor >= length:
+        return None
+    if line[cursor] == ")":
+        return cursor + 1
+
+    # Empty destination followed by a quoted title.
+    destination_complete = False
+    if leading_whitespace and line[cursor] in {'"', "'"}:
+        destination_complete = True
+    elif line[cursor] == "<":
+        cursor += 1
+        while cursor < length:
+            char = line[cursor]
+            if char == "\\" and cursor + 1 < length:
+                cursor += 2
+                continue
+            if char == "<":
+                return None
+            if char == ">":
+                cursor += 1
+                destination_complete = True
+                break
+            cursor += 1
+        if not destination_complete:
+            return None
+    else:
+        nested = 0
+        started = cursor
+        while cursor < length:
+            char = line[cursor]
+            if char == "\\" and cursor + 1 < length:
+                cursor += 2
+                continue
+            if char in " \t":
+                if nested:
+                    return None
+                destination_complete = True
+                break
+            if ord(char) < 0x20 or ord(char) == 0x7F:
+                return None
+            if char == "(":
+                nested += 1
+                cursor += 1
+                continue
+            if char == ")":
+                if nested:
+                    nested -= 1
+                    cursor += 1
+                    continue
+                return cursor + 1
+            cursor += 1
+        if cursor == started or not destination_complete:
+            return None
+
+    while cursor < length and line[cursor] in " \t":
+        cursor += 1
+    if cursor >= length:
+        return None
+    if line[cursor] == ")":
+        return cursor + 1
+
+    opener = line[cursor]
+    if opener not in {'"', "'", "("}:
+        return None
+    closer = ")" if opener == "(" else opener
+    cursor += 1
+    while cursor < length:
+        char = line[cursor]
+        if char == "\\" and cursor + 1 < length:
+            cursor += 2
+            continue
+        if char == closer:
+            cursor += 1
+            break
+        if opener == "(" and char == "(":
+            return None
+        cursor += 1
+    else:
+        return None
+
+    while cursor < length and line[cursor] in " \t":
+        cursor += 1
+    if cursor < length and line[cursor] == ")":
+        return cursor + 1
+    return None
+
+
+def _iter_semantic_images(line: str):
+    """Yield bounded inline images outside conservative backtick literals.
+
+    This remains a single-pass recognizer, not a second Markdown parser.
+    Escaped punctuation and backtick-delimited text stay readable source text.
+    Image destinations follow a bounded CommonMark inline-target grammar:
+    empty targets, angle-bracket targets, balanced raw parentheses and optional
+    titles are recognized; malformed or ambiguous targets remain literal text.
+    """
+
+    index = 0
+    code_ticks = 0
+    length = len(line)
+    while index < length:
+        char = line[index]
+        if char == "`":
+            end = index + 1
+            while end < length and line[end] == "`":
+                end += 1
+            run_length = end - index
+            if code_ticks == 0:
+                code_ticks = run_length
+            elif run_length == code_ticks:
+                code_ticks = 0
+            index = end
+            continue
+        if code_ticks:
+            # Backslashes are literal inside a code span; they must not escape
+            # the matching closing backtick run.
+            index += 1
+            continue
+        if char == "\\":
+            index = min(length, index + 2)
+            continue
+
+        opener = _semantic_image_opener(line, index)
+        if opener is not None:
+            destination_start, alt_text = opener
+            image_end = _semantic_image_end(line, destination_start)
+            if image_end is not None:
+                yield _SemanticImageMatch(
+                    start_index=index,
+                    end_index=image_end,
+                    alt=alt_text,
+                )
+                index = image_end
+                continue
+
+        index += 1
+
+
+def _semantic_image_stripped_text(text: str) -> str:
+    """Remove recognized image references while preserving all other source text."""
+
+    parts: list[str] = []
+    cursor = 0
+    for match in _iter_semantic_images(text):
+        parts.append(text[cursor:match.start()])
+        cursor = match.end()
+    parts.append(text[cursor:])
+    return "".join(parts)
+
+
+def _accessible_list_item_text(text: str) -> tuple[str, bool]:
+    """Preserve inline image alt text inside a flat canonical list item.
+
+    BookDocument ListBlock has no nested image child kind.  A Markdown image in
+    a list item therefore stays in the list as selectable/readable alt text,
+    while the caller emits an explicit structural-loss warning.  Asset URLs are
+    never fetched or exposed as inferred chess semantics.
+    """
+
+    matches = _iter_semantic_images(text)
+    first = next(matches, None)
+    if first is None:
+        return text.strip(), False
+
+    parts: list[str] = []
+    cursor = 0
+    match = first
+    while match is not None:
+        parts.append(text[cursor:match.start()])
+        alt = match.group(1).strip()
+        if alt:
+            parts.append(alt)
+        cursor = match.end()
+        match = next(matches, None)
+    parts.append(text[cursor:])
+    return re.sub(r"[ \t]+", " ", "".join(parts)).strip(), True
+
+
+def _readable_list_fallback(match: re.Match[str]) -> tuple[str, bool]:
+    """Flatten an unrepresentable list row without leaking image destinations.
+
+    Keep the authored marker visible so reading order and list intent survive the
+    fallback, but reduce semantic inline images to their accessible alt text.
+    This never fetches assets or infers chess content.
+    """
+
+    ordered = match.group("number") is not None
+    marker = (
+        f"{match.group('number')}{match.group('delimiter')}"
+        if ordered
+        else match.group("bullet")
+    )
+    item, had_image = _accessible_list_item_text(match.group("text"))
+    return f"{marker} {item}".rstrip(), had_image
+
+
+def _is_fence_close(line: str, marker: str) -> bool:
+    leading_spaces = len(line) - len(line.lstrip(" "))
+    if leading_spaces > 3:
+        return False
+    candidate = line[leading_spaces:].rstrip(" \t")
+    return (
+        len(candidate) >= len(marker)
+        and bool(candidate)
+        and set(candidate) == {marker[0]}
+    )
+
+
+def _parse_txt(text: str, builder: _Builder, control_checkpoint: Callable[[], None] | None = None) -> None:
     lines = _normalize_newlines(text).split("\n")
     paragraph: list[str] = []
     start = 1
     visible = 0
     for number, line in enumerate(lines, start=1):
+        if control_checkpoint is not None and number % 128 == 1:
+            control_checkpoint()
         visible += len(line)
         if visible > MAX_TEXT_VISIBLE_CHARS:
             raise BookTextImportError(
@@ -319,7 +654,7 @@ def _parse_txt(text: str, builder: _Builder) -> None:
         builder.paragraph(_compact_paragraph(paragraph), start)
 
 
-def _parse_markdown(text: str, builder: _Builder) -> None:
+def _parse_markdown(text: str, builder: _Builder, control_checkpoint: Callable[[], None] | None = None) -> None:
     lines = _normalize_newlines(text).split("\n")
     paragraph: list[str] = []
     paragraph_start = 1
@@ -333,6 +668,8 @@ def _parse_markdown(text: str, builder: _Builder) -> None:
             paragraph = []
 
     while index < len(lines):
+        if control_checkpoint is not None:
+            control_checkpoint()
         line = lines[index]
         number = index + 1
         visible += len(line)
@@ -351,8 +688,10 @@ def _parse_markdown(text: str, builder: _Builder) -> None:
             index += 1
             closed = False
             while index < len(lines):
+                if control_checkpoint is not None and index % 128 == 0:
+                    control_checkpoint()
                 current = lines[index]
-                if current.strip() and current.strip()[0] == marker[0] and len(current.strip()) >= len(marker) and set(current.strip()) == {marker[0]}:
+                if _is_fence_close(current, marker):
                     closed = True
                     break
                 body_lines.append(current)
@@ -383,7 +722,18 @@ def _parse_markdown(text: str, builder: _Builder) -> None:
         heading = _HEADING_RE.match(line)
         if heading:
             flush()
-            builder.heading(heading.group(2), len(heading.group(1)), number)
+            legacy_heading = _LEGACY_HEADING_ID_RE.match(line)
+            identity_text = (
+                legacy_heading.group(2)
+                if legacy_heading is not None
+                else heading.group(2)
+            )
+            builder.heading(
+                heading.group(2),
+                len(heading.group(1)),
+                number,
+                identity_text=identity_text,
+            )
             index += 1
             continue
 
@@ -392,16 +742,47 @@ def _parse_markdown(text: str, builder: _Builder) -> None:
             index += 1
             continue
 
-        images = _IMAGE_RE.findall(line)
-        if images:
+        image_matches = _iter_semantic_images(line)
+        first_image = next(image_matches, None)
+        if first_image is not None and _LIST_RE.match(line) is None:
             flush()
-            for alt in images:
-                alt = alt.strip()
+            # Keep the historical Paragraph identity for ordinary image
+            # references, but derive it from the same bounded recognizer that
+            # owns visible semantics. This keeps nested/escaped destination URLs
+            # out of deterministic reading-progress identity.
+            legacy_paragraph_identity = _semantic_image_stripped_text(line).strip() or None
+            legacy_identity_available = legacy_paragraph_identity is not None
+            cursor = 0
+            match = first_image
+            while match is not None:
+                leading = line[cursor:match.start()].strip()
+                if leading:
+                    builder.paragraph(
+                        leading,
+                        number,
+                        identity_text=(
+                            legacy_paragraph_identity
+                            if legacy_identity_available
+                            else None
+                        ),
+                    )
+                    legacy_identity_available = False
+                alt = match.group(1).strip()
                 if alt:
                     builder.image_note(alt, number)
-            remaining = _IMAGE_RE.sub("", line).strip()
-            if remaining:
-                builder.paragraph(remaining, number)
+                cursor = match.end()
+                match = next(image_matches, None)
+            trailing = line[cursor:].strip()
+            if trailing:
+                builder.paragraph(
+                    trailing,
+                    number,
+                    identity_text=(
+                        legacy_paragraph_identity
+                        if legacy_identity_available
+                        else None
+                    ),
+                )
             index += 1
             continue
 
@@ -409,9 +790,139 @@ def _parse_markdown(text: str, builder: _Builder) -> None:
         quote_match = _QUOTE_RE.match(line)
         if list_match:
             flush()
-            builder.paragraph("• " + list_match.group(1).strip(), number)
-            builder.warning("Markdown list structure was preserved as ordered reading text because the current BookDocument has no list block kind")
-            index += 1
+            indent = list_match.group("indent")
+            ordered = list_match.group("number") is not None
+            start_value = int(list_match.group("number")) if ordered else None
+
+            if "\t" in indent or len(indent) > 3:
+                fallback_text, fallback_had_image = _readable_list_fallback(
+                    list_match
+                )
+                builder.paragraph(fallback_text, number)
+                builder.warning(
+                    "Markdown list indentation or nesting could not be represented canonically and was preserved as readable text"
+                )
+                if fallback_had_image:
+                    builder.warning(
+                        "Markdown image inside an unrepresentable list item was preserved as accessible text; no asset was fetched and nested image structure is not represented"
+                    )
+                index += 1
+                continue
+
+            if ordered and start_value is not None and start_value < 1:
+                fallback_text, fallback_had_image = _readable_list_fallback(
+                    list_match
+                )
+                builder.paragraph(fallback_text, number)
+                builder.warning(
+                    "Markdown ordered list with non-positive start was preserved as reading text because canonical List start must be positive"
+                )
+                if fallback_had_image:
+                    builder.warning(
+                        "Markdown image inside an unrepresentable list item was preserved as accessible text; no asset was fetched and nested image structure is not represented"
+                    )
+                index += 1
+                continue
+
+            first_item, list_image_warning = _accessible_list_item_text(
+                list_match.group("text")
+            )
+            items = [first_item]
+            marker_identity = (
+                list_match.group("delimiter")
+                if ordered
+                else list_match.group("bullet")
+            )
+            next_index = index + 1
+            while next_index < len(lines):
+                if control_checkpoint is not None and next_index % 128 == 0:
+                    control_checkpoint()
+                candidate = lines[next_index]
+                candidate_match = _LIST_RE.match(candidate)
+                if candidate_match is None or candidate_match.group("indent") != indent:
+                    break
+                candidate_ordered = candidate_match.group("number") is not None
+                if candidate_ordered != ordered:
+                    break
+                candidate_marker_identity = (
+                    candidate_match.group("delimiter")
+                    if candidate_ordered
+                    else candidate_match.group("bullet")
+                )
+                if candidate_marker_identity != marker_identity:
+                    break
+                # Markdown numbering after the first ordered marker does not
+                # define the rendered sequence. The first marker establishes
+                # the canonical start; later authored numbers remain list items
+                # unless the delimiter or indentation changes. Requiring +1
+                # here created false list boundaries for keyboard/NVDA readers.
+                visible += len(candidate)
+                if visible > MAX_TEXT_VISIBLE_CHARS:
+                    raise BookTextImportError(
+                        "Markdown book visible text exceeds the supported size",
+                        code=BookTextImportErrorCode.RESOURCE_LIMIT,
+                    )
+                candidate_item, candidate_had_image = _accessible_list_item_text(
+                    candidate_match.group("text")
+                )
+                items.append(candidate_item)
+                list_image_warning = list_image_warning or candidate_had_image
+                next_index += 1
+
+            builder.list_block(
+                items,
+                number,
+                ordered=ordered,
+                start=start_value if ordered else None,
+            )
+            if list_image_warning:
+                builder.warning(
+                    "Markdown image inside a list item was preserved as accessible list-item text; no asset was fetched and nested image structure is not represented"
+                )
+
+            # One to three leading spaces can represent a top-level Markdown
+            # list when the whole list uses that indentation.  A deeper list
+            # marker immediately following this list, however, is authored
+            # nesting. BookDocument has no nested-list model, so never flatten
+            # that child into a second peer ListBlock. Preserve its text and
+            # surface the structural loss explicitly.
+            nested_warning_emitted = False
+            while next_index < len(lines):
+                if control_checkpoint is not None and next_index % 128 == 0:
+                    control_checkpoint()
+                nested_line = lines[next_index]
+                nested_match = _LIST_RE.match(nested_line)
+                if nested_match is None:
+                    break
+                nested_indent = nested_match.group("indent")
+                is_deeper = (
+                    "\t" in nested_indent
+                    or len(nested_indent) > len(indent)
+                )
+                if not is_deeper:
+                    break
+                visible += len(nested_line)
+                if visible > MAX_TEXT_VISIBLE_CHARS:
+                    raise BookTextImportError(
+                        "Markdown book visible text exceeds the supported size",
+                        code=BookTextImportErrorCode.RESOURCE_LIMIT,
+                    )
+                fallback_text, fallback_had_image = _readable_list_fallback(
+                    nested_match
+                )
+                builder.paragraph(fallback_text, next_index + 1)
+                if fallback_had_image:
+                    builder.warning(
+                        "Markdown image inside an unrepresentable list item was preserved as accessible text; no asset was fetched and nested image structure is not represented"
+                    )
+                if not nested_warning_emitted:
+                    builder.warning(
+                        "Markdown list indentation or nesting could not be represented canonically and was preserved as readable text"
+                    )
+                    nested_warning_emitted = True
+                next_index += 1
+
+            index = next_index
             continue
         if quote_match:
             flush()
@@ -438,26 +949,36 @@ def import_text_book(
     title: str | None = None,
     author: str | None = None,
     language: str | None = None,
+    control_checkpoint: Callable[[], None] | None = None,
 ) -> BookTextImportResult:
-    """Import UTF-8 TXT or Markdown into an existing semantic ``BookDocument``.
+    """Import UTF-8, BOM UTF-16 or qualified Windows-1251 into ``BookDocument``.
 
     The adapter performs no filesystem or network access. Plain TXT is readable
     text only: it never guesses headings, games, FENs, or ASCII chess diagrams.
     Markdown chess semantics require explicit fenced ``pgn``/``fen`` markers.
     """
 
+    if control_checkpoint is not None:
+        if not callable(control_checkpoint):
+            raise TypeError("control_checkpoint must be callable")
+        control_checkpoint()
     display_source = _required_text(source_name, "source_name")
     resolved_format = _format(source_format)
     override_title = _optional_text(title, "title")
     override_author = _optional_text(author, "author")
     override_language = _optional_text(language, "language")
-    text, raw = _source_text(source)
+    text, raw, legacy_windows_1251 = _source_text(source)
     builder = _Builder(resolved_format)
+    if legacy_windows_1251:
+        builder.warning("Legacy Windows-1251 book text was decoded losslessly.")
 
     if resolved_format is BookTextFormat.TXT:
-        _parse_txt(text, builder)
+        _parse_txt(text, builder, control_checkpoint)
     else:
-        _parse_markdown(text, builder)
+        _parse_markdown(text, builder, control_checkpoint)
+
+    if control_checkpoint is not None:
+        control_checkpoint()
 
     if not builder.blocks:
         raise BookTextImportError(
@@ -497,16 +1018,17 @@ BOOK_TEXT_CAPABILITIES = MappingProxyType(
     {
         "TXT": {
             "status": "SUPPORTED",
-            "encoding": "UTF-8",
+            "encoding": "UTF-8; BOM-declared UTF-16; evidence-gated Windows-1251",
             "semantics": ("Paragraph",),
             "chess_inference": "NONE",
         },
         "Markdown": {
             "status": "PARTIAL",
-            "encoding": "UTF-8",
+            "encoding": "UTF-8; BOM-declared UTF-16; evidence-gated Windows-1251",
             "semantics": (
                 "Heading",
                 "Paragraph",
+                "List(ordered/unordered)",
                 "Note(image/code)",
                 "Game(explicit fenced PGN)",
                 "Position(explicit fenced FEN)",
@@ -519,7 +1041,7 @@ BOOK_TEXT_CAPABILITIES = MappingProxyType(
             "DOCX",
             "EPUB",
             "PDF/OCR",
-            "arbitrary legacy encodings",
+            "legacy encodings other than qualified Windows-1251",
             "ASCII-diagram recognition",
             "implicit PGN/FEN recognition from prose",
             "network or filesystem source fetching",

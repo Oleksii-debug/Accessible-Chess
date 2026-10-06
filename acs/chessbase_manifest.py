@@ -129,6 +129,45 @@ def build_chessbase_manifest(path: str | Path) -> ChessBaseBundleManifest:
             status = "partial"
         else:
             status = "evidence_collected"
+    elif probe.extension == ".cbf":
+        cbi = tuple(
+            component
+            for component in probe.components
+            if component.extension == ".cbi"
+        )
+        if len(cbi) != 1 or not cbi[0].exists:
+            warnings.append(
+                "Legacy CBF/CBI pair is incomplete; the required same-stem .cbi companion is unavailable."
+            )
+            status = "damaged"
+        else:
+            component = cbi[0]
+            if component.path.is_symlink():
+                warnings.append(
+                    "Required CBI companion uses filesystem indirection and was rejected."
+                )
+                status = "damaged"
+            elif not component.path.is_file():
+                warnings.append(
+                    "Required CBI companion is unavailable or unsafe to inspect."
+                )
+                status = "damaged"
+            else:
+                try:
+                    components.append(
+                        _with_role(
+                            _hash_file(component.path),
+                            component.role,
+                            component.extension,
+                        )
+                    )
+                except (OSError, ValueError, RuntimeError):
+                    warnings.append(
+                        "Required CBI companion evidence is unavailable or unsafe."
+                    )
+                    status = "damaged"
+                else:
+                    status = "evidence_collected"
     else:
         status = "evidence_collected"
     warnings.append("Manifest records source evidence only; decoder compatibility is not implied.")
@@ -146,6 +185,56 @@ def build_chessbase_manifest(path: str | Path) -> ChessBaseBundleManifest:
 
 def verify_manifest_unchanged(manifest: ChessBaseBundleManifest) -> tuple[bool, tuple[str, ...]]:
     problems: list[str] = []
+    if Path(manifest.primary_path).suffix.lower() == ".cbh":
+        try:
+            probe = probe_chessbase_source(manifest.primary_path)
+            observed_components = {
+                component.path.absolute()
+                for component in probe.existing_components
+            }
+            recorded_components = {
+                Path(evidence.path).absolute()
+                for evidence in manifest.components
+            }
+            if observed_components != recorded_components:
+                problems.append(
+                    "ChessBase component family membership changed since manifest creation."
+                )
+        except (OSError, ValueError, RuntimeError) as exc:
+            problems.append(
+                f"ChessBase component family could not be revalidated: {type(exc).__name__}"
+            )
+    if Path(manifest.primary_path).suffix.lower() == ".cbf":
+        try:
+            probe = probe_chessbase_source(manifest.primary_path)
+            cbi = tuple(
+                component
+                for component in probe.components
+                if component.extension == ".cbi"
+            )
+            recorded_cbi = tuple(
+                evidence
+                for evidence in manifest.components
+                if evidence.extension == ".cbi"
+            )
+            if len(cbi) != 1 or not cbi[0].exists:
+                problems.append(
+                    "Legacy CBF/CBI source family is incomplete or changed."
+                )
+            elif (
+                cbi[0].path.is_symlink()
+                or not cbi[0].path.is_file()
+                or len(recorded_cbi) != 1
+                or Path(recorded_cbi[0].path).absolute()
+                != cbi[0].path.absolute()
+            ):
+                problems.append(
+                    "Legacy CBF/CBI companion evidence is unavailable or changed."
+                )
+        except (OSError, ValueError, RuntimeError) as exc:
+            problems.append(
+                f"Legacy CBF/CBI family could not be verified: {type(exc).__name__}"
+            )
     for evidence in manifest.all_evidence:
         path = Path(evidence.path)
         safe_name = report_safe_name(evidence.path)

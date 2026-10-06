@@ -55,8 +55,10 @@ class TeacherWebViewBridge:
     def _text(value: object, *, name: str, limit: int) -> str:
         if type(value) is not str:
             raise TypeError(f"teacher {name} must be text")
+        if len(value) > limit:
+            raise ValueError(f"teacher {name} is invalid")
         token = value.strip()
-        if not token or len(token) > limit or "\x00" in token:
+        if not token or "\x00" in token:
             raise ValueError(f"teacher {name} is invalid")
         return token
 
@@ -94,7 +96,11 @@ class TeacherWebViewBridge:
                         "square": event.payload["square"],
                         "clear_editor": True,
                         "focus_target": "teacher-pointer-input",
-                        "announcement": "",
+                        "announcement": (
+                            f"Pointer {event.payload['square']}"
+                            if self._language is UILanguage.EN
+                            else f"Вказівник {event.payload['square']}"
+                        ),
                     },
                 )
             if command_id == "teacher.orientation.toggle":
@@ -106,7 +112,11 @@ class TeacherWebViewBridge:
                         "orientation": event.payload["orientation"],
                         "snapshot": self._projection.snapshot(language=self._language.value),
                         "focus_target": "teacher-orientation-toggle",
-                        "announcement": "",
+                        "announcement": (
+                            ("Black at bottom" if event.payload["orientation"] == "black" else "White at bottom")
+                            if self._language is UILanguage.EN
+                            else ("Чорні внизу" if event.payload["orientation"] == "black" else "Білі внизу")
+                        ),
                     },
                 )
             if command_id == "teacher.student_event":

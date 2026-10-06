@@ -40,7 +40,7 @@ ROUTES: tuple[ModuleRoute, ...] = (
     ModuleRoute("pgn", {UILanguage.UA: "PGN і дерево партії", UILanguage.EN: "PGN and game tree"}, {UILanguage.UA: "Партії, варіанти, коментарі та теги", UILanguage.EN: "Games, variations, comments, and tags"}, default_focus_id="pgn-game-list", open_action_id="screen.pgn"),
     ModuleRoute("library", {UILanguage.UA: "Бібліотека і пошук", UILanguage.EN: "Library and search"}, {UILanguage.UA: "Пошук і відкриття збережених партій", UILanguage.EN: "Search and open saved games"}, default_focus_id="library-search-player", open_action_id="screen.library"),
     ModuleRoute("books", {UILanguage.UA: "Книги", UILanguage.EN: "Books"}, {UILanguage.UA: "Структуроване читання шахових матеріалів", UILanguage.EN: "Structured chess material reading"}, default_focus_id="book-reader", open_action_id="screen.books"),
-    ModuleRoute("training", {UILanguage.UA: "Тренування", UILanguage.EN: "Training"}, {UILanguage.UA: "Вправи, підказки та прогрес", UILanguage.EN: "Exercises, hints, and progress"}, default_focus_id="training-prompt", open_action_id="screen.training"),
+    ModuleRoute("training", {UILanguage.UA: "Тренування", UILanguage.EN: "Training"}, {UILanguage.UA: "Вправи, підказки та прогрес", UILanguage.EN: "Exercises, hints, and progress"}, default_focus_id="training-answer", open_action_id="screen.training"),
     ModuleRoute("teacher", {UILanguage.UA: "Режим викладача", UILanguage.EN: "Teacher mode"}, {UILanguage.UA: "Візуальне пояснення для учня з керуванням із клавіатури", UILanguage.EN: "Keyboard-controlled visual teaching for a student"}, default_focus_id="teacher-pointer-input", open_action_id="screen.teacher"),
     ModuleRoute("classes", {UILanguage.UA: "Класи й учні", UILanguage.EN: "Classes and students"}, {UILanguage.UA: "Уроки, завдання та прогрес учнів", UILanguage.EN: "Lessons, assignments, and student progress"}, default_focus_id="classes-list", open_action_id="screen.classes"),
     ModuleRoute("settings", {UILanguage.UA: "Налаштування", UILanguage.EN: "Settings"}, {UILanguage.UA: "Параметри програми та доступності", UILanguage.EN: "Application and accessibility settings"}, default_focus_id="settings-list", open_action_id="screen.settings"),
@@ -49,9 +49,26 @@ ROUTES: tuple[ModuleRoute, ...] = (
 
 _ROUTE_INDEX = {route.route_id: route for route in ROUTES}
 _INTERNAL_ERROR_PATTERN = re.compile(
-    r'(?:Traceback|File\s+".*?"|[A-Za-z]:\\|/[^\s]+\.py\b|sqlite|UCI\s+error|HRESULT|'
-    r'OperationalError|PermissionError|WinError\s*\d+)',
+    r'(?:Traceback|File\s+".*?"|sqlite|'
+    r'\b[A-Za-z_][\w.]*?(?:Error|Exception)\s*:|UCI\s+error|HRESULT|'
+    r'OperationalError|PermissionError|WinError\s*\d+|'
+    r'\b(?:provider|backend|subprocess)\b)',
     re.IGNORECASE,
+)
+_LOCAL_PATH_PATTERN = re.compile(
+    r'(?:(?<![A-Za-z0-9])[A-Za-z]:(?:[\\/]|(?=[^:\s]{1,160}(?:[\\/]|$)))|'
+    r'\\\\[^\\\s]+\\[^\\\s]+|file://|'
+    r'/(?:home|tmp|var|private|opt|usr|mnt|Users|etc|srv|run|root|Applications)(?:/|\b)|'
+    r'(?:^|[\s"\'(=])/(?:[^/\s]+/)+[^/\s]+)',
+    re.IGNORECASE,
+)
+_FOCUS_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,160}$")
+
+_UCI_PROTOCOL_PATTERN = re.compile(
+    r'^\s*(?:uci|isready|uciok|readyok|stop|quit|ponderhit)\s*$|'
+    r'^\s*(?:id\s+(?:name|author)\b|option\s+name\b|bestmove\b|info\b|'
+    r'setoption\s+name\b|position\s+(?:startpos|fen)\b|go(?:\s|$))',
+    re.IGNORECASE | re.MULTILINE,
 )
 
 
@@ -60,6 +77,18 @@ class DialogFocusFrame:
     dialog_id: str
     opener_focus_id: str
     initial_focus_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class _ShellPresentationState:
+    """Rollback-only snapshot of browser-visible shell presentation state."""
+
+    language: UILanguage
+    route_id: str
+    focus_by_route: tuple[tuple[str, str], ...]
+    dialogs: tuple[DialogFocusFrame, ...]
+    focus_observation_sequence: int
+    last_observed_focus: tuple[int, str, str] | None
 
 
 class AccessibleShellState:
@@ -84,6 +113,9 @@ class AccessibleShellState:
         self._route_id = initial_route
         self._focus_by_route: dict[str, str] = {}
         self._dialogs: list[DialogFocusFrame] = []
+        self._focus_observation_sequence = 0
+        self._last_observed_focus: tuple[int, str, str] | None = None
+        self._publication_hold_active = False
 
     @property
     def language(self) -> UILanguage:
@@ -97,29 +129,104 @@ class AccessibleShellState:
     def active_dialog_id(self) -> str | None:
         return self._dialogs[-1].dialog_id if self._dialogs else None
 
+    def _capture_presentation_state(self) -> _ShellPresentationState:
+        """Capture only transient route/focus/locale state for publication rollback."""
+        return _ShellPresentationState(
+            language=self._language,
+            route_id=self._route_id,
+            focus_by_route=tuple(self._focus_by_route.items()),
+            dialogs=tuple(self._dialogs),
+            focus_observation_sequence=self._focus_observation_sequence,
+            last_observed_focus=self._last_observed_focus,
+        )
+
+    def _restore_presentation_state(self, state: _ShellPresentationState) -> None:
+        if type(state) is not _ShellPresentationState:
+            raise TypeError("shell presentation rollback state is invalid")
+        newer_observation = (
+            self._last_observed_focus
+            if self._focus_observation_sequence > state.focus_observation_sequence
+            else None
+        )
+        self._language = state.language
+        self._route_id = state.route_id
+        self._focus_by_route = dict(state.focus_by_route)
+        self._dialogs = list(state.dialogs)
+        self._focus_observation_sequence = state.focus_observation_sequence
+        self._last_observed_focus = state.last_observed_focus
+        if newer_observation is not None:
+            sequence, route_id, focus_id = newer_observation
+            self._focus_observation_sequence = sequence
+            self._last_observed_focus = newer_observation
+            if route_id == self._route_id and not self._dialogs:
+                self._focus_by_route[route_id] = focus_id
+
     def set_language(self, language: UILanguage) -> None:
+        self._assert_action_dispatch_ready()
         if not isinstance(language, UILanguage):
             raise TypeError("language must be UILanguage")
         self._language = language
 
     @staticmethod
     def _clean_focus_id(element_id: str) -> str:
-        if not isinstance(element_id, str):
+        # Browser/native identifiers are passive JSON text. Reject subclasses
+        # before regex/string operations can execute provider-defined hooks or
+        # let an active object survive into the focus map/dialog stack.
+        if type(element_id) is not str:
             raise TypeError("focus target id must be text")
-        return element_id.strip()
+        if not element_id:
+            return ""
+        if _FOCUS_ID_PATTERN.fullmatch(element_id) is None:
+            raise ValueError("focus target id is invalid")
+        return element_id
+
+    def _begin_publication_hold(self) -> None:
+        if self._publication_hold_active:
+            raise RuntimeError("shell presentation publication is already pending")
+        self._publication_hold_active = True
+
+    def _end_publication_hold(self) -> None:
+        if not self._publication_hold_active:
+            raise RuntimeError("shell presentation publication is not pending")
+        self._publication_hold_active = False
+
+    def _assert_action_dispatch_ready(self) -> None:
+        if self._publication_hold_active:
+            raise RuntimeError("shell presentation publication is pending")
 
     def record_focus(self, element_id: str) -> None:
         clean = self._clean_focus_id(element_id)
         if clean:
             self._focus_by_route[self._route_id] = clean
 
+    def record_observed_focus(self, element_id: str) -> None:
+        """Record focus supplied by the already-visible browser/native host.
+
+        Publication rollback may discard speculative route/dialog changes, but it
+        must not forget a newer focus value that the host had already exposed to
+        the user before dispatch began. Internal/delegate focus mutations use
+        ``record_focus`` and therefore never acquire this preservation marker.
+        """
+        clean = self._clean_focus_id(element_id)
+        if not clean:
+            return
+        self._focus_by_route[self._route_id] = clean
+        if not self._dialogs:
+            self._focus_observation_sequence += 1
+            self._last_observed_focus = (
+                self._focus_observation_sequence,
+                self._route_id,
+                clean,
+            )
+
     def open_route(self, route_id: str, *, current_focus_id: str = "") -> str:
+        self._assert_action_dispatch_ready()
         if route_id not in _ROUTE_INDEX:
             raise ValueError("unknown UI route")
         if self._dialogs:
             raise RuntimeError("close active dialog before changing application route")
         if self._clean_focus_id(current_focus_id):
-            self.record_focus(current_focus_id)
+            self.record_observed_focus(current_focus_id)
         self._route_id = route_id
         return self.restore_focus_target()
 
@@ -136,6 +243,7 @@ class AccessibleShellState:
         opener_focus_id: str,
         initial_focus_id: str,
     ) -> str:
+        self._assert_action_dispatch_ready()
         dialog = self._clean_focus_id(dialog_id)
         opener = self._clean_focus_id(opener_focus_id)
         initial = self._clean_focus_id(initial_focus_id)
@@ -147,6 +255,7 @@ class AccessibleShellState:
         return initial
 
     def close_dialog(self, dialog_id: str | None = None) -> str:
+        self._assert_action_dispatch_ready()
         if not self._dialogs:
             raise LookupError("no dialog is open")
         frame = self._dialogs[-1]
@@ -216,15 +325,23 @@ def concise_user_error(
     """Project failures into concise user speech without developer internals."""
     if not isinstance(language, UILanguage):
         raise TypeError("language must be UILanguage")
-    text = str(message or "").strip()
     fallback = (
         "Не вдалося виконати дію."
         if language is UILanguage.UA
         else "The action could not be completed."
     )
+    try:
+        text = "" if message is None else str(message).strip()
+    except Exception:
+        return fallback
     if not text:
         return fallback
-    if _INTERNAL_ERROR_PATTERN.search(text) or len(text) > 180:
+    if (
+        _INTERNAL_ERROR_PATTERN.search(text)
+        or _LOCAL_PATH_PATTERN.search(text)
+        or _UCI_PROTOCOL_PATTERN.search(text)
+        or len(text) > 180
+    ):
         return fallback
     return text
 

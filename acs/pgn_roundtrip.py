@@ -21,6 +21,8 @@ from typing import Iterable
 
 from .gametree import (
     Comment,
+    GameTreeContractError,
+    GameTreeErrorCode,
     GameTreeSerializationError,
     MAX_TREE_NODES,
     MAX_VARIATION_DEPTH,
@@ -275,17 +277,20 @@ def _preflight_text(
 
     normalized = text.replace("\r\n", "\n").replace("\r", "\n")
     _preflight_recovered_brace_comment_lengths(normalized)
-    inside_brace = False
-    brace_length = 0
     token_count = [0]
     tags_in_game = 0
     seen_movetext = False
+    comment_until = 0
+    line_start = 0
 
     for line in normalized.split("\n"):
-        # Match the same header grammar as gametree while outside multiline
-        # brace comments.  A line that looks like a header but does not satisfy
-        # the grammar is not silently reinterpreted as a SAN token stream.
-        if not inside_brace and line.lstrip().startswith("["):
+        line_end = line_start + len(line)
+        starts_inside_comment = comment_until > line_start
+
+        # Match the same header grammar as gametree while outside a
+        # brace-comment span. A line that starts inside recovered
+        # comment text cannot become a tag boundary after its close.
+        if not starts_inside_comment and line.lstrip().startswith("["):
             match = TAG_RE.match(line)
             if match is None:
                 raise PgnRoundTripError(
@@ -307,9 +312,10 @@ def _preflight_text(
                     PgnRoundTripErrorCode.TAG_SIZE_LIMIT,
                 )
             _claim_token(token_count, source_budget)
+            line_start = line_end + 1
             continue
 
-        if line.strip() and not inside_brace:
+        if line.strip() and not starts_inside_comment:
             seen_movetext = True
 
         token_length = 0
@@ -321,28 +327,32 @@ def _preflight_text(
                 token_length = 0
 
         index = 0
+        if starts_inside_comment:
+            if comment_until > line_end:
+                line_start = line_end + 1
+                continue
+            index = comment_until - line_start
+            comment_until = 0
+            if line[index:].strip():
+                seen_movetext = True
+
         while index < len(line):
             character = line[index]
-            if inside_brace:
-                if character == "}":
-                    inside_brace = False
-                    _claim_token(token_count, source_budget)
-                    brace_length = 0
-                else:
-                    brace_length += 1
-                    if brace_length > MAX_PGN_COMMENT_CHARS:
-                        _raise_limit(
-                            "PGN brace comment exceeds the field safety limit",
-                            PgnRoundTripErrorCode.COMMENT_SIZE_LIMIT,
-                        )
-                index += 1
-                continue
-
             if character == "{":
                 flush_token()
-                inside_brace = True
-                brace_length = 0
-                index += 1
+                span_end, _nested, _unterminated = _scan_brace_comment_span(
+                    normalized,
+                    line_start + index,
+                )
+                # The canonical recovery tokenizer publishes one
+                # Comment token for this whole shared span. Count that
+                # same unit here instead of interpreting content after
+                # an inner recovered close as movetext.
+                _claim_token(token_count, source_budget)
+                if span_end > line_end:
+                    comment_until = span_end
+                    break
+                index = span_end - line_start
                 continue
             if character == ";":
                 flush_token()
@@ -378,16 +388,7 @@ def _preflight_text(
             index += 1
 
         flush_token()
-        if inside_brace:
-            # Preserve a bounded accounting unit for the newline that belongs
-            # to a multiline brace comment.
-            brace_length += 1
-            if brace_length > MAX_PGN_COMMENT_CHARS:
-                _raise_limit(
-                    "PGN brace comment exceeds the field safety limit",
-                    PgnRoundTripErrorCode.COMMENT_SIZE_LIMIT,
-                )
-
+        line_start = line_end + 1
     return normalized
 
 
@@ -491,7 +492,21 @@ def parse_pgn_text(
         source_budget=source_budget,
         text_precounted=text_precounted,
     )
-    games = tuple(parse_games(normalized))
+    try:
+        games = tuple(parse_games(normalized))
+    except GameTreeContractError as exc:
+        if exc.code in {
+            GameTreeErrorCode.GRAPH_DEPTH_LIMIT,
+            GameTreeErrorCode.GRAPH_NODE_LIMIT,
+        }:
+            raise PgnRoundTripError(
+                "PGN structure exceeds the safety limit",
+                code=PgnRoundTripErrorCode.TOKEN_COUNT_LIMIT,
+            ) from exc
+        raise PgnRoundTripError(
+            "PGN contains invalid structural data",
+            code=PgnRoundTripErrorCode.MALFORMED_PGN,
+        ) from exc
     if len(games) > MAX_PGN_GAMES:
         _raise_limit(
             "PGN contains too many games",
@@ -701,17 +716,53 @@ def _measure_games(games: tuple[PgnGame, ...]) -> None:
         _measure_line(game.line, budget, seen, active, node_count, depth=0)
 
 
-def serialize_pgn_text(games: Iterable[PgnGame]) -> str:
-    """Serialize only a bounded model that can be reparsed by the strict codec."""
+def materialize_pgn_games_bounded(
+    games: Iterable[PgnGame],
+) -> tuple[PgnGame, ...]:
+    """Materialize and validate a PGN iterable without reading past D06 limits.
 
+    The count ceiling is enforced while consuming the iterable, before a caller can
+    allocate an unbounded tuple/deep copy. One-shot iterables remain supported and
+    an over-limit source is consumed only through the first disallowed item.
+    """
+
+    snapshot: list[PgnGame] = []
     try:
-        snapshot = tuple(games)
-    except TypeError as exc:
+        iterator = iter(games)
+    except Exception as exc:
         raise PgnRoundTripError(
             "PGN games must be an iterable of PgnGame values",
             code=PgnRoundTripErrorCode.INVALID_MODEL,
         ) from exc
-    _measure_games(snapshot)
+
+    index = 0
+    while True:
+        try:
+            game = next(iterator)
+        except StopIteration:
+            break
+        except Exception as exc:
+            raise PgnRoundTripError(
+                "PGN game source failed during bounded materialization",
+                code=PgnRoundTripErrorCode.INVALID_MODEL,
+            ) from exc
+        if index >= MAX_PGN_GAMES:
+            _raise_limit(
+                "PGN contains too many games",
+                PgnRoundTripErrorCode.GAME_COUNT_LIMIT,
+            )
+        snapshot.append(game)
+        index += 1
+
+    bounded = tuple(snapshot)
+    _measure_games(bounded)
+    return bounded
+
+
+def serialize_pgn_text(games: Iterable[PgnGame]) -> str:
+    """Serialize only a bounded model that can be reparsed by the strict codec."""
+
+    snapshot = materialize_pgn_games_bounded(games)
     try:
         text = serialize_games(snapshot)
     except GameTreeSerializationError as exc:

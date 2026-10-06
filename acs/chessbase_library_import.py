@@ -64,6 +64,87 @@ class ChessBaseLibraryImportReport:
     archive_backend_name: str | None = None
     archive_backend_sha256: str | None = None
 
+    def __post_init__(self) -> None:
+        # This object crosses from the trusted ChessBase service into host/UI
+        # orchestration. Reject derived roots before *any* field access so a
+        # subclass cannot execute active descriptor hooks during validation.
+        if type(self) is not ChessBaseLibraryImportReport:
+            raise TypeError(
+                "ChessBase import report must be an exact passive DTO"
+            )
+
+        if type(self.status) is not ChessBaseLibraryImportStatus:
+            raise TypeError("ChessBase import report status is invalid")
+        for name, value in (
+            ("source_name", self.source_name),
+            ("source_sha256", self.source_sha256),
+            ("backend_name", self.backend_name),
+            ("backend_commit", self.backend_commit),
+            ("source_format", self.source_format),
+        ):
+            if type(value) is not str:
+                raise TypeError(f"{name} must be exact text")
+        if self.source_format not in {"cbh", "cbv"}:
+            raise ValueError("ChessBase import source format is invalid")
+
+        for name, value in (
+            ("archive_backend_name", self.archive_backend_name),
+            ("archive_backend_sha256", self.archive_backend_sha256),
+        ):
+            if value is not None and type(value) is not str:
+                raise TypeError(f"{name} must be exact text or None")
+
+        decoded_game_count = self.decoded_game_count
+        if type(decoded_game_count) is not int:
+            raise TypeError("decoded_game_count must be an integer")
+        if decoded_game_count < 0:
+            raise ValueError("decoded_game_count must be non-negative")
+
+        warnings = self.warnings
+        if type(warnings) is not tuple:
+            raise TypeError("ChessBase import warnings must be an exact tuple")
+        if any(type(item) is not ChessBaseDecodeWarning for item in warnings):
+            raise TypeError(
+                "ChessBase import warnings must contain exact decode warnings"
+            )
+
+        library_result = self.library_result
+        if library_result is not None and type(library_result) is not LibraryImportResult:
+            raise TypeError(
+                "ChessBase import library result must be an exact LibraryImportResult or None"
+            )
+
+        if self.status is ChessBaseLibraryImportStatus.NO_GAMES:
+            if decoded_game_count != 0 or library_result is not None:
+                raise ValueError(
+                    "no-games ChessBase report must contain no decoded/imported games"
+                )
+            return
+
+        if library_result is None:
+            raise ValueError(
+                "imported ChessBase report must contain a Library import result"
+            )
+        game_count = library_result.game_count
+        warning_count = library_result.warning_count
+        if type(game_count) is not int or game_count < 1:
+            raise TypeError("ChessBase Library result game count is invalid")
+        if type(warning_count) is not int or warning_count < 0:
+            raise TypeError("ChessBase Library result warning count is invalid")
+        if decoded_game_count != game_count:
+            raise ValueError(
+                "ChessBase decoded and imported game counts must match"
+            )
+        expected_status = (
+            ChessBaseLibraryImportStatus.IMPORTED_WITH_WARNINGS
+            if warning_count
+            else ChessBaseLibraryImportStatus.IMPORTED
+        )
+        if self.status is not expected_status:
+            raise ValueError(
+                "ChessBase import status does not match Library warning count"
+            )
+
     @property
     def imported_game_count(self) -> int:
         return 0 if self.library_result is None else self.library_result.game_count
@@ -75,6 +156,32 @@ class ChessBaseLibraryImportReport:
 
 CancelCheck = Callable[[], bool]
 ProgressCallback = Callable[[LibraryImportProgress], None]
+_LIBCBH_UNSUPPORTED_CHESS960_RECORD = 960
+
+
+def _library_warnings(
+    warnings: tuple[ChessBaseDecodeWarning, ...] | list[ChessBaseDecodeWarning],
+) -> tuple[ChessBaseDecodeWarning, ...]:
+    """Project one reserved transport loss into a stable user-facing warning."""
+    projected: list[ChessBaseDecodeWarning] = []
+    expected_message = (
+        f"backend record skipped with code {_LIBCBH_UNSUPPORTED_CHESS960_RECORD}"
+    )
+    for warning in warnings:
+        if (
+            warning.code == "backend_record_skipped"
+            and warning.message == expected_message
+        ):
+            projected.append(
+                ChessBaseDecodeWarning(
+                    warning.game_index,
+                    "unsupported_variant",
+                    "Chess960/Fischer Random record is unsupported and was not imported",
+                )
+            )
+        else:
+            projected.append(warning)
+    return tuple(projected)
 
 
 def chessbase_family_sha256(snapshot: ChessBaseIntegritySnapshot) -> str:
@@ -172,19 +279,36 @@ class ChessBaseLibraryImportService:
         self._decoder_config = decoder_config
         self._cbv_extractor_config = cbv_extractor_config
 
-    def _decode_with_immutable_backend(self, source_path: Path):
+    def _decode_with_immutable_backend(
+        self,
+        source_path: Path,
+        *,
+        control_checkpoint: Callable[[], None] | None = None,
+    ):
         backend = _capture_decoder_backend(self._decoder_config)
-        decoded = decode_chessbase_external(source_path, self._decoder_config)
+        control = (
+            {}
+            if control_checkpoint is None
+            else {"control_checkpoint": control_checkpoint}
+        )
+        decoded = decode_chessbase_external(
+            source_path,
+            self._decoder_config,
+            **control,
+        )
         _verify_decoder_backend_unchanged(backend)
         return decoded
 
-    def _decode_source(self, path: str | Path):
+    def _decode_source(self, path: str | Path, *, cancel_check: CancelCheck | None = None):
         """Return decoded games plus path-safe provenance for CBH or CBV."""
 
         source_path = Path(path)
+        control = {} if cancel_check is None else {
+            "control_checkpoint": lambda: _poll_cancel(cancel_check)
+        }
         suffix = source_path.suffix.lower()
         if suffix == ".cbh":
-            decoded = self._decode_with_immutable_backend(source_path)
+            decoded = self._decode_with_immutable_backend(source_path, **control)
             return (
                 decoded,
                 report_safe_name(decoded.source.primary_path),
@@ -209,8 +333,12 @@ class ChessBaseLibraryImportService:
                 source_path,
                 Path(temporary),
                 self._cbv_extractor_config,
+                **control,
             )
-            decoded = self._decode_with_immutable_backend(extracted.primary_path)
+            decoded = self._decode_with_immutable_backend(
+                extracted.primary_path,
+                **control,
+            )
             if not verify_source_unchanged(extracted.source, source_path):
                 raise CbvExtractError(
                     "CBV source changed while its extracted database was decoded",
@@ -234,8 +362,9 @@ class ChessBaseLibraryImportService:
     ) -> ChessBaseLibraryImportReport:
         """Decode fully, then atomically publish canonical games to the Library.
 
-        Cancellation is checked before external decoding and again before any
-        ACSDB attempt is created.  The existing Library transaction continues
+        Cancellation is checked before and during external listing/extraction/
+        decoding and again before any ACSDB attempt is created. The existing
+        Library transaction continues
         polling through staging and immediately before commit, so cancellation
         can never publish a partial source.
         """
@@ -248,10 +377,10 @@ class ChessBaseLibraryImportService:
             source_format,
             archive_backend_name,
             archive_backend_sha256,
-        ) = self._decode_source(path)
+        ) = self._decode_source(path, cancel_check=cancel_check)
         _poll_cancel(cancel_check)
 
-        warnings = tuple(decoded.warnings)
+        warnings = _library_warnings(decoded.warnings)
         if not decoded.games:
             return ChessBaseLibraryImportReport(
                 status=ChessBaseLibraryImportStatus.NO_GAMES,

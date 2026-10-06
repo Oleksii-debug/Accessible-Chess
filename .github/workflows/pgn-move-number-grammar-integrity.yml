@@ -1,0 +1,106 @@
+name: PGN Move/SAN Structural Integrity
+
+on:
+  pull_request:
+    branches:
+      - work/full-product-teacher-education-reachability-20260911
+      - integration/bookdocument-semantic-integrity-apex-20261004-sol6p3
+    paths:
+      - 'acs/gametree.py'
+      - 'tests/test_gametree.py'
+      - 'tests/test_d06_pgn_roundtrip.py'
+      - '.github/workflows/pgn-move-number-grammar-integrity.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pgn-move-number-grammar-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  grammar-integrity:
+    name: PGN move/SAN structural integrity (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Preserve exact Git bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+          git checkout-index --force --all
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Prove bounded current-Product scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          head='${{ github.event.pull_request.head.sha }}'
+          event_base="$PR_BASE_SHA"
+          base_ref="$PR_BASE_REF"
+          test -n "$head"
+          test -n "$event_base"
+          test -n "$base_ref"
+          test "$(git rev-parse HEAD)" = "$head"
+          git cat-file -e "$event_base^{commit}"
+          git fetch --no-tags origin "$base_ref"
+          live_base="$(git rev-parse "origin/$base_ref")"
+          git merge-base --is-ancestor "$event_base" "$live_base"
+          git merge-base --is-ancestor "$live_base" HEAD
+          test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+          actual="$(git diff --name-only "$live_base" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/pgn-move-number-grammar-integrity.yml' \
+            'acs/gametree.py' \
+            'tests/test_d06_pgn_roundtrip.py' \
+            'tests/test_gametree.py' | sort)"
+          test "$actual" = "$expected"
+          git diff --check "$live_base" HEAD
+
+      - name: Set up pinned test dependency
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Compile changed PGN boundary
+        run: >-
+          python -m py_compile
+          acs/gametree.py
+          tests/test_gametree.py
+          tests/test_d06_pgn_roundtrip.py
+
+      - name: Run focused PGN grammar and recovery regressions
+        run: >-
+          python -m unittest -v
+          tests.test_gametree
+          tests.test_d06_pgn_roundtrip
+          tests.test_d06_gametree_persistence_vertical
+          tests.test_d06_gametree_snapshot_resume
+          tests.test_pgn_service
+          tests.test_v2_pgn_semantic_fidelity
+          tests.test_v2_pgn_nested_comment_recovery
+
+      - name: Run full repository unittest
+        run: python -m unittest discover -s tests
+
+      - name: Run full repository pytest
+        run: python -m pytest -q tests
+
+      - name: Run product self-test
+        run: python -m acs.selftest

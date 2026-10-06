@@ -3,44 +3,121 @@ name: UI Semantic Gate
 on:
   push:
     branches:
-      - dev/stage1-nvda-userflow-0.4.0
-      - dev/stage1-nvda-userflow-0.4.0-r9
-      - codex/v2-formats-completion-20260907
-      - automation/w4-v2-ui-semantic-gate-20260907
+      - work/full-product-teacher-education-reachability-20260911
     paths:
       - 'web/**'
       - 'run_accessible_chess.py'
+      - 'run_accessible_chess_v2.py'
+      - 'acs/full_product_actions.py'
+      - 'acs/full_product_presenters.py'
+      - 'acs/full_product_webview_adapter.py'
+      - 'acs/full_product_native_menu.py'
+      - 'acs/full_product_ui_shell.py'
       - 'acs/stage1_release_ui.py'
+      - 'acs/stage1_release_ui_core.py'
       - 'acs/release_app.py'
+      - 'acs/version2_application.py'
+      - 'acs/version2_education_mutation_release.py'
+      - 'acs/version2_release_ui.py'
+      - 'acs/version2_release_app.py'
+      - 'acs/version2_upgrade_status_release.py'
+      - 'acs/version2_final_product_profile.py'
+      - 'acs/version2_release_diagnostics.py'
       - 'acs/webview2_accessibility.py'
+      - 'acs/ui_analysis_adapter.py'
+      - 'acs/ui_keymap_adapter.py'
+      - 'acs/ui_keymap_editor.py'
+      - 'acs/ui_keymap_service.py'
+      - 'acs/ui_native_menu.py'
+      - 'acs/ui_review_adapter.py'
+      - 'acs/webapp_keymap.py'
+      - 'acs/webapp_keymap_core.py'
       - 'acs/version2_windows_*.py'
       - 'tests/test_stage1_complete_user_flow.py'
       - 'tests/test_stage1_release_composition_ui.py'
       - 'tests/test_stage1_packaged_focus_origin_contract.py'
       - 'tests/test_stage1_webview2_accessibility_boundary.py'
       - 'tests/test_accessible_webui.py'
+      - 'tests/test_dev1_full_product_accessible_shell.py'
+      - 'tests/test_dev1_full_product_ui_packages.py'
+      - 'tests/test_dev1_full_product_webview_adapter.py'
+      - 'tests/test_full_product_native_menu.py'
+      - 'tests/test_stage1_native_menu_action_routing.py'
+      - 'tests/test_ui_analysis_adapter.py'
+      - 'tests/test_ui_keymap_adapter.py'
+      - 'tests/test_ui_keymap_editor.py'
+      - 'tests/test_ui_keymap_service.py'
+      - 'tests/test_ui_native_menu_recovery.py'
+      - 'tests/test_ui_review_adapter.py'
+      - 'tests/test_webapp_keymap_api.py'
+      - 'tests/test_webview_keymap_bridge_contract.py'
+      - 'tests/test_windows_native_menu_smoke_contract.py'
       - 'tests/test_nvda_p0_contract.py'
+      - 'tests/test_p0_dynamic_selection_action_delivery.py'
+      - 'tests/test_p0_semantic_document_copy.py'
+      - 'tests/test_version2_release_accessibility_contract.py'
+      - 'tests/js/version2_release_bootstrap_dom_test.js'
       - 'tests/test_v2_windows_*.py'
+      - 'tests/test_ui_semantic_gate_workflow.py'
       - '.github/workflows/ui-semantic-gate.yml'
   pull_request:
     branches:
-      - integration/accessible-chess-next
-      - integration/version2-final-formats-20260831
-      - codex/v2-formats-completion-20260907
+      - work/full-product-teacher-education-reachability-20260911
     paths:
       - 'web/**'
       - 'run_accessible_chess.py'
+      - 'run_accessible_chess_v2.py'
+      - 'acs/full_product_actions.py'
+      - 'acs/full_product_presenters.py'
+      - 'acs/full_product_webview_adapter.py'
+      - 'acs/full_product_native_menu.py'
+      - 'acs/full_product_ui_shell.py'
       - 'acs/stage1_release_ui.py'
+      - 'acs/stage1_release_ui_core.py'
       - 'acs/release_app.py'
+      - 'acs/version2_application.py'
+      - 'acs/version2_education_mutation_release.py'
+      - 'acs/version2_release_ui.py'
+      - 'acs/version2_release_app.py'
+      - 'acs/version2_upgrade_status_release.py'
+      - 'acs/version2_final_product_profile.py'
+      - 'acs/version2_release_diagnostics.py'
       - 'acs/webview2_accessibility.py'
+      - 'acs/ui_analysis_adapter.py'
+      - 'acs/ui_keymap_adapter.py'
+      - 'acs/ui_keymap_editor.py'
+      - 'acs/ui_keymap_service.py'
+      - 'acs/ui_native_menu.py'
+      - 'acs/ui_review_adapter.py'
+      - 'acs/webapp_keymap.py'
+      - 'acs/webapp_keymap_core.py'
       - 'acs/version2_windows_*.py'
       - 'tests/test_stage1_complete_user_flow.py'
       - 'tests/test_stage1_release_composition_ui.py'
       - 'tests/test_stage1_packaged_focus_origin_contract.py'
       - 'tests/test_stage1_webview2_accessibility_boundary.py'
       - 'tests/test_accessible_webui.py'
+      - 'tests/test_dev1_full_product_accessible_shell.py'
+      - 'tests/test_dev1_full_product_ui_packages.py'
+      - 'tests/test_dev1_full_product_webview_adapter.py'
+      - 'tests/test_full_product_native_menu.py'
+      - 'tests/test_stage1_native_menu_action_routing.py'
+      - 'tests/test_ui_analysis_adapter.py'
+      - 'tests/test_ui_keymap_adapter.py'
+      - 'tests/test_ui_keymap_editor.py'
+      - 'tests/test_ui_keymap_service.py'
+      - 'tests/test_ui_native_menu_recovery.py'
+      - 'tests/test_ui_review_adapter.py'
+      - 'tests/test_webapp_keymap_api.py'
+      - 'tests/test_webview_keymap_bridge_contract.py'
+      - 'tests/test_windows_native_menu_smoke_contract.py'
       - 'tests/test_nvda_p0_contract.py'
+      - 'tests/test_p0_dynamic_selection_action_delivery.py'
+      - 'tests/test_p0_semantic_document_copy.py'
+      - 'tests/test_version2_release_accessibility_contract.py'
+      - 'tests/js/version2_release_bootstrap_dom_test.js'
       - 'tests/test_v2_windows_*.py'
+      - 'tests/test_ui_semantic_gate_workflow.py'
       - '.github/workflows/ui-semantic-gate.yml'
   workflow_dispatch:
 
@@ -48,7 +125,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ui-semantic-gate-${{ github.ref }}
+  group: ui-semantic-gate-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -56,32 +133,85 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-22.04, windows-2025]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Preserve exact Git bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+
+      - name: Bind exact live Product pull-request geometry
+        shell: bash
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PRODUCT_BRANCH: work/full-product-teacher-education-reachability-20260911
+        run: |
+          set -euo pipefail
+          event_base="${PR_BASE_SHA:-}"
+          if test -n "$event_base"; then
+            git cat-file -e "$event_base^{commit}"
+            git fetch --no-tags origin "+refs/heads/$PRODUCT_BRANCH:refs/remotes/origin/$PRODUCT_BRANCH"
+            live_base="$(git rev-parse "refs/remotes/origin/$PRODUCT_BRANCH")"
+            git cat-file -e "$live_base^{commit}"
+            git merge-base --is-ancestor "$event_base" "$live_base"
+            git merge-base --is-ancestor "$live_base" HEAD
+            test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+            git diff --check "$live_base" HEAD
+            echo "UI_SEMANTIC_PRODUCT_PARENT=$live_base"
+          else
+            parent="$(git rev-parse HEAD^)"
+            git cat-file -e "$parent^{commit}"
+            git diff --check "$parent" HEAD
+            echo "UI_SEMANTIC_RUNTIME_HEAD=$(git rev-parse HEAD)"
+          fi
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
       - name: Install lightweight test dependency
-        run: python -m pip install -q pytest
+        run: python -m pip install -q pytest==8.4.2
 
       - name: Compile Stage 1 and Version 2 Windows presentation paths
-        run: python -m compileall -q acs tests run_accessible_chess.py
+        run: python -m compileall -q acs tests run_accessible_chess.py run_accessible_chess_v2.py
+
+      - name: Verify UI semantic workflow contract
+        run: python -m unittest -v tests.test_ui_semantic_gate_workflow
 
       - name: Complete WebView and NVDA semantic contracts
         run: |
           python -m unittest tests.test_accessible_webui -v
+          python -m unittest tests.test_dev1_full_product_accessible_shell -v
+          python -m unittest tests.test_dev1_full_product_ui_packages -v
+          python -m unittest tests.test_dev1_full_product_webview_adapter -v
+          python -m unittest tests.test_full_product_native_menu -v
+          python -m unittest tests.test_stage1_native_menu_action_routing -v
           python -m unittest tests.test_nvda_p0_contract -v
           python -m unittest tests.test_stage1_complete_user_flow -v
           python -m unittest tests.test_stage1_release_composition_ui -v
           python -m unittest tests.test_stage1_packaged_focus_origin_contract -v
           python -m unittest tests.test_stage1_webview2_accessibility_boundary -v
+          python -m unittest tests.test_p0_dynamic_selection_action_delivery -v
+          python -m unittest tests.test_p0_semantic_document_copy -v
+          python -m unittest tests.test_version2_release_accessibility_contract -v
 
-      - name: Complete release diagnostic
-        run: python run_accessible_chess.py --diagnostic
+      - name: Behavioral Version 2 release DOM accessibility
+        run: node tests/js/version2_release_bootstrap_dom_test.js
+
+      - name: Complete release diagnostics
+        run: |
+          python run_accessible_chess.py --diagnostic
+          python run_accessible_chess_v2.py --diagnostic
 
       - name: History analysis sound settings and composition regressions
         run: >-

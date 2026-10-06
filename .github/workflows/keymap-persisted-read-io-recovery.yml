@@ -1,0 +1,74 @@
+name: Keymap Persisted Read IO Recovery
+
+on:
+  pull_request:
+    paths:
+      - 'acs/ui_keymap_service.py'
+      - 'tests/test_ui_keymap_io_recovery.py'
+      - '.github/workflows/keymap-persisted-read-io-recovery.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  recovery:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - name: Verify exact PR-head ancestry and bounded scope
+        shell: bash
+        env:
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          RECOVERY_BASE_SHA: 59486e2c9eff903e416d59a0e7c349c22ee2111d
+          RECOVERY_SOURCE_SHA: c2da619b14445056215f2eed35f531994a805064
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${EVENT_HEAD_SHA:-$GITHUB_SHA}"
+          if [ -n "$EVENT_BASE_SHA" ]; then
+            git cat-file -e "$EVENT_BASE_SHA^{commit}"
+            git merge-base --is-ancestor "$EVENT_BASE_SHA" HEAD
+            git diff --check "$EVENT_BASE_SHA" HEAD
+          else
+            git diff --check HEAD^ HEAD
+          fi
+          git merge-base --is-ancestor "$RECOVERY_BASE_SHA" "$RECOVERY_SOURCE_SHA"
+          git merge-base --is-ancestor "$RECOVERY_SOURCE_SHA" HEAD
+          git diff --check "$RECOVERY_BASE_SHA" "$RECOVERY_SOURCE_SHA"
+          changed="$(git diff --name-only "$RECOVERY_BASE_SHA" "$RECOVERY_SOURCE_SHA" | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/keymap-persisted-read-io-recovery.yml' \
+            'acs/ui_keymap_service.py' \
+            'tests/test_ui_keymap_io_recovery.py' | sort)"
+          test "$changed" = "$expected" || {
+            printf 'Unexpected persisted-recovery source scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12.10'
+      - name: Install pinned function-test runner
+        run: python -m pip install pytest==8.4.2
+      - name: Compile keymap recovery surface
+        run: >-
+          python -m py_compile
+          acs/ui_keymap_service.py
+          tests/test_ui_keymap_io_recovery.py
+      - name: Run focused recovery and existing keymap service regressions
+        run: >-
+          python -m unittest -v
+          tests.test_ui_keymap_io_recovery
+          tests.test_ui_keymap_service
+          tests.test_keymap_profile_ingress_current
+          tests.test_keymap_import_warning_confirmation
+          tests.test_keymap_import_warning_confirmation_integration
+      - name: Run function-based shared-authority regressions
+        run: python -m pytest -q tests/test_ui_keymap_service.py

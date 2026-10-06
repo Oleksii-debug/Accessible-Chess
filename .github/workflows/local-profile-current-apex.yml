@@ -1,0 +1,224 @@
+name: Local Profile Current Apex
+
+on:
+  push:
+    branches:
+      - converge/local-profile-current-apex-20261004-q7f2a9
+  pull_request:
+    paths:
+      - ".github/workflows/local-profile-current-apex.yml"
+      - "acs/local_profile.py"
+      - "acs/version2_local_profile_api.py"
+      - "acs/version2_release_app.py"
+      - "acs/version2_education_mutation_release.py"
+      - "web/version2_local_profile.js"
+      - "tests/test_local_profile.py"
+      - "tests/test_local_profile_recursion_boundary.py"
+      - "tests/test_local_profile_path_identity.py"
+      - "tests/test_version2_local_profile_api.py"
+      - "tests/test_local_profile_final_product_binding.py"
+      - "tests/js/version2_local_profile_dom_test.js"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: local-profile-current-apex-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 75
+    env:
+      PYTHONUTF8: "1"
+      EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+      EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+      BASE_REF: converge/books-training-owner-current-20261004-zftrkmo
+      INTEGRATED_HEAD: 2ebb2cb45dec5c42cac446f6f637ec1457a419dc
+    steps:
+      - name: Checkout exact profile head
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ env.EXPECTED_HEAD }}
+          fetch-depth: 0
+
+      - name: Preserve committed Git bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+          git checkout-index --force --all
+
+      - name: Prove focused scope or retained converged profile authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+
+          if [ "${EVENT_BASE_REF:-}" = "$BASE_REF" ]; then
+            git fetch --no-tags origin "$BASE_REF"
+            if test -n "${EVENT_BASE_SHA:-}"; then
+              BASE_SHA="$EVENT_BASE_SHA"
+            else
+              BASE_SHA="$(git rev-parse "origin/$BASE_REF")"
+            fi
+            export BASE_SHA
+            export PROFILE_FOCUSED_SCOPE=1
+            git cat-file -e "$BASE_SHA^{commit}"
+            git merge-base --is-ancestor "$BASE_SHA" HEAD
+            test "$(git merge-base "$BASE_SHA" HEAD)" = "$BASE_SHA"
+            git diff --check "$BASE_SHA"...HEAD
+          else
+            export PROFILE_FOCUSED_SCOPE=0
+            git cat-file -e "$INTEGRATED_HEAD^{commit}"
+            git merge-base --is-ancestor "$INTEGRATED_HEAD" HEAD
+            git diff --check "$INTEGRATED_HEAD" HEAD
+          fi
+
+          python - <<'PY'
+          import os
+          import subprocess
+          from pathlib import Path
+
+          focused = os.environ["PROFILE_FOCUSED_SCOPE"] == "1"
+          expected_paths = {
+              ".github/workflows/local-profile-current-apex.yml",
+              "acs/local_profile.py",
+              "acs/version2_local_profile_api.py",
+              "acs/version2_release_app.py",
+              "acs/version2_education_mutation_release.py",
+              "web/version2_local_profile.js",
+              "tests/test_local_profile.py",
+              "tests/test_version2_local_profile_api.py",
+              "tests/test_local_profile_final_product_binding.py",
+              "tests/js/version2_local_profile_dom_test.js",
+          }
+          if focused:
+              base = os.environ["BASE_SHA"]
+              actual_paths = set(filter(None, subprocess.check_output(
+                  ["git", "diff", "--name-only", f"{base}...HEAD"], text=True
+              ).splitlines()))
+              if actual_paths != expected_paths:
+                  raise SystemExit(f"unexpected local-profile scope: {sorted(actual_paths ^ expected_paths)!r}")
+
+          canonical = {
+              "acs/local_profile.py": "2253534b99d9083bbb459a322f26bad7cd06c36c",
+              "acs/version2_local_profile_api.py": "47dbd22b1f764fdfd81f2dc6e0cf75191e4274ac",
+              "tests/test_local_profile.py": "b95e5510be193ba6f2aa909147e24615e1f69d0f",
+              "tests/test_local_profile_recursion_boundary.py": "a387d76a343b30dd1adf7e1831ba292d0371c19f",
+              "tests/test_local_profile_path_identity.py": "4373cb4e997200a1eca4b0dcb03e71acfc56f862",
+              "tests/test_version2_local_profile_api.py": "34b50a89ade850a20a49d0dc83a8b64eb3b1c0f9",
+          }
+          for path, expected_sha in canonical.items():
+              actual_sha = subprocess.check_output(
+                  ["git", "hash-object", path], text=True
+              ).strip()
+              if actual_sha != expected_sha:
+                  raise SystemExit(
+                      f"canonical profile blob drift: {path} {actual_sha} != {expected_sha}"
+                  )
+
+          release_path = Path("acs/version2_release_app.py")
+          release_text = release_path.read_text(encoding="utf-8")
+          required_release = (
+              "from .local_profile import LocalProfileStore",
+              "from .version2_local_profile_api import Version2ProfileAccessibleChessAPI",
+              "api = Version2ProfileAccessibleChessAPI(",
+              'profile_store=LocalProfileStore(layout.root / "profile.json")',
+          )
+          for token in required_release:
+              if release_text.count(token) != 1:
+                  raise SystemExit(f"profile release binding drift: {token!r}")
+
+          education_path = Path("acs/version2_education_mutation_release.py")
+          education_text = education_path.read_text(encoding="utf-8")
+          resource = '("V2 local profile surface", root / "version2_local_profile.js")'
+          if education_text.count(resource) != 1:
+              raise SystemExit("local profile resource binding drift")
+
+          if focused:
+              def base_text(path: str) -> str:
+                  return subprocess.check_output(
+                      ["git", "show", f"{os.environ['BASE_SHA']}:{path}"], text=True
+                  )
+
+              release = base_text("acs/version2_release_app.py")
+              anchors = (
+                  ("from .full_product_ui_shell import UILanguage\n",
+                   "from .full_product_ui_shell import UILanguage\nfrom .local_profile import LocalProfileStore\n"),
+                  ("from .version2_gametree_resume import Version2GameTreeResumeCoordinator\n",
+                   "from .version2_gametree_resume import Version2GameTreeResumeCoordinator\nfrom .version2_local_profile_api import Version2ProfileAccessibleChessAPI\n"),
+                  ("        api = Version2ReleaseAccessibleChessAPI(\n            continuous_analysis=continuous,\n",
+                   "        api = Version2ProfileAccessibleChessAPI(\n            continuous_analysis=continuous,\n            profile_store=LocalProfileStore(layout.root / \"profile.json\"),\n"),
+              )
+              expected_release = release
+              for old, new in anchors:
+                  if expected_release.count(old) != 1:
+                      raise SystemExit(f"release composition anchor drift: {old!r}")
+                  expected_release = expected_release.replace(old, new, 1)
+              if release_text != expected_release:
+                  raise SystemExit(
+                      "version2_release_app.py contains changes outside the profile composition seam"
+                  )
+
+              education = base_text("acs/version2_education_mutation_release.py")
+              anchor = '        ("V2 final-product bootstrap", root / "version2_final_product_bootstrap.js"),\n'
+              if education.count(anchor) != 1:
+                  raise SystemExit("final-product resource anchor drift")
+              expected_education = education.replace(
+                  anchor,
+                  anchor + '        ("V2 local profile surface", root / "version2_local_profile.js"),\n',
+                  1,
+              )
+              if education_text != expected_education:
+                  raise SystemExit(
+                      "final-product resource authority changed outside the profile resource seam"
+                  )
+          PY
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12.10"
+
+      - name: Compile profile and final-product bindings
+        run: >-
+          python -m py_compile
+          acs/local_profile.py
+          acs/version2_local_profile_api.py
+          acs/version2_release_app.py
+          acs/version2_education_mutation_release.py
+          tests/test_local_profile.py
+          tests/test_local_profile_recursion_boundary.py
+          tests/test_local_profile_path_identity.py
+          tests/test_version2_local_profile_api.py
+          tests/test_local_profile_final_product_binding.py
+
+      - name: Execute keyboard and recovery DOM contract
+        run: |
+          node --check web/version2_local_profile.js
+          node --check tests/js/version2_local_profile_dom_test.js
+          node tests/js/version2_local_profile_dom_test.js
+
+      - name: Execute persistence API and final-product binding contracts
+        run: >-
+          python -m unittest -v
+          tests.test_local_profile
+          tests.test_local_profile_recursion_boundary
+          tests.test_local_profile_path_identity
+          tests.test_version2_local_profile_api
+          tests.test_local_profile_final_product_binding
+
+      - name: Execute whole-product diagnostics
+        run: |
+          python -m acs.selftest
+          python run_accessible_chess_v2.py --diagnostic

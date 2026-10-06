@@ -1,0 +1,79 @@
+name: Classroom Orchestration Current Apex
+
+on:
+  push:
+    branches:
+      - converge/books-training-owner-current-20261004-zftrkmo
+    paths:
+      - acs/version2_final_product_application.py
+      - acs/classroom_pairing.py
+      - acs/classroom_prepared_position_deployment.py
+      - tests/test_version2_classroom_orchestration_binding.py
+      - .github/workflows/classroom-orchestration-current-apex.yml
+  pull_request:
+    paths:
+      - acs/version2_final_product_application.py
+      - acs/classroom_pairing.py
+      - acs/classroom_prepared_position_deployment.py
+      - tests/test_version2_classroom_orchestration_binding.py
+      - .github/workflows/classroom-orchestration-current-apex.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: classroom-orchestration-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  classroom-orchestration:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    env:
+      EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+      PAIRING_SOURCE_BLOB: fee36f2029759d0c948c58cd3ca37ac20bbb0be4
+      DEPLOYMENT_SOURCE_BLOB: d760cf1a6c7e900fdc1f607c6bc4524510198948
+    steps:
+      - name: Checkout exact candidate head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.EXPECTED_HEAD }}
+          fetch-depth: 0
+
+      - name: Prove exact head and retained domain authorities
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test "$(git hash-object acs/classroom_pairing.py)" = "$PAIRING_SOURCE_BLOB"
+          test "$(git hash-object acs/classroom_prepared_position_deployment.py)" = "$DEPLOYMENT_SOURCE_BLOB"
+          git diff --check
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile orchestration boundary
+        run: >-
+          python -m py_compile
+          acs/version2_final_product_application.py
+          acs/classroom_pairing.py
+          acs/classroom_prepared_position_deployment.py
+          tests/test_version2_classroom_orchestration_binding.py
+
+      - name: Run orchestration and adjacent contracts
+        run: >-
+          python -m unittest -v
+          tests.test_version2_classroom_orchestration_binding
+          tests.test_classroom_pairing
+          tests.test_classroom_prepared_position_deployment
+          tests.test_version2_teacher_session_runtime_binding
+          tests.test_education_classroom_integration
+
+      - name: Run core selftest
+        run: python -m acs.selftest

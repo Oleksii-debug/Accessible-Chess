@@ -145,6 +145,302 @@ function stableBoardAccessibleName(cell) {
     return detail ? `${square}, ${detail}` : square;
 }
 
+const STANDARD_START_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+
+const NEW_GAME_IMPACTS_BY_VARIANT = Object.freeze({
+    '1': Object.freeze([
+        160, 374, 748, 853, 1112, 1302, 1427, 1532,
+        1766, 1906, 2504, 2599, 2869, 3143, 3751, 4106,
+        4455, 4600, 4804, 4904, 5148, 5647, 5792, 5897,
+        6276, 6455, 6610, 7074, 7588, 7797, 8062, 8231
+    ]),
+    '3d': Object.freeze([
+        145, 254, 424, 549, 698, 848, 943, 1048,
+        1287, 1402, 1566, 1751, 1876, 2075, 2185, 2669,
+        3098, 3522, 3766, 4021, 4200, 4505, 5158, 5907,
+        6121, 6415, 6620, 6959, 7278, 7418, 7907, 8012
+    ])
+});
+
+const VISUAL_PIECE_NAMES = Object.freeze([
+    ['білий король', '♔'], ['white king', '♔'],
+    ['білий ферзь', '♕'], ['white queen', '♕'],
+    ['біла тура', '♖'], ['white rook', '♖'],
+    ['білий слон', '♗'], ['white bishop', '♗'],
+    ['білий кінь', '♘'], ['white knight', '♘'],
+    ['білий пішак', '♙'], ['white pawn', '♙'],
+    ['чорний король', '♚'], ['black king', '♚'],
+    ['чорний ферзь', '♛'], ['black queen', '♛'],
+    ['чорна тура', '♜'], ['black rook', '♜'],
+    ['чорний слон', '♝'], ['black bishop', '♝'],
+    ['чорний кінь', '♞'], ['black knight', '♞'],
+    ['чорний пішак', '♟'], ['black pawn', '♟']
+]);
+
+let newGameVisualPending = false;
+let newGameAnimationGeneration = 0;
+let newGameAnimationEndTimer = null;
+
+function visualPieceGlyph(cell) {
+    const label = String(cell && cell.getAttribute('aria-label') || '').toLowerCase();
+    for (const [name, glyph] of VISUAL_PIECE_NAMES) {
+        if (label.includes(name)) return glyph;
+    }
+    return '';
+}
+
+function ensureVisualPieceStyle() {
+    if (byId('stage1-visual-piece-style')) return;
+    const style = document.createElement('style');
+    style.id = 'stage1-visual-piece-style';
+    style.textContent = [
+        '#board-grid [role="gridcell"]{position:relative;min-height:4.5rem;overflow:visible}',
+        '.stage1-visual-piece{position:relative;display:block;font-family:"Segoe UI Symbol","Noto Sans Symbols 2",sans-serif;font-size:2.25rem;line-height:1.05;pointer-events:none;transform-origin:50% 65%;will-change:transform,opacity}',
+        '#board-grid.stage1-new-game-animating .stage1-visual-piece{z-index:3}'
+    ].join('');
+    document.head.appendChild(style);
+}
+
+function decorateVisibleBoardPieces(grid = byId('board-grid')) {
+    if (!grid) return 0;
+    ensureVisualPieceStyle();
+    const cells = [...grid.querySelectorAll('[role="gridcell"][data-square]')];
+    let count = 0;
+    cells.forEach(cell => {
+        const glyph = visualPieceGlyph(cell);
+        const existing = cell.querySelector('.stage1-visual-piece');
+        if (!glyph) {
+            if (existing) existing.remove();
+            return;
+        }
+        const piece = existing || document.createElement('span');
+        piece.className = 'stage1-visual-piece';
+        piece.setAttribute('aria-hidden', 'true');
+        piece.textContent = glyph;
+        piece.dataset.square = String(cell.dataset.square || '');
+        if (!existing) cell.appendChild(piece);
+        count += 1;
+    });
+    return count;
+}
+
+function finishNewGameVisualSequence() {
+    newGameVisualPending = false;
+    newGameAnimationGeneration += 1;
+    if (newGameAnimationEndTimer !== null) {
+        clearTimeout(newGameAnimationEndTimer);
+        newGameAnimationEndTimer = null;
+    }
+    const grid = byId('board-grid');
+    if (!grid) return;
+    grid.classList.remove('stage1-new-game-animating');
+    grid.querySelectorAll('.stage1-visual-piece').forEach(piece => {
+        piece.style.transition = 'none';
+        piece.style.transform = 'translate(0px, 0px) rotate(0deg) scale(1)';
+        piece.style.opacity = '1';
+        piece.style.zIndex = '';
+        delete piece.dataset.newGameAnimating;
+    });
+}
+
+function startNewGameVisualSequence() {
+    newGameVisualPending = false;
+    const board = byId('board-application');
+    const grid = byId('board-grid');
+    if (!grid || !board || board.hidden) return false;
+    const currentState = typeof state !== 'undefined' ? state : null;
+    const announcement = String(currentState && currentState.announcement || '');
+    if (
+        !currentState
+        || Number(currentState.historyLength) !== 0
+        || String(currentState.fen || '') !== STANDARD_START_FEN
+        || !['Стандартну позицію встановлено.', 'Standard position loaded.'].includes(announcement)
+    ) {
+        finishNewGameVisualSequence();
+        return false;
+    }
+    if (!currentSoundState) {
+        // Never guess the timing variant: persisted audio may already be 3D.
+        // Skipping a too-early visual effect is safer than desynchronizing it
+        // from the long NEWGAME sound.
+        finishNewGameVisualSequence();
+        return false;
+    }
+    if (currentSoundState.newGameAnimation === false) {
+        finishNewGameVisualSequence();
+        return false;
+    }
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        finishNewGameVisualSequence();
+        return false;
+    }
+
+    decorateVisibleBoardPieces(grid);
+    const startVariant = currentSoundState && currentSoundState.selectedVariants
+        ? String(currentSoundState.selectedVariants.start || '1')
+        : '1';
+    const impactTimes = NEW_GAME_IMPACTS_BY_VARIANT[startVariant]
+        || NEW_GAME_IMPACTS_BY_VARIANT['1'];
+    const pieces = [...grid.querySelectorAll('.stage1-visual-piece')];
+    if (pieces.length !== 32 || impactTimes.length !== 32) {
+        finishNewGameVisualSequence();
+        return false;
+    }
+
+    finishNewGameVisualSequence();
+    const generation = newGameAnimationGeneration;
+    const gridRect = grid.getBoundingClientRect();
+    const centerX = gridRect.left + gridRect.width / 2;
+    const centerY = gridRect.top + gridRect.height / 2;
+    grid.classList.add('stage1-new-game-animating');
+
+    pieces.forEach((piece, index) => {
+        const rect = piece.getBoundingClientRect();
+        const pieceX = rect.left + rect.width / 2;
+        const pieceY = rect.top + rect.height / 2;
+        const seed = index + 1;
+        const spreadX = Math.min(gridRect.width * 0.32, 160);
+        const spreadY = Math.min(gridRect.height * 0.30, 150);
+        const jitterX = ((((seed * 37) % 101) - 50) / 50) * spreadX;
+        const jitterY = ((((seed * 29) % 97) - 48) / 48) * spreadY;
+        const rotation = ((seed * 41) % 161) - 80;
+        const scale = 0.72 + (((seed * 17) % 31) / 100);
+        piece.style.transition = 'none';
+        piece.style.opacity = '0.94';
+        piece.style.zIndex = String(40 + index);
+        piece.style.transform =
+            `translate(${Math.round(centerX - pieceX + jitterX)}px, ${Math.round(centerY - pieceY + jitterY)}px) rotate(${rotation}deg) scale(${scale.toFixed(2)})`;
+        piece.dataset.newGameAnimating = 'true';
+    });
+
+    // Force the scattered state to become the visual starting point before
+    // applying the impact-timed landing transitions.
+    void grid.offsetWidth;
+
+    requestAnimationFrame(() => {
+        if (generation !== newGameAnimationGeneration) return;
+        pieces.forEach((piece, index) => {
+            const impact = impactTimes[index];
+            const duration = Math.min(300, Math.max(150, impact));
+            const delay = Math.max(0, impact - duration);
+            piece.style.transition =
+                `transform ${duration}ms cubic-bezier(.18,.84,.24,1.18) ${delay}ms, opacity 120ms linear ${delay}ms`;
+            piece.style.transform = 'translate(0px, 0px) rotate(0deg) scale(1)';
+            piece.style.opacity = '1';
+        });
+    });
+
+    newGameAnimationEndTimer = setTimeout(() => {
+        if (generation !== newGameAnimationGeneration) return;
+        grid.classList.remove('stage1-new-game-animating');
+        pieces.forEach(piece => {
+            piece.style.transition = '';
+            piece.style.transform = '';
+            piece.style.opacity = '';
+            piece.style.zIndex = '';
+            delete piece.dataset.newGameAnimating;
+        });
+        newGameAnimationEndTimer = null;
+    }, Math.max(...impactTimes) + 300);
+    return true;
+}
+
+window.startNewGameVisualSequence = startNewGameVisualSequence;
+window.finishNewGameVisualSequence = finishNewGameVisualSequence;
+
+function installNewGameVisualSequence() {
+    if (document.body.dataset.stage1NewGameVisualReady === 'true') return;
+
+    // Button activation and remappable file.new both ultimately cross apiAction.
+    // Own the request lifetime at that shared boundary so a rejected/failed New
+    // Game cannot leave the visual trigger armed for an unrelated later render.
+    const baseApiAction = window.apiAction;
+    if (typeof baseApiAction === 'function' && !baseApiAction.__newGameVisualPendingRecovery) {
+        const wrappedApiAction = async function(name, ...args) {
+            const isNewGameRequest =
+                name === 'new_game'
+                || (name === 'dispatch_action' && String(args[0] || '') === 'file.new');
+            if (isNewGameRequest) newGameVisualPending = true;
+            try {
+                return await baseApiAction.call(this, name, ...args);
+            } finally {
+                if (isNewGameRequest) {
+                    // A successful render's MutationObserver consumes the flag
+                    // first. One extra microtask lets that observer run; if the
+                    // flag is still armed, the request produced no usable board
+                    // render and must fail closed instead of leaking to the next
+                    // state change.
+                    await Promise.resolve();
+                    if (newGameVisualPending) newGameVisualPending = false;
+                }
+            }
+        };
+        wrappedApiAction.__newGameVisualPendingRecovery = true;
+        window.apiAction = wrappedApiAction;
+    }
+
+    const baseExecuteAction = window.executeAction;
+    if (typeof baseExecuteAction === 'function' && !baseExecuteAction.__newGameVisualTrigger) {
+        const wrappedExecuteAction = async function(id, ...args) {
+            if (id === 'file.new') newGameVisualPending = true;
+            return baseExecuteAction.call(this, id, ...args);
+        };
+        wrappedExecuteAction.__newGameVisualTrigger = true;
+        window.executeAction = wrappedExecuteAction;
+    }
+
+    document.addEventListener('click', event => {
+        const target = event.target && event.target.closest
+            ? event.target.closest('#new-game')
+            : null;
+        if (target) newGameVisualPending = true;
+    }, true);
+
+    document.addEventListener('keydown', event => {
+        const key = String(event.key || '').toLowerCase();
+        if (
+            event.ctrlKey && !event.altKey && !event.shiftKey && !event.metaKey
+            && key === 'n'
+            && !(typeof capture !== 'undefined' && capture)
+        ) {
+            // Chromium owns Ctrl+N unless the application suppresses it before
+            // the asynchronous central keymap resolver returns. Suppress the
+            // browser window command everywhere, but do not let this early
+            // browser guard bypass the canonical editable-control policy:
+            // typed controls keep native editing semantics and only the main
+            // document handler may admit its reviewed Help exception.
+            event.preventDefault();
+            event.stopPropagation();
+            const target = event.target;
+            const editing = typeof editableShortcutTarget === 'function'
+                ? editableShortcutTarget(target)
+                : !!(target && (
+                    ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)
+                    || target.isContentEditable
+                ));
+            if (editing) return;
+            const chord = typeof eventChord === 'function' ? eventChord(event) : 'Ctrl+N';
+            if (typeof resolveBinding === 'function') {
+                void resolveBinding(chord, 'document', 'document').then(action => {
+                    if (!action || !action.actionId) return;
+                    const execute = window.executeAction;
+                    if (typeof execute === 'function') void execute(action.actionId);
+                });
+            }
+            return;
+        }
+        if (!newGameVisualPending && byId('board-grid')?.classList.contains('stage1-new-game-animating')) {
+            finishNewGameVisualSequence();
+        }
+    }, true);
+    document.addEventListener('pointerdown', () => {
+        if (!newGameVisualPending && byId('board-grid')?.classList.contains('stage1-new-game-animating')) {
+            finishNewGameVisualSequence();
+        }
+    }, true);
+    document.body.dataset.stage1NewGameVisualReady = 'true';
+}
+
 function stabilizeBoardUiaSemantics(grid = byId('board-grid')) {
     if (!grid) return 0;
     const cells = [...grid.querySelectorAll('[role="gridcell"][data-square]')];
@@ -157,6 +453,7 @@ function stabilizeBoardUiaSemantics(grid = byId('board-grid')) {
         cell.setAttribute('aria-label', stableBoardAccessibleName(cell));
         cell.setAttribute('data-accessible-square', square);
     });
+    decorateVisibleBoardPieces(grid);
     if (cells.length === 64) document.body.dataset.stage1BoardUiaSemanticsReady = 'true';
     return cells.length;
 }
@@ -256,6 +553,19 @@ function installMoveFocusPolicy() {
         return result;
     };
     wrappedSubmit.__stage1FocusPolicy = true;
+
+    // index.html installed this exact baseSubmit function object as the
+    // move-submit click listener before the release bootstrap ran. Replacing
+    // window.submitMove alone cannot update an already-registered DOM listener,
+    // so native/UIA Invoke would bypass the board-focus policy and finish on
+    // Move Input. Rebind only the button click path; Move Input Enter keeps its
+    // original behavior and remains focused in the edit control.
+    const submit = byId('move-submit');
+    if (submit) {
+        submit.removeEventListener('click', baseSubmit);
+        submit.addEventListener('click', wrappedSubmit);
+    }
+
     window.submitMove = wrappedSubmit;
     document.body.dataset.stage1MoveFocusPolicyReady = 'true';
 }
@@ -292,7 +602,10 @@ function installBoardFocusContinuity() {
     const observer = new MutationObserver(records => {
         // Rendering replaces the grid cells. Re-normalize their exposed names
         // on every render before focus recovery.
-        queueMicrotask(() => stabilizeBoardUiaSemantics(grid));
+        queueMicrotask(() => {
+            stabilizeBoardUiaSemantics(grid);
+            if (newGameVisualPending) startNewGameVisualSequence();
+        });
         if (!focusState.boardNode || board.hidden) return;
         const focusedCellWasReplaced = records.some(record =>
             [...record.removedNodes].some(node =>
@@ -320,18 +633,46 @@ function installBoardFocusContinuity() {
     document.body.dataset.stage1BoardFocusContinuityReady = 'true';
 }
 
+let clockSoundPulseInFlight = false;
+
+function installClockSoundPulse() {
+    if (document.body.dataset.stage1ClockSoundPulseReady === 'true') return;
+    setInterval(async () => {
+        if (clockSoundPulseInFlight) return;
+        const a = api();
+        if (!a || typeof a.clock_sound_pulse !== 'function') return;
+        clockSoundPulseInFlight = true;
+        try {
+            await a.clock_sound_pulse();
+        } catch (_) {
+            // Clock ambience is presentation-only and must never affect the game.
+        } finally {
+            clockSoundPulseInFlight = false;
+        }
+    }, 3400);
+    document.body.dataset.stage1ClockSoundPulseReady = 'true';
+}
+
 const soundLabels = {
     uk: {
-        legend: 'Звуки', enabled: 'Увімкнути звуки', volume: 'Гучність',
-        previewEvent: 'Звук для прослуховування', preview: 'Прослухати',
+        legend: 'Звуки', enabled: 'Увімкнути звуки', newGameAnimation: 'Анімація нової партії', volume: 'Гучність',
+        tickPolicy: 'Коли звучить годинник',
+        tickLastSeconds: 'Останні секунд (0 — увесь час)',
+        lowTimePolicy: 'Кому попереджати про малий час',
+        lowTimeSeconds: 'Мало часу — секунд (0 — вимкнено)',
+        tickModes: {off:'Вимкнено', my_turn:'Лише мій хід', both:'Обидві сторони'},
         unavailable: 'Налаштування звуку недоступні.',
-        events: {move:'Хід', capture:'Взяття', check:'Шах', castle:'Рокіровка', promotion:'Перетворення', illegal:'Нелегальний хід', start:'Початок партії', end:'Кінець партії', tick:'Тік годинника'}
+        events: {move:'Хід', capture:'Взяття', check:'Шах', castle:'Рокірування', promotion:'Перетворення', illegal:'Нелегальний хід', start:'Початок партії', end:'Інше завершення партії', mate:'Мат', draw:'Нічия', tick:'Тік годинника', low_time:'Мало часу'}
     },
     en: {
-        legend: 'Sounds', enabled: 'Enable sounds', volume: 'Volume',
-        previewEvent: 'Sound to preview', preview: 'Preview',
+        legend: 'Sounds', enabled: 'Enable sounds', newGameAnimation: 'New-game animation', volume: 'Volume',
+        tickPolicy: 'When the clock sounds',
+        tickLastSeconds: 'Last seconds (0 — whole game)',
+        lowTimePolicy: 'Whose low time triggers a warning',
+        lowTimeSeconds: 'Low time — seconds (0 — off)',
+        tickModes: {off:'Off', my_turn:'My turn only', both:'Both sides'},
         unavailable: 'Sound settings are unavailable.',
-        events: {move:'Move', capture:'Capture', check:'Check', castle:'Castling', promotion:'Promotion', illegal:'Illegal move', start:'Game start', end:'Game end', tick:'Clock tick'}
+        events: {move:'Move', capture:'Capture', check:'Check', castle:'Castling', promotion:'Promotion', illegal:'Illegal move', start:'Game start', end:'Other game end', mate:'Checkmate', draw:'Draw', tick:'Clock tick', low_time:'Low time'}
     }
 };
 
@@ -339,44 +680,196 @@ function text() {
     return soundLabels[document.documentElement.lang === 'en' ? 'en' : 'uk'];
 }
 
+let currentSoundState = null;
+let soundStateLoadPromise = Promise.resolve();
+let soundWriteInFlight = false;
+const soundPolicyValues = new Set(['off', 'my_turn', 'both']);
+
+async function loadMoveFeedbackSettings() {
+    const control = byId('move-error-announcements');
+    const a = api();
+    if (!control) return;
+    control.disabled = true;
+    control.checked = false;
+    try {
+        if (!a || typeof a.get_move_feedback_settings !== 'function') return;
+        const result = await a.get_move_feedback_settings();
+        control.checked = !!(result && result.ok === true && result.enabled === true);
+        control.disabled = !(result && result.ok === true);
+    } catch (_) {}
+}
+
+async function persistMoveFeedbackSetting(control, requested) {
+    if (!control) return false;
+    control.disabled = true;
+    const a = api();
+    try {
+        if (!a || typeof a.set_move_error_announcements !== 'function') throw new Error();
+        const result = await a.set_move_error_announcements(requested === true);
+        if (!(result && result.ok === true && typeof result.enabled === 'boolean')) {
+            await loadMoveFeedbackSettings();
+            return false;
+        }
+        control.checked = result.enabled === true;
+        control.disabled = false;
+        return true;
+    } catch (_) {
+        await loadMoveFeedbackSettings();
+        return false;
+    }
+}
+
+function soundSettingElements() {
+    return {
+        enabled: byId('sound-enabled'),
+        newGameAnimation: byId('sound-newgame-animation'),
+        volume: byId('sound-volume'),
+        tickPolicy: byId('sound-tick-policy'),
+        tickLastSeconds: byId('sound-tick-last-seconds'),
+        lowTimePolicy: byId('sound-low-time-policy'),
+        lowTimeSeconds: byId('sound-low-time-seconds'),
+        status: byId('sound-settings-status'),
+    };
+}
+
+function authoritativeSoundState(state) {
+    return !!state
+        && state.ok === true
+        && typeof state.enabled === 'boolean'
+        && typeof state.newGameAnimation === 'boolean'
+        && Number.isInteger(state.volume)
+        && state.volume >= 0
+        && state.volume <= 100
+        && soundPolicyValues.has(state.tickPolicy)
+        && Number.isInteger(state.tickLastSeconds)
+        && state.tickLastSeconds >= 0
+        && state.tickLastSeconds <= 3600
+        && soundPolicyValues.has(state.lowTimePolicy)
+        && Number.isInteger(state.lowTimeSeconds)
+        && state.lowTimeSeconds >= 0
+        && state.lowTimeSeconds <= 3600;
+}
+
+function setSoundControlsDisabled(elements, disabled) {
+    for (const control of [
+        elements.enabled,
+        elements.newGameAnimation,
+        elements.volume,
+        elements.tickPolicy,
+        elements.tickLastSeconds,
+        elements.lowTimePolicy,
+        elements.lowTimeSeconds,
+    ]) {
+        if (control) control.disabled = disabled;
+    }
+}
+
+function applyAuthoritativeSoundState(state, elements = soundSettingElements()) {
+    if (!authoritativeSoundState(state)) return false;
+    currentSoundState = state;
+    if (elements.enabled) elements.enabled.checked = state.enabled;
+    if (elements.newGameAnimation) {
+        elements.newGameAnimation.checked = state.newGameAnimation;
+    }
+    if (elements.volume) elements.volume.value = String(state.volume);
+    if (elements.tickPolicy) elements.tickPolicy.value = state.tickPolicy;
+    if (elements.tickLastSeconds) {
+        elements.tickLastSeconds.value = String(state.tickLastSeconds);
+    }
+    if (elements.lowTimePolicy) elements.lowTimePolicy.value = state.lowTimePolicy;
+    if (elements.lowTimeSeconds) {
+        elements.lowTimeSeconds.value = String(state.lowTimeSeconds);
+    }
+    setSoundControlsDisabled(elements, false);
+    return true;
+}
+
 async function loadSoundState() {
     const a = api();
-    const enabled = byId('sound-enabled');
-    const volume = byId('sound-volume');
-    const status = byId('sound-settings-status');
+    const elements = soundSettingElements();
+    // Never expose mutable sound controls before their canonical persisted state
+    // is known. This runs before the first await and also fail-closes reloads.
+    setSoundControlsDisabled(elements, true);
+    // Treat a reload as a fresh authority transaction. While canonical state is
+    // unknown (or if the read fails), NEWGAME presentation must not reuse a
+    // stale timing/variant snapshot from an earlier successful read.
+    currentSoundState = null;
+    await loadMoveFeedbackSettings();
     if (!a || typeof a.get_sound_settings !== 'function') {
-        if (status) status.textContent = text().unavailable;
-        if (enabled) enabled.disabled = true;
-        if (volume) volume.disabled = true;
-        return;
+        if (elements.status) elements.status.textContent = text().unavailable;
+        return false;
     }
     try {
         const state = await a.get_sound_settings();
-        if (enabled) enabled.checked = !!state.enabled;
-        if (volume) volume.value = String(state.volume ?? 80);
-        if (status) status.textContent = '';
+        if (!applyAuthoritativeSoundState(state, elements)) {
+            throw new Error('non-authoritative sound settings');
+        }
+        if (elements.status) elements.status.textContent = '';
+        return true;
     } catch (_) {
-        if (status) status.textContent = text().unavailable;
+        if (elements.status) elements.status.textContent = text().unavailable;
+        return false;
+    }
+}
+
+async function persistSoundSetting(method, ...args) {
+    const elements = soundSettingElements();
+    if (soundWriteInFlight) {
+        return {ok:false, message:text().unavailable};
+    }
+    soundWriteInFlight = true;
+    setSoundControlsDisabled(elements, true);
+    currentSoundState = null;
+    try {
+        const a = api();
+        if (!a || typeof a[method] !== 'function') throw new Error();
+        const result = await a[method](...args);
+        if (!applyAuthoritativeSoundState(result, elements)) {
+            const message = result && typeof result.message === 'string' && result.message
+                ? result.message
+                : text().unavailable;
+            await loadSoundState();
+            return {ok:false, message};
+        }
+        if (elements.status) elements.status.textContent = '';
+        return result;
+    } catch (_) {
+        await loadSoundState();
+        return {ok:false, message:text().unavailable};
+    } finally {
+        soundWriteInFlight = false;
     }
 }
 
 function applySoundLanguage() {
+    const feedbackLabel = byId('move-error-announcements-label');
+    if (feedbackLabel) feedbackLabel.textContent = document.documentElement.lang === 'en'
+        ? 'Announce move input errors' : 'Озвучувати помилки введення ходів';
     const t = text();
     const legend = byId('sound-settings-legend');
     const enabledLabel = byId('sound-enabled-label');
+    const newGameAnimationLabel = byId('sound-newgame-animation-label');
     const volumeLabel = byId('sound-volume-label');
-    const eventLabel = byId('sound-preview-event-label');
-    const preview = byId('sound-preview');
+    const tickPolicyLabel = byId('sound-tick-policy-label');
+    const tickLastSecondsLabel = byId('sound-tick-last-seconds-label');
+    const lowTimePolicyLabel = byId('sound-low-time-policy-label');
+    const lowTimeSecondsLabel = byId('sound-low-time-seconds-label');
     if (legend) legend.textContent = t.legend;
     if (enabledLabel) enabledLabel.textContent = t.enabled;
+    if (newGameAnimationLabel) newGameAnimationLabel.textContent = t.newGameAnimation;
     if (volumeLabel) volumeLabel.textContent = t.volume;
-    if (eventLabel) eventLabel.textContent = t.previewEvent;
-    if (preview) preview.textContent = t.preview;
-    const select = byId('sound-preview-event');
-    if (select) {
-        [...select.options].forEach(option => {
-            option.textContent = t.events[option.value] || option.value;
-        });
+    if (tickPolicyLabel) tickPolicyLabel.textContent = t.tickPolicy;
+    if (tickLastSecondsLabel) tickLastSecondsLabel.textContent = t.tickLastSeconds;
+    if (lowTimePolicyLabel) lowTimePolicyLabel.textContent = t.lowTimePolicy;
+    if (lowTimeSecondsLabel) lowTimeSecondsLabel.textContent = t.lowTimeSeconds;
+    const tickPolicy = byId('sound-tick-policy');
+    const lowTimePolicy = byId('sound-low-time-policy');
+    for (const policySelect of [tickPolicy, lowTimePolicy]) {
+        if (policySelect) {
+            [...policySelect.options].forEach(option => {
+                option.textContent = t.tickModes[option.value] || option.value;
+            });
+        }
     }
 }
 
@@ -397,11 +890,42 @@ function installSoundSettings() {
     const enabled = document.createElement('input');
     enabled.type = 'checkbox';
     enabled.id = 'sound-enabled';
+    enabled.checked = true;
+    enabled.disabled = true;
     const enabledLabel = document.createElement('label');
     enabledLabel.id = 'sound-enabled-label';
     enabledLabel.htmlFor = enabled.id;
     enabledRow.append(enabled, enabledLabel);
     fieldset.appendChild(enabledRow);
+
+    const feedbackRow = document.createElement('div');
+    feedbackRow.className = 'row';
+    const feedback = document.createElement('input');
+    feedback.type = 'checkbox';
+    feedback.id = 'move-error-announcements';
+    feedback.disabled = true;
+    const feedbackLabel = document.createElement('label');
+    feedbackLabel.id = 'move-error-announcements-label';
+    feedbackLabel.htmlFor = feedback.id;
+    feedbackRow.append(feedback, feedbackLabel);
+    fieldset.appendChild(feedbackRow);
+    feedback.addEventListener('change', async () => {
+        const requested = feedback.checked === true;
+        if (!await persistMoveFeedbackSetting(feedback, requested)) {
+            speak(text().unavailable);
+        }
+    });
+
+    const newGameAnimationRow = document.createElement('div');
+    newGameAnimationRow.className = 'row';
+    const newGameAnimation = document.createElement('input');
+    newGameAnimation.type = 'checkbox';
+    newGameAnimation.id = 'sound-newgame-animation';
+    const newGameAnimationLabel = document.createElement('label');
+    newGameAnimationLabel.id = 'sound-newgame-animation-label';
+    newGameAnimationLabel.htmlFor = newGameAnimation.id;
+    newGameAnimationRow.append(newGameAnimation, newGameAnimationLabel);
+    fieldset.appendChild(newGameAnimationRow);
 
     const volumeRow = document.createElement('div');
     volumeRow.className = 'row';
@@ -410,6 +934,8 @@ function installSoundSettings() {
     volumeLabel.htmlFor = 'sound-volume';
     const volume = document.createElement('input');
     volume.id = 'sound-volume';
+    volume.value = '80';
+    volume.disabled = true;
     volume.type = 'number';
     volume.min = '0';
     volume.max = '100';
@@ -418,23 +944,65 @@ function installSoundSettings() {
     volumeRow.append(volumeLabel, volume);
     fieldset.appendChild(volumeRow);
 
-    const previewRow = document.createElement('div');
-    previewRow.className = 'row';
-    const eventLabel = document.createElement('label');
-    eventLabel.id = 'sound-preview-event-label';
-    eventLabel.htmlFor = 'sound-preview-event';
-    const eventSelect = document.createElement('select');
-    eventSelect.id = 'sound-preview-event';
-    ['move','capture','check','castle','promotion','illegal','start','end','tick'].forEach(value => {
+    const tickPolicyRow = document.createElement('div');
+    tickPolicyRow.className = 'row';
+    const tickPolicyLabel = document.createElement('label');
+    tickPolicyLabel.id = 'sound-tick-policy-label';
+    tickPolicyLabel.htmlFor = 'sound-tick-policy';
+    const tickPolicy = document.createElement('select');
+    tickPolicy.id = 'sound-tick-policy';
+    ['off', 'my_turn', 'both'].forEach(value => {
         const option = document.createElement('option');
         option.value = value;
-        eventSelect.appendChild(option);
+        tickPolicy.appendChild(option);
     });
-    const preview = document.createElement('button');
-    preview.id = 'sound-preview';
-    preview.type = 'button';
-    previewRow.append(eventLabel, eventSelect, preview);
-    fieldset.appendChild(previewRow);
+    tickPolicyRow.append(tickPolicyLabel, tickPolicy);
+    fieldset.appendChild(tickPolicyRow);
+
+    const tickLastSecondsRow = document.createElement('div');
+    tickLastSecondsRow.className = 'row';
+    const tickLastSecondsLabel = document.createElement('label');
+    tickLastSecondsLabel.id = 'sound-tick-last-seconds-label';
+    tickLastSecondsLabel.htmlFor = 'sound-tick-last-seconds';
+    const tickLastSeconds = document.createElement('input');
+    tickLastSeconds.id = 'sound-tick-last-seconds';
+    tickLastSeconds.type = 'number';
+    tickLastSeconds.min = '0';
+    tickLastSeconds.max = '3600';
+    tickLastSeconds.step = '1';
+    tickLastSeconds.inputMode = 'numeric';
+    tickLastSecondsRow.append(tickLastSecondsLabel, tickLastSeconds);
+    fieldset.appendChild(tickLastSecondsRow);
+
+    const lowTimePolicyRow = document.createElement('div');
+    lowTimePolicyRow.className = 'row';
+    const lowTimePolicyLabel = document.createElement('label');
+    lowTimePolicyLabel.id = 'sound-low-time-policy-label';
+    lowTimePolicyLabel.htmlFor = 'sound-low-time-policy';
+    const lowTimePolicy = document.createElement('select');
+    lowTimePolicy.id = 'sound-low-time-policy';
+    ['off', 'my_turn', 'both'].forEach(value => {
+        const option = document.createElement('option');
+        option.value = value;
+        lowTimePolicy.appendChild(option);
+    });
+    lowTimePolicyRow.append(lowTimePolicyLabel, lowTimePolicy);
+    fieldset.appendChild(lowTimePolicyRow);
+
+    const lowTimeSecondsRow = document.createElement('div');
+    lowTimeSecondsRow.className = 'row';
+    const lowTimeSecondsLabel = document.createElement('label');
+    lowTimeSecondsLabel.id = 'sound-low-time-seconds-label';
+    lowTimeSecondsLabel.htmlFor = 'sound-low-time-seconds';
+    const lowTimeSeconds = document.createElement('input');
+    lowTimeSeconds.id = 'sound-low-time-seconds';
+    lowTimeSeconds.type = 'number';
+    lowTimeSeconds.min = '0';
+    lowTimeSeconds.max = '3600';
+    lowTimeSeconds.step = '1';
+    lowTimeSeconds.inputMode = 'numeric';
+    lowTimeSecondsRow.append(lowTimeSecondsLabel, lowTimeSeconds);
+    fieldset.appendChild(lowTimeSecondsRow);
 
     const status = document.createElement('div');
     status.id = 'sound-settings-status';
@@ -442,50 +1010,69 @@ function installSoundSettings() {
     fieldset.appendChild(status);
     section.appendChild(fieldset);
 
+    const reportSoundWrite = result => {
+        const ok = !!(result && result.ok === true);
+        const message = result && typeof result.message === 'string' && result.message
+            ? result.message
+            : (ok ? '' : text().unavailable);
+        status.textContent = ok ? '' : message;
+        speak(message);
+    };
+
     enabled.addEventListener('change', async () => {
-        const a = api();
-        if (!a || typeof a.set_sound_enabled !== 'function') return;
-        try {
-            const result = await a.set_sound_enabled(!!enabled.checked);
-            enabled.checked = !!result.enabled;
-            status.textContent = result.ok ? '' : (result.message || '');
-            speak(result.message);
-        } catch (_) {
-            status.textContent = text().unavailable;
-            speak(text().unavailable);
-        }
+        reportSoundWrite(await persistSoundSetting(
+            'set_sound_enabled',
+            enabled.checked === true,
+        ));
+    });
+
+    newGameAnimation.addEventListener('change', async () => {
+        reportSoundWrite(await persistSoundSetting(
+            'set_newgame_animation_enabled',
+            newGameAnimation.checked === true,
+        ));
     });
 
     volume.addEventListener('change', async () => {
-        const a = api();
-        if (!a || typeof a.set_sound_volume !== 'function') return;
         const value = Number(volume.value);
-        try {
-            const result = await a.set_sound_volume(Number.isInteger(value) ? value : -1);
-            volume.value = String(result.volume ?? 80);
-            status.textContent = result.ok ? '' : (result.message || '');
-            speak(result.message);
-        } catch (_) {
-            status.textContent = text().unavailable;
-            speak(text().unavailable);
-        }
+        reportSoundWrite(await persistSoundSetting(
+            'set_sound_volume',
+            Number.isInteger(value) ? value : -1,
+        ));
     });
 
-    preview.addEventListener('click', async () => {
-        const a = api();
-        if (!a || typeof a.preview_sound !== 'function') return;
-        try {
-            const result = await a.preview_sound(eventSelect.value);
-            status.textContent = result.ok ? '' : (result.message || '');
-            speak(result.message);
-        } catch (_) {
-            status.textContent = text().unavailable;
-            speak(text().unavailable);
-        }
+    tickPolicy.addEventListener('change', async () => {
+        reportSoundWrite(await persistSoundSetting(
+            'set_clock_sound_policy',
+            tickPolicy.value,
+        ));
+    });
+
+    tickLastSeconds.addEventListener('change', async () => {
+        const value = Number(tickLastSeconds.value);
+        reportSoundWrite(await persistSoundSetting(
+            'set_clock_sound_last_seconds',
+            Number.isInteger(value) ? value : -1,
+        ));
+    });
+
+    lowTimePolicy.addEventListener('change', async () => {
+        reportSoundWrite(await persistSoundSetting(
+            'set_low_time_policy',
+            lowTimePolicy.value,
+        ));
+    });
+
+    lowTimeSeconds.addEventListener('change', async () => {
+        const value = Number(lowTimeSeconds.value);
+        reportSoundWrite(await persistSoundSetting(
+            'set_low_time_seconds',
+            Number.isInteger(value) ? value : -1,
+        ));
     });
 
     applySoundLanguage();
-    loadSoundState();
+    soundStateLoadPromise = loadSoundState();
 }
 
 function refreshReleaseLanguageSemantics() {
@@ -498,6 +1085,12 @@ async function markReady() {
     if (a && typeof a.get_state === 'function') {
         try { await a.get_state(); } catch (_) {}
     }
+    try {
+        await soundStateLoadPromise;
+        // Initial HTML may precede pywebviewready. Read the persisted state
+        // again now that the bridge exists, and re-enable its controls.
+        await loadSoundState();
+    } catch (_) {}
     stabilizeMoveEntryUiaSemantics();
     stabilizeBoardUiaSemantics();
     // Do not mark the whole main document aria-busy while WebView2 is building
@@ -512,6 +1105,8 @@ async function markReady() {
 installMoveFocusPolicy();
 installMoveEntryIdentity();
 installBoardFocusContinuity();
+installNewGameVisualSequence();
+installClockSoundPulse();
 installSemanticFocusBoundary();
 installSoundSettings();
 new MutationObserver(refreshReleaseLanguageSemantics).observe(document.documentElement, {attributes:true, attributeFilter:['lang']});

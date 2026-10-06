@@ -1,0 +1,111 @@
+name: Clock + Engine Serial Intake Qualification
+on:
+  push:
+    branches:
+      - integration/clock-engine-serial-intake-20261002
+
+permissions:
+  contents: read
+
+concurrency:
+  group: clock-engine-serial-intake-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+      - name: Preserve exact source bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+          git checkout-index --force --all
+      - name: Verify both source authorities and isolated combined scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          product=25b6da6eb8bccea95628ecfce5ba81fece1a5666
+          clock=77bfa596c7bbb6d2cdb06856584d5bf0ce7de2bf
+          engine=da7952b2ee28b322137363981b0f9d07cd490bd5
+          git merge-base --is-ancestor "$product" HEAD
+          git merge-base --is-ancestor "$clock" HEAD
+          git merge-base --is-ancestor "$engine" HEAD
+          test "$(git merge-base "$product" HEAD)" = "$product"
+          git diff --check "$product" HEAD
+          actual="$(git diff --name-only "$product" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/chess-clock-switch-boundary.yml' \
+            '.github/workflows/clock-engine-serial-acceptance.yml' \
+            '.github/workflows/d01-pgn-workspace-webview.yml' \
+            '.github/workflows/takeback-atomic-recovery.yml' \
+            '.github/workflows/takeback-lifecycle-checkpoint.yml' \
+            '.github/workflows/version2-windows-composition.yml' \
+            '.github/workflows/w3-takeback-clock-oracle-determinism.yml' \
+            'acs/clock_service.py' \
+            'acs/engine_game_session.py' \
+            'acs/game_lifecycle.py' \
+            'acs/stage1_release_ui.py' \
+            'acs/stage1_release_ui_core.py' \
+            'tests/test_clock_service.py' \
+            'tests/test_clock_engine_serial_acceptance.py' \
+            'tests/test_dev3_takeback_atomicity.py' \
+            'tests/test_engine_game_session.py' \
+            'tests/test_engine_game_timeout_ownership.py' \
+            'tests/test_engine_takeback_atomic_acceptance.py' \
+            'tests/test_game_lifecycle.py' \
+            'tests/test_stage1_engine_play_ui.py' \
+            'tests/test_stage1_saturation_refactor_contract.py' | sort)"
+          test "$actual" = "$expected" || {
+            printf 'Unexpected qualified clock/engine intake scope:\n%s\n' "$actual" >&2
+            exit 1
+          }
+          test "$(git rev-parse HEAD:acs/clock_service.py)" = ced200e24405bbe0f6c1282e99fdc9440b675477
+          test "$(git rev-parse HEAD:tests/test_clock_service.py)" = 2b0029b6da4dc88494c0e3cd4e891b886df45eda
+          test "$(git rev-parse HEAD:.github/workflows/chess-clock-switch-boundary.yml)" = 5a86e2055ba7479631133aecba2057f036f1e00b
+          test "$(git rev-parse HEAD:acs/engine_game_session.py)" = 02cc2238a0ee3582707f8c926fc8e089faaeccc7
+          test "$(git rev-parse HEAD:acs/stage1_release_ui.py)" = 2ac3ca8943e6a4a819e4f273992167f9cf0b47ce
+          test "$(git rev-parse HEAD:tests/test_engine_game_session.py)" = 93d6c46eeb5918ab0cc36b4961106fcfad506096
+          test "$(git rev-parse HEAD:tests/test_engine_game_timeout_ownership.py)" = e57d6e53b60c2c4206729be25f59eef8f2821bae
+          test "$(git rev-parse HEAD:tests/test_stage1_engine_play_ui.py)" = 9baf99e7a912fe5b3fdc1eab99277e90ac9d9974
+          test "$(git rev-parse HEAD:acs/game_lifecycle.py)" = dd0c2b3f69597f2747a59cefa08130fad794a653
+          test "$(git rev-parse HEAD:acs/stage1_release_ui_core.py)" = b579ca0f59ba20f6b69b3a4b7d89589256d54852
+          test "$(git rev-parse HEAD:tests/test_engine_takeback_atomic_acceptance.py)" = 4e302687fd05162c10ac4b1752cbd4a0e1e350ae
+          test "$(git rev-parse HEAD:tests/test_game_lifecycle.py)" = bb23da4522675a7b404238ae1c490514492d0f6e
+          test "$(git rev-parse HEAD:tests/test_dev3_takeback_atomicity.py)" = 60df98fc2138baa1ece727bac3eef4f8379a8e64
+          test "$(git rev-parse HEAD:.github/workflows/w3-takeback-clock-oracle-determinism.yml)" = 95722093cd5319374e6846cb161d6cf70d50a49b
+          git diff --quiet "$product" HEAD -- acs/chesscore.py acs/gametree.py
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned test runner
+        run: python -m pip install -q pytest==8.4.2
+      - name: Compile combined source and tests
+        run: python -m compileall -q acs tests run_accessible_chess_v2.py
+      - name: Focused real-clock engine acceptance and Stage1 rollback
+        run: >-
+          python -m unittest -v
+          tests.test_clock_service
+          tests.test_clock_engine_serial_acceptance
+          tests.test_engine_game_session
+          tests.test_engine_game_timeout_ownership
+          tests.test_stage1_engine_play_ui
+          tests.test_game_lifecycle
+          tests.test_engine_takeback_atomic_acceptance
+          tests.test_dev3_takeback_atomicity
+          tests.test_stage1_saturation_refactor_contract
+      - name: Full repository unittest
+        run: python -m unittest discover -s tests -v
+      - name: Full repository pytest
+        run: python -m pytest -q tests

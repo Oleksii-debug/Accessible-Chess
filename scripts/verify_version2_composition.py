@@ -11,6 +11,7 @@ OWNERS = {
     "book_core": "7407d541fefdb971fce21c3b1f02bdcc0186e970",
     "html_books": "cc949235fba8a9c3f7cb36587a52cb23eed5546d",
     "text_books": "4e88c0a0bb9b125ee57ab4bc2d667876c00ffc92",
+    "import_observer": "a4963a8ae932ff0064e46a7ba27e11546dcfb1f9",
 }
 
 

@@ -58,6 +58,29 @@ class D04ChessBaseBackendImmutabilityTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, ChessBaseDecodeCode.BACKEND_INVALID)
         self.assertNotIn(str(self.backend.parent), str(caught.exception))
 
+    def test_control_checkpoint_is_forwarded_without_weakening_backend_identity(self) -> None:
+        checkpoints = []
+
+        def checkpoint():
+            checkpoints.append("checked")
+
+        def decoded_with_control(_path, _config, *, control_checkpoint=None):
+            self.assertIs(control_checkpoint, checkpoint)
+            control_checkpoint()
+            return self._decoded()
+
+        with mock.patch(
+            "acs.chessbase_library_import.decode_chessbase_external",
+            side_effect=decoded_with_control,
+        ):
+            result = self.service._decode_with_immutable_backend(
+                self.source,
+                control_checkpoint=checkpoint,
+            )
+
+        self.assertEqual(result.source, self.snapshot)
+        self.assertEqual(checkpoints, ["checked"])
+
     def test_backend_disappearance_discards_decoder_output(self) -> None:
         def remove_backend(*_args, **_kwargs):
             self.backend.unlink()

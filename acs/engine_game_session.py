@@ -22,6 +22,7 @@ from .engine_play_service import (
     dispatch_lifecycle_handoff,
     resolve_engine_game_config,
 )
+from .input_limits import MAX_FEN_CHARS
 from .engine_ports import (
     EngineContractError,
     EngineContractErrorCode,
@@ -145,7 +146,13 @@ class EngineNoMoveHandoff:
     history_node_id: str
 
     def __post_init__(self) -> None:
-        if not isinstance(self.fen, str) or not self.fen.strip():
+        if type(self.fen) is not str or len(self.fen) > MAX_FEN_CHARS:
+            raise EngineContractError(
+                "no-move handoff FEN must be non-empty text",
+                code=EngineContractErrorCode.INVALID_HANDOFF,
+            )
+        normalized_fen = self.fen.strip()
+        if not normalized_fen:
             raise EngineContractError(
                 "no-move handoff FEN must be non-empty text",
                 code=EngineContractErrorCode.INVALID_HANDOFF,
@@ -160,7 +167,7 @@ class EngineNoMoveHandoff:
                 "no-move handoff history_node_id must be non-empty text",
                 code=EngineContractErrorCode.INVALID_HANDOFF,
             )
-        object.__setattr__(self, "fen", self.fen.strip())
+        object.__setattr__(self, "fen", normalized_fen)
         object.__setattr__(self, "history_node_id", self.history_node_id.strip())
 
 
@@ -190,6 +197,22 @@ class EngineNoMoveResolution:
             ) from exc
 
 
+@dataclass(frozen=True)
+class TakebackTransaction:
+    """Board-owner operations with exact compensation for a takeback."""
+
+    undo: Callable[[], None]
+    rollback: Callable[[], None]
+    commit: Callable[[], None]
+
+    def __post_init__(self) -> None:
+        if not all(callable(op) for op in (self.undo, self.rollback, self.commit)):
+            raise EngineContractError(
+                "takeback transaction needs callable undo, rollback and commit",
+                code=EngineContractErrorCode.INVALID_PROVIDER,
+            )
+
+
 class EngineGameSessionCoordinator:
     """Coordinate engine-game flow without taking ownership of board/history."""
 
@@ -203,6 +226,7 @@ class EngineGameSessionCoordinator:
         history_node_provider: Callable[[], str],
         undo_committed_move: Callable[[], None] | None = None,
         clock_restore_provider: Callable[[], ClockSnapshot] | None = None,
+        takeback_transaction: Callable[[], TakebackTransaction] | None = None,
         no_move_resolver: Callable[[EngineNoMoveHandoff], EngineNoMoveResolution | None] | None = None,
         timeout_mating_capability_provider: Callable[[str], bool | None] | None = None,
         analysis_handoff: Callable[[EngineGameHandoff], None] | None = None,
@@ -227,6 +251,7 @@ class EngineGameSessionCoordinator:
         optional_callbacks = {
             "undo_committed_move": undo_committed_move,
             "clock_restore_provider": clock_restore_provider,
+            "takeback_transaction": takeback_transaction,
             "no_move_resolver": no_move_resolver,
             "timeout_mating_capability_provider": timeout_mating_capability_provider,
             "analysis_handoff": analysis_handoff,
@@ -255,6 +280,7 @@ class EngineGameSessionCoordinator:
         self._history_node_provider = history_node_provider
         self._undo_committed_move = undo_committed_move
         self._clock_restore_provider = clock_restore_provider
+        self._takeback_transaction = takeback_transaction
         self._no_move_resolver = no_move_resolver
         self._timeout_mating_capability_provider = timeout_mating_capability_provider
         self._analysis_handoff = analysis_handoff
@@ -387,7 +413,27 @@ class EngineGameSessionCoordinator:
             raise ValueError("active clock does not match moved side")
         return clock
 
-    def request_engine_move(self) -> EngineMoveResult:
+    def request_engine_move(
+        self,
+        *,
+        timeout_opponent_can_mate: bool | None = None,
+    ) -> EngineMoveResult:
+        """Request one engine move without transferring canonical Board ownership.
+
+        When an exact pre-commit timeout fact is supplied and the mover flags
+        during the post-commit clock switch, the lifecycle is finalized and an
+        exception is raised. The Board-owning integration must then roll back
+        the just-committed callback mutation instead of treating the move as
+        accepted.
+        """
+        if (
+            timeout_opponent_can_mate is not None
+            and type(timeout_opponent_can_mate) is not bool
+        ):
+            raise EngineContractError(
+                "timeout_opponent_can_mate must be an exact boolean or None",
+                code=EngineContractErrorCode.INVALID_REQUEST,
+            )
         snap = self.snapshot()
         if snap.turn_state is EngineTurnState.FINISHED:
             raise ValueError("engine game session is finished")
@@ -395,7 +441,9 @@ class EngineGameSessionCoordinator:
             raise ValueError("engine move requested when it is not the engine turn")
         self.assert_move_allowed(snap.side_to_move)
         fen = self._current_fen()
-        result = self._play_service.choose_move(EngineMoveRequest(fen, level=snap.config.level.level))
+        result = self._play_service.choose_move(
+            EngineMoveRequest(fen, level=snap.config.level.level)
+        )
         if result.move is None:
             self._resolve_no_engine_move(fen, snap.side_to_move)
             return result
@@ -407,27 +455,81 @@ class EngineGameSessionCoordinator:
                 code=EngineContractErrorCode.INVALID_SESSION,
             )
         self._commit_engine_move(result.move)
-        self._lifecycle.on_move_committed()
         assert self._clock is not None
-        self._clock.switch_after_move(moved_side)
+        # The Board-owning caller rolls this callback mutation back when clock
+        # acceptance fails. Publish lifecycle move acceptance only after the
+        # clock switch succeeds so pending draw/takeback state rolls back with it.
+        switched = self._clock.switch_after_move(moved_side)
+        if switched.flagged == moved_side:
+            # A rejected clock transition must never become an accepted Board
+            # move, even for callers without optional pre-commit mating evidence.
+            # Do not infer an outcome from the still-unrolled-back Board.
+            if (
+                timeout_opponent_can_mate is not None
+                and self._lifecycle.snapshot().status is GameStatus.ACTIVE
+            ):
+                self._record_timeout(
+                    switched.flagged,
+                    opponent_can_mate=timeout_opponent_can_mate,
+                )
+            raise ValueError("clock flagged before engine move acceptance")
+        self._lifecycle.on_move_committed()
         return result
 
-    def on_human_move_committed(self, moved_side: str) -> EngineGameSessionSnapshot:
+    def on_human_move_committed(
+        self,
+        moved_side: str,
+        *,
+        timeout_opponent_can_mate: bool | None = None,
+    ) -> EngineGameSessionSnapshot:
         self._require_active()
         if not isinstance(moved_side, str) or moved_side not in {"w", "b"}:
             raise EngineContractError(
                 "moved_side must be 'w' or 'b'",
                 code=EngineContractErrorCode.INVALID_REQUEST,
             )
+        if (
+            timeout_opponent_can_mate is not None
+            and type(timeout_opponent_can_mate) is not bool
+        ):
+            raise EngineContractError(
+                "timeout_opponent_can_mate must be an exact boolean or None",
+                code=EngineContractErrorCode.INVALID_REQUEST,
+            )
         assert self._clock is not None
         clock = self._clock.snapshot()
         if clock.flagged is not None:
-            self._record_timeout(clock.flagged)
-            raise ValueError("clock flagged before move commit")
+            # This callback runs after its caller committed the Board move.
+            # Without a pre-commit fact, reporting an outcome via the current
+            # (unrolled-back) Board's capability provider would be unsound.
+            if timeout_opponent_can_mate is None:
+                raise ValueError("clock flagged before move commit")
+            self._record_timeout(
+                clock.flagged,
+                opponent_can_mate=timeout_opponent_can_mate,
+            )
+            return self.snapshot()
         if clock.state is ClockState.RUNNING and clock.active != moved_side:
             raise ValueError("active clock does not match moved side")
+        # Clock acceptance must precede lifecycle publication. A failed clock
+        # switch means the caller's just-committed Board move is rejected and
+        # rolled back; clearing draw/takeback requests before that boundary
+        # would leave lifecycle state ahead of the canonical Board/history.
+        switched = self._clock.switch_after_move(moved_side)
+        if switched.flagged == moved_side:
+            # Require Board-owner rollback for an unaccepted mover, even when
+            # no exact pre-commit mating fact was supplied by the caller.
+            if timeout_opponent_can_mate is None:
+                raise ValueError("clock flagged before human move acceptance")
+            if self._lifecycle.snapshot().status is GameStatus.ACTIVE:
+                self._record_timeout(
+                    switched.flagged,
+                    opponent_can_mate=timeout_opponent_can_mate,
+                )
+            return self.snapshot()
+        # An opponent flag on the returned snapshot is different: the mover
+        # was accepted, so retain the move and resolve the next-side timeout.
         self._lifecycle.on_move_committed()
-        self._clock.switch_after_move(moved_side)
         return self.snapshot()
 
     def sync_position_outcome(self, result: str, reason: EndReason, winner: str | None = None) -> EngineGameSessionSnapshot:
@@ -507,13 +609,77 @@ class EngineGameSessionCoordinator:
         assert self._clock is not None
         self._clock.snapshot()
 
-        self._undo_committed_move()
-        restored_clock = self._resolve_clock_restore_after_takeback()
-        if restored_clock is not None:
-            self._clock.restore(restored_clock, resume_running=True)
-        self._lifecycle.accept_takeback(actor)
-        self._lifecycle.invalidate_position_outcome()
-        return self.snapshot()
+        if self._takeback_transaction is None:
+            # Even an untimed/no-history-provider takeback has fallible
+            # post-undo side/lifecycle/snapshot callbacks. Do not assume a
+            # legacy undo is reversible without an explicit Board-owner token.
+            raise EngineContractError(
+                "takeback requires a compensating Board transaction",
+                code=EngineContractErrorCode.INVALID_PROVIDER,
+            )
+
+        transaction = self._takeback_transaction()
+        if not isinstance(transaction, TakebackTransaction):
+            raise EngineContractError(
+                "takeback_transaction must return TakebackTransaction",
+                code=EngineContractErrorCode.INVALID_PROVIDER,
+            )
+        original_clock = self._clock.snapshot()
+        original_lifecycle = self._lifecycle.snapshot()
+        clock_replaced = False
+        try:
+            transaction.undo()
+            restored_clock = self._resolve_clock_restore_after_takeback()
+            post_side = self._side_to_move()
+            if restored_clock is not None:
+                # Reject structurally valid but wrong-side history *before*
+                # restoring the running clock or accepting the lifecycle.
+                assert self._config is not None
+                expected_turn = (
+                    EngineTurnState.ENGINE
+                    if post_side == self._config.engine_side
+                    else EngineTurnState.HUMAN
+                )
+                EngineGameSessionSnapshot(
+                    self._config, post_side, expected_turn,
+                    original_lifecycle, restored_clock,
+                )
+                self._clock.restore(restored_clock, resume_running=True)
+                clock_replaced = True
+            self._lifecycle.accept_takeback(actor)
+            self._lifecycle.invalidate_position_outcome()
+            accepted = self.snapshot()
+            transaction.commit()
+            return accepted
+        except Exception:
+            # Never let one compensation failure skip the remaining canonical
+            # recovery components. A failed Board rollback cannot be reported
+            # as an ordinary rejected takeback or a recovered state.
+            compensation_error = None
+            try:
+                transaction.rollback()
+            except Exception as exc:
+                compensation_error = exc
+            try:
+                if clock_replaced:
+                    self._clock.restore(
+                        original_clock,
+                        resume_running=original_clock.state is ClockState.RUNNING,
+                    )
+            except Exception as exc:
+                if compensation_error is None:
+                    compensation_error = exc
+            try:
+                self._lifecycle.restore_checkpoint(original_lifecycle)
+            except Exception as exc:
+                if compensation_error is None:
+                    compensation_error = exc
+            if compensation_error is not None:
+                raise EngineContractError(
+                    "takeback compensation failed; session requires recovery",
+                    code=EngineContractErrorCode.INVALID_SESSION,
+                ) from compensation_error
+            raise
 
     def _resolve_clock_restore_after_takeback(self) -> ClockSnapshot | None:
         if self._clock_restore_provider is None:
@@ -618,12 +784,18 @@ class EngineGameSessionCoordinator:
 
     def _current_fen(self) -> str:
         fen = self._fen_provider()
-        if not isinstance(fen, str) or not fen.strip():
+        if type(fen) is not str or len(fen) > MAX_FEN_CHARS:
             raise EngineContractError(
                 "fen provider must return non-empty text",
                 code=EngineContractErrorCode.INVALID_PROVIDER,
             )
-        return fen.strip()
+        normalized = fen.strip()
+        if not normalized:
+            raise EngineContractError(
+                "fen provider must return non-empty text",
+                code=EngineContractErrorCode.INVALID_PROVIDER,
+            )
+        return normalized
 
     def _history_node_id(self) -> str:
         node_id = self._history_node_provider()

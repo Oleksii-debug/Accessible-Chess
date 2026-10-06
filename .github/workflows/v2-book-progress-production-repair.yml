@@ -4,10 +4,15 @@ on:
   push:
     branches:
       - work/v2-book-progress-production-repair-20260831
+      - converge/books-training-owner-current-20261004-zftrkmo
   pull_request:
     paths:
       - 'acs/book_progress_store.py'
+      - 'acs/bookreader.py'
+      - 'acs/version2_application.py'
+      - 'tests/test_v2_book_progress_store.py'
       - 'tests/test_v2_book_progress_store_production.py'
+      - 'tests/test_version2_application.py'
       - '.github/workflows/v2-book-progress-production-repair.yml'
   workflow_dispatch:
 
@@ -29,8 +34,69 @@ jobs:
     env:
       STACK_PARENT_SHA: 5ec896f00615d10157c5ec52a1ef83917779a1b5
       PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      CURRENT_PRODUCT_BRANCH: work/full-product-teacher-education-reachability-20260911
+      OWNER_BRANCH: converge/books-training-owner-current-20261004-zftrkmo
+      CURRENT_PROGRESS_OWNER: e3b233f603cefd3a513a5ba39c85e64e51aff557
+      CURRENT_STORE_BLOB: 3c51f524a1e2702903914a2dd9c37c0ed8ebf87b
+      CURRENT_BASE_TEST_BLOB: 52cb2948ec6789b60775e1fa38cae44770baff7a
+      CURRENT_PRODUCTION_TEST_BLOB: c2855823860059941a61c13109a9b686c26330e5
+      BASE_APPLICATION_BLOB: e1020f4d7d2320f3162bc78b9a6221b2afd46876
+      BASE_APPLICATION_TEST_BLOB: 7ec4d04a3cb96ab0cc546a25036475f60ef92ed7
+      WINDOWS_DURABILITY_STORE_BLOB: a077dc71ab750ce3bacdbeaf7a76e69d2dccfb0a
+      WINDOWS_DURABILITY_BASE_TEST_BLOB: 0ce0d284ab7c0cdf75c3ffb191bda9f9dad22004
+      WINDOWS_DURABILITY_PRODUCTION_TEST_BLOB: 6aa9cddc68a630228e3a2266c5dcf3382b86a674
+      READ_DISAPPEAR_STORE_BLOB: 180d598b79c64db54254c79547c6c725a9973f8c
+      READ_DISAPPEAR_BASE_TEST_BLOB: d0f31138253a69c06a9f2ba8583c1fce93bb73b0
+      READ_DISAPPEAR_PRODUCTION_TEST_BLOB: 6aa9cddc68a630228e3a2266c5dcf3382b86a674
+      READ_APPEAR_STORE_BLOB: 8625a9903a4e3fb6828f1e110cf35957a8f3b4d0
+      READ_APPEAR_BASE_TEST_BLOB: 4cef6cecbcce74b36b49907c5a7c0cd3e61b8082
+      READ_APPEAR_PRODUCTION_TEST_BLOB: 6aa9cddc68a630228e3a2266c5dcf3382b86a674
+      RECOVERY_RECHECK_STORE_BLOB: dc64dfb17d7382afa8ef47adcea75438363aa620
+      RECOVERY_RECHECK_BASE_TEST_BLOB: b246f6bd72f218183bad105ac642b94a32e8b672
+      RECOVERY_RECHECK_PRODUCTION_TEST_BLOB: 6aa9cddc68a630228e3a2266c5dcf3382b86a674
+      TARGET_INODE_STORE_BLOB: 922002764958e3e6bcfd793dbb3e2859d0482241
+      TARGET_INODE_BASE_TEST_BLOB: 3f3df6fb21854ec8f368829e957f155f700a1fd8
+      TARGET_INODE_PRODUCTION_TEST_BLOB: 6aa9cddc68a630228e3a2266c5dcf3382b86a674
+      GUARD_INODE_STORE_BLOB: 78616a83f9f8d6c71e8ca9bb43a4ea5b91c986b8
+      GUARD_INODE_BASE_TEST_BLOB: e80e9dcfde1a5508fb1d266cd8334e24ab904c59
+      GUARD_INODE_PRODUCTION_TEST_BLOB: 6aa9cddc68a630228e3a2266c5dcf3382b86a674
+      RECOVERY_PAIR_STORE_BLOB: 39a2e78fde6d31e7419f90f7ba11093f870c6f0f
+      RECOVERY_PAIR_BASE_TEST_BLOB: e74f95793d32d1c0abaa269f13f47ddf2b4998d4
+      RECOVERY_PAIR_PRODUCTION_TEST_BLOB: 6aa9cddc68a630228e3a2266c5dcf3382b86a674
+      EXPLICIT_RECOVERY_INODE_STORE_BLOB: a1fd9168729b1821ff1df6f6a926623324faee87
+      EXPLICIT_RECOVERY_INODE_BASE_TEST_BLOB: c33f2c1978325f73f362ee66a2670e99e4fc2522
+      EXPLICIT_RECOVERY_INODE_PRODUCTION_TEST_BLOB: 6aa9cddc68a630228e3a2266c5dcf3382b86a674
+      TRANSACTION_INODE_STORE_BLOB: 4d7737f53ab2d81db3e9c83cda127b32fa48b828
+      TRANSACTION_INODE_BASE_TEST_BLOB: c009c29f5c71f5d43535b42dcc119ed172e558a3
+      TRANSACTION_INODE_PRODUCTION_TEST_BLOB: 6aa9cddc68a630228e3a2266c5dcf3382b86a674
+      POST_PUBLICATION_GUARD_STORE_BLOB: c526555195c60c8837e891c6808aaddfbe6db98a
+      POST_PUBLICATION_GUARD_BASE_TEST_BLOB: 6d704de1441f0a8b553c8b76e64c8287fad9b7d3
+      POST_PUBLICATION_GUARD_PRODUCTION_TEST_BLOB: 6aa9cddc68a630228e3a2266c5dcf3382b86a674
+      REVISION_BOUND_RECOVERY_STORE_BLOB: 21909ed36723bf2bf38fbc36cc6f49c6e490fcae
+      REVISION_BOUND_RECOVERY_BASE_TEST_BLOB: 1670b2672e5e06dbb58e1bfe8ff0f495ca1f8a02
+      REVISION_BOUND_RECOVERY_PRODUCTION_TEST_BLOB: 6aa9cddc68a630228e3a2266c5dcf3382b86a674
+      MALFORMED_INTEGER_STORE_BLOB: a3bfd7a6d31e186a1c5dee3932e2352073336d65
+      MALFORMED_INTEGER_BASE_TEST_BLOB: 56e71a7d706de1f2476ca88f0f74856736bdfe32
+      MALFORMED_INTEGER_PRODUCTION_TEST_BLOB: 6aa9cddc68a630228e3a2266c5dcf3382b86a674
+      CWD_BOUND_STORE_BLOB: 39502e72ed5a12efd4746f500ccb2ede589d4152
+      CWD_BOUND_BASE_TEST_BLOB: 810b8cbe1f9fbba835cba95e721b702acd924b56
+      CWD_BOUND_PRODUCTION_TEST_BLOB: 6aa9cddc68a630228e3a2266c5dcf3382b86a674
+      RECOVERY_CONSENT_STORE_BLOB: 3bf69ef648789f5ec597859abcce0c0729836352
+      RECOVERY_CONSENT_BASE_TEST_BLOB: 0fd92590040daf948921b40f09daea2e0824c94c
+      RECOVERY_CONSENT_APPLICATION_BLOB: 4ffb8ede3105a38d0872443fd011cc23c1a7841b
+      RECOVERY_CONSENT_APPLICATION_TEST_BLOB: 5029be95905806de8df625bdae07baddd844c6c4
+      RECOVERY_CONSENT_PRODUCTION_TEST_BLOB: 6aa9cddc68a630228e3a2266c5dcf3382b86a674
+      INTEGRATED_RECOVERY_SUCCESSOR_HEAD: 6658706023a8e4e33e6def18408e17af59b73e53
+      INTEGRATED_RECOVERY_APPLICATION_BLOB: 978ad31bfaedd137e8264062c976fe6d14c47045
+      SNAPSHOT_CONTRACT_STORE_BLOB: 9edff8595f1bddaeb7c5fe17bc434be49d2ff814
+      SNAPSHOT_CONTRACT_BASE_TEST_BLOB: c200660824bd710ee14ea934b35203732ee40c1c
+      SNAPSHOT_CONTRACT_BOOKREADER_BLOB: d138eefc020f0549a29f69b9ff11efe9c48b7551
+      PASSIVE_MAPPING_STORE_BLOB: 9679133f914839439bc42b63c4d79064b9c49bdd
+      PASSIVE_MAPPING_BASE_TEST_BLOB: c200660824bd710ee14ea934b35203732ee40c1c
+      PASSIVE_MAPPING_PRODUCTION_TEST_BLOB: 6aa9cddc68a630228e3a2266c5dcf3382b86a674
+      PASSIVE_MAPPING_INGRESS_TEST_BLOB: fdc34f0637c2b26c2e5e70bab63c973204bb6481
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -44,7 +110,7 @@ jobs:
           git reset --hard HEAD
           git checkout-index --force --all
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: '3.12'
 
@@ -55,6 +121,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+
+          canonical_product_ref="refs/remotes/origin/$CURRENT_PRODUCT_BRANCH"
+          git fetch --no-tags origin "+refs/heads/$CURRENT_PRODUCT_BRANCH:$canonical_product_ref"
+          current_product="$(git rev-parse "$canonical_product_ref")"
+          git cat-file -e "$current_product^{commit}"
+
+          owner_ref="refs/remotes/origin/$OWNER_BRANCH"
+          git fetch --no-tags origin "+refs/heads/$OWNER_BRANCH:$owner_ref"
+          owner_live="$(git rev-parse "$owner_ref")"
+          git cat-file -e "$owner_live^{commit}"
+
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             upstream="$PR_BASE_SHA"
           else
@@ -63,41 +140,499 @@ jobs:
           test -n "$upstream"
           git cat-file -e "$upstream^{commit}"
           test "$(git merge-base "$upstream" HEAD)" = "$upstream"
-          git diff --check "$upstream" HEAD
           changed="$(git diff --name-only "$upstream" HEAD | sort)"
-          expected="$(printf '%s\n' \
-            '.github/workflows/v2-book-progress-production-repair.yml' \
-            'acs/book_progress_store.py' \
-            'tests/test_v2_book_progress_store_production.py' | sort)"
-          test "$changed" = "$expected"
-          git diff --quiet "$upstream" HEAD -- \
-            .github/workflows/v2-book-progress-store.yml \
-            acs/bookreader.py \
-            acs/book_index.py \
-            acs/bookdocument.py \
-            acs/book_game_content.py \
-            acs/book_library_game_lookup.py \
-            acs/book_training.py \
-            acs/training.py \
-            acs/book_webview_bridge.py \
-            acs/book_webview_projection.py \
-            acs/full_product_presenters.py \
-            acs/gametree.py \
-            acs/pgn_roundtrip.py \
-            acs/chesscore.py \
-            acs/analysis_service.py \
-            acs/engine_assisted_workflows.py \
-            acs/acsdb.py \
-            web/full_product_books_training.js \
-            acs/stage1_release_ui.py
+
+          bounded_feature=false
+          passive_mapping_feature=false
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            allowed="$(printf '%s\n' \
+              '.github/workflows/v2-book-progress-production-repair.yml' \
+              'acs/book_progress_store.py' \
+              'acs/version2_application.py' \
+              'tests/test_v2_book_progress_store.py' \
+              'tests/test_v2_book_progress_store_production.py' \
+              'tests/test_version2_application.py' | sort)"
+            unexpected="$(comm -23 <(printf '%s\n' "$changed") <(printf '%s\n' "$allowed"))"
+            if [ -z "$unexpected" ] \
+              && printf '%s\n' "$changed" | grep -Fqx 'acs/book_progress_store.py' \
+              && printf '%s\n' "$changed" | grep -Fqx 'tests/test_v2_book_progress_store.py'; then
+              bounded_feature=true
+            fi
+            passive_mapping_expected="$(printf '%s\n' \
+              '.github/workflows/current-book-progress-passive-ingress.yml' \
+              '.github/workflows/v2-book-progress-production-repair.yml' \
+              'acs/book_progress_store.py' \
+              'tests/test_book_progress_passive_ingress_current.py' | sort)"
+            if [ "$changed" = "$passive_mapping_expected" ]; then
+              passive_mapping_feature=true
+            fi
+          else
+            expected="$(printf '%s\n' \
+              '.github/workflows/v2-book-progress-production-repair.yml' \
+              'acs/book_progress_store.py' \
+              'tests/test_v2_book_progress_store_production.py' | sort)"
+            if [ "$changed" = "$expected" ]; then
+              bounded_feature=true
+            fi
+          fi
+
+          workflow_repair=false
+          if git merge-base --is-ancestor "$current_product" HEAD; then
+            current_delta="$(git diff --name-only "$current_product" HEAD | sort)"
+            if [ "$current_delta" = '.github/workflows/v2-book-progress-production-repair.yml' ]; then
+              workflow_repair=true
+            fi
+          fi
+          recovery_successor=false
+          if git merge-base --is-ancestor "$current_product" HEAD; then
+            current_delta="$(git diff --name-only "$current_product" HEAD | sort)"
+            recovery_expected="$(printf '%s\n' '.github/workflows/books-progress-backup-recovery.yml' '.github/workflows/v2-book-progress-production-repair.yml' '.github/workflows/v2-composition-publication-boundary.yml' 'acs/book_progress_store.py' 'acs/version2_application.py' 'acs/version2_release_app.py' 'acs/version2_windows_native_dialog_ownership.py' 'tests/test_v2_native_dialog_language.py' 'tests/test_version2_application.py' | sort)"
+            if [ "$current_delta" = "$recovery_expected" ]; then
+              recovery_successor=true
+            fi
+          fi
+
+          windows_durability_successor=false
+          if [ "${{ github.event_name }}" = "pull_request" ] \
+            && git merge-base --is-ancestor "$current_product" "$PR_BASE_SHA"; then
+            candidate_store="$(git rev-parse HEAD:acs/book_progress_store.py)"
+            candidate_base_test="$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)"
+            candidate_production_test="$(git rev-parse HEAD:tests/test_v2_book_progress_store_production.py)"
+            if [ "$candidate_store" = "$WINDOWS_DURABILITY_STORE_BLOB" ] \
+              && [ "$candidate_base_test" = "$WINDOWS_DURABILITY_BASE_TEST_BLOB" ] \
+              && [ "$candidate_production_test" = "$WINDOWS_DURABILITY_PRODUCTION_TEST_BLOB" ]; then
+              windows_durability_successor=true
+            fi
+          fi
+
+          read_appear_successor=false
+          if [ "${{ github.event_name }}" = "pull_request" ] \
+            && git merge-base --is-ancestor "$current_product" "$PR_BASE_SHA"; then
+            candidate_store="$(git rev-parse HEAD:acs/book_progress_store.py)"
+            candidate_base_test="$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)"
+            candidate_production_test="$(git rev-parse HEAD:tests/test_v2_book_progress_store_production.py)"
+            if [ "$candidate_store" = "$READ_APPEAR_STORE_BLOB" ] \
+              && [ "$candidate_base_test" = "$READ_APPEAR_BASE_TEST_BLOB" ] \
+              && [ "$candidate_production_test" = "$READ_APPEAR_PRODUCTION_TEST_BLOB" ]; then
+              read_appear_successor=true
+            fi
+          fi
+
+          recovery_recheck_successor=false
+          if [ "${{ github.event_name }}" = "pull_request" ] \
+            && git merge-base --is-ancestor "$current_product" "$PR_BASE_SHA"; then
+            candidate_store="$(git rev-parse HEAD:acs/book_progress_store.py)"
+            candidate_base_test="$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)"
+            candidate_production_test="$(git rev-parse HEAD:tests/test_v2_book_progress_store_production.py)"
+            if [ "$candidate_store" = "$RECOVERY_RECHECK_STORE_BLOB" ] \
+              && [ "$candidate_base_test" = "$RECOVERY_RECHECK_BASE_TEST_BLOB" ] \
+              && [ "$candidate_production_test" = "$RECOVERY_RECHECK_PRODUCTION_TEST_BLOB" ]; then
+              recovery_recheck_successor=true
+            fi
+          fi
+
+          snapshot_contract_successor=false
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            candidate_store="$(git rev-parse HEAD:acs/book_progress_store.py)"
+            candidate_base_test="$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)"
+            candidate_bookreader="$(git rev-parse HEAD:acs/bookreader.py)"
+            if [ "$candidate_store" = "$SNAPSHOT_CONTRACT_STORE_BLOB" ] \
+              && [ "$candidate_base_test" = "$SNAPSHOT_CONTRACT_BASE_TEST_BLOB" ] \
+              && [ "$candidate_bookreader" = "$SNAPSHOT_CONTRACT_BOOKREADER_BLOB" ] \
+              && git diff --quiet "$PR_BASE_SHA" HEAD -- \
+                acs/version2_application.py \
+                tests/test_v2_book_progress_store_production.py \
+                tests/test_version2_application.py; then
+              snapshot_contract_successor=true
+            fi
+          fi
+
+          integrated_recovery_convergence=false
+          if git merge-base --is-ancestor "$INTEGRATED_RECOVERY_SUCCESSOR_HEAD" HEAD; then
+            candidate_store_now="$(git rev-parse HEAD:acs/book_progress_store.py)"
+            candidate_base_test_now="$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)"
+            candidate_production_test_now="$(git rev-parse HEAD:tests/test_v2_book_progress_store_production.py)"
+            candidate_application_now="$(git rev-parse HEAD:acs/version2_application.py)"
+            candidate_application_test_now="$(git rev-parse HEAD:tests/test_version2_application.py)"
+            if [ "$candidate_store_now" = "$RECOVERY_CONSENT_STORE_BLOB" ] \
+              && [ "$candidate_base_test_now" = "$RECOVERY_CONSENT_BASE_TEST_BLOB" ] \
+              && [ "$candidate_production_test_now" = "$RECOVERY_CONSENT_PRODUCTION_TEST_BLOB" ] \
+              && [ "$candidate_application_now" = "$INTEGRATED_RECOVERY_APPLICATION_BLOB" ] \
+              && [ "$candidate_application_test_now" = "$RECOVERY_CONSENT_APPLICATION_TEST_BLOB" ]; then
+              integrated_recovery_convergence=true
+            fi
+          fi
+
+          full_product_composition=false
+          if [ "${{ github.event_name }}" = "pull_request" ] \
+            && [ "${{ github.head_ref }}" = "$CURRENT_PRODUCT_BRANCH" ]; then
+            test "$(git rev-parse HEAD)" = "$current_product"
+            full_product_composition=true
+          elif [ "${{ github.event_name }}" != "pull_request" ] \
+            && [ "${GITHUB_REF_NAME:-}" = "$CURRENT_PRODUCT_BRANCH" ]; then
+            test "$(git rev-parse HEAD)" = "$current_product"
+            full_product_composition=true
+          fi
+
+          owner_descendant_convergence=false
+          if [ "${{ github.event_name }}" = "pull_request" ] \
+            && [ "$PR_BASE_SHA" = "$owner_live" ] \
+            && git merge-base --is-ancestor "$owner_live" HEAD \
+            && git diff --quiet "$owner_live" HEAD -- \
+              acs/book_progress_store.py \
+              acs/bookreader.py \
+              acs/version2_application.py \
+              tests/test_v2_book_progress_store.py \
+              tests/test_v2_book_progress_store_production.py \
+              tests/test_version2_application.py; then
+            owner_descendant_convergence=true
+          fi
+
+          owner_composition=false
+          if [ "${{ github.event_name }}" = "pull_request" ] \
+            && [ "${{ github.head_ref }}" = "$OWNER_BRANCH" ]; then
+            owner_ref="refs/remotes/origin/$OWNER_BRANCH"
+            git fetch --no-tags origin "+refs/heads/$OWNER_BRANCH:$owner_ref"
+            owner_live="$(git rev-parse "$owner_ref")"
+            test "$(git rev-parse HEAD)" = "$owner_live"
+            owner_composition=true
+          elif [ "${{ github.event_name }}" != "pull_request" ] \
+            && [ "${GITHUB_REF_NAME:-}" = "$OWNER_BRANCH" ]; then
+            owner_ref="refs/remotes/origin/$OWNER_BRANCH"
+            git fetch --no-tags origin "+refs/heads/$OWNER_BRANCH:$owner_ref"
+            owner_live="$(git rev-parse "$owner_ref")"
+            test "$(git rev-parse HEAD)" = "$owner_live"
+            owner_composition=true
+          fi
+
+          {
+            echo "BOOK_PROGRESS_UPSTREAM_SHA=$upstream"
+            echo "BOOK_PROGRESS_CURRENT_PRODUCT_SHA=$current_product"
+            echo "BOOK_PROGRESS_BOUNDED_FEATURE=$bounded_feature"
+            echo "BOOK_PROGRESS_PASSIVE_MAPPING_FEATURE=$passive_mapping_feature"
+            echo "BOOK_PROGRESS_WORKFLOW_REPAIR=$workflow_repair"
+            echo "BOOK_PROGRESS_RECOVERY_SUCCESSOR=$recovery_successor"
+            echo "BOOK_PROGRESS_WINDOWS_DURABILITY_SUCCESSOR=$windows_durability_successor"
+            echo "BOOK_PROGRESS_READ_APPEAR_SUCCESSOR=$read_appear_successor"
+            echo "BOOK_PROGRESS_RECOVERY_RECHECK_SUCCESSOR=$recovery_recheck_successor"
+            echo "BOOK_PROGRESS_SNAPSHOT_CONTRACT_SUCCESSOR=$snapshot_contract_successor"
+            echo "BOOK_PROGRESS_INTEGRATED_RECOVERY_CONVERGENCE=$integrated_recovery_convergence"
+            echo "BOOK_PROGRESS_FULL_PRODUCT_COMPOSITION=$full_product_composition"
+            echo "BOOK_PROGRESS_OWNER_COMPOSITION=$owner_composition"
+            echo "BOOK_PROGRESS_OWNER_DESCENDANT_CONVERGENCE=$owner_descendant_convergence"
+          } >> "$GITHUB_ENV"
+
+      - name: Enforce exact Book progress authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          upstream="$BOOK_PROGRESS_UPSTREAM_SHA"
+          current_product="$BOOK_PROGRESS_CURRENT_PRODUCT_SHA"
+          bounded_feature="$BOOK_PROGRESS_BOUNDED_FEATURE"
+          passive_mapping_feature="$BOOK_PROGRESS_PASSIVE_MAPPING_FEATURE"
+          workflow_repair="$BOOK_PROGRESS_WORKFLOW_REPAIR"
+          recovery_successor="$BOOK_PROGRESS_RECOVERY_SUCCESSOR"
+          windows_durability_successor="$BOOK_PROGRESS_WINDOWS_DURABILITY_SUCCESSOR"
+          read_appear_successor="$BOOK_PROGRESS_READ_APPEAR_SUCCESSOR"
+          recovery_recheck_successor="$BOOK_PROGRESS_RECOVERY_RECHECK_SUCCESSOR"
+          snapshot_contract_successor="$BOOK_PROGRESS_SNAPSHOT_CONTRACT_SUCCESSOR"
+          integrated_recovery_convergence="$BOOK_PROGRESS_INTEGRATED_RECOVERY_CONVERGENCE"
+          full_product_composition="$BOOK_PROGRESS_FULL_PRODUCT_COMPOSITION"
+          owner_composition="$BOOK_PROGRESS_OWNER_COMPOSITION"
+          owner_descendant_convergence="$BOOK_PROGRESS_OWNER_DESCENDANT_CONVERGENCE"
+          changed="$(git diff --name-only "$upstream" HEAD | sort)"
+
+          if [ "$passive_mapping_feature" = true ]; then
+            test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "$PASSIVE_MAPPING_STORE_BLOB"
+            test "$(git rev-parse HEAD:tests/test_book_progress_passive_ingress_current.py)" = "$PASSIVE_MAPPING_INGRESS_TEST_BLOB"
+            git diff --check "$upstream" HEAD -- \
+              .github/workflows/current-book-progress-passive-ingress.yml \
+              .github/workflows/v2-book-progress-production-repair.yml \
+              acs/book_progress_store.py \
+              tests/test_book_progress_passive_ingress_current.py
+            git diff --quiet "$upstream" HEAD -- \
+              acs/bookreader.py \
+              acs/bookdocument.py \
+              acs/version2_application.py \
+              tests/test_v2_book_progress_store.py \
+              tests/test_v2_book_progress_store_production.py \
+              tests/test_version2_application.py \
+              acs/chesscore.py \
+              acs/gametree.py
+            echo 'BOOK_PROGRESS_TOPOLOGY=PASSIVE_MAPPING_FEATURE'
+          elif [ "$bounded_feature" = true ]; then
+            git diff --check "$upstream" HEAD
+            git diff --quiet "$upstream" HEAD -- \
+              .github/workflows/v2-book-progress-store.yml \
+              acs/bookreader.py \
+              acs/book_index.py \
+              acs/bookdocument.py \
+              acs/book_game_content.py \
+              acs/book_library_game_lookup.py \
+              acs/book_training.py \
+              acs/training.py \
+              acs/book_webview_bridge.py \
+              acs/book_webview_projection.py \
+              acs/full_product_presenters.py \
+              acs/gametree.py \
+              acs/pgn_roundtrip.py \
+              acs/chesscore.py \
+              acs/analysis_service.py \
+              acs/engine_assisted_workflows.py \
+              acs/acsdb.py \
+              web/full_product_books_training.js \
+              acs/stage1_release_ui.py
+            echo 'BOOK_PROGRESS_TOPOLOGY=BOUNDED_FEATURE'
+          elif [ "$snapshot_contract_successor" = true ]; then
+            snapshot_expected="$(printf '%s\n' \
+              '.github/workflows/v2-book-progress-production-repair.yml' \
+              'acs/book_progress_store.py' \
+              'acs/bookreader.py' \
+              'tests/test_v2_book_progress_store.py' | sort)"
+            test "$changed" = "$snapshot_expected"
+            git diff --check "$upstream" HEAD -- \
+              .github/workflows/v2-book-progress-production-repair.yml \
+              acs/book_progress_store.py \
+              acs/bookreader.py \
+              tests/test_v2_book_progress_store.py
+            echo 'BOOK_PROGRESS_TOPOLOGY=SNAPSHOT_CONTRACT_SUCCESSOR'
+          elif [ "$workflow_repair" = true ]; then
+            git diff --check "$current_product" HEAD
+            echo 'BOOK_PROGRESS_TOPOLOGY=WORKFLOW_ONLY_REPAIR'
+          elif [ "$recovery_successor" = true ]; then
+            git diff --check "$current_product" HEAD
+            # The recovery successor may change the store implementation but
+            # not the canonical BookProgress regression authorities.
+            git diff --quiet "$current_product" HEAD -- \
+              tests/test_v2_book_progress_store.py \
+              tests/test_v2_book_progress_store_production.py
+            echo 'BOOK_PROGRESS_TOPOLOGY=RECOVERY_SUCCESSOR'
+          elif [ "$windows_durability_successor" = true ]; then
+            # A broad descendant convergence may carry unrelated already-qualified
+            # product work. Bind BookProgress authority to this exact reviewed
+            # runtime/test triplet and lint only the owned successor surface.
+            git diff --check "$upstream" HEAD -- \
+              .github/workflows/v2-book-progress-production-repair.yml \
+              acs/book_progress_store.py \
+              tests/test_v2_book_progress_store.py \
+              tests/test_v2_book_progress_store_production.py
+            echo 'BOOK_PROGRESS_TOPOLOGY=WINDOWS_DURABILITY_SUCCESSOR'
+          elif [ "$read_appear_successor" = true ]; then
+            git diff --check "$upstream" HEAD -- \
+              .github/workflows/v2-book-progress-production-repair.yml \
+              acs/book_progress_store.py \
+              tests/test_v2_book_progress_store.py \
+              tests/test_v2_book_progress_store_production.py
+            echo 'BOOK_PROGRESS_TOPOLOGY=READ_APPEAR_SUCCESSOR'
+          elif [ "$recovery_recheck_successor" = true ]; then
+            git diff --check "$upstream" HEAD -- \
+              .github/workflows/v2-book-progress-production-repair.yml \
+              acs/book_progress_store.py \
+              tests/test_v2_book_progress_store.py \
+              tests/test_v2_book_progress_store_production.py
+            echo 'BOOK_PROGRESS_TOPOLOGY=RECOVERY_RECHECK_SUCCESSOR'
+          elif [ "$integrated_recovery_convergence" = true ]; then
+            git diff --check "$INTEGRATED_RECOVERY_SUCCESSOR_HEAD" HEAD -- \
+              .github/workflows/v2-book-progress-production-repair.yml \
+              acs/book_progress_store.py \
+              acs/version2_application.py \
+              tests/test_v2_book_progress_store.py \
+              tests/test_v2_book_progress_store_production.py \
+              tests/test_version2_application.py
+            echo 'BOOK_PROGRESS_TOPOLOGY=INTEGRATED_RECOVERY_CONVERGENCE'
+          elif [ "$owner_descendant_convergence" = true ]; then
+            test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "$SNAPSHOT_CONTRACT_STORE_BLOB"
+            test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "$SNAPSHOT_CONTRACT_BASE_TEST_BLOB"
+            test "$(git rev-parse HEAD:tests/test_v2_book_progress_store_production.py)" = "$RECOVERY_CONSENT_PRODUCTION_TEST_BLOB"
+            test "$(git rev-parse HEAD:acs/bookreader.py)" = "$SNAPSHOT_CONTRACT_BOOKREADER_BLOB"
+            test "$(git rev-parse HEAD:acs/version2_application.py)" = "$INTEGRATED_RECOVERY_APPLICATION_BLOB"
+            test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "$RECOVERY_CONSENT_APPLICATION_TEST_BLOB"
+            git diff --check "$upstream" HEAD
+            echo 'BOOK_PROGRESS_TOPOLOGY=OWNER_DESCENDANT_CONVERGENCE'
+          elif [ "$owner_composition" = true ]; then
+            test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "$SNAPSHOT_CONTRACT_STORE_BLOB"
+            test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "$SNAPSHOT_CONTRACT_BASE_TEST_BLOB"
+            test "$(git rev-parse HEAD:tests/test_v2_book_progress_store_production.py)" = "$RECOVERY_CONSENT_PRODUCTION_TEST_BLOB"
+            test "$(git rev-parse HEAD:acs/bookreader.py)" = "$SNAPSHOT_CONTRACT_BOOKREADER_BLOB"
+            test "$(git rev-parse HEAD:acs/version2_application.py)" = "$INTEGRATED_RECOVERY_APPLICATION_BLOB"
+            test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "$RECOVERY_CONSENT_APPLICATION_TEST_BLOB"
+            git diff --check "$upstream" HEAD -- \
+              .github/workflows/v2-book-progress-production-repair.yml \
+              acs/book_progress_store.py \
+              acs/bookreader.py \
+              acs/version2_application.py \
+              tests/test_v2_book_progress_store.py \
+              tests/test_v2_book_progress_store_production.py \
+              tests/test_version2_application.py
+            echo 'BOOK_PROGRESS_TOPOLOGY=CANONICAL_OWNER_SNAPSHOT_CONTRACT'
+          elif [ "$full_product_composition" = true ]; then
+            # The repair is composed into the live Full Product. A broad Product
+            # history is legitimate only on that exact canonical branch.
+            git merge-base --is-ancestor "$CURRENT_PROGRESS_OWNER" HEAD
+            test "$(git rev-parse HEAD:acs/book_progress_store.py)" = "$CURRENT_STORE_BLOB"
+            test "$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)" = "$CURRENT_BASE_TEST_BLOB"
+            test "$(git rev-parse HEAD:tests/test_v2_book_progress_store_production.py)" = "$CURRENT_PRODUCTION_TEST_BLOB"
+            git diff --check "$CURRENT_PROGRESS_OWNER" HEAD -- \
+              acs/book_progress_store.py \
+              tests/test_v2_book_progress_store.py \
+              tests/test_v2_book_progress_store_production.py
+            echo 'BOOK_PROGRESS_TOPOLOGY=CURRENT_FULL_PRODUCT_COMPOSITION'
+          else
+            echo 'Unsupported Book Progress workflow topology' >&2
+            exit 1
+          fi
+
+          # Every accepted topology retains the current owner and one exact
+          # reviewed BookProgress runtime/test triplet. Do not turn this into a
+          # prefix/range allowlist: persistence authority is byte-exact.
+          git merge-base --is-ancestor "$CURRENT_PROGRESS_OWNER" HEAD
+          candidate_store="$(git rev-parse HEAD:acs/book_progress_store.py)"
+          candidate_base_test="$(git rev-parse HEAD:tests/test_v2_book_progress_store.py)"
+          candidate_production_test="$(git rev-parse HEAD:tests/test_v2_book_progress_store_production.py)"
+          candidate_application="$(git rev-parse HEAD:acs/version2_application.py)"
+          candidate_application_test="$(git rev-parse HEAD:tests/test_version2_application.py)"
+
+          # Historically-qualified store/test tuples predate this PR's
+          # application-owned recovery-consent delta. Do not let widening the
+          # bounded path allowlist turn those old tuples into an authority for
+          # arbitrary application/test bytes. Any non-base application pair must
+          # be the exact latest recovery-consent pair and must travel with its
+          # exact store/base-test/production-test tuple. Snapshot-contract
+          # successors instead prove those application surfaces unchanged from
+          # the exact PR base above.
+          if [ "$owner_composition" = true ] \
+            || [ "$owner_descendant_convergence" = true ]; then
+            test "$candidate_application" = "$INTEGRATED_RECOVERY_APPLICATION_BLOB"
+            test "$candidate_application_test" = "$RECOVERY_CONSENT_APPLICATION_TEST_BLOB"
+          elif [ "$snapshot_contract_successor" = true ] \
+            || [ "$passive_mapping_feature" = true ]; then
+            :
+          elif [ "$candidate_application" != "$BASE_APPLICATION_BLOB" ] \
+            || [ "$candidate_application_test" != "$BASE_APPLICATION_TEST_BLOB" ]; then
+            exact_recovery_consent=false
+            integrated_recovery_application=false
+            if [ "$candidate_store" = "$RECOVERY_CONSENT_STORE_BLOB" ] \
+              && [ "$candidate_base_test" = "$RECOVERY_CONSENT_BASE_TEST_BLOB" ] \
+              && [ "$candidate_production_test" = "$RECOVERY_CONSENT_PRODUCTION_TEST_BLOB" ] \
+              && [ "$candidate_application" = "$RECOVERY_CONSENT_APPLICATION_BLOB" ] \
+              && [ "$candidate_application_test" = "$RECOVERY_CONSENT_APPLICATION_TEST_BLOB" ]; then
+              exact_recovery_consent=true
+            fi
+            if git merge-base --is-ancestor "$INTEGRATED_RECOVERY_SUCCESSOR_HEAD" HEAD \
+              && [ "$candidate_store" = "$RECOVERY_CONSENT_STORE_BLOB" ] \
+              && [ "$candidate_base_test" = "$RECOVERY_CONSENT_BASE_TEST_BLOB" ] \
+              && [ "$candidate_production_test" = "$RECOVERY_CONSENT_PRODUCTION_TEST_BLOB" ] \
+              && [ "$candidate_application" = "$INTEGRATED_RECOVERY_APPLICATION_BLOB" ] \
+              && [ "$candidate_application_test" = "$RECOVERY_CONSENT_APPLICATION_TEST_BLOB" ]; then
+              integrated_recovery_application=true
+            fi
+            if [ "$exact_recovery_consent" != true ] \
+              && [ "$integrated_recovery_application" != true ]; then
+              echo 'BookProgress application authority drift' >&2
+              exit 1
+            fi
+          fi
+
+          if [ "$passive_mapping_feature" = true ] \
+            && [ "$candidate_store" = "$PASSIVE_MAPPING_STORE_BLOB" ] \
+            && [ "$candidate_base_test" = "$PASSIVE_MAPPING_BASE_TEST_BLOB" ] \
+            && [ "$candidate_production_test" = "$PASSIVE_MAPPING_PRODUCTION_TEST_BLOB" ]; then
+            echo 'BOOK_PROGRESS_BLOB_SET=PASSIVE_MAPPING_FEATURE'
+          elif { [ "$owner_composition" = true ] \
+              || [ "$owner_descendant_convergence" = true ]; } \
+            && [ "$candidate_store" = "$SNAPSHOT_CONTRACT_STORE_BLOB" ] \
+            && [ "$candidate_base_test" = "$SNAPSHOT_CONTRACT_BASE_TEST_BLOB" ] \
+            && [ "$candidate_production_test" = "$RECOVERY_CONSENT_PRODUCTION_TEST_BLOB" ]; then
+            echo 'BOOK_PROGRESS_BLOB_SET=CANONICAL_OWNER_SNAPSHOT_CONTRACT'
+          elif [ "$candidate_store" = "$CURRENT_STORE_BLOB" ] \
+            && [ "$candidate_base_test" = "$CURRENT_BASE_TEST_BLOB" ] \
+            && [ "$candidate_production_test" = "$CURRENT_PRODUCTION_TEST_BLOB" ]; then
+            echo 'BOOK_PROGRESS_BLOB_SET=CURRENT'
+          elif [ "$snapshot_contract_successor" = true ] \
+            && [ "$candidate_store" = "$SNAPSHOT_CONTRACT_STORE_BLOB" ] \
+            && [ "$candidate_base_test" = "$SNAPSHOT_CONTRACT_BASE_TEST_BLOB" ]; then
+            echo 'BOOK_PROGRESS_BLOB_SET=SNAPSHOT_CONTRACT_SUCCESSOR'
+          elif [ "$candidate_store" = "$WINDOWS_DURABILITY_STORE_BLOB" ] \
+            && [ "$candidate_base_test" = "$WINDOWS_DURABILITY_BASE_TEST_BLOB" ] \
+            && [ "$candidate_production_test" = "$WINDOWS_DURABILITY_PRODUCTION_TEST_BLOB" ]; then
+            echo 'BOOK_PROGRESS_BLOB_SET=WINDOWS_DURABILITY_SUCCESSOR'
+          elif [ "$candidate_store" = "$READ_DISAPPEAR_STORE_BLOB" ] \
+            && [ "$candidate_base_test" = "$READ_DISAPPEAR_BASE_TEST_BLOB" ] \
+            && [ "$candidate_production_test" = "$READ_DISAPPEAR_PRODUCTION_TEST_BLOB" ]; then
+            echo 'BOOK_PROGRESS_BLOB_SET=READ_DISAPPEAR_SUCCESSOR'
+          elif [ "$candidate_store" = "$READ_APPEAR_STORE_BLOB" ] \
+            && [ "$candidate_base_test" = "$READ_APPEAR_BASE_TEST_BLOB" ] \
+            && [ "$candidate_production_test" = "$READ_APPEAR_PRODUCTION_TEST_BLOB" ]; then
+            echo 'BOOK_PROGRESS_BLOB_SET=READ_APPEAR_SUCCESSOR'
+          elif [ "$candidate_store" = "$RECOVERY_RECHECK_STORE_BLOB" ] \
+            && [ "$candidate_base_test" = "$RECOVERY_RECHECK_BASE_TEST_BLOB" ] \
+            && [ "$candidate_production_test" = "$RECOVERY_RECHECK_PRODUCTION_TEST_BLOB" ]; then
+            echo 'BOOK_PROGRESS_BLOB_SET=RECOVERY_RECHECK_SUCCESSOR'
+          elif [ "$candidate_store" = "$TARGET_INODE_STORE_BLOB" ] \
+            && [ "$candidate_base_test" = "$TARGET_INODE_BASE_TEST_BLOB" ] \
+            && [ "$candidate_production_test" = "$TARGET_INODE_PRODUCTION_TEST_BLOB" ]; then
+            echo 'BOOK_PROGRESS_BLOB_SET=TARGET_INODE_SUCCESSOR'
+          elif [ "$candidate_store" = "$GUARD_INODE_STORE_BLOB" ] \
+            && [ "$candidate_base_test" = "$GUARD_INODE_BASE_TEST_BLOB" ] \
+            && [ "$candidate_production_test" = "$GUARD_INODE_PRODUCTION_TEST_BLOB" ]; then
+            echo 'BOOK_PROGRESS_BLOB_SET=GUARD_INODE_SUCCESSOR'
+          elif [ "$candidate_store" = "$RECOVERY_PAIR_STORE_BLOB" ] \
+            && [ "$candidate_base_test" = "$RECOVERY_PAIR_BASE_TEST_BLOB" ] \
+            && [ "$candidate_production_test" = "$RECOVERY_PAIR_PRODUCTION_TEST_BLOB" ]; then
+            echo 'BOOK_PROGRESS_BLOB_SET=RECOVERY_PAIR_SUCCESSOR'
+          elif [ "$candidate_store" = "$EXPLICIT_RECOVERY_INODE_STORE_BLOB" ] \
+            && [ "$candidate_base_test" = "$EXPLICIT_RECOVERY_INODE_BASE_TEST_BLOB" ] \
+            && [ "$candidate_production_test" = "$EXPLICIT_RECOVERY_INODE_PRODUCTION_TEST_BLOB" ]; then
+            echo 'BOOK_PROGRESS_BLOB_SET=EXPLICIT_RECOVERY_INODE_SUCCESSOR'
+          elif [ "$candidate_store" = "$TRANSACTION_INODE_STORE_BLOB" ] \
+            && [ "$candidate_base_test" = "$TRANSACTION_INODE_BASE_TEST_BLOB" ] \
+            && [ "$candidate_production_test" = "$TRANSACTION_INODE_PRODUCTION_TEST_BLOB" ]; then
+            echo 'BOOK_PROGRESS_BLOB_SET=TRANSACTION_INODE_SUCCESSOR'
+          elif [ "$candidate_store" = "$POST_PUBLICATION_GUARD_STORE_BLOB" ] \
+            && [ "$candidate_base_test" = "$POST_PUBLICATION_GUARD_BASE_TEST_BLOB" ] \
+            && [ "$candidate_production_test" = "$POST_PUBLICATION_GUARD_PRODUCTION_TEST_BLOB" ]; then
+            echo 'BOOK_PROGRESS_BLOB_SET=POST_PUBLICATION_GUARD_SUCCESSOR'
+          elif [ "$candidate_store" = "$REVISION_BOUND_RECOVERY_STORE_BLOB" ] \
+            && [ "$candidate_base_test" = "$REVISION_BOUND_RECOVERY_BASE_TEST_BLOB" ] \
+            && [ "$candidate_production_test" = "$REVISION_BOUND_RECOVERY_PRODUCTION_TEST_BLOB" ]; then
+            echo 'BOOK_PROGRESS_BLOB_SET=REVISION_BOUND_RECOVERY_SUCCESSOR'
+          elif [ "$candidate_store" = "$MALFORMED_INTEGER_STORE_BLOB" ] \
+            && [ "$candidate_base_test" = "$MALFORMED_INTEGER_BASE_TEST_BLOB" ] \
+            && [ "$candidate_production_test" = "$MALFORMED_INTEGER_PRODUCTION_TEST_BLOB" ]; then
+            echo 'BOOK_PROGRESS_BLOB_SET=MALFORMED_INTEGER_SUCCESSOR'
+          elif [ "$candidate_store" = "$CWD_BOUND_STORE_BLOB" ] \
+            && [ "$candidate_base_test" = "$CWD_BOUND_BASE_TEST_BLOB" ] \
+            && [ "$candidate_production_test" = "$CWD_BOUND_PRODUCTION_TEST_BLOB" ]; then
+            echo 'BOOK_PROGRESS_BLOB_SET=CWD_BOUND_SUCCESSOR'
+          elif [ "$candidate_store" = "$RECOVERY_CONSENT_STORE_BLOB" ] \
+            && [ "$candidate_base_test" = "$RECOVERY_CONSENT_BASE_TEST_BLOB" ] \
+            && [ "$candidate_production_test" = "$RECOVERY_CONSENT_PRODUCTION_TEST_BLOB" ] \
+            && [ "$candidate_application" = "$INTEGRATED_RECOVERY_APPLICATION_BLOB" ] \
+            && [ "$candidate_application_test" = "$RECOVERY_CONSENT_APPLICATION_TEST_BLOB" ] \
+            && git merge-base --is-ancestor "$INTEGRATED_RECOVERY_SUCCESSOR_HEAD" HEAD; then
+            echo 'BOOK_PROGRESS_BLOB_SET=INTEGRATED_RECOVERY_CONVERGENCE'
+          elif [ "$candidate_store" = "$RECOVERY_CONSENT_STORE_BLOB" ] \
+            && [ "$candidate_base_test" = "$RECOVERY_CONSENT_BASE_TEST_BLOB" ] \
+            && [ "$candidate_production_test" = "$RECOVERY_CONSENT_PRODUCTION_TEST_BLOB" ] \
+            && [ "$candidate_application" = "$RECOVERY_CONSENT_APPLICATION_BLOB" ] \
+            && [ "$candidate_application_test" = "$RECOVERY_CONSENT_APPLICATION_TEST_BLOB" ]; then
+            echo 'BOOK_PROGRESS_BLOB_SET=RECOVERY_CONSENT_SUCCESSOR'
+          else
+            printf 'BookProgress authority drift: store=%s base_test=%s production_test=%s\n' \
+              "$candidate_store" "$candidate_base_test" "$candidate_production_test" >&2
+            exit 1
+          fi
           echo 'BOOK PROGRESS PRODUCTION OWNERSHIP PASS'
 
       - name: Compile Book progress repair
         run: >-
           python -m compileall -q
           acs/book_progress_store.py
+          acs/bookreader.py
+          acs/version2_application.py
           tests/test_v2_book_progress_store_production.py
           tests/test_v2_book_progress_store.py
+          tests/test_version2_application.py
 
       - name: Deterministic production Book progress regressions
         run: python -m unittest -v tests.test_v2_book_progress_store_production
@@ -106,6 +641,7 @@ jobs:
         run: >-
           python -m unittest -v
           tests.test_v2_book_progress_store
+          tests.test_version2_application
           tests.test_bookreader
           tests.test_bookdocument
 

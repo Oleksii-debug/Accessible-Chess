@@ -31,6 +31,7 @@ from .book_game_content import (
 from .bookdocument import Diagram, Exercise, Game, Position, VariationTree
 from .bookreader import BookReader, ReadingLocation
 from .chesscore import Board
+from .input_limits import MAX_FEN_CHARS
 from .engine_assisted_workflows import (
     AudienceAnalysisResult,
     EngineAssistedWorkflowService,
@@ -135,9 +136,9 @@ class BookBoardWorkflow:
         *,
         game_lookup: BookGameLookup | None = None,
     ) -> None:
-        if not isinstance(reader, BookReader):
+        if type(reader) is not BookReader:
             raise TypeError("reader must be BookReader")
-        if not isinstance(engine_assistance, EngineAssistedWorkflowService):
+        if type(engine_assistance) is not EngineAssistedWorkflowService:
             raise TypeError("engine_assistance must be EngineAssistedWorkflowService")
         self._reader = reader
         self._engine = engine_assistance
@@ -168,7 +169,12 @@ class BookBoardWorkflow:
         # A Book payload is not allowed to use that convenience convention:
         # missing/corrupted semantic FEN must fail closed instead of silently
         # becoming a different chess position.
-        if type(value) is not str or not value.strip():
+        if type(value) is not str or len(value) > MAX_FEN_CHARS:
+            raise BookBoardWorkflow._error(
+                "book position cannot be opened on the canonical board",
+                BookBoardWorkflowCode.INVALID_POSITION,
+            )
+        if not value.strip():
             raise BookBoardWorkflow._error(
                 "book position cannot be opened on the canonical board",
                 BookBoardWorkflowCode.INVALID_POSITION,
@@ -271,7 +277,16 @@ class BookBoardWorkflow:
         *,
         game_source: BookGameSource | str,
     ) -> _BookBoardSession:
-        block = self._reader.document.blocks[origin.index]
+        try:
+            # Consume the immutable BookReader revision, never the mutable live
+            # BookDocument.  A concurrent authoring mutation after origin capture
+            # must fail before alternate chess/content bytes are resolved.
+            block = self._reader.block_snapshot(origin.index)
+        except (RuntimeError, LookupError, IndexError) as exc:
+            raise self._error(
+                "book reading revision changed while opening the board",
+                BookBoardWorkflowCode.RETURN_FAILED,
+            ) from exc
         if isinstance(block, Game):
             try:
                 resolved = resolve_book_game(
@@ -380,25 +395,96 @@ class BookBoardWorkflow:
                     "a Book Board session is already active",
                     BookBoardWorkflowCode.ACTIVE_SESSION,
                 )
-            origin = self._reader.location()
+            try:
+                origin = self._reader.location()
+            except RuntimeError as exc:
+                raise self._error(
+                    "book reading revision changed while opening the board",
+                    BookBoardWorkflowCode.RETURN_FAILED,
+                ) from exc
             candidate = self._build_session(origin, game_source=game_source)
             # The reader is externally owned.  Reject a concurrent cursor move
             # rather than returning to a different location later.
-            if self._reader.location() != origin:
+            try:
+                current = self._reader.location()
+            except RuntimeError as exc:
+                raise self._error(
+                    "book reading revision changed while opening the board",
+                    BookBoardWorkflowCode.RETURN_FAILED,
+                ) from exc
+            if current != origin:
                 raise self._error(
                     "book reading location changed while opening the board",
                     BookBoardWorkflowCode.RETURN_FAILED,
                 )
-            try:
-                self._reader.save_return_point(self._RETURN_POINT)
-            except Exception as exc:
-                raise self._error(
-                    "book return point could not be saved",
-                    BookBoardWorkflowCode.RETURN_FAILED,
-                ) from exc
+            # Board review is read-only with respect to durable BookReader
+            # progress. The exact origin already belongs to the transient session;
+            # do not publish an implementation-only return point into BookReader.
             self._session = candidate
             self._revision += 1
             return self._view_locked()
+
+    def semantic_game_snapshot(
+        self,
+        expected_index: int,
+    ) -> tuple[BookBoardMode, PgnGame, tuple[str, ...]]:
+        """Resolve current Game/Variation content without opening a Board session.
+
+        This read-only presentation seam reuses the same canonical Book-to-GameTree
+        resolution and legality gates as open_current. It must not change workflow
+        revision, active-session state, or durable BookReader progress.
+        """
+
+        if type(expected_index) is not int or expected_index < 0:
+            raise self._error(
+                "book semantic index must be a non-negative exact integer",
+                BookBoardWorkflowCode.INVALID_COMMAND,
+            )
+        with self._lock:
+            try:
+                origin = self._reader.location()
+            except RuntimeError as exc:
+                raise self._error(
+                    "book reading revision changed while resolving semantic content",
+                    BookBoardWorkflowCode.RETURN_FAILED,
+                ) from exc
+            if origin.index != expected_index:
+                raise self._error(
+                    "book reading location changed while resolving semantic content",
+                    BookBoardWorkflowCode.RETURN_FAILED,
+                )
+
+            candidate = self._build_session(
+                origin,
+                game_source=BookGameSource.AUTO,
+            )
+            if (
+                candidate.mode not in {BookBoardMode.GAME, BookBoardMode.VARIATION}
+                or candidate.game is None
+            ):
+                raise self._error(
+                    "current book block has no semantic game tree",
+                    BookBoardWorkflowCode.UNSUPPORTED_BLOCK,
+                )
+
+            try:
+                current = self._reader.location()
+            except RuntimeError as exc:
+                raise self._error(
+                    "book reading revision changed while resolving semantic content",
+                    BookBoardWorkflowCode.RETURN_FAILED,
+                ) from exc
+            if current != origin:
+                raise self._error(
+                    "book reading location changed while resolving semantic content",
+                    BookBoardWorkflowCode.RETURN_FAILED,
+                )
+
+            return (
+                candidate.mode,
+                deepcopy(candidate.game),
+                tuple(candidate.warnings),
+            )
 
     def board_snapshot(self) -> Board:
         """Return a detached canonical Board for Board Explorer/query consumers."""
@@ -559,21 +645,49 @@ class BookBoardWorkflow:
         """Restore the exact durable BookReader origin and close the board session."""
 
         with self._lock:
-            self._require_session()
+            session = self._require_session()
+            origin = session.origin
             try:
-                restored = self._reader.restore_return_point(self._RETURN_POINT)
+                # Validate the immutable BookReader index before restoring the
+                # transient Board origin. An in-place document mutation can keep
+                # the same numeric index while changing its semantic identity;
+                # snapshot() is the canonical fail-closed revision boundary.
+                self._reader.snapshot()
+                current = self._reader.location()
+                if current == origin:
+                    restored = current
+                else:
+                    # Board review does not publish a durable return point, but
+                    # an external/presentation cursor move must still be recoverable
+                    # to the exact semantic origin captured by this transient session.
+                    restored = self._reader.go_to(origin.index)
+                    if restored != origin:
+                        raise LookupError("book Board origin no longer matches")
             except Exception as exc:
-                # Keep the session alive if its Book revision changed; silently
-                # dropping it would destroy the user's only deterministic return.
+                # Keep the session alive if the Book revision/origin became
+                # unreadable; silently dropping it would destroy deterministic return.
                 raise self._error(
                     "original book reading location is unavailable",
                     BookBoardWorkflowCode.RETURN_FAILED,
                 ) from exc
+            # Suppress any in-flight result from the closing Board context before
+            # committing the return. Invalidation is fallible; keep the exact
+            # session/revision recoverable until it succeeds so a failed Return
+            # never reports an error after already discarding Board authority.
+            # Restoring the origin above may have moved the externally-owned
+            # BookReader. Roll that cursor back with one non-fallible scalar
+            # assignment if invalidation aborts, so failed Return publishes
+            # neither a hidden Book cursor move nor a closed Board session.
+            # The workflow lock stays held, so a newer Book Board session cannot
+            # start in this window and be invalidated by the older Return.
+            try:
+                self._engine.invalidate()
+            except BaseException:
+                self._reader._index = current.index
+                raise
             self._session = None
             self._revision += 1
-        # Suppress any in-flight assisted result after the Board context closes.
-        self._engine.invalidate()
-        return restored
+        return origin
 
     @staticmethod
     def _command(value: BookBoardCommand | str) -> BookBoardCommand:
@@ -601,23 +715,32 @@ class BookBoardWorkflow:
     ) -> dict[str, object]:
         if payload is None:
             return {}
-        if not isinstance(payload, Mapping):
+        # Dispatch payloads originate from the closed-world action adapter.
+        # Require the canonical built-in container before len/iteration/copy can
+        # execute provider-defined Mapping hooks. Bound width from O(1) dict
+        # metadata before inspecting keys, then prove exact text keys before
+        # membership hashing.
+        if type(payload) is not dict:
             raise cls._error(
                 "Book Board command payload must be a mapping",
                 BookBoardWorkflowCode.INVALID_COMMAND,
             )
-        data = dict(payload)
-        if any(type(key) is not str for key in data):
-            raise cls._error(
-                "Book Board command payload keys must be text",
-                BookBoardWorkflowCode.INVALID_COMMAND,
-            )
-        if set(data) - allowed:
+        if len(payload) > len(allowed):
             raise cls._error(
                 "Book Board command payload contains unsupported fields",
                 BookBoardWorkflowCode.INVALID_COMMAND,
             )
-        return data
+        if any(type(key) is not str for key in payload):
+            raise cls._error(
+                "Book Board command payload keys must be text",
+                BookBoardWorkflowCode.INVALID_COMMAND,
+            )
+        if any(key not in allowed for key in payload):
+            raise cls._error(
+                "Book Board command payload contains unsupported fields",
+                BookBoardWorkflowCode.INVALID_COMMAND,
+            )
+        return dict(payload)
 
     def dispatch(
         self,

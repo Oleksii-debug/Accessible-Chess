@@ -103,6 +103,49 @@ class ProfessionalPgnDocumentTests(unittest.TestCase):
         self.assertEqual(len(game.line.moves[1].variations), 2)
         self.assertEqual(game.line.moves[1].variations[0].moves[0].san, "c5")
 
+    def test_edit_views_share_document_dirty_truth_for_opened_and_unsaved_sessions(self) -> None:
+        path = self.write_document("dirty-truth.pgn")
+        opened = PgnDocumentSession.open(path)
+        self.assertFalse(opened.dirty)
+        self.assertFalse(opened.workspace.dirty)
+
+        edited = opened.edit_tag("Event", "Dirty truth edit")
+        self.assertTrue(edited.dirty)
+        self.assertTrue(opened.workspace.dirty)
+        self.assertTrue(opened.dirty)
+
+        opened.save()
+        self.assertFalse(opened.workspace.dirty)
+        self.assertFalse(opened.dirty)
+
+        deleted = opened.delete_tag("White")
+        self.assertTrue(deleted.dirty)
+        self.assertTrue(opened.workspace.dirty)
+        self.assertTrue(opened.dirty)
+
+        unsaved = PgnDocumentSession.from_text(PASTE)
+        self.assertTrue(unsaved.workspace.dirty)
+        self.assertTrue(unsaved.dirty)
+        unsaved_edit = unsaved.edit_tag("Annotator", "Unsaved")
+        self.assertTrue(unsaved_edit.dirty)
+        self.assertTrue(unsaved.workspace.dirty)
+        self.assertTrue(unsaved.dirty)
+
+        target = self.root / "dirty-truth-new.pgn"
+        unsaved.save_as(target)
+        self.assertFalse(unsaved.workspace.dirty)
+        self.assertFalse(unsaved.dirty)
+
+    def test_new_document_workspace_is_dirty_until_first_save(self) -> None:
+        session = PgnDocumentSession.new_game({"White": "Ada", "Black": "Boris"})
+        self.assertTrue(session.workspace.dirty)
+        self.assertTrue(session.view().dirty)
+
+        target = self.root / "new-dirty-truth.pgn"
+        session.save_as(target)
+        self.assertFalse(session.workspace.dirty)
+        self.assertFalse(session.view().dirty)
+
     def test_save_detects_external_change_instead_of_losing_it(self) -> None:
         path = self.write_document()
         session = PgnDocumentSession.open(path)
@@ -113,6 +156,34 @@ class ProfessionalPgnDocumentTests(unittest.TestCase):
             session.save()
         self.assertTrue(session.dirty)
         self.assertIn("External Edit", path.read_text(encoding="utf-8"))
+
+    def test_windows_1251_source_is_readable_but_requires_save_as(self) -> None:
+        path = self.root / "legacy-windows-1251.pgn"
+        source = DOCUMENT.replace("Workspace One", "Русская шахматная книга")
+        path.write_bytes(source.encode("cp1251"))
+
+        session = PgnDocumentSession.open(path)
+
+        self.assertFalse(session.view().source_overwrite_safe)
+        self.assertTrue(session.view().global_warnings)
+        self.assertTrue(
+            any(
+                warning.startswith("Legacy Windows-1251 PGN was decoded losslessly")
+                for warning in session.view().global_warnings
+            )
+        )
+        self.assertIn("Русская шахматная книга", session.copy_pgn())
+
+        with self.assertRaises(PgnDocumentError) as caught:
+            session.save()
+        self.assertEqual(caught.exception.code, PgnDocumentErrorCode.SOURCE_REQUIRES_SAVE_AS)
+
+        target = self.root / "legacy-converted-utf8.pgn"
+        session.save_as(target)
+        reopened = PgnDocumentSession.open(target)
+        self.assertTrue(reopened.view().source_overwrite_safe)
+        self.assertFalse(reopened.view().global_warnings)
+        self.assertIn("Русская шахматная книга", reopened.copy_pgn())
 
     def test_invalid_utf8_source_requires_save_as(self) -> None:
         path = self.root / "legacy.pgn"

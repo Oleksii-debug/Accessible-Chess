@@ -1,0 +1,731 @@
+name: Owner One-Click Finalizer From Exact W4
+
+on:
+  workflow_dispatch:
+    inputs:
+      owner_final_candidate_approved:
+        description: Repository owner explicitly approved finalizing this exact integrated commit
+        required: true
+        default: false
+        type: boolean
+      w4_run_id:
+        description: Successful W4 run ID whose product_sha equals this exact workflow commit
+        required: true
+        type: string
+      w4_candidate_sha256:
+        description: SHA-256 of the exact W4 inner candidate ZIP artifact
+        required: true
+        type: string
+      owner_seed_url:
+        description: HTTPS URL for exact private owner Library seed ZIP
+        required: true
+        type: string
+      owner_seed_sha256:
+        description: SHA-256 of exact private owner Library seed ZIP
+        required: true
+        type: string
+      first_docx_url:
+        description: HTTPS URL for first requested owner DOCX
+        required: true
+        type: string
+      first_docx_name:
+        description: Exact root filename for first requested owner DOCX
+        required: true
+        type: string
+      first_docx_sha256:
+        description: SHA-256 of first requested owner DOCX
+        required: true
+        type: string
+      second_docx_url:
+        description: HTTPS URL for second requested owner DOCX
+        required: true
+        type: string
+      second_docx_name:
+        description: Exact root filename for second requested owner DOCX
+        required: true
+        type: string
+      second_docx_sha256:
+        description: SHA-256 of second requested owner DOCX
+        required: true
+        type: string
+      sound_archive_sha256:
+        description: SHA-256 of the exact authorized 330-WAV source archive already bound into W4
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: owner-oneclick-finalizer-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  RELEASE_BRANCH: ${{ github.event.repository.default_branch }}
+
+jobs:
+  finalize:
+    runs-on: windows-2025
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout exact finalizer/product authority
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Bind finalizer to live default-branch release apex
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_TYPE" = "branch" || {
+            echo 'OWNER_FINALIZER_REQUIRES_BRANCH_REF' >&2
+            exit 1
+          }
+          test "$GITHUB_REF_NAME" = "$RELEASE_BRANCH" || {
+            printf 'OWNER_FINALIZER_WRONG_RELEASE_BRANCH actual=%s expected=%s\n' "$GITHUB_REF_NAME" "$RELEASE_BRANCH" >&2
+            exit 1
+          }
+          exact="$(git rev-parse HEAD)"
+          git fetch --no-tags origin "$RELEASE_BRANCH"
+          live="$(git rev-parse "origin/$RELEASE_BRANCH")"
+          test "$exact" = "$live" || {
+            printf 'OWNER_FINALIZER_STALE_AT_START exact=%s live=%s\n' "$exact" "$live" >&2
+            exit 1
+          }
+          echo "EXACT_PRODUCT_SHA=$exact" >> "$GITHUB_ENV"
+          echo 'OWNER_FINALIZER_LIVE_RELEASE_APEX=PASS'
+
+      - name: Setup exact Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Bind explicit owner inputs and exact product identity
+        shell: pwsh
+        env:
+          APPROVED: ${{ inputs.owner_final_candidate_approved }}
+          W4_RUN_ID_INPUT: ${{ inputs.w4_run_id }}
+          W4_CANDIDATE_SHA_INPUT: ${{ inputs.w4_candidate_sha256 }}
+          OWNER_SEED_URL_INPUT: ${{ inputs.owner_seed_url }}
+          OWNER_SEED_SHA_INPUT: ${{ inputs.owner_seed_sha256 }}
+          FIRST_DOCX_URL_INPUT: ${{ inputs.first_docx_url }}
+          FIRST_DOCX_NAME_INPUT: ${{ inputs.first_docx_name }}
+          FIRST_DOCX_SHA_INPUT: ${{ inputs.first_docx_sha256 }}
+          SECOND_DOCX_URL_INPUT: ${{ inputs.second_docx_url }}
+          SECOND_DOCX_NAME_INPUT: ${{ inputs.second_docx_name }}
+          SECOND_DOCX_SHA_INPUT: ${{ inputs.second_docx_sha256 }}
+          SOUND_ARCHIVE_SHA_INPUT: ${{ inputs.sound_archive_sha256 }}
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:APPROVED -ne 'true'){throw 'OWNER_FINAL_CANDIDATE_APPROVAL_REQUIRED'}
+          if($env:W4_RUN_ID_INPUT -notmatch '^[1-9][0-9]*$'){throw 'W4_RUN_ID_INVALID'}
+          foreach($name in @('W4_CANDIDATE_SHA_INPUT','OWNER_SEED_SHA_INPUT','FIRST_DOCX_SHA_INPUT','SECOND_DOCX_SHA_INPUT','SOUND_ARCHIVE_SHA_INPUT')){
+            $value=([string](Get-Item "Env:$name").Value).Trim().ToLowerInvariant()
+            if($value -notmatch '^[0-9a-f]{64}$'){throw "$name INVALID"}
+            "$name=$value" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          }
+          foreach($name in @('OWNER_SEED_URL_INPUT','FIRST_DOCX_URL_INPUT','SECOND_DOCX_URL_INPUT')){
+            $value=[string](Get-Item "Env:$name").Value
+            if(
+              [string]::IsNullOrWhiteSpace($value) -or
+              $value -ne $value.Trim() -or
+              $value -match '[\x00-\x1F\x7F]'
+            ){throw "$name INVALID_HTTPS_URL"}
+            $uri=$null
+            if(
+              -not [System.Uri]::TryCreate($value,[System.UriKind]::Absolute,[ref]$uri) -or
+              $uri.Scheme -cne 'https' -or
+              [string]::IsNullOrWhiteSpace($uri.Host) -or
+              -not [string]::IsNullOrEmpty($uri.UserInfo)
+            ){throw "$name INVALID_HTTPS_URL"}
+          }
+          @'
+          import os
+          from pathlib import Path
+          from scripts.build_owner_portable_candidate import _owner_docx_filename
+          names = (
+              os.environ['FIRST_DOCX_NAME_INPUT'],
+              os.environ['SECOND_DOCX_NAME_INPUT'],
+          )
+          validated = tuple(_owner_docx_filename(name) for name in names)
+          if len({name.casefold() for name in validated}) != 2:
+              raise SystemExit('OWNER_DOCX_NAMES_MUST_BE_DISTINCT')
+          path = Path(os.environ['GITHUB_ENV'])
+          with path.open('a', encoding='utf-8') as handle:
+              handle.write(f"FIRST_DOCX_NAME={validated[0]}\n")
+              handle.write(f"SECOND_DOCX_NAME={validated[1]}\n")
+          print('OWNER_FINALIZER_EXPLICIT_INPUTS=PASS')
+          '@ | python -
+          if($LASTEXITCODE -ne 0){throw 'OWNER_DOCX_NAME_VALIDATION_FAILED'}
+          "W4_RUN_ID=$env:W4_RUN_ID_INPUT" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "OWNER_SEED_URL=$env:OWNER_SEED_URL_INPUT" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "FIRST_DOCX_URL=$env:FIRST_DOCX_URL_INPUT" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "SECOND_DOCX_URL=$env:SECOND_DOCX_URL_INPUT" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Fetch and authenticate exact W4 workflow run provenance
+        id: w4_run_provenance
+        shell: pwsh
+        env:
+          GH_REPOSITORY: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          W4_WORKFLOW_PATH: .github/workflows/w4-v2-p0-fresh-windows-candidate.yml
+        run: |
+          $ErrorActionPreference='Stop'
+          if([string]::IsNullOrWhiteSpace($env:GH_TOKEN)){throw 'W4_RUN_PROVENANCE_TOKEN_MISSING'}
+          $runJson='w4-run-api.json'
+          $payload=gh api --method GET "repos/$env:GH_REPOSITORY/actions/runs/$env:W4_RUN_ID"
+          if($LASTEXITCODE -ne 0){throw 'W4_RUN_PROVENANCE_FETCH_FAILED'}
+          $payload | Set-Content -LiteralPath $runJson -Encoding utf8NoBOM
+          python scripts/verify_owner_w4_run_provenance.py `
+            --run-json $runJson `
+            --run-id $env:W4_RUN_ID `
+            --repository $env:GH_REPOSITORY `
+            --default-branch $env:RELEASE_BRANCH `
+            --workflow-path $env:W4_WORKFLOW_PATH `
+            --github-output $env:GITHUB_OUTPUT
+          if($LASTEXITCODE -ne 0){throw 'W4 workflow run provenance authentication failed'}
+
+      - name: Bind validated W4 workflow authority to final equal apex
+        shell: pwsh
+        env:
+          VALIDATED_WORKFLOW_SHA: ${{ steps.w4_run_provenance.outputs.workflow_sha }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $actual=([string]$env:VALIDATED_WORKFLOW_SHA).Trim().ToLowerInvariant()
+          $exact=([string]$env:EXACT_PRODUCT_SHA).Trim().ToLowerInvariant()
+          if($actual -notmatch '^[0-9a-f]{40}$'){throw 'W4_RUN_WORKFLOW_SHA_INVALID'}
+          if($actual -ne $exact){throw "W4_RUN_WORKFLOW_SHA_STALE actual=$actual expected=$exact"}
+          "W4_RUN_WORKFLOW_SHA=$actual" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "W4_RUN_PROVENANCE_HEAD=$env:RELEASE_BRANCH@$actual"
+          Write-Host 'W4_RUN_PROVENANCE=PASS'
+
+      - name: Download exact W4 artifact by run ID
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: Accessible-Chess-V2-NVDA-test-candidate
+          path: w4-artifact
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ env.W4_RUN_ID }}
+
+      - name: Prove W4 artifact is exact-current-product and byte-bound
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          @'
+          import json
+          import os
+          from pathlib import Path
+          import re
+          import zipfile
+          from acs.version2_portable_package import (
+              Version2PortablePackageError,
+              _stable_bytes,
+              _stable_digest,
+          )
+          from scripts.build_user_sound_pack import EXPECTED_SOURCE_INVENTORY_SHA256
+
+          root = Path('w4-artifact')
+          zips = tuple(root.rglob('Accessible-Chess-V2-*-NVDA-test-candidate.zip'))
+          metadata_files = tuple(root.rglob('w4-run-metadata.json'))
+          if len(zips) != 1 or len(metadata_files) != 1:
+              raise SystemExit('W4_ARTIFACT_TOPOLOGY_INVALID')
+          candidate = zips[0]
+          expected_metadata = root / 'p0-evidence' / 'w4-run-metadata.json'
+          if metadata_files[0] != expected_metadata:
+              raise SystemExit(
+                  f'W4_METADATA_LOCATION_INVALID actual={metadata_files[0]} expected={expected_metadata}'
+              )
+
+          def unique_pairs(items):
+              result = {}
+              for key, value in items:
+                  if key in result:
+                      raise SystemExit('W4_METADATA_DUPLICATE_KEY')
+                  result[key] = value
+              return result
+
+          try:
+              metadata_payload = _stable_bytes(
+                  metadata_files[0],
+                  label='W4 run metadata',
+                  maximum=64 * 1024,
+              )
+              metadata = json.loads(
+                  metadata_payload.decode('utf-8-sig', errors='strict'),
+                  object_pairs_hook=unique_pairs,
+              )
+          except Version2PortablePackageError:
+              raise SystemExit('W4_METADATA_UNSTABLE')
+          except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError):
+              raise SystemExit('W4_METADATA_INVALID')
+          expected_metadata_keys = {
+              'schema_version',
+              'product_sha',
+              'workflow_sha',
+              'pre_upload_product_freshness',
+              'pre_upload_workflow_freshness',
+              'user_sound_pack_zip_sha256',
+              'user_sound_inventory_sha256',
+              'user_sound_wav_count',
+              'human_tested',
+              'nvda_verified',
+          }
+          if not isinstance(metadata, dict) or set(metadata) != expected_metadata_keys:
+              raise SystemExit('W4_METADATA_CONTRACT_INVALID')
+          if type(metadata.get('schema_version')) is not int or metadata.get('schema_version') != 1:
+              raise SystemExit('W4_METADATA_SCHEMA_INVALID')
+          if (
+              metadata.get('pre_upload_product_freshness') is not True
+              or metadata.get('pre_upload_workflow_freshness') is not True
+          ):
+              raise SystemExit('W4_METADATA_FRESHNESS_PROOF_INVALID')
+
+          exact = os.environ['EXACT_PRODUCT_SHA'].strip().lower()
+          if not re.fullmatch(r'[0-9a-f]{40}', exact):
+              raise SystemExit('EXACT_PRODUCT_SHA_INVALID')
+          expected_candidate = root / f'Accessible-Chess-V2-{exact[:7]}-NVDA-test-candidate.zip'
+          if candidate != expected_candidate:
+              raise SystemExit(
+                  f'W4_CANDIDATE_LOCATION_INVALID actual={candidate} expected={expected_candidate}'
+              )
+          if metadata.get('product_sha') != exact:
+              raise SystemExit(
+                  f'W4_PRODUCT_SHA_STALE actual={metadata.get("product_sha")} expected={exact}'
+              )
+          validated_workflow = os.environ['W4_RUN_WORKFLOW_SHA'].strip().lower()
+          if not re.fullmatch(r'[0-9a-f]{40}', validated_workflow):
+              raise SystemExit('W4_RUN_WORKFLOW_SHA_INVALID')
+          if metadata.get('workflow_sha') != validated_workflow:
+              raise SystemExit(
+                  f'W4_WORKFLOW_SHA_STALE actual={metadata.get("workflow_sha")} '
+                  f'expected={validated_workflow}'
+              )
+          if metadata.get('human_tested') is not False or metadata.get('nvda_verified') is not False:
+              raise SystemExit('W4_MACHINE_EVIDENCE_OVERCLAIMS_HUMAN_ACCEPTANCE')
+          if type(metadata.get('user_sound_wav_count')) is not int or metadata.get('user_sound_wav_count') != 330:
+              raise SystemExit('W4_SOUND_WAV_COUNT_INVALID')
+          if metadata.get('user_sound_inventory_sha256') != EXPECTED_SOURCE_INVENTORY_SHA256:
+              raise SystemExit('W4_SOUND_INVENTORY_SHA_MISMATCH')
+          sound_sha = os.environ['SOUND_ARCHIVE_SHA_INPUT'].strip().lower()
+          if metadata.get('user_sound_pack_zip_sha256') != sound_sha:
+              raise SystemExit('W4_SOUND_ARCHIVE_SHA_MISMATCH')
+          try:
+              actual = _stable_digest(
+                  candidate,
+                  label='W4 candidate ZIP',
+                  maximum=2 * 1024 * 1024 * 1024,
+              )
+          except Version2PortablePackageError:
+              raise SystemExit('W4_CANDIDATE_UNSTABLE')
+          wanted = os.environ['W4_CANDIDATE_SHA_INPUT'].strip().lower()
+          if actual != wanted:
+              raise SystemExit(f'W4_CANDIDATE_SHA_MISMATCH actual={actual} expected={wanted}')
+          with Path(os.environ['GITHUB_ENV']).open('a', encoding='utf-8') as handle:
+              handle.write(f'W4_CANDIDATE={candidate.resolve()}\n')
+          print(f'W4_EXACT_PRODUCT_SHA={exact}')
+          print(f'W4_EXACT_CANDIDATE_SHA256={actual}')
+          print('W4_EXACT_ARTIFACT_BINDING=PASS')
+          '@ | python -
+          if($LASTEXITCODE -ne 0){throw 'W4 exact artifact binding failed'}
+
+      - name: Safely extract and preflight original W4 inner package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          @'
+          import os
+          from pathlib import Path, PurePosixPath
+          import shutil
+          import zipfile
+          from acs.version2_package_preflight import (
+              Version2PackagePreflightError,
+              _relative_token,
+              validate_version2_package_tree,
+          )
+
+          archive = Path(os.environ['W4_CANDIDATE'])
+          destination = Path('w4-inner')
+          destination.mkdir()
+          total = 0
+          seen = set()
+          with zipfile.ZipFile(archive, 'r') as source:
+              infos = source.infolist()
+              if not infos or len(infos) > 20000:
+                  raise SystemExit('W4_ZIP_MEMBER_COUNT_INVALID')
+              for info in infos:
+                  name = info.filename
+                  if '\\' in name or '\x00' in name:
+                      raise SystemExit('W4_ZIP_MEMBER_PATH_INVALID')
+                  token = name[:-1] if name.endswith('/') else name
+                  try:
+                      token = _relative_token(token, label='W4 ZIP member')
+                  except Version2PackagePreflightError:
+                      raise SystemExit('W4_ZIP_MEMBER_PATH_INVALID')
+                  pure = PurePosixPath(token)
+                  folded = token.casefold()
+                  if folded in seen:
+                      raise SystemExit('W4_ZIP_DUPLICATE_PATH')
+                  seen.add(folded)
+                  unix_type = (info.external_attr >> 16) & 0o170000
+                  if info.flag_bits & 0x1:
+                      raise SystemExit('W4_ZIP_ENCRYPTED_MEMBER_FORBIDDEN')
+                  if unix_type == 0o120000:
+                      raise SystemExit('W4_ZIP_SYMLINK_FORBIDDEN')
+                  if info.is_dir():
+                      if unix_type not in {0, 0o040000}:
+                          raise SystemExit('W4_ZIP_SPECIAL_MEMBER_FORBIDDEN')
+                  elif unix_type not in {0, 0o100000}:
+                      raise SystemExit('W4_ZIP_SPECIAL_MEMBER_FORBIDDEN')
+                  total += int(info.file_size)
+                  if total > 2 * 1024 * 1024 * 1024:
+                      raise SystemExit('W4_ZIP_EXPANSION_LIMIT')
+                  target = destination.joinpath(*pure.parts)
+                  if info.is_dir():
+                      target.mkdir(parents=True, exist_ok=True)
+                      continue
+                  target.parent.mkdir(parents=True, exist_ok=True)
+                  with source.open(info, 'r') as reader, target.open('xb') as writer:
+                      shutil.copyfileobj(reader, writer, length=1024 * 1024)
+          report = validate_version2_package_tree(
+              destination,
+              expected_integration_sha=os.environ['EXACT_PRODUCT_SHA'],
+          )
+          print(f'W4_CANONICAL_INNER_FILES={len(report.inventory)}')
+          print('W4_CANONICAL_INNER_PREFLIGHT=PASS')
+          '@ | python -
+          if($LASTEXITCODE -ne 0){throw 'W4 inner package extraction/preflight failed'}
+
+      - name: Download and bind exact private seed and owner DOCX bytes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          New-Item -ItemType Directory -Force -Path owner-inputs | Out-Null
+          Invoke-WebRequest -Uri $env:OWNER_SEED_URL -OutFile 'owner-inputs\owner-seed.zip'
+          Invoke-WebRequest -Uri $env:FIRST_DOCX_URL -OutFile (Join-Path owner-inputs $env:FIRST_DOCX_NAME)
+          Invoke-WebRequest -Uri $env:SECOND_DOCX_URL -OutFile (Join-Path owner-inputs $env:SECOND_DOCX_NAME)
+          foreach($spec in @(
+            @('owner-inputs\owner-seed.zip',$env:OWNER_SEED_SHA_INPUT,'OWNER_SEED'),
+            @((Join-Path owner-inputs $env:FIRST_DOCX_NAME),$env:FIRST_DOCX_SHA_INPUT,'FIRST_DOCX'),
+            @((Join-Path owner-inputs $env:SECOND_DOCX_NAME),$env:SECOND_DOCX_SHA_INPUT,'SECOND_DOCX')
+          )){
+            $actual=(Get-FileHash -Algorithm SHA256 -LiteralPath $spec[0]).Hash.ToLowerInvariant()
+            if($actual -ne $spec[1]){throw "$($spec[2])_SHA256_MISMATCH actual=$actual expected=$($spec[1])"}
+            Write-Host "$($spec[2])_SHA256=$actual"
+          }
+          Write-Host 'OWNER_EXTERNAL_BYTES_BOUND=PASS'
+
+      - name: Reassemble canonical inner package with qualified private seed
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          @'
+          import os
+          from pathlib import Path
+          import shutil
+          from acs.version2_package_assembler import assemble_version2_package_tree
+          from acs.version2_package_preflight import validate_version2_package_tree
+          from scripts.materialize_owner_library_seed import materialize_owner_library_seed
+
+          source = Path('w4-inner')
+          prepared = Path('owner-prepared')
+          product = prepared / 'product'
+          shutil.copytree(source / 'AccessibleChess', product, symlinks=False)
+          seed_destination = product / 'release-content' / 'user-library-seed'
+          seed_report = materialize_owner_library_seed(
+              Path('owner-inputs/owner-seed.zip'),
+              seed_destination,
+              expected_archive_sha256=os.environ['OWNER_SEED_SHA_INPUT'],
+              expected_source_count=6,
+              expected_game_count=3738,
+          )
+          assembled = assemble_version2_package_tree(
+              product,
+              source / 'THIRD_PARTY_NOTICES',
+              Path('owner-inner'),
+              integration_sha=os.environ['EXACT_PRODUCT_SHA'],
+          )
+          validate_version2_package_tree(
+              assembled.package_root,
+              expected_integration_sha=os.environ['EXACT_PRODUCT_SHA'],
+          )
+          print(f'OWNER_SEED_SOURCES={seed_report.source_count}')
+          print(f'OWNER_SEED_GAMES={seed_report.game_count}')
+          print('OWNER_CANONICAL_INNER_WITH_PRIVATE_SEED=PASS')
+          '@ | python -
+          if($LASTEXITCODE -ne 0){throw 'Owner canonical inner reassembly failed'}
+
+      - name: Build native x64 root launcher without CRT
+        shell: cmd
+        run: |
+          @echo off
+          setlocal EnableExtensions
+          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSROOT=%%i"
+          if not defined VSROOT exit /b 20
+          call "%VSROOT%\VC\Auxiliary\Build\vcvars64.bat" || exit /b 21
+          if not exist build mkdir build
+          cl /nologo /utf-8 /W4 /WX /O2 /GS- /DUNICODE /D_UNICODE /c packaging\portable_launcher.c /Fo:build\portable_launcher.obj || exit /b 22
+          link /nologo /MACHINE:X64 /SUBSYSTEM:WINDOWS /ENTRY:wWinMainCRTStartup /NODEFAULTLIB build\portable_launcher.obj kernel32.lib user32.lib /OUT:build\AccessibleChess.exe || exit /b 23
+
+      - name: Assemble exact owner one-click tree and deterministic ZIP
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $receipt='owner-final-receipt.json'
+          python scripts/build_owner_portable_candidate.py `
+            owner-inner `
+            build\AccessibleChess.exe `
+            (Join-Path owner-inputs $env:FIRST_DOCX_NAME) `
+            (Join-Path owner-inputs $env:SECOND_DOCX_NAME) `
+            owner-oneclick `
+            Accessible-Chess-ONECLICK-OWNER-FINAL.zip `
+            --integration-sha $env:EXACT_PRODUCT_SHA `
+            --first-docx-sha256 $env:FIRST_DOCX_SHA_INPUT `
+            --second-docx-sha256 $env:SECOND_DOCX_SHA_INPUT `
+            --sound-archive-sha256 $env:SOUND_ARCHIVE_SHA_INPUT `
+            --seed-source-count 6 `
+            --seed-game-count 3738 | Set-Content -LiteralPath $receipt -Encoding utf8
+          if($LASTEXITCODE -ne 0){throw 'Owner one-click final assembly failed'}
+          $data=Get-Content -LiteralPath $receipt -Raw | ConvertFrom-Json
+          if([int]$data.sound_wav_count -ne 330){throw 'OWNER_FINAL_SOUND_COUNT_INVALID'}
+          if([int]$data.seed_source_count -ne 6 -or [int]$data.seed_game_count -ne 3738){throw 'OWNER_FINAL_LIBRARY_IDENTITY_INVALID'}
+          if([bool]$data.human_tested -ne $false -or [bool]$data.nvda_verified -ne $false){throw 'OWNER_FINAL_MACHINE_RECEIPT_OVERCLAIMS_ACCEPTANCE'}
+          Write-Host "OWNER_ONECLICK_ZIP_SHA256=$($data.archive_sha256)"
+          Write-Host 'OWNER_ONECLICK_ASSEMBLY=PASS'
+
+      - name: Fresh-extract and launch exact final ZIP bytes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $archive=(Resolve-Path 'Accessible-Chess-ONECLICK-OWNER-FINAL.zip').Path
+          $receipt=Get-Content -LiteralPath 'owner-final-receipt.json' -Raw -Encoding utf8 | ConvertFrom-Json
+          $receiptSha=([string]$receipt.archive_sha256).Trim().ToLowerInvariant()
+          if($receiptSha -notmatch '^[0-9a-f]{64}$'){throw 'OWNER_FINAL_RECEIPT_ARCHIVE_SHA_INVALID'}
+          $before=(Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash.ToLowerInvariant()
+          if($before -ne $receiptSha){throw "OWNER_FINAL_ZIP_RECEIPT_SHA_MISMATCH actual=$before expected=$receiptSha"}
+          $extracted='owner-oneclick-from-zip'
+          if(Test-Path -LiteralPath $extracted){throw 'OWNER_FINAL_EXTRACT_DESTINATION_EXISTS'}
+          Expand-Archive -LiteralPath $archive -DestinationPath $extracted
+
+          @'
+          import os
+          from pathlib import Path
+          from acs.version2_portable_package import _stable_digest
+          from scripts.build_owner_portable_candidate import (
+              OwnerPortableCandidateError,
+              validate_owner_portable_candidate_tree,
+          )
+
+          root = Path('owner-oneclick-from-zip')
+          try:
+              qualification = validate_owner_portable_candidate_tree(
+                  root,
+                  expected_integration_sha=os.environ['EXACT_PRODUCT_SHA'],
+                  expected_sound_archive_sha256=os.environ['SOUND_ARCHIVE_SHA_INPUT'],
+                  expected_seed_source_count=6,
+                  expected_seed_game_count=3738,
+              )
+          except OwnerPortableCandidateError as exc:
+              raise SystemExit(f'OWNER_FINAL_EXTRACTED_TREE_INVALID: {exc}') from exc
+
+          for name_key, sha_key, label in (
+              ('FIRST_DOCX_NAME', 'FIRST_DOCX_SHA_INPUT', 'first owner DOCX'),
+              ('SECOND_DOCX_NAME', 'SECOND_DOCX_SHA_INPUT', 'second owner DOCX'),
+          ):
+              path = root / os.environ[name_key]
+              actual = _stable_digest(path, label=label)
+              expected = os.environ[sha_key].strip().lower()
+              if actual != expected:
+                  raise SystemExit(
+                      f'OWNER_FINAL_EXTRACTED_DOCX_SHA_MISMATCH '
+                      f'label={label} actual={actual} expected={expected}'
+                  )
+
+          print(f'OWNER_FINAL_EXTRACTED_SOUND_WAV_COUNT={qualification["sound_wav_count"]}')
+          print(f'OWNER_FINAL_EXTRACTED_SEED_SOURCES={qualification["seed_source_count"]}')
+          print(f'OWNER_FINAL_EXTRACTED_SEED_GAMES={qualification["seed_game_count"]}')
+          print('OWNER_FINAL_EXTRACTED_TREE=PASS')
+          '@ | python -
+          if($LASTEXITCODE -ne 0){throw 'Freshly extracted owner ZIP failed canonical validation'}
+
+          $afterExtract=(Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash.ToLowerInvariant()
+          if($afterExtract -ne $before){throw 'OWNER_FINAL_ZIP_CHANGED_DURING_EXTRACTION'}
+
+          $root=(Resolve-Path $extracted).Path
+          $launcher=(Resolve-Path (Join-Path $root 'AccessibleChess.exe')).Path
+          $childPath=(Resolve-Path (Join-Path $root 'App\AccessibleChess.exe')).Path
+          $baselineChildPids=@(
+            Get-Process -ErrorAction SilentlyContinue | Where-Object {
+              try { $_.Path -eq $childPath } catch { $false }
+            } | ForEach-Object { [int]$_.Id }
+          )
+          $proc=Start-Process -FilePath $launcher -WorkingDirectory $root -PassThru
+          if(-not $proc.WaitForExit(45000)){$proc.Kill();throw 'OWNER_ROOT_LAUNCHER_TIMEOUT'}
+          if($proc.ExitCode -ne 0){throw "OWNER_ROOT_LAUNCHER_EXIT=$($proc.ExitCode)"}
+          $report=Join-Path $root 'launch-report.txt'
+          if(-not (Test-Path -LiteralPath $report -PathType Leaf)){throw 'OWNER_ROOT_LAUNCH_REPORT_MISSING'}
+          $text=Get-Content -LiteralPath $report -Raw -Encoding utf8
+          foreach($marker in @('PREFLIGHT: PASS','PROCESS_CREATED: YES','STATUS: STARTUP_WINDOW_READY','USER_WINDOW_PROVEN: YES','USER_NVDA_PROVEN: NO')){
+            if(-not $text.Contains($marker)){throw "OWNER_ROOT_LAUNCH_REPORT_MISSING $marker"}
+          }
+          if($text.Contains('STATUS: CHILD_RUNNING_AFTER_STARTUP_OBSERVATION')){
+            throw 'OWNER_ROOT_LAUNCH_REPORT_LEGACY_LIVENESS_SUCCESS'
+          }
+          $pidLines=@(
+            $text -split "\r?\n" | Where-Object { $_ -match '^CHILD_PROCESS_ID: [0-9]+$' }
+          )
+          if($pidLines.Count -ne 1){throw 'OWNER_ROOT_LAUNCH_REPORT_CHILD_PID_CARDINALITY_INVALID'}
+          [uint32]$reportedChildPid=0
+          $rawChildPid=$pidLines[0].Substring('CHILD_PROCESS_ID: '.Length)
+          if(-not [uint32]::TryParse($rawChildPid,[ref]$reportedChildPid) -or $reportedChildPid -eq 0){
+            throw 'OWNER_ROOT_LAUNCH_REPORT_CHILD_PID_INVALID'
+          }
+          if($baselineChildPids -contains [int]$reportedChildPid){
+            throw 'OWNER_ROOT_LAUNCH_REPORT_CHILD_PID_PREEXISTING'
+          }
+          $launchedChild=Get-Process -Id $reportedChildPid -ErrorAction Stop
+          $launchedChildPath=$launchedChild.Path
+          if($launchedChildPath -ne $childPath){
+            throw 'OWNER_ROOT_LAUNCH_REPORT_CHILD_PATH_MISMATCH'
+          }
+          # The packaged WebView HTTP listener may serve only this machine.
+          $listeners=@(Get-NetTCPConnection -OwningProcess $reportedChildPid -State Listen -ErrorAction SilentlyContinue)
+          if($listeners.Count -lt 1){throw 'OWNER_ROOT_WEBVIEW_LOOPBACK_LISTENER_MISSING'}
+          foreach($listener in $listeners){
+            if($listener.LocalAddress -notin @('127.0.0.1','::1')){
+              throw "OWNER_ROOT_NON_LOOPBACK_LISTENER address=$($listener.LocalAddress)"
+            }
+          }
+          Write-Host 'OWNER_ROOT_LOOPBACK_ONLY=PASS'
+          $launchedChild.Refresh()
+          if(-not $launchedChild.CloseMainWindow()){throw 'OWNER_ROOT_WINDOW_CLEAN_CLOSE_REQUEST_FAILED'}
+          if(-not $launchedChild.WaitForExit(15000)){throw 'OWNER_ROOT_WINDOW_CLEAN_CLOSE_TIMEOUT'}
+          if(-not (Test-Path -LiteralPath (Join-Path $root 'data') -PathType Container)){
+            throw 'OWNER_ROOT_PACKAGE_LOCAL_DATA_MISSING'
+          }
+
+          # Prove that the same extracted package can release its data lock and restart.
+          $restart=Start-Process -FilePath $launcher -WorkingDirectory $root -PassThru
+          if(-not $restart.WaitForExit(45000)){$restart.Kill();throw 'OWNER_ROOT_RESTART_LAUNCHER_TIMEOUT'}
+          if($restart.ExitCode -ne 0){throw "OWNER_ROOT_RESTART_LAUNCHER_EXIT=$($restart.ExitCode)"}
+          $restartText=Get-Content -LiteralPath $report -Raw -Encoding utf8
+          foreach($marker in @('PREFLIGHT: PASS','PROCESS_CREATED: YES','STATUS: STARTUP_WINDOW_READY','USER_WINDOW_PROVEN: YES')){
+            if(-not $restartText.Contains($marker)){throw "OWNER_ROOT_RESTART_REPORT_MISSING $marker"}
+          }
+          $restartPidLines=@($restartText -split "\r?\n" | Where-Object { $_ -match '^CHILD_PROCESS_ID: [0-9]+$' })
+          if($restartPidLines.Count -ne 1){throw 'OWNER_ROOT_RESTART_CHILD_PID_CARDINALITY_INVALID'}
+          [uint32]$restartPid=0
+          $rawRestartPid=$restartPidLines[0].Substring('CHILD_PROCESS_ID: '.Length)
+          if(-not [uint32]::TryParse($rawRestartPid,[ref]$restartPid) -or $restartPid -eq 0){
+            throw 'OWNER_ROOT_RESTART_CHILD_PID_INVALID'
+          }
+          $restartedChild=Get-Process -Id $restartPid -ErrorAction Stop
+          if($restartedChild.Path -ne $childPath){throw 'OWNER_ROOT_RESTART_CHILD_PATH_MISMATCH'}
+          $restartedChild.Refresh()
+          if(-not $restartedChild.CloseMainWindow()){throw 'OWNER_ROOT_RESTART_CLEAN_CLOSE_REQUEST_FAILED'}
+          if(-not $restartedChild.WaitForExit(15000)){throw 'OWNER_ROOT_RESTART_CLEAN_CLOSE_TIMEOUT'}
+          Write-Host 'OWNER_ROOT_CLEAN_CLOSE_AND_RESTART=PASS'
+
+          $afterLaunch=(Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash.ToLowerInvariant()
+          if($afterLaunch -ne $before){throw 'OWNER_FINAL_ZIP_CHANGED_DURING_MACHINE_LAUNCH'}
+          "OWNER_ONECLICK_ZIP_SHA256=$before" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host 'OWNER_FINAL_ZIP_FRESH_EXTRACTION=PASS'
+          Write-Host 'OWNER_ROOT_ONECLICK_MACHINE_LAUNCH=PASS'
+          Write-Host 'HUMAN_TESTED=NO'
+          Write-Host 'NVDA_VERIFIED=NO'
+
+      - name: Recheck live release apex immediately before publication
+        shell: bash
+        run: |
+          set -euo pipefail
+          exact="$(git rev-parse HEAD)"
+          test "$exact" = "$EXACT_PRODUCT_SHA" || {
+            printf 'OWNER_FINALIZER_CHECKOUT_DRIFT exact=%s bound=%s\n' "$exact" "$EXACT_PRODUCT_SHA" >&2
+            exit 1
+          }
+          git fetch --no-tags origin "$RELEASE_BRANCH"
+          live="$(git rev-parse "origin/$RELEASE_BRANCH")"
+          test "$EXACT_PRODUCT_SHA" = "$live" || {
+            printf 'OWNER_FINALIZER_STALE_BEFORE_UPLOAD exact=%s live=%s\n' "$EXACT_PRODUCT_SHA" "$live" >&2
+            exit 1
+          }
+          echo 'OWNER_FINALIZER_PRE_UPLOAD_FRESHNESS=PASS'
+
+      - name: Finalize exact owner receipt provenance
+        shell: pwsh
+        env:
+          W4_RUN_ATTEMPT: ${{ steps.w4_run_provenance.outputs.run_attempt }}
+          W4_WORKFLOW_ID: ${{ steps.w4_run_provenance.outputs.workflow_id }}
+          FINALIZER_RUN_ID: ${{ github.run_id }}
+          FINALIZER_RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          $ErrorActionPreference='Stop'
+          python -m scripts.finalize_owner_final_receipt `
+            --receipt owner-final-receipt.json `
+            --final-zip Accessible-Chess-ONECLICK-OWNER-FINAL.zip `
+            --product-sha $env:EXACT_PRODUCT_SHA `
+            --w4-candidate-sha256 $env:W4_CANDIDATE_SHA_INPUT `
+            --seed-archive-sha256 $env:OWNER_SEED_SHA_INPUT `
+            --first-docx-sha256 $env:FIRST_DOCX_SHA_INPUT `
+            --second-docx-sha256 $env:SECOND_DOCX_SHA_INPUT `
+            --sound-archive-sha256 $env:SOUND_ARCHIVE_SHA_INPUT `
+            --w4-run-id $env:W4_RUN_ID `
+            --w4-run-attempt $env:W4_RUN_ATTEMPT `
+            --w4-workflow-id $env:W4_WORKFLOW_ID `
+            --w4-workflow-sha $env:W4_RUN_WORKFLOW_SHA `
+            --finalizer-run-id $env:FINALIZER_RUN_ID `
+            --finalizer-run-attempt $env:FINALIZER_RUN_ATTEMPT
+          if($LASTEXITCODE -ne 0){throw 'Owner final receipt provenance finalization failed'}
+          $data=Get-Content -LiteralPath 'owner-final-receipt.json' -Raw -Encoding utf8 | ConvertFrom-Json
+          if([string]$data.finalizer_product_sha -ne $env:EXACT_PRODUCT_SHA){throw 'OWNER_FINAL_RECEIPT_PRODUCT_SHA_MISMATCH'}
+          if([string]$data.source_w4_workflow_sha -ne $env:W4_RUN_WORKFLOW_SHA){throw 'OWNER_FINAL_RECEIPT_W4_WORKFLOW_SHA_MISMATCH'}
+          if([int64]$data.source_w4_run_id -ne [int64]$env:W4_RUN_ID){throw 'OWNER_FINAL_RECEIPT_W4_RUN_ID_MISMATCH'}
+          if([bool]$data.machine_root_launch_verified -ne $true){throw 'OWNER_FINAL_RECEIPT_MACHINE_LAUNCH_MISSING'}
+          if([bool]$data.pre_upload_release_freshness -ne $true){throw 'OWNER_FINAL_RECEIPT_FRESHNESS_MISSING'}
+          if([bool]$data.human_tested -ne $false -or [bool]$data.nvda_verified -ne $false){throw 'OWNER_FINAL_RECEIPT_OVERCLAIMS_ACCEPTANCE'}
+          Write-Host 'OWNER_FINAL_RECEIPT_PROVENANCE_BOUND=PASS'
+
+      - name: Recheck final ZIP bytes immediately before artifact upload
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $archive='Accessible-Chess-ONECLICK-OWNER-FINAL.zip'
+          $receipt=Get-Content -LiteralPath 'owner-final-receipt.json' -Raw -Encoding utf8 | ConvertFrom-Json
+          $receiptSha=([string]$receipt.archive_sha256).Trim().ToLowerInvariant()
+          $actual=(Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash.ToLowerInvariant()
+          if($actual -ne $env:OWNER_ONECLICK_ZIP_SHA256){throw "OWNER_FINAL_ZIP_CHANGED_BEFORE_UPLOAD actual=$actual bound=$env:OWNER_ONECLICK_ZIP_SHA256"}
+          if($actual -ne $receiptSha){throw "OWNER_FINAL_ZIP_RECEIPT_DRIFT actual=$actual receipt=$receiptSha"}
+          if(-not (Test-Path -LiteralPath 'owner-oneclick-from-zip\launch-report.txt' -PathType Leaf)){throw 'OWNER_FINAL_EXTRACTED_LAUNCH_REPORT_MISSING_BEFORE_UPLOAD'}
+          Write-Host "OWNER_FINAL_UPLOAD_ZIP_SHA256=$actual"
+          Write-Host 'OWNER_FINAL_ZIP_PRE_UPLOAD_BINDING=PASS'
+
+      - name: Upload exact owner one-click candidate and receipt
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: Accessible-Chess-ONECLICK-OWNER-FINAL
+          path: |
+            Accessible-Chess-ONECLICK-OWNER-FINAL.zip
+            owner-final-receipt.json
+            owner-oneclick-from-zip/launch-report.txt
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Confirm published artifact still matches live release apex
+        shell: bash
+        run: |
+          set -euo pipefail
+          exact="$(git rev-parse HEAD)"
+          test "$exact" = "$EXACT_PRODUCT_SHA" || {
+            printf 'OWNER_FINALIZER_CHECKOUT_DRIFT_AFTER_UPLOAD exact=%s bound=%s\n' "$exact" "$EXACT_PRODUCT_SHA" >&2
+            exit 1
+          }
+          git fetch --no-tags origin "$RELEASE_BRANCH"
+          live="$(git rev-parse "origin/$RELEASE_BRANCH")"
+          test "$EXACT_PRODUCT_SHA" = "$live" || {
+            printf 'OWNER_FINALIZER_STALE_AFTER_UPLOAD exact=%s live=%s\n' "$EXACT_PRODUCT_SHA" "$live" >&2
+            exit 1
+          }
+          echo 'OWNER_FINALIZER_POST_UPLOAD_FRESHNESS=PASS'

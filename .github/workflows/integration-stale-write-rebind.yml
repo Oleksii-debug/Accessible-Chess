@@ -1,0 +1,83 @@
+name: Integration Stale Write Rebind
+
+on:
+  push:
+    branches:
+      - fix/integration-stale-write-rebind-20261004
+  pull_request:
+    branches:
+      - fix/integration-accessibility-successors-20261004
+    paths:
+      - 'acs/version2_application.py'
+      - 'tests/test_version2_application.py'
+      - '.github/workflows/integration-stale-write-rebind.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: integration-stale-write-rebind-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Prove exact parent and stale-write scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_head='${{ github.event.pull_request.head.sha || github.sha }}'
+          test "$(git rev-parse HEAD)" = "$expected_head"
+          parent='ad0e6d218e324530b35532239e332f9c1059485f'
+          git merge-base --is-ancestor "$parent" HEAD
+          test "$(git merge-base "$parent" HEAD)" = "$parent"
+          git cat-file -e '22f6d79ccb054ff004a97186b247309843436bb0^{commit}'
+          git diff --check "$parent" HEAD
+
+          changed="$(git diff --name-only "$parent" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/integration-stale-write-rebind.yml' \
+            'acs/version2_application.py' \
+            'tests/test_version2_application.py' | sort)"
+          test "$changed" = "$expected"
+
+          test "$(git rev-parse HEAD:acs/version2_application.py)" = '6fd87a6f128d227cbe263a9efe72b6b3d938935f'
+          test "$(git rev-parse HEAD:tests/test_version2_application.py)" = 'b4fc6c22fcfb47e051afbd80fa9f6a3315c43456'
+
+          echo 'INTEGRATION_STALE_WRITE_REBIND_SCOPE=PASS'
+
+      - name: Compile application surfaces
+        run: >-
+          python -m compileall -q
+          acs/version2_application.py
+          tests/test_version2_application.py
+
+      - name: Application and persistence regressions
+        run: >-
+          python -m unittest -v
+          tests.test_version2_application
+          tests.test_v2_book_progress_store
+          tests.test_v2_book_progress_store_production
+          tests.test_v2_book_training_route_rollback
+          tests.test_v2_book_transaction_current_runtime
+
+      - name: Core selftest
+        run: python -m acs.selftest

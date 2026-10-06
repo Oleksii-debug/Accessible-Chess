@@ -1,0 +1,89 @@
+name: Integration PGN Modifier Keymap Delegation
+
+on:
+  push:
+    branches:
+      - fix/pgn-modifier-keymap-delegation-20261004
+  pull_request:
+    branches:
+      - integration/hardened-pgn-browser-reconcile-20261004
+    paths:
+      - 'web/full_product_pgn.js'
+      - 'tests/js/pgn_surface_dom_test.js'
+      - '.github/workflows/d01-pgn-workspace-webview.yml'
+      - '.github/workflows/integration-pgn-modifier-keymap-delegation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: integration-pgn-modifier-keymap-delegation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove exact parent, scope and identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_head='${{ github.event.pull_request.head.sha || github.sha }}'
+          test "$(git rev-parse HEAD)" = "$expected_head"
+
+          parent='7c2643f946e697067907bac6617577e0472863cd'
+          git merge-base --is-ancestor "$parent" HEAD
+          test "$(git merge-base "$parent" HEAD)" = "$parent"
+          git diff --check "$parent" HEAD
+
+          changed="$(git diff --name-only "$parent" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/d01-pgn-workspace-webview.yml' \
+            '.github/workflows/integration-pgn-modifier-keymap-delegation.yml' \
+            'tests/js/pgn_surface_dom_test.js' \
+            'web/full_product_pgn.js' | sort)"
+          test "$changed" = "$expected"
+
+          test "$(git rev-parse HEAD:web/full_product_pgn.js)" = '1fa71cf6fea78d9d6d3ceb1aedee060c8756355e'
+          test "$(git rev-parse HEAD:tests/js/pgn_surface_dom_test.js)" = '7f3368c7523c60e796b8c404fa0d3e4cc5229c7b'
+          test "$(git rev-parse HEAD:.github/workflows/d01-pgn-workspace-webview.yml)" = '6f0cf13ea517ddf235f5258b3a8b35d0cddddb37'
+
+          test "$(git rev-parse HEAD:acs/pgn_webview_bridge.py)" = '25b3d03179f42b4565a4dd6d7a2ccd283607e09c'
+          test "$(git rev-parse HEAD:acs/pgn_webview_projection.py)" = '127037cb6cf264f579516df599bf8c1ad44e8985'
+          test "$(git rev-parse HEAD:web/keybindings.json)" = '012f6eb19cd46998aa5a72945c254a9935028305'
+
+          echo 'PGN_MODIFIER_KEYMAP_DELEGATION_SCOPE=PASS'
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Execute exact PGN DOM regression
+        run: |
+          node --check web/full_product_pgn.js
+          node --check tests/js/pgn_surface_dom_test.js
+          node tests/js/pgn_surface_dom_test.js
+
+      - name: Run adjacent keyboard, PGN and accessibility contracts
+        run: >-
+          python -m unittest -v
+          tests.test_keybindings
+          tests.test_v2_board_analysis_hotkey_feedback
+          tests.test_dev1_full_product_webview_adapter
+          tests.test_dev1_pgn_webview_projection
+          tests.test_dev1_pgn_workspace_webview_adapter
+
+      - name: Core selftest
+        run: python -m acs.selftest

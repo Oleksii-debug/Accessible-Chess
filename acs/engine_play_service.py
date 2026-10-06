@@ -24,6 +24,7 @@ from .engine_ports import (
     MoveEnginePort,
 )
 from .game_lifecycle import GameLifecycle, LifecycleSnapshot
+from .input_limits import MAX_FEN_CHARS
 
 
 @dataclass(frozen=True)
@@ -175,12 +176,17 @@ class EngineGameHandoff:
                     "analysis handoff cannot carry actor or history data",
                     code=EngineContractErrorCode.INVALID_HANDOFF,
                 )
-            if not isinstance(self.fen, str) or not self.fen.strip():
+            if type(self.fen) is not str or len(self.fen) > MAX_FEN_CHARS:
                 raise EngineContractError(
                     "analyze-current-game handoff requires fen text",
                     code=EngineContractErrorCode.INVALID_HANDOFF,
                 )
             fen = self.fen.strip()
+            if not fen:
+                raise EngineContractError(
+                    "analyze-current-game handoff requires fen text",
+                    code=EngineContractErrorCode.INVALID_HANDOFF,
+                )
             object.__setattr__(self, "fen", fen)
         if intent is EngineGameIntent.OPEN_FINAL_REVIEW:
             if self.actor is not None or self.fen is not None:

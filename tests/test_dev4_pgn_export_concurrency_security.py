@@ -5,6 +5,7 @@ import unittest
 from unittest import mock
 
 from acs.gametree import parse_games
+import acs.pgn_service as pgn_service_module
 from acs.pgn_service import PgnConcurrentWriteError, open_pgn, save_pgn_atomic
 
 
@@ -15,7 +16,7 @@ class Dev4PgnExportConcurrencySecurityTests(unittest.TestCase):
         The public contract says ``expected_sha256`` protects a file opened
         earlier from lost updates.  Mutating the destination immediately before
         the atomic replacement deterministically models the TOCTOU window
-        between the current implementation's preflight hash and ``os.replace``.
+        between preflight hashing and the canonical atomic replace primitive.
         A safe implementation must detect that newer content and preserve it.
         """
 
@@ -27,7 +28,7 @@ class Dev4PgnExportConcurrencySecurityTests(unittest.TestCase):
                 encoding="utf-8",
             )
             opened = open_pgn(destination)
-            real_replace = os.replace
+            real_replace = pgn_service_module._replace_published_path
 
             def concurrent_replace(src, dst):
                 Path(dst).write_text(
@@ -36,7 +37,7 @@ class Dev4PgnExportConcurrencySecurityTests(unittest.TestCase):
                 )
                 return real_replace(src, dst)
 
-            with mock.patch("acs.pgn_service.os.replace", side_effect=concurrent_replace):
+            with mock.patch("acs.pgn_service._replace_published_path", side_effect=concurrent_replace):
                 with self.assertRaises(PgnConcurrentWriteError):
                     save_pgn_atomic(
                         destination,
@@ -54,7 +55,7 @@ class Dev4PgnExportConcurrencySecurityTests(unittest.TestCase):
     def test_no_overwrite_mode_rechecks_nonexistence_at_commit_boundary(self):
         """``overwrite=False`` must not clobber a file created after preflight.
 
-        The implementation publishes through ``os.link``. Creating the
+        The implementation publishes through the canonical no-clobber primitive. Creating the
         destination immediately before that exact commit primitive models a
         second writer winning the race after the initial ``exists()`` check.
         A safe implementation must preserve that file and refuse the commit.
@@ -63,7 +64,7 @@ class Dev4PgnExportConcurrencySecurityTests(unittest.TestCase):
         games = parse_games('[Event "Our export"]\n[Result "*"]\n\n1. e4 *\n')
         with tempfile.TemporaryDirectory() as tmp:
             destination = Path(tmp) / "new-shared.pgn"
-            real_link = os.link
+            real_link = pgn_service_module._publish_no_clobber
 
             def concurrent_create(src, dst, *args, **kwargs):
                 Path(dst).write_text(
@@ -72,7 +73,7 @@ class Dev4PgnExportConcurrencySecurityTests(unittest.TestCase):
                 )
                 return real_link(src, dst, *args, **kwargs)
 
-            with mock.patch("acs.pgn_service.os.link", side_effect=concurrent_create):
+            with mock.patch("acs.pgn_service._publish_no_clobber", side_effect=concurrent_create):
                 with self.assertRaises(FileExistsError):
                     save_pgn_atomic(destination, games, overwrite=False)
 

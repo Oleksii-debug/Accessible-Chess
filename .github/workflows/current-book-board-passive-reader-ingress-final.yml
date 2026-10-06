@@ -1,0 +1,97 @@
+name: Current Book Board Passive Reader Ingress
+
+on:
+  pull_request:
+    branches:
+      - fix/current-bookdocument-canonical-bounds-20261004-zftrkmo
+    paths:
+      - 'acs/book_board_workflow.py'
+      - 'tests/test_v2_book_board_workflow.py'
+      - '.github/workflows/current-book-board-passive-reader-ingress-final.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-book-board-passive-reader-ingress-final-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove exact serial geometry and three-path scope
+        shell: bash
+        env:
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          expected="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
+          test "$(git rev-parse HEAD)" = "$expected"
+          base_ref="${EVENT_BASE_REF:-fix/current-bookdocument-canonical-bounds-20261004-zftrkmo}"
+          git fetch --no-tags origin "+refs/heads/$base_ref:refs/remotes/origin/$base_ref"
+          live_base="$(git rev-parse "refs/remotes/origin/$base_ref")"
+          if [ -n "${EVENT_BASE_SHA:-}" ]; then
+            test "$EVENT_BASE_SHA" = "$live_base"
+          fi
+          test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+          git diff --check "$live_base"...HEAD
+          changed="$(git diff --name-only "$live_base"...HEAD | sort)"
+          expected_paths="$(printf '%s\n' \
+            '.github/workflows/current-book-board-passive-reader-ingress-final.yml' \
+            'acs/book_board_workflow.py' \
+            'tests/test_v2_book_board_workflow.py' | sort)"
+          test "$changed" = "$expected_paths" || {
+            printf 'Unexpected Book Board reader-ingress scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile changed seams
+        run: >-
+          python -m compileall -q
+          acs/book_board_workflow.py
+          tests/test_v2_book_board_workflow.py
+
+      - name: Execute Book Board and reader regressions
+        run: >-
+          python -m unittest -v
+          tests.test_v2_book_board_workflow
+          tests.test_book_board_progress_failure_exact
+          tests.test_book_board_route_ownership
+          tests.test_v2_windows_book_board_adapter
+          tests.test_v2_windows_book_board_adapter_workflow
+          tests.test_bookreader
+          tests.test_bookreader_snapshot_bounds
+
+      - name: Execute retained model, persistence, recovery and WebView regressions
+        run: >-
+          python -m unittest -v
+          tests.test_bookdocument_deserialize_bounds_current
+          tests.test_bookdocument_scalar_bounds_current
+          tests.test_book_progress_passive_ingress_current
+          tests.test_v2_book_progress_store
+          tests.test_v2_book_progress_store_production
+          tests.test_dev1_books_training_webview_projection
+          tests.test_final_product_announcement_localization_current
+
+      - name: Core selftest
+        run: python -m acs.selftest

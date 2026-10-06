@@ -1,0 +1,92 @@
+name: Full Product Apex Books Training Regressions
+
+on:
+  push:
+    branches:
+      - integration/full-product-apex-books-training-regressions-20261004
+  pull_request:
+    branches:
+      - converge/full-product-final-20261004
+    paths:
+      - 'tests/test_dev1_books_training_webview_projection.py'
+      - 'tests/test_v2_book_training_route_rollback.py'
+      - 'tests/test_version2_release_accessibility_contract.py'
+      - '.github/workflows/full-product-apex-books-training-regressions.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: full-product-apex-books-training-regressions-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 75
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Prove exact apex parent, scope and authorities
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_head='${{ github.event.pull_request.head.sha || github.sha }}'
+          test "$(git rev-parse HEAD)" = "$expected_head"
+          base='a2c5a18a54777ec48d78b56454916af44198ad99'
+          git merge-base --is-ancestor "$base" HEAD
+          test "$(git merge-base "$base" HEAD)" = "$base"
+          git diff --check "$base" HEAD
+
+          changed="$(git diff --name-only "$base" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/full-product-apex-books-training-regressions.yml' \
+            'tests/test_dev1_books_training_webview_projection.py' \
+            'tests/test_v2_book_training_route_rollback.py' \
+            'tests/test_version2_release_accessibility_contract.py' | sort)"
+          test "$changed" = "$expected"
+
+          test "$(git rev-parse HEAD:tests/test_dev1_books_training_webview_projection.py)" = '2198a9a1e5a6e6e9ee8e93de49db34d7e9b86bad'
+          test "$(git rev-parse HEAD:tests/test_v2_book_training_route_rollback.py)" = '1e9b0e03c5c81ef187234a748bbd23c2759ad4cb'
+          test "$(git rev-parse HEAD:tests/test_version2_release_accessibility_contract.py)" = 'a9d6d065777156c3fe2327b2183df5d8898dc2cb'
+
+          test "$(git rev-parse HEAD:acs/version2_application.py)" = 'c66d2c17865824e481cdf7281026b7805f633cd7'
+          test "$(git rev-parse HEAD:acs/version2_training_workspace.py)" = '00be0f3c2561ce6695c7fe1ffc141a29f201828c'
+          test "$(git rev-parse HEAD:acs/training_webview_projection.py)" = 'd048fc83829a86b27f4412d7d183a04235b691d7'
+          test "$(git rev-parse HEAD:acs/full_product_ui_shell.py)" = '7bb116ea0587de51a191560cd39070aac9ead014'
+          test "$(git rev-parse HEAD:acs/book_webview_projection.py)" = '84f6add4c51aecda5288761420fb0964491ddef6'
+          test "$(git rev-parse HEAD:web/full_product_pgn.js)" = '1fa71cf6fea78d9d6d3ceb1aedee060c8756355e'
+
+          echo 'FULL_PRODUCT_APEX_BOOKS_TRAINING_REGRESSIONS_SCOPE=PASS'
+
+      - name: Run reconciled Books Training regressions
+        run: >-
+          python -m unittest -v
+          tests.test_dev1_books_training_webview_projection
+          tests.test_dev1_books_training_webview_bridge
+          tests.test_v2_book_training_route_rollback
+          tests.test_version2_release_accessibility_contract
+          tests.test_training_authority_convergence
+          tests.test_version2_application
+
+      - name: Run adjacent browser and keymap contracts
+        run: |
+          node tests/js/books_training_surface_dom_test.js
+          node tests/js/pgn_surface_dom_test.js
+          python -m unittest -v tests.test_keybindings tests.test_v2_board_analysis_hotkey_feedback
+
+      - name: Run core selftest
+        run: python -m acs.selftest

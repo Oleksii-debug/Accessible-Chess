@@ -4,10 +4,14 @@ import tempfile
 import threading
 import time
 from pathlib import Path
-from types import SimpleNamespace
 import unittest
+from unittest import mock
 
 from acs.acsdb import AcsDatabase
+from acs.chessbase_library_import import (
+    ChessBaseLibraryImportReport,
+    ChessBaseLibraryImportStatus,
+)
 from acs.library_import_service import (
     LibraryImportCancelledError,
     LibraryImportProgress,
@@ -107,7 +111,9 @@ class Version2WindowsFileWorkflowTests(unittest.TestCase):
             frozenset(
                 {
                     "pgn.open",
+                    "pgn.cancel_open",
                     "pgn.save",
+                    "pgn.cancel_save",
                     "pgn.save_as",
                     "library.import",
                     "library.cancel_import",
@@ -129,10 +135,92 @@ class Version2WindowsFileWorkflowTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "no browser path payload"):
             controller("pgn.open", {"path": "C:/private/game.pgn"})
         with self.assertRaisesRegex(ValueError, "no browser path payload"):
+            controller("pgn.save_as", {"path": "C:/private/output.pgn"})
+        with self.assertRaisesRegex(ValueError, "no browser path payload"):
+            controller("pgn.cancel_save", {"path": "C:/private/output.pgn"})
+        with self.assertRaisesRegex(ValueError, "no browser path payload"):
             controller("library.import", {"path": "C:/private/base.cbh"})
         self.assertEqual(dialogs.open_calls, 0)
+        self.assertEqual(dialogs.save_calls, 0)
         self.assertEqual(dialogs.import_calls, 0)
         self.assertEqual(events, [])
+
+    def test_open_does_not_read_view_after_session_publication(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "open-publication-order.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            dialogs = _Dialogs()
+            dialogs.open_path = source
+            controller, _, session_box, _ = self._controller(dialogs)
+            real_view = PgnDocumentSession.view
+
+            def reject_post_publication_readback(bound_session):
+                if session_box["value"] is bound_session:
+                    raise AssertionError(
+                        "new PGN view must be materialized before session publication"
+                    )
+                return real_view(bound_session)
+
+            with mock.patch.object(
+                PgnDocumentSession,
+                "view",
+                autospec=True,
+                side_effect=reject_post_publication_readback,
+            ):
+                result = controller("pgn.open", {})
+
+            self.assertEqual(result.kind, FileWorkflowEventKind.PGN_OPENED)
+            self.assertEqual(result.game_count, 1)
+            self.assertIsInstance(session_box["value"], PgnDocumentSession)
+            self.assertEqual(
+                session_box["value"].workspace.current_game().tags["Event"],
+                "UI journey",
+            )
+
+    def test_open_view_failure_keeps_previous_active_session(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "replacement.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            dialogs = _Dialogs()
+            dialogs.open_path = source
+            controller, events, session_box, _ = self._controller(
+                dialogs,
+                focus="pgn-tree",
+            )
+            previous_source = Path(tmp) / "previous.pgn"
+            previous_source.write_text(
+                PGN_TEXT.replace("UI journey", "Keep me"),
+                encoding="utf-8",
+            )
+            previous = PgnDocumentSession.open(previous_source)
+            self.assertFalse(previous.dirty)
+            session_box["value"] = previous
+
+            real_view = PgnDocumentSession.view
+
+            def fail_only_replacement(bound_session):
+                if bound_session is previous:
+                    return real_view(bound_session)
+                raise RuntimeError("private replacement projection failure")
+
+            with mock.patch.object(
+                PgnDocumentSession,
+                "view",
+                autospec=True,
+                side_effect=fail_only_replacement,
+            ):
+                result = controller("pgn.open", {})
+
+            self.assertEqual(result.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(result.error_code, "pgn_open_failed")
+            self.assertEqual(result.focus_target, "pgn-tree")
+            self.assertIs(session_box["value"], previous)
+            self.assertEqual(
+                session_box["value"].workspace.current_game().tags["Event"],
+                "Keep me",
+            )
+            self.assertEqual(events[-1], result)
+            self.assertNotIn("private replacement projection failure", repr(result))
 
     def test_real_pgn_open_edit_save_reopen_uses_canonical_document(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -165,6 +253,119 @@ class Version2WindowsFileWorkflowTests(unittest.TestCase):
                 self.assertNotIn(str(source), repr(event))
                 self.assertNotIn("private-source-name", repr(event))
 
+    def test_save_view_failure_is_sanitized_before_write(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "must-remain-original.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            original = source.read_bytes()
+            dialogs = _Dialogs()
+            controller, events, session_box, _ = self._controller(
+                dialogs,
+                focus="pgn-tree",
+            )
+            session = PgnDocumentSession.open(source)
+            session.edit_tag("Event", "Must not publish")
+            session_box["value"] = session
+
+            with mock.patch.object(
+                session,
+                "view",
+                side_effect=RuntimeError("private save projection failure"),
+            ):
+                result = controller("pgn.save", {})
+
+            self.assertEqual(result.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(result.error_code, "pgn_save_failed")
+            self.assertEqual(result.focus_target, "pgn-tree")
+            self.assertEqual(source.read_bytes(), original)
+            self.assertTrue(session.dirty)
+            self.assertEqual(events[-1], result)
+            self.assertNotIn("private save projection failure", repr(result))
+
+    def test_save_does_not_requery_view_after_durable_publication(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "durable-save.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            dialogs = _Dialogs()
+            controller, _, session_box, _ = self._controller(dialogs)
+            session = PgnDocumentSession.open(source)
+            session.edit_tag("Event", "Post-commit save")
+            session_box["value"] = session
+            real_view = PgnDocumentSession.view
+
+            def reject_post_commit_readback(bound_session):
+                if "Post-commit save" in source.read_text(encoding="utf-8"):
+                    raise AssertionError("view must not be re-read after durable save")
+                return real_view(bound_session)
+
+            with mock.patch.object(
+                PgnDocumentSession,
+                "view",
+                autospec=True,
+                side_effect=reject_post_commit_readback,
+            ):
+                result = controller("pgn.save", {})
+
+            self.assertEqual(result.kind, FileWorkflowEventKind.PGN_SAVED)
+            self.assertEqual(result.game_count, 1)
+            self.assertIn("Post-commit save", source.read_text(encoding="utf-8"))
+
+    def test_save_as_view_failure_is_sanitized_before_dialog_or_write(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            destination = Path(tmp) / "must-not-exist.pgn"
+            dialogs = _Dialogs()
+            dialogs.save_path = destination
+            controller, events, session_box, _ = self._controller(
+                dialogs,
+                focus="pgn-tree",
+            )
+            session = PgnDocumentSession.from_text(PGN_TEXT)
+            session_box["value"] = session
+
+            with mock.patch.object(
+                session,
+                "view",
+                side_effect=RuntimeError("private presentation failure"),
+            ):
+                result = controller("pgn.save_as", {})
+
+            self.assertEqual(result.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(result.error_code, "pgn_save_as_failed")
+            self.assertEqual(result.focus_target, "pgn-tree")
+            self.assertEqual(dialogs.save_calls, 0)
+            self.assertFalse(destination.exists())
+            self.assertEqual(events[-1], result)
+            self.assertNotIn("private presentation failure", repr(result))
+
+    def test_save_as_does_not_requery_view_after_durable_publication(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            destination = Path(tmp) / "durable-save-as.pgn"
+            dialogs = _Dialogs()
+            dialogs.save_path = destination
+            controller, _, session_box, _ = self._controller(dialogs)
+            session = PgnDocumentSession.from_text(PGN_TEXT)
+            session_box["value"] = session
+            real_view = PgnDocumentSession.view
+
+            def reject_post_commit_readback(bound_session):
+                if destination.exists():
+                    raise AssertionError("view must not be re-read after durable Save As")
+                return real_view(bound_session)
+
+            with mock.patch.object(
+                PgnDocumentSession,
+                "view",
+                autospec=True,
+                side_effect=reject_post_commit_readback,
+            ):
+                result = controller("pgn.save_as", {})
+
+            self.assertEqual(result.kind, FileWorkflowEventKind.PGN_SAVED_AS)
+            self.assertEqual(result.game_count, 1)
+            self.assertTrue(destination.is_file())
+            reopened = PgnDocumentSession.open(destination)
+            self.assertEqual(reopened.view().game_count, 1)
+
     def test_save_as_existing_destination_uses_expected_fingerprint(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "source.pgn"
@@ -183,6 +384,32 @@ class Version2WindowsFileWorkflowTests(unittest.TestCase):
             self.assertEqual(dialogs.suggested, "source.pgn")
             reopened = PgnDocumentSession.open(destination)
             self.assertEqual(reopened.workspace.current_game().tags["Event"], "Saved As")
+
+    def test_save_on_recovered_legacy_document_routes_to_save_as_and_preserves_original(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "legacy-source.pgn"
+            destination = Path(tmp) / "recovered-utf8.pgn"
+            original = (
+                '[Event "Русская шахматная книга"]\n'
+                '[Result "*"]\n\n'
+                '1. e4 {главный план} e5 *\n'
+            ).encode("cp1251")
+            source.write_bytes(original)
+            dialogs = _Dialogs()
+            dialogs.save_path = destination
+            controller, _, session_box, _ = self._controller(dialogs)
+            session_box["value"] = PgnDocumentSession.open(source)
+            self.assertFalse(session_box["value"].view().source_overwrite_safe)
+
+            result = controller("pgn.save", {})
+
+            self.assertEqual(result.kind, FileWorkflowEventKind.PGN_SAVED_AS)
+            self.assertEqual(dialogs.save_calls, 1)
+            self.assertEqual(dialogs.suggested, source.name)
+            self.assertEqual(source.read_bytes(), original)
+            reopened = PgnDocumentSession.open(destination)
+            self.assertTrue(reopened.view().source_overwrite_safe)
+            self.assertFalse(reopened.view().global_warnings)
 
     def test_save_on_new_document_routes_to_native_save_as(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -304,9 +531,18 @@ class Version2WindowsFileWorkflowTests(unittest.TestCase):
                         progress(LibraryImportProgress(9, 0, 2))
                         progress(LibraryImportProgress(9, 1, 2))
                         progress(LibraryImportProgress(9, 2, 2))
-                        return SimpleNamespace(
-                            library_result=LibraryImportResult(9, 1, 2, 0, 10, 11),
-                            warning_count=0,
+                        return ChessBaseLibraryImportReport(
+                            status=ChessBaseLibraryImportStatus.IMPORTED,
+                            source_name="private-source" + suffix,
+                            source_sha256="a" * 64,
+                            backend_name="test-backend",
+                            backend_commit="b" * 40,
+                            decoded_game_count=2,
+                            warnings=(),
+                            library_result=LibraryImportResult(
+                                9, 1, 2, 0, 10, 11
+                            ),
+                            source_format=suffix.lstrip("."),
                         )
 
                 def services_factory():

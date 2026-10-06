@@ -112,6 +112,10 @@ STAGE1_WEBVIEW_SAFE_PORTS = tuple(range(42001, 42033))
 _HTTP_PORT_POSITION = 6
 
 
+class SafeLocalServerPortError(RuntimeError):
+    """The packaged WebView server could not obtain a vetted loopback port."""
+
+
 def validate_chromium_safe_port(port: int) -> int:
     if isinstance(port, bool) or not isinstance(port, int) or not 1 <= port <= 65535:
         raise ValueError("WebView loopback port must be an integer from 1 to 65535.")
@@ -145,7 +149,7 @@ def choose_chromium_safe_loopback_port(
             continue
         if availability_probe(port):
             return port
-    raise RuntimeError("No Chromium-safe loopback port is available for Accessible Chess.")
+    raise SafeLocalServerPortError("No Chromium-safe loopback port is available for Accessible Chess.")
 
 
 def _with_safe_http_port(
@@ -188,7 +192,14 @@ def install_pywebview_safe_local_server_port(
 
     @wraps(original_start)
     def safe_start(*args: Any, **kwargs: Any) -> Any:
-        safe_port = validate_chromium_safe_port(port_selector())
+        try:
+            safe_port = validate_chromium_safe_port(port_selector())
+        except SafeLocalServerPortError:
+            raise
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise SafeLocalServerPortError(
+                "A Chromium-safe loopback port could not be selected."
+            ) from exc
         safe_args, safe_kwargs = _with_safe_http_port(args, kwargs, safe_port)
         setattr(webview_module, "_accessible_chess_safe_http_port", safe_port)
         return original_start(*safe_args, **safe_kwargs)

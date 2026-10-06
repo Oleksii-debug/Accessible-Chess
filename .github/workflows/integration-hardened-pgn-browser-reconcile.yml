@@ -1,0 +1,91 @@
+name: Integration Hardened PGN Browser Reconcile
+
+on:
+  push:
+    branches:
+      - integration/hardened-pgn-browser-reconcile-20261004
+  pull_request:
+    branches:
+      - integration/hardened-application-reconcile-20261004
+    paths:
+      - 'web/full_product_pgn.js'
+      - '.github/workflows/d01-pgn-workspace-webview.yml'
+      - '.github/workflows/integration-hardened-pgn-browser-reconcile.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: integration-hardened-pgn-browser-reconcile-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 75
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Prove exact parent and PGN contract identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_head='${{ github.event.pull_request.head.sha || github.sha }}'
+          test "$(git rev-parse HEAD)" = "$expected_head"
+          parent='7d589e16c56c674e5a03ee87fe34a6df50b77cf8'
+          git merge-base --is-ancestor "$parent" HEAD
+          test "$(git merge-base "$parent" HEAD)" = "$parent"
+          git diff --check "$parent" HEAD
+
+          changed="$(git diff --name-only "$parent" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/d01-pgn-workspace-webview.yml' \
+            '.github/workflows/integration-hardened-pgn-browser-reconcile.yml' \
+            'web/full_product_pgn.js' | sort)"
+          test "$changed" = "$expected"
+
+          test "$(git rev-parse HEAD:web/full_product_pgn.js)" = '39077a843aefc424801bd96b41bfc81e784ac597'
+          test "$(git rev-parse HEAD:acs/pgn_webview_bridge.py)" = '25b3d03179f42b4565a4dd6d7a2ccd283607e09c'
+          test "$(git rev-parse HEAD:acs/pgn_webview_projection.py)" = '127037cb6cf264f579516df599bf8c1ad44e8985'
+          test "$(git rev-parse HEAD:tests/test_dev1_pgn_webview_projection.py)" = 'c3ffd69e4220d7f40222c0e6f68ab0f8929ac91e'
+          test "$(git rev-parse HEAD:tests/js/pgn_surface_dom_test.js)" = '61a148bf2a1282f4eba11104aab462f10e6c263c'
+          test "$(git rev-parse HEAD:.github/workflows/d01-pgn-workspace-webview.yml)" = '6f3d92836896630ce086995ec6ef444318a3b17c'
+
+          echo 'HARDENED_PGN_BROWSER_RECONCILE_SCOPE=PASS'
+
+      - name: Validate PGN browser and Python contracts
+        run: |
+          node --check web/full_product_pgn.js
+          node --check tests/js/pgn_surface_dom_test.js
+          node tests/js/pgn_surface_dom_test.js
+          python -m compileall -q acs/pgn_webview_bridge.py acs/pgn_webview_projection.py tests/test_dev1_pgn_webview_projection.py
+
+      - name: Run PGN integration regressions
+        run: >-
+          python -m unittest -v
+          tests.test_pgn_workspace
+          tests.test_dev1_pgn_webview_projection
+          tests.test_dev1_pgn_webview_atomicity
+          tests.test_dev1_pgn_workspace_webview_adapter
+          tests.test_dev1_full_product_ui_packages
+          tests.test_dev1_full_product_webview_adapter
+          tests.test_pgn_service
+          tests.test_d06_pgn_roundtrip
+          tests.test_version2_application
+
+      - name: Core selftest
+        run: python -m acs.selftest

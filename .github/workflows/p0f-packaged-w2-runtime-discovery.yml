@@ -1,0 +1,161 @@
+name: P0-F Packaged W2 Runtime Discovery
+
+on:
+  pull_request:
+    branches:
+      - work/full-product-teacher-education-reachability-20260911
+    paths:
+      - 'acs/version2_packaged_starter_application.py'
+      - 'acs/version2_education_mutation_release.py'
+      - 'tests/test_v2_packaged_starter_application.py'
+      - '.github/workflows/p0f-packaged-w2-runtime-discovery.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p0f-packaged-w2-runtime-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  focused:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Prove exact candidate identity
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile bounded runtime discovery surface
+        run: >-
+          python -m py_compile
+          acs/version2_packaged_starter_application.py
+          acs/version2_education_mutation_release.py
+          tests/test_v2_packaged_starter_application.py
+
+      - name: Enforce canonical W2 manifest authority at runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          source = Path('acs/version2_packaged_starter_application.py').read_text(encoding='utf-8')
+
+          # The runtime must not re-open manifest.json with an ordinary path read
+          # after merely lstat()-checking it. The manifest is itself release input
+          # and must use the same identity-pinned regular-file discipline as payloads.
+          if 'manifest_path.read_text(' in source:
+              raise SystemExit('P0_F_W2_MANIFEST_IDENTITY_PINNING_MISSING')
+
+          # Schema-3 provenance is owned by tools/p0f_lawful_starter_bundle.py.
+          # Runtime acceptance must bind the package to that qualified authority,
+          # rather than accepting a self-consistent manifest+payload substitution.
+          required = (
+              'lichess-standard-rated-2013-01',
+              'aa40b3671fa3cf1072eb182892cd90b0e1e003a4a5943492f64b77e7f3fd1635',
+              'accessible-chess-p0f-real-sample-v1',
+              'acs.pgn_roundtrip.parse_pgn_text(strict=True)',
+              'compressed_sha256',
+              'subset_sha256',
+              'selected_games',
+              'curation',
+              'record_sha256',
+              'sample_library',
+              'distinct_games',
+              'distinct_player_pairs',
+          )
+          missing = [token for token in required if token not in source]
+          if missing:
+              raise SystemExit('P0_F_W2_RUNTIME_PROVENANCE_AUTHORITY_MISSING=' + ','.join(missing))
+          print('P0_F_W2_RUNTIME_MANIFEST_AUTHORITY=PASS')
+          PY
+
+      - name: Reject starter subset digest that disagrees with verified PGN bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          import tempfile
+
+          from acs.version2_packaged_starter_application import _load_manifest
+          from tests.test_v2_packaged_starter_application import _write_bundle
+
+          with tempfile.TemporaryDirectory(prefix='accessible-chess-p0f-subset-digest-') as raw:
+              bundle = Path(raw) / 'w2-starter'
+              _write_bundle(bundle)
+              manifest_path = bundle / 'manifest.json'
+              manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+              manifest['starter_source']['subset_sha256'] = '0' * 64
+              manifest_path.write_text(
+                  json.dumps(manifest, sort_keys=True, indent=2) + '\n',
+                  encoding='utf-8',
+              )
+              try:
+                  _load_manifest(bundle)
+              except RuntimeError as exc:
+                  if 'subset_sha256 does not match starter PGN bytes' not in str(exc):
+                      raise
+              else:
+                  raise SystemExit('P0_F_W2_SUBSET_DIGEST_MISMATCH_ACCEPTED')
+          print('P0_F_W2_SUBSET_DIGEST_BINDING=PASS')
+          PY
+
+      - name: Run packaged W2 discovery and retained W3 regressions
+        run: >-
+          python -m unittest -v
+          tests.test_v2_packaged_starter_application
+          tests.test_w3_p0f_starter_books_training_content
+
+      - name: Reject ambiguous duplicate-key package manifests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from acs.version2_packaged_starter_application import (
+              _DuplicateManifestKeyError,
+              _unique_manifest_object,
+          )
+
+          duplicate = '{"schema_version":3,"counts":{"starter_games":200,"starter_games":240}}'
+          try:
+              json.loads(duplicate, object_pairs_hook=_unique_manifest_object)
+          except _DuplicateManifestKeyError:
+              print('P0_F_W2_DUPLICATE_MANIFEST_KEY_REJECTED=PASS')
+          else:
+              raise SystemExit('duplicate manifest key was silently accepted')
+          PY
+
+      - name: Prove final-product binding uses W2-aware starter subclass
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from acs import version2_education_mutation_release as release
+          from acs import version2_release_app
+          from acs.version2_packaged_starter_application import Version2PackagedStarterApplication
+
+          original = version2_release_app.Version2Application
+          with release._final_product_mutation_bindings():
+              assert version2_release_app.Version2Application is Version2PackagedStarterApplication
+          assert version2_release_app.Version2Application is original
+          print('P0_F_W2_FINAL_PRODUCT_BINDING=PASS')
+          PY

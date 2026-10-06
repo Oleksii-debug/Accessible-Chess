@@ -8,11 +8,13 @@
 #include <cbh.h>
 #include <interface.h>
 
+#include <cctype>
 #include <cstdlib>
 #include <iomanip>
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <type_traits>
 #include <variant>
 #include <vector>
@@ -22,6 +24,52 @@
 #endif
 
 namespace {
+
+constexpr std::string_view PINNED_LIBCBH_NAG_COMMIT =
+    "9641c5c3949d8fb210b17dd9aa54455645843696";
+
+// Protocol-v1 record-level adapter code. Deliberately outside libcbh's
+ // errorT range: the record decoded, but Accessible Chess must not expose an
+ // explicitly identified Chess960/Fischer Random game to the Standard core.
+constexpr unsigned int UNSUPPORTED_CHESS960_RECORD = 960;
+
+constexpr unsigned int canonicalize_pinned_evaluation_nag(nagT value) {
+    // The pinned libcbh commit has already interpreted the raw ChessBase
+    // evaluation byte before exposing SymbolComment. The independent pinned
+    // ChessBase-export fixture establishes the canonical PGN value for these
+    // exact raw codes. Reverse only transformations belonging to those
+    // qualified codes; every other value remains untouched.
+    switch (static_cast<unsigned int>(value)) {
+    case 10: return 11;
+    case 33: return 32;
+    case 37: return 36;
+    case 41: return 40;
+    case 45: return 44;
+    case 133: return 132;
+    case 136:
+    case 137:
+        return 138;
+    default:
+        return static_cast<unsigned int>(value);
+    }
+}
+
+constexpr unsigned int canonical_evaluation_nag(nagT value) {
+    if (std::string_view(LIBCBH_SOURCE_COMMIT) != PINNED_LIBCBH_NAG_COMMIT) {
+        return static_cast<unsigned int>(value);
+    }
+    return canonicalize_pinned_evaluation_nag(value);
+}
+
+static_assert(canonicalize_pinned_evaluation_nag(10) == 11);
+static_assert(canonicalize_pinned_evaluation_nag(33) == 32);
+static_assert(canonicalize_pinned_evaluation_nag(37) == 36);
+static_assert(canonicalize_pinned_evaluation_nag(41) == 40);
+static_assert(canonicalize_pinned_evaluation_nag(45) == 44);
+static_assert(canonicalize_pinned_evaluation_nag(133) == 132);
+static_assert(canonicalize_pinned_evaluation_nag(136) == 138);
+static_assert(canonicalize_pinned_evaluation_nag(137) == 138);
+static_assert(canonicalize_pinned_evaluation_nag(14) == 14);
 
 std::string json_string(const std::string& value) {
     std::ostringstream out;
@@ -52,6 +100,55 @@ std::string json_string(const std::string& value) {
     return out.str();
 }
 
+std::string normalized_ascii_token(const std::string& value) {
+    std::string normalized;
+    normalized.reserve(value.size());
+    for (unsigned char c : value) {
+        if (std::isalnum(c)) {
+            normalized.push_back(static_cast<char>(std::tolower(c)));
+        }
+    }
+    return normalized;
+}
+
+bool has_explicit_chess960_tag(const std::vector<Tag>& tags) {
+    for (const Tag& tag : tags) {
+        if (normalized_ascii_token(tag.tag) != "variant") {
+            continue;
+        }
+        const std::string value = normalized_ascii_token(tag.value);
+        if (value == "chess960" || value == "fischerrandom" || value == "frc") {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool has_shredder_fen_castling_rights(const std::string& fen) {
+    // Standard FEN castling rights use only KQkq or '-'. Rook-file rights
+    // (A-H/a-h) are an explicit Shredder-FEN/X-FEN Chess960 transport signal.
+    // A non-standard board layout alone is still allowed through Standard
+    // position validation; no Chess960 rules are implemented here.
+    std::istringstream input(fen);
+    std::string board;
+    std::string side;
+    std::string castling;
+    if (!(input >> board >> side >> castling)) {
+        return false;
+    }
+    for (unsigned char c : castling) {
+        if ((c >= 'A' && c <= 'H') || (c >= 'a' && c <= 'h')) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool is_explicit_chess960_record(const GameReturnValue& game) {
+    return has_explicit_chess960_tag(game.tags) ||
+           has_shredder_fen_castling_rights(game.startFen);
+}
+
 void write_comment(std::ostream& out, const Comment& comment) {
     std::visit(
         [&out](const auto& value) {
@@ -77,7 +174,7 @@ void write_comment(std::ostream& out, const Comment& comment) {
                 out << "{\"kind\":\"symbol\",\"symbol\":"
                     << static_cast<unsigned int>(value.symbol)
                     << ",\"evaluation\":"
-                    << static_cast<unsigned int>(value.evaluation)
+                    << canonical_evaluation_nag(value.evaluation)
                     << ",\"prefix\":" << static_cast<unsigned int>(value.prefix)
                     << '}';
             }
@@ -191,6 +288,13 @@ int main(int argc, char** argv) {
             std::cout << "{\"index\":" << index
                       << ",\"status\":\"skipped\",\"error_code\":"
                       << static_cast<unsigned int>(parse_error) << '}';
+            continue;
+        }
+        if (is_explicit_chess960_record(game)) {
+            std::cout << "{\"index\":" << index
+                      << ",\"status\":\"skipped\",\"error_code\":"
+                      << UNSUPPORTED_CHESS960_RECORD
+                      << ",\"reason\":\"unsupported_chess960\"}";
             continue;
         }
         write_game(std::cout, index, game);

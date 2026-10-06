@@ -9,25 +9,97 @@ import unicodedata
 
 SEARCH_FOLD_SQL_FUNCTION = "ACS_SEARCH_FOLD"
 SEARCH_DATE_KEY_SQL_FUNCTION = "ACS_SEARCH_DATE_KEY"
+PLAYER_COMPONENT_KEY_SQL_FUNCTION = "ACS_PLAYER_COMPONENT_KEY"
+MAX_RAW_SEARCH_TERM_CHARS = 4096
 MAX_SEARCH_TERM_CHARS = 256
 MAX_SEARCH_PAGE_SIZE = 200
 SQLITE_INTEGER_MAX = (1 << 63) - 1
 SEARCH_RESULTS = frozenset({"1-0", "0-1", "1/2-1/2", "*"})
 _COMPLETE_PGN_DATE_RE = re.compile(r"^(\d{4})\.(\d{2})\.(\d{2})$")
+# Name separators whose spelling/order must not create a second person identity.
+# Keep this deliberately narrower than general punctuation: accents and all
+# non-separator code points remain semantically significant.
+_PLAYER_COMPONENT_SPLIT_RE = re.compile(r"[,\s'\u2018\u2019\u02bc\-\u2010\u2011]+")
+
+
+def normalize_search_text(value: str) -> str:
+    """NFKC-normalize text and collapse Unicode whitespace for search comparison."""
+    if type(value) is not str:
+        raise TypeError("search text must be text")
+    return " ".join(unicodedata.normalize("NFKC", value).split())
+
+
+def _require_bounded_raw_search_text(value: str, *, name: str) -> None:
+    """Reject oversized caller text before Unicode normalization allocates copies."""
+    if len(value) > MAX_RAW_SEARCH_TERM_CHARS:
+        raise ValueError(
+            f"{name} exceeds maximum raw search term length of "
+            f"{MAX_RAW_SEARCH_TERM_CHARS} characters"
+        )
 
 
 def normalize_search_term(value: str | None, *, name: str) -> str | None:
-    """Validate and NFKC-normalize one optional user-facing search term."""
+    """Validate and normalize one bounded optional user-facing search term."""
     if value is None:
         return None
     if type(value) is not str:
         raise TypeError(f"{name} must be text")
-    normalized = " ".join(unicodedata.normalize("NFKC", value).split())
+    # BookIndex already applies this same 4096-character fence to its direct
+    # search query before delegating here. Library/ACSDB callers must receive the
+    # same pre-normalization resource envelope through the shared policy itself.
+    _require_bounded_raw_search_text(value, name=name)
+    normalized = normalize_search_text(value)
     if len(normalized) > MAX_SEARCH_TERM_CHARS:
         raise ValueError(
             f"{name} exceeds maximum search term length of {MAX_SEARCH_TERM_CHARS} characters"
         )
     return normalized or None
+
+
+def _player_components(value: str) -> tuple[str, ...]:
+    return tuple(
+        component
+        for component in _PLAYER_COMPONENT_SPLIT_RE.split(value)
+        if component
+    )
+
+
+def normalize_player_search_terms(value: str | None) -> tuple[str, ...]:
+    """Return bounded person-name components for canonical player search.
+
+    PGN and external chess databases may spell the same person as ``First Last``
+    or ``Last, First``. Player search treats comma/whitespace and common
+    apostrophe/hyphen spellings as component boundaries so order, repeated
+    spacing and punctuation typography do not create a second person identity.
+    Every remaining code point stays lossless under NFKC; matching later applies
+    the shared accent-preserving casefold and never transliterates or strips
+    diacritics.
+
+    A separator-only non-empty query falls back to its exact normalized text so
+    literal punctuation behavior is not silently converted into an empty filter.
+    """
+    normalized = normalize_search_term(value, name="player")
+    if normalized is None:
+        return ()
+    components = _player_components(normalized)
+    return components or (normalized,)
+
+
+def player_component_key(value: str | None) -> str | None:
+    """Return a boundary-safe folded key for exact person-name components.
+
+    The key is computed at query time from the existing folded search projection;
+    it is not persisted and therefore does not duplicate ACSDB schema/import
+    state. Surrounding spaces let SQLite ``INSTR`` test exact components rather
+    than arbitrary substrings such as ``an`` in ``Daniel``.
+    """
+    folded = search_fold(value)
+    if folded is None:
+        return None
+    components = _player_components(folded)
+    if not components:
+        components = (folded,)
+    return " " + " ".join(components) + " "
 
 
 def normalize_search_limit(value: object) -> int:
@@ -54,9 +126,13 @@ def normalize_search_source_id(value: object | None) -> int | None:
     return value
 
 
-def normalize_search_result(value: object | None) -> object | None:
-    """Validate the canonical PGN result tokens accepted by game search."""
-    if value is not None and value not in SEARCH_RESULTS:
+def normalize_search_result(value: object | None) -> str | None:
+    """Validate canonical PGN result tokens before any hashing or coercion."""
+    if value is None:
+        return None
+    if type(value) is not str:
+        raise TypeError("result must be text")
+    if value not in SEARCH_RESULTS:
         raise ValueError(f"Unsupported chess result: {value}")
     return value
 
@@ -95,6 +171,7 @@ def normalize_search_date_bound(value: object | None, *, name: str) -> str | Non
         return None
     if type(value) is not str:
         raise TypeError(f"{name} must be text")
+    _require_bounded_raw_search_text(value, name=name)
     normalized = unicodedata.normalize("NFKC", value).strip()
     key = search_date_key(normalized)
     if key is None:
@@ -122,8 +199,8 @@ def install_search_fold(connection: sqlite3.Connection) -> None:
     an unsupported future ACSDB is rejected and closed without being rewritten.
     Such a proxy does not expose ``create_function``. Skipping registration for
     that narrow proxy is safe: any supported-schema migration/search that really
-    needs either UDF will fail closed at SQL execution rather than publishing
-    stale or partially migrated data.
+    needs a UDF will fail closed at SQL execution rather than publishing stale or
+    partially migrated data.
     """
     create_function = getattr(connection, "create_function", None)
     if create_function is None:
@@ -138,5 +215,11 @@ def install_search_fold(connection: sqlite3.Connection) -> None:
         SEARCH_DATE_KEY_SQL_FUNCTION,
         1,
         search_date_key,
+        deterministic=True,
+    )
+    create_function(
+        PLAYER_COMPONENT_KEY_SQL_FUNCTION,
+        1,
+        player_component_key,
         deterministic=True,
     )

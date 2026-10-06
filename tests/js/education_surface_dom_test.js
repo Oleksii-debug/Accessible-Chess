@@ -85,6 +85,17 @@ vm.runInThisContext(
   { filename: "full_product_education.js" }
 );
 
+const educationBindings = {
+  ArrowUp: "education.previous_item",
+  ArrowDown: "education.next_item",
+  Enter: "education.open_selected"
+};
+window.accessibleChessKeymapAction = function (event, context) {
+  if (context !== "education_list") return "";
+  if (event.altKey || event.ctrlKey || event.shiftKey || event.metaKey) return "";
+  return educationBindings[event.key] || "";
+};
+
 function check(condition, message) {
   if (!condition) throw new Error(message);
 }
@@ -145,8 +156,8 @@ function initialSnapshot() {
         item_key: "c".repeat(64),
         dom_id: "education-" + kind + "-" + "c".repeat(64),
         label: kind,
-        secondary: "",
-        status: "",
+        secondary: kind + " secondary",
+        status: kind + " status",
         selected: true
       }], { open_enabled: ["student", "lesson", "assignment"].includes(kind) });
     })
@@ -196,7 +207,23 @@ async function run() {
         }
       };
     }
-    if (command === "education.open" || command === "education.new_class") {
+    if (command === "education.open") {
+      return {
+        kind: "delegated",
+        payload: {
+          action: command,
+          detail: {
+            kind: payload.kind,
+            heading: payload.kind + " detail",
+            secondary: payload.kind + " secondary",
+            status: payload.kind + " status"
+          },
+          focus_target: "education-detail-heading",
+          announcement: "Opened"
+        }
+      };
+    }
+    if (command === "education.new_class") {
       return { kind: "delegated", payload: { action: command } };
     }
     throw new Error("unexpected command " + command);
@@ -214,6 +241,40 @@ async function run() {
   const renderedSections = root.descendants().filter((element) => element.getAttribute("data-education-kind"));
   check(renderedSections.length === 11, "not all education collections rendered");
   check(document.activeElement.id === "education-class-" + "a".repeat(64), "initial focus missing");
+  check(root.querySelector("#education-detail").getAttribute("hidden") === "hidden", "empty detail region must start hidden");
+
+  const liveResolver = window.accessibleChessKeymapAction;
+  window.accessibleChessKeymapAction = function () { return null; };
+  const startupCalls = [];
+  const startupRoot = new FakeElement("div");
+  window.AccessibleChessEducationSurface.render(
+    startupRoot,
+    initialSnapshot(),
+    (command, payload) => {
+      startupCalls.push([command, payload || {}]);
+      return null;
+    },
+    () => {},
+    "education-class-" + "a".repeat(64),
+    "Action failed"
+  );
+  const startupOption = startupRoot.querySelector("#education-class-" + "a".repeat(64));
+  let startupPrevented = false;
+  startupOption.listeners.keydown({
+    key: "ArrowDown",
+    preventDefault: () => { startupPrevented = true; },
+    stopPropagation: () => {}
+  });
+  await flushPromises();
+  check(startupPrevented, "not-ready Education resolver suppressed default ArrowDown");
+  check(
+    startupCalls.length === 1 &&
+      startupCalls[0][0] === "education.move" &&
+      startupCalls[0][1].kind === "class" &&
+      startupCalls[0][1].direction === 1,
+    "not-ready Education resolver did not preserve default navigation"
+  );
+  window.accessibleChessKeymapAction = liveResolver;
 
   const wholeRenders = root.replaceChildrenCalls;
   root.querySelector("#education-class-" + keyB).listeners.click();
@@ -231,6 +292,10 @@ async function run() {
   await flushPromises();
   check(calls[1][0] === "education.open", "open action missing");
   check(Object.keys(calls[1][1]).join(",") === "kind", "open leaked a raw record id");
+  check(calls[1][1].kind === "class", "class open kind changed");
+  check(root.querySelector("#education-detail-heading").textContent === "class detail", "read-only detail heading missing");
+  check(document.activeElement.id === "education-detail-heading", "opened detail did not receive semantic focus");
+  check(root.replaceChildrenCalls === wholeRenders, "open rerendered the whole Education surface");
 
   const next = classSection.descendants().find((element) => element.getAttribute("data-command") === "education.page.next");
   next.listeners.click();
@@ -238,15 +303,74 @@ async function run() {
   check(calls[2][0] === "education.page" && calls[2][1].direction === 1, "bounded next page command missing");
   check(document.activeElement.id === "education-class-" + keyD, "page focus not restored");
 
+  for (const kind of ["student", "lesson", "assignment"]) {
+    const option = root.descendants().find((element) => element.id.startsWith("education-" + kind + "-"));
+    const beforeOpen = calls.length;
+    option.listeners.keydown({ key: "Enter", preventDefault: function () {} });
+    await flushPromises();
+    check(calls.length === beforeOpen + 1, kind + " Enter did not invoke open");
+    check(calls[calls.length - 1][0] === "education.open", kind + " used wrong open command");
+    check(Object.keys(calls[calls.length - 1][1]).join(",") === "kind", kind + " leaked authority fields");
+    check(calls[calls.length - 1][1].kind === kind, kind + " open kind changed");
+    check(document.activeElement.id === "education-detail-heading", kind + " detail focus missing");
+  }
+
+  delete educationBindings.Enter;
+  educationBindings.o = "education.open_selected";
+  const studentOption = root.descendants().find((element) => element.id.startsWith("education-student-"));
+  const beforeOldEnter = calls.length;
+  let oldEnterPrevented = false;
+  studentOption.listeners.keydown({
+    key: "Enter",
+    preventDefault: function () { oldEnterPrevented = true; },
+    stopPropagation: function () {}
+  });
+  await flushPromises();
+  check(!oldEnterPrevented, "old Education Enter binding survived live remap");
+  check(calls.length === beforeOldEnter, "old Education Enter binding still dispatched");
+
+  let remapPrevented = false;
+  let remapStopped = false;
+  studentOption.listeners.keydown({
+    key: "o",
+    preventDefault: function () { remapPrevented = true; },
+    stopPropagation: function () { remapStopped = true; }
+  });
+  await flushPromises();
+  check(remapPrevented && remapStopped, "remapped Education open key was not locally owned");
+  check(calls.length === beforeOldEnter + 1, "remapped Education open did not dispatch exactly once");
+  check(calls[calls.length - 1][0] === "education.open", "remapped Education open used wrong command");
+
   const courseOption = root.descendants().find((element) => element.id.startsWith("education-course-"));
   const beforeEnter = calls.length;
-  courseOption.listeners.keydown({ key: "Enter", preventDefault: function () {} });
+  courseOption.listeners.keydown({
+    key: "o",
+    preventDefault: function () {},
+    stopPropagation: function () {}
+  });
   await flushPromises();
   check(calls.length === beforeEnter, "read-only course invented an open command");
+  educationBindings.Enter = "education.open_selected";
+  delete educationBindings.o;
   check(!calls.some((call) => Object.prototype.hasOwnProperty.call(call[1], "record_id") || Object.prototype.hasOwnProperty.call(call[1], "student_id")), "browser sent raw education identity");
   check(!calls.some((call) => /submit|update|delete|move$/.test(call[0])), "education view gained mutation authority");
 
-  console.log("Education collections paging/privacy DOM contract PASS");
+  for (const synchronous of [true, false]) {
+    const failedRoot = new FakeElement("div");
+    const failedAnnouncements = [];
+    const focusId = "education-class-" + "a".repeat(64);
+    window.AccessibleChessEducationSurface.render(failedRoot, initialSnapshot(), () => {
+      if (synchronous) throw new Error("private transport detail");
+      return Promise.reject(new Error("private transport detail"));
+    }, (message) => failedAnnouncements.push(message), focusId, "Не вдалося виконати дію.");
+    const selected = failedRoot.querySelector("#" + focusId);
+    const beforeRenders = failedRoot.replaceChildrenCalls;
+    selected.listeners.keydown({ key: "Enter", preventDefault() {}, stopPropagation() {} });
+    await flushPromises();
+    check(failedAnnouncements.length === 1 && failedAnnouncements[0] === "Не вдалося виконати дію.", "Education transport failure was not announced safely");
+    check(document.activeElement === selected && failedRoot.replaceChildrenCalls === beforeRenders, "Education transport failure changed canonical focus/render state");
+  }
+  console.log("Education collections paging/privacy/open-selected DOM contract PASS");
 }
 
 run().catch(function (error) {

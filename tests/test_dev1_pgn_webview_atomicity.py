@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import unittest
+from unittest.mock import patch
 
 from acs.full_product_presenters import PgnTreePresenter
 from acs.full_product_ui_shell import UILanguage
@@ -17,50 +19,46 @@ PGN = """[Event "Atomic"]
 """
 
 
-class MutatingAfterReadPresenter(PgnTreePresenter):
-    """Mutate live selection after the first immutable view has been captured."""
-
-    def __init__(self, games) -> None:
-        super().__init__(games, language=UILanguage.EN)
-        self.view_calls = 0
-        self.first_selected_node_id = ""
-        self.live_selected_after_first_read = ""
-
-    def view(self):
-        self.view_calls += 1
-        view = super().view()
-        if self.view_calls == 1 and len(view.items) > 1:
-            self.first_selected_node_id = view.selected_node_id or ""
-            self.select(view.items[1].node_id)
-            self.live_selected_after_first_read = self.selected_node_id or ""
-        return view
-
-
 class PgnWebViewAtomicityTests(unittest.TestCase):
     def test_one_browser_snapshot_uses_one_immutable_presenter_view(self) -> None:
         games = tuple(parse_games(PGN))
-        presenter = MutatingAfterReadPresenter(games)
+        presenter = PgnTreePresenter(games, language=UILanguage.EN)
         projection = PgnWebViewProjection(
             presenter,
             lambda _action, _payload: None,
             lambda: len(games),
             language=UILanguage.EN,
         )
+        original_view = presenter.view
+        state = {
+            "view_calls": 0,
+            "first_selected_node_id": "",
+            "live_selected_after_first_read": "",
+        }
 
-        # Construction changes language but does not call view(). Keep the assertion
-        # explicit so a future constructor change cannot hide extra render reads.
-        presenter.view_calls = 0
-        snapshot = projection.snapshot()
+        def mutating_view():
+            state["view_calls"] += 1
+            view = original_view()
+            if state["view_calls"] == 1 and len(view.items) > 1:
+                state["first_selected_node_id"] = view.selected_node_id or ""
+                presenter.select(view.items[1].node_id)
+                state["live_selected_after_first_read"] = presenter.selected_node_id or ""
+            return view
 
-        self.assertEqual(1, presenter.view_calls)
+        # Inject re-entrancy into one exact canonical presenter rather than
+        # making a presenter subclass part of the product ingress contract.
+        with patch.object(presenter, "view", side_effect=mutating_view):
+            snapshot = projection.snapshot()
+
+        self.assertEqual(1, state["view_calls"])
         self.assertNotEqual(
-            presenter.first_selected_node_id,
-            presenter.live_selected_after_first_read,
+            state["first_selected_node_id"],
+            state["live_selected_after_first_read"],
         )
 
         selected_rows = [row for row in snapshot["tree"] if row["selected"]]
         self.assertEqual(1, len(selected_rows))
-        self.assertEqual(presenter.first_selected_node_id, selected_rows[0]["node_id"])
+        self.assertEqual(state["first_selected_node_id"], selected_rows[0]["node_id"])
         self.assertEqual(selected_rows[0]["dom_id"], snapshot["focus_target"])
 
         # The captured first node has exactly one comment. The live presenter was
@@ -76,28 +74,18 @@ class PgnWebViewAtomicityTests(unittest.TestCase):
 
     def test_inconsistent_selected_node_in_immutable_view_fails_closed(self) -> None:
         games = tuple(parse_games(PGN))
-
-        class BrokenPresenter(PgnTreePresenter):
-            def view(self):
-                view = super().view()
-                return type(view)(
-                    game_index=view.game_index,
-                    title=view.title,
-                    result=view.result,
-                    tags=view.tags,
-                    warnings=view.warnings,
-                    items=view.items,
-                    selected_node_id="missing-node",
-                )
-
+        presenter = PgnTreePresenter(games, language=UILanguage.EN)
         projection = PgnWebViewProjection(
-            BrokenPresenter(games, language=UILanguage.EN),
+            presenter,
             lambda _action, _payload: None,
             lambda: len(games),
             language=UILanguage.EN,
         )
-        with self.assertRaises(ValueError):
-            projection.snapshot()
+        broken = replace(presenter.view(), selected_node_id="missing-node")
+
+        with patch.object(presenter, "view", return_value=broken):
+            with self.assertRaises(ValueError):
+                projection.snapshot()
 
 
 if __name__ == "__main__":

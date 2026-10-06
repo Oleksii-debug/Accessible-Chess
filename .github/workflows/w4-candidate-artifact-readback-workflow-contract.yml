@@ -1,0 +1,80 @@
+name: W4 Candidate Artifact Readback Workflow Contract
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/w4-v2-p0-candidate-artifact-readback.yml'
+      - 'tests/test_w4_candidate_artifact_readback_workflow.py'
+      - 'tests/test_w4_sound_inventory_workflow_binding.py'
+      - 'scripts/verify_w4_candidate_artifact.py'
+      - 'scripts/verify_w4_current_candidate_artifact.py'
+      - 'scripts/verify_w4_sound_inventory.py'
+      - 'tests/test_verify_w4_candidate_artifact.py'
+      - 'tests/test_verify_w4_current_candidate_artifact.py'
+      - 'tests/test_verify_w4_sound_inventory.py'
+      - '.github/workflows/w4-candidate-artifact-readback-workflow-contract.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/w4-v2-p0-candidate-artifact-readback.yml'
+      - 'tests/test_w4_candidate_artifact_readback_workflow.py'
+      - 'tests/test_w4_sound_inventory_workflow_binding.py'
+      - 'scripts/verify_w4_candidate_artifact.py'
+      - 'scripts/verify_w4_current_candidate_artifact.py'
+      - 'scripts/verify_w4_sound_inventory.py'
+      - 'tests/test_verify_w4_candidate_artifact.py'
+      - 'tests/test_verify_w4_current_candidate_artifact.py'
+      - 'tests/test_verify_w4_sound_inventory.py'
+      - '.github/workflows/w4-candidate-artifact-readback-workflow-contract.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+      - name: Prove exact checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected='${{ github.event.pull_request.head.sha || github.sha }}'
+          test "$(git rev-parse HEAD)" = "$expected"
+      - name: Install pinned YAML parser
+        run: python -m pip install --disable-pip-version-check PyYAML==6.0.2
+      - name: Parse readback workflow
+        run: python -c "from pathlib import Path; import yaml; yaml.safe_load(Path('.github/workflows/w4-v2-p0-candidate-artifact-readback.yml').read_text(encoding='utf-8')); print('W4_READBACK_WORKFLOW_YAML=PASS')"
+      - name: Run dispatch/readback workflow trust-boundary contract
+        run: python -m unittest -v tests.test_w4_candidate_artifact_readback_workflow tests.test_w4_sound_inventory_workflow_binding tests.test_verify_w4_current_candidate_artifact tests.test_verify_w4_sound_inventory
+      - name: Materialize exact Product fixture for semantic verifier contract
+        shell: bash
+        env:
+          CONTRACT_PRODUCT_SHA: 2764173ddaa86e37237e602e9ef554d79a8665f9
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "$CONTRACT_PRODUCT_SHA"
+          git worktree add --detach .w4-contract-product "$CONTRACT_PRODUCT_SHA"
+          test "$(git -C .w4-contract-product rev-parse HEAD)" = "$CONTRACT_PRODUCT_SHA"
+          mkdir -p .w4-contract-product/scripts .w4-contract-product/tests
+          cp scripts/verify_w4_candidate_artifact.py .w4-contract-product/scripts/verify_w4_candidate_artifact.py
+          cp scripts/verify_w4_current_candidate_artifact.py .w4-contract-product/scripts/verify_w4_current_candidate_artifact.py
+          cp scripts/verify_w4_sound_inventory.py .w4-contract-product/scripts/verify_w4_sound_inventory.py
+          cp tests/test_verify_w4_candidate_artifact.py .w4-contract-product/tests/test_verify_w4_candidate_artifact.py
+          cp tests/test_verify_w4_current_candidate_artifact.py .w4-contract-product/tests/test_verify_w4_current_candidate_artifact.py
+          cp tests/test_verify_w4_sound_inventory.py .w4-contract-product/tests/test_verify_w4_sound_inventory.py
+      - name: Run semantic artifact verifier contracts against exact Product dependencies
+        working-directory: .w4-contract-product
+        run: python -m unittest -v tests.test_verify_w4_candidate_artifact tests.test_verify_w4_current_candidate_artifact tests.test_verify_w4_sound_inventory

@@ -37,8 +37,10 @@ class TeacherWebViewBridgeTests(unittest.TestCase):
         self.assertEqual([("teacher.pointer_input", {"square": "f3"})], self.calls)
         self.assertEqual("render-pointer", event.kind)
         self.assertEqual("f3", event.payload["snapshot"]["pointer"]["square"])
+        self.assertEqual("en", event.payload["snapshot"]["language"])
         self.assertTrue(event.payload["clear_editor"])
         self.assertEqual("teacher-pointer-input", event.payload["focus_target"])
+        self.assertEqual("Pointer f3", event.payload["announcement"])
         self.assertNotIn("private", repr(event).lower())
 
     def test_hover_and_selection_are_feedback_not_move_commands(self) -> None:
@@ -76,7 +78,31 @@ class TeacherWebViewBridgeTests(unittest.TestCase):
         self.assertEqual("white", before.payload["snapshot"]["board"]["orientation"])
         self.assertEqual("black", turned.payload["snapshot"]["board"]["orientation"])
         self.assertEqual("teacher-orientation-toggle", turned.payload["focus_target"])
+        self.assertEqual("Black at bottom", turned.payload["announcement"])
+        restored = self.bridge.dispatch("teacher.orientation.toggle", {})
+        self.assertEqual("White at bottom", restored.payload["announcement"])
         self.assertEqual([], self.calls)
+
+    def test_ukrainian_feedback_and_quiet_hover(self) -> None:
+        bridge = TeacherWebViewBridge(self.bridge.projection, language=UILanguage.UA)
+        pointer = bridge.dispatch("teacher.pointer_input", {"coordinate": "C7"})
+        self.assertEqual("Вказівник c7", pointer.payload["announcement"])
+        self.assertEqual("uk", pointer.payload["snapshot"]["language"])
+        self.assertEqual("Чорні внизу", bridge.dispatch("teacher.orientation.toggle").payload["announcement"])
+        self.assertEqual("Білі внизу", bridge.dispatch("teacher.orientation.toggle").payload["announcement"])
+        hover = bridge.dispatch("teacher.student_event", {"kind": "hover", "square": "c7", "piece_name": ""})
+        self.assertEqual("", hover.payload["announcement"])
+
+    def test_oversized_text_fails_before_strip_without_dispatch(self) -> None:
+        attempts = (
+            (" " * 100000 + "teacher.orientation.toggle", {}),
+            ("teacher.pointer_input", {"coordinate": " " * 100000 + "e4"}),
+            ("teacher.student_event", {"kind": " " * 100000 + "select", "square": "e4", "piece_name": ""}),
+        )
+        for command, payload in attempts:
+            self.assertEqual("error", self.bridge.dispatch(command, payload).kind)
+        self.assertEqual([], self.calls)
+        self.assertEqual("white", self.bridge.dispatch("teacher.snapshot").payload["snapshot"]["board"]["orientation"])
 
 
 if __name__ == "__main__":
