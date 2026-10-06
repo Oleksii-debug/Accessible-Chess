@@ -1,0 +1,87 @@
+name: Agent GameTree Navigation Contract
+
+on:
+  pull_request:
+    branches:
+      - work/media-agent-crossrepo-intake-20261005
+  push:
+    branches:
+      - feature/agent-gametree-navigation-20261006-sol56
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-gametree-navigation-${{ github.event.pull_request.number || github.ref }}-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove exact parent scope and canonical navigation authority
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          PARENT_REF: work/media-agent-crossrepo-intake-20261005
+          PARENT_SHA: 6609c35ff5fa0b1f959806866ff7403e70efdbf3
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          git fetch --no-tags origin "+refs/heads/$PARENT_REF:refs/remotes/origin/agent-gametree-parent"
+          live_parent="$(git rev-parse refs/remotes/origin/agent-gametree-parent)"
+          test "$live_parent" = "$PARENT_SHA" || {
+            printf 'AGENT_GAMETREE_PARENT_MOVED expected=%s live=%s\n' "$PARENT_SHA" "$live_parent" >&2
+            exit 1
+          }
+          git merge-base --is-ancestor "$PARENT_SHA" HEAD
+          test "$(git merge-base "$PARENT_SHA" HEAD)" = "$PARENT_SHA"
+          git diff --check "$PARENT_SHA"...HEAD
+          changed="$(git diff --name-only "$PARENT_SHA"...HEAD | LC_ALL=C sort)"
+          expected="$(printf '%s\n'             '.github/workflows/agent-gametree-navigation.yml'             'acs/agent_gametree_tools.py'             'acs/chess_agent_tools.py'             'tests/test_agent_gametree_tools.py' | LC_ALL=C sort)"
+          test "$changed" = "$expected" || {
+            printf 'Unexpected Agent GameTree scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
+          test "$(git rev-parse HEAD:acs/agent_gametree_tools.py)" = '2ec6cb4a4d5f85cecfacdfdb9eac130795526eca'
+          test "$(git rev-parse HEAD:acs/chess_agent_tools.py)" = 'de58e9d0232ee5432d76b991fa94bec36ad4a905'
+          test "$(git rev-parse HEAD:tests/test_agent_gametree_tools.py)" = '71fc25f62b144eda4063ea863c495d34041697f3'
+          test "$(git rev-parse HEAD:acs/pgn_workspace.py)" = 'b59e6bfff9806dff2092e5c7f93b68daff6407ef'
+          test "$(git rev-parse HEAD:acs/gametree_editing.py)" = '74e4ed4f7178277c2c8ede1c2027d96d79fa26ed'
+          test "$(git rev-parse HEAD:acs/gametree_navigation.py)" = '6209c29382105153ae4b22d4d70f9675a931826d'
+          echo 'AGENT_GAMETREE_AUTHORITY=PASS'
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile bounded Agent GameTree surface
+        run: >-
+          python -m compileall -q
+          acs/agent_gametree_tools.py
+          acs/chess_agent_tools.py
+          acs/gametree_editing.py
+          acs/pgn_workspace.py
+          tests/test_agent_gametree_tools.py
+
+      - name: Execute Agent and canonical workspace navigation/edit regressions
+        run: >-
+          python -m unittest -v
+          tests.test_agent_gametree_tools
+          tests.test_pgn_workspace
+          tests.test_gametree
+
+      - name: Execute core selftest
+        run: python -m acs.selftest

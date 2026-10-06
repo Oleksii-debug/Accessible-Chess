@@ -11,11 +11,13 @@ from collections.abc import Callable, Mapping
 from dataclasses import asdict
 from typing import Protocol
 
+from .agent_gametree_tools import register_gametree_tools
 from .agent_tools import ToolExecutor, ToolRisk, ToolSpec
 from .analysis_service import AnalysisService
 from .board_service import BoardCommandService
 from .chesscore import Board
 from .media_foundation import MediaClock, MediaContractError, MediaPositionTimeline
+from .pgn_workspace import PgnWorkspace
 from .squares import square_name
 from .search_service import GameSearchQuery, GameSearchService
 
@@ -137,6 +139,7 @@ class ChessAgentToolRegistry:
         analysis_service: AnalysisService | None = None,
         search_service: GameSearchService | None = None,
         media: MediaAgentBridge | None = None,
+        workspace_provider: Callable[[], PgnWorkspace] | None = None,
     ) -> None:
         if type(executor) is not ToolExecutor:
             raise TypeError("executor must be ToolExecutor")
@@ -150,9 +153,14 @@ class ChessAgentToolRegistry:
         self.analysis_service = analysis_service
         self.search_service = search_service
         self.media = media
+        if workspace_provider is not None and not callable(workspace_provider):
+            raise TypeError("workspace_provider must be callable or None")
+        self.workspace_provider = workspace_provider
 
     def register_all(self) -> tuple[ToolSpec, ...]:
         self._register_board()
+        if self.workspace_provider is not None:
+            register_gametree_tools(self.executor, self.workspace_provider)
         if self.analysis_service is not None:
             self._register_engine()
         if self.search_service is not None:
