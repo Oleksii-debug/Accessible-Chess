@@ -263,6 +263,32 @@ class Version2PackagePeIdentityTests(unittest.TestCase):
             )
             self.assertEqual(report.integration_sha, "a" * 40)
 
+    def test_checksum_inventory_uses_dedicated_memory_budget(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = self._package(td)
+            real_reader = preflight._read_stable_bytes_file
+
+            with patch.object(
+                preflight,
+                "_read_stable_bytes_file",
+                wraps=real_reader,
+            ) as reader:
+                _validate_tree(root)
+
+            calls = [
+                call
+                for call in reader.call_args_list
+                if call.kwargs.get("label") == "checksum inventory"
+            ]
+            self.assertEqual(len(calls), 1)
+            self.assertEqual(
+                calls[0].kwargs["max_bytes"],
+                min(
+                    preflight.PackageLimits().max_member_bytes,
+                    preflight._MAX_CHECKSUMS_BYTES,
+                ),
+            )
+
     def test_checksum_inventory_snapshot_failure_is_authoritative(self):
         with tempfile.TemporaryDirectory() as td:
             root = self._package(td)
