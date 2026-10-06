@@ -1466,11 +1466,13 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
             blocked = self._temporary_exploration_error()
             if blocked is not None:
                 return blocked
-        self._reset_engine_game_state()
         result = super().new_game()
-        if result.get("ok"):
-            self._play_game_start_sound()
-        return result
+        if not result.get("ok"):
+            return result
+        message = str(result.get("announcement") or "")
+        self._reset_engine_game_state()
+        self._play_game_start_sound()
+        return self._ok(message)
 
     def clear_board(self) -> dict[str, Any]:
         if self._engine_takeback_unsafe:
@@ -1479,8 +1481,12 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
             blocked = self._temporary_exploration_error()
             if blocked is not None:
                 return blocked
+        result = super().clear_board()
+        if not result.get("ok"):
+            return result
+        message = str(result.get("announcement") or "")
         self._reset_engine_game_state()
-        return super().clear_board()
+        return self._ok(message)
 
     def make_move(self, text: str) -> dict[str, Any]:
         if self._engine_takeback_unsafe:
@@ -1509,6 +1515,39 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
                 _shared_spoken_san(self.sans[-1], self.lang),
             )
         return result
+
+    def edit_position_piece(self, square: str, piece: str) -> dict[str, Any]:
+        if self._engine_takeback_unsafe:
+            return self._error(self._takeback_recovery_message())
+        result = super().edit_position_piece(square, piece)
+        if not result.get("ok"):
+            return result
+        message = str(result.get("announcement") or "")
+        self._reset_engine_game_state()
+        return self._ok(message)
+
+    def edit_position_metadata(
+        self,
+        turn: str,
+        castling: str,
+        en_passant: str,
+        halfmove_text: str,
+        fullmove_text: str,
+    ) -> dict[str, Any]:
+        if self._engine_takeback_unsafe:
+            return self._error(self._takeback_recovery_message())
+        result = super().edit_position_metadata(
+            turn,
+            castling,
+            en_passant,
+            halfmove_text,
+            fullmove_text,
+        )
+        if not result.get("ok"):
+            return result
+        message = str(result.get("announcement") or "")
+        self._reset_engine_game_state()
+        return self._ok(message)
 
     def set_fen(self, fen: str) -> dict[str, Any]:
         if self._engine_takeback_unsafe:
