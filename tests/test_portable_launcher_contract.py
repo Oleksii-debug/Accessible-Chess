@@ -589,6 +589,32 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
         self.assertIn("ac_direct_directory(g_data)", self.source)
         self.assertIn("ac_open_direct_private_file(g_core)", self.source)
 
+    def test_direct_directory_validation_preserves_actionable_win32_errors(self):
+        start = self.source.index("static BOOL ac_direct_directory(const WCHAR *path)")
+        end = self.source.index("static HANDLE ac_open_direct_directory_guard", start)
+        helper = self.source[start:end]
+        for token in (
+            "GetFileAttributesW(path)",
+            "attrs == INVALID_FILE_ATTRIBUTES",
+            "SetLastError(ERROR_DIRECTORY);",
+            "SetLastError(ERROR_CANT_ACCESS_FILE);",
+            "SetLastError(ERROR_SUCCESS);",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, helper)
+
+        main = self.source[self.source.index("void WINAPI wWinMainCRTStartup(void)") :]
+        for stage, fallback in (
+            ("package-root validation", "ERROR_DIRECTORY"),
+            ("App directory validation", "ERROR_PATH_NOT_FOUND"),
+            ("package-local data directory validation", "ERROR_DIRECTORY"),
+        ):
+            with self.subTest(stage=stage):
+                stage_pos = main.index(f'L"{stage}"')
+                block = main[max(0, stage_pos - 220) : stage_pos + 220]
+                self.assertIn("error = GetLastError();", block)
+                self.assertIn(f"error == ERROR_SUCCESS ? {fallback} : error", block)
+
     def test_data_directory_guard_is_direct_and_blocks_replacement(self):
         start = self.source.index(
             "static HANDLE ac_open_direct_directory_guard(const WCHAR *path)"

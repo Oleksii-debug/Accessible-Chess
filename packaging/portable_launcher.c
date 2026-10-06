@@ -327,8 +327,15 @@ static void ac_fail(HANDLE report, const WCHAR *stage, DWORD code) {
 static BOOL ac_direct_directory(const WCHAR *path) {
     DWORD attrs = GetFileAttributesW(path);
     if (attrs == INVALID_FILE_ATTRIBUTES) return FALSE;
-    if ((attrs & FILE_ATTRIBUTE_DIRECTORY) == 0) return FALSE;
-    if ((attrs & FILE_ATTRIBUTE_REPARSE_POINT) != 0) return FALSE;
+    if ((attrs & FILE_ATTRIBUTE_DIRECTORY) == 0) {
+        SetLastError(ERROR_DIRECTORY);
+        return FALSE;
+    }
+    if ((attrs & FILE_ATTRIBUTE_REPARSE_POINT) != 0) {
+        SetLastError(ERROR_CANT_ACCESS_FILE);
+        return FALSE;
+    }
+    SetLastError(ERROR_SUCCESS);
     return TRUE;
 }
 
@@ -705,7 +712,12 @@ void WINAPI wWinMainCRTStartup(void) {
 
     ac_prepare_paths();
     if (!ac_direct_directory(g_root)) {
-        ac_fail(INVALID_HANDLE_VALUE, L"package-root validation", ERROR_DIRECTORY);
+        error = GetLastError();
+        ac_fail(
+            INVALID_HANDLE_VALUE,
+            L"package-root validation",
+            error == ERROR_SUCCESS ? ERROR_DIRECTORY : error
+        );
     }
     root_guard = ac_open_direct_directory_guard(g_root);
     if (root_guard == INVALID_HANDLE_VALUE) {
@@ -762,7 +774,14 @@ void WINAPI wWinMainCRTStartup(void) {
     ac_write_utf8(report, L"LOCALAPPDATA: ");
     ac_write_line(report, g_data);
 
-    if (!ac_direct_directory(g_app_dir)) ac_fail(report, L"App directory validation", ERROR_PATH_NOT_FOUND);
+    if (!ac_direct_directory(g_app_dir)) {
+        error = GetLastError();
+        ac_fail(
+            report,
+            L"App directory validation",
+            error == ERROR_SUCCESS ? ERROR_PATH_NOT_FOUND : error
+        );
+    }
     app_guard = ac_open_direct_directory_guard(g_app_dir);
     if (app_guard == INVALID_HANDLE_VALUE) {
         error = GetLastError();
@@ -783,7 +802,14 @@ void WINAPI wWinMainCRTStartup(void) {
         error = GetLastError();
         if (error != ERROR_ALREADY_EXISTS) ac_fail(report, L"package-local data directory creation", error);
     }
-    if (!ac_direct_directory(g_data)) ac_fail(report, L"package-local data directory validation", ERROR_DIRECTORY);
+    if (!ac_direct_directory(g_data)) {
+        error = GetLastError();
+        ac_fail(
+            report,
+            L"package-local data directory validation",
+            error == ERROR_SUCCESS ? ERROR_DIRECTORY : error
+        );
+    }
     data_guard = ac_open_direct_directory_guard(g_data);
     if (data_guard == INVALID_HANDLE_VALUE) {
         error = GetLastError();
