@@ -299,6 +299,34 @@ class ChildCoachingRotationTests(unittest.TestCase):
         ):
             RotationState.from_record(state_record)
 
+    def test_from_record_rejects_active_non_string_key_without_rehashing_it(self) -> None:
+        plan = default_group_rotation(self.lesson(), rotation_id="rotation-active-key")
+
+        class ArmedKey:
+            armed = False
+
+            def __hash__(self):
+                if self.armed:
+                    raise AssertionError("active key hash executed during validation")
+                return hash("version")
+
+            def __eq__(self, other):
+                if self.armed:
+                    raise AssertionError("active key equality executed during validation")
+                return other == "version"
+
+        key = ArmedKey()
+        record = plan.to_record()
+        version = record.pop("version")
+        record[key] = version
+        key.armed = True
+
+        with self.assertRaisesRegex(
+            ChildCoachingRotationError,
+            "fields are not canonical",
+        ):
+            RotationPlan.from_record(record)
+
     def test_from_record_rejects_active_mapping_and_enum_subclasses_passively(self) -> None:
         plan = default_group_rotation(self.lesson(), rotation_id="rotation-passive-record")
 
