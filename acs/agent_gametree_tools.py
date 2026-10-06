@@ -12,6 +12,7 @@ from collections.abc import Callable, Mapping
 
 from .agent_tools import ToolExecutor, ToolRisk, ToolSpec
 from .gametree import MAX_TREE_NODES, MoveNode
+from .gametree_editing import variation_edit_target
 from .gametree_navigation import GameTreeCursor, resolve_line
 from .pgn_workspace import PgnWorkspace
 
@@ -118,6 +119,23 @@ def _workspace_payload(workspace: PgnWorkspace) -> dict[str, object]:
     }
 
 
+def _current_variation_target(workspace: PgnWorkspace):
+    """Bind the active cursor branch to the canonical current record revision."""
+
+    if type(workspace) is not PgnWorkspace:
+        raise TypeError("workspace must be PgnWorkspace")
+    view = workspace.view()
+    if not view.cursor.line_path:
+        raise AgentGameTreeError("cursor must be inside a variation")
+    step = view.cursor.line_path[-1]
+    return variation_edit_target(
+        workspace.current_game(),
+        view.cursor.line_path[:-1],
+        step.parent_move_index,
+        step.variation_index,
+    )
+
+
 def register_gametree_tools(
     executor: ToolExecutor,
     workspace_provider: Callable[[], PgnWorkspace],
@@ -197,6 +215,38 @@ def register_gametree_tools(
         value.previous_game()
         return _workspace_payload(value)
 
+
+    async def promote_current_variation(
+        arguments: Mapping[str, object],
+    ) -> object:
+        _require_fields(arguments, frozenset())
+        value = workspace()
+        target = _current_variation_target(value)
+        value.promote_variation(target)
+        return _workspace_payload(value)
+
+    async def reorder_current_variation(
+        arguments: Mapping[str, object],
+    ) -> object:
+        _require_fields(arguments, frozenset({"new_index"}))
+        value = workspace()
+        target = _current_variation_target(value)
+        new_index = _exact_index(
+            arguments.get("new_index"),
+            name="new_index",
+        )
+        value.reorder_variation(target, new_index)
+        return _workspace_payload(value)
+
+    async def delete_current_variation(
+        arguments: Mapping[str, object],
+    ) -> object:
+        _require_fields(arguments, frozenset())
+        value = workspace()
+        target = _current_variation_target(value)
+        value.delete_variation(target)
+        return _workspace_payload(value)
+
     registrations = (
         (
             ToolSpec(
@@ -246,6 +296,31 @@ def register_gametree_tools(
                 input_schema={"direction": "previous|next"},
             ),
             sibling_variation,
+        ),
+        (
+            ToolSpec(
+                "gametree.promote_current_variation",
+                "Promote the active canonical variation to its parent continuation.",
+                risk=ToolRisk.LOCAL_WRITE,
+            ),
+            promote_current_variation,
+        ),
+        (
+            ToolSpec(
+                "gametree.reorder_current_variation",
+                "Move the active canonical variation among its existing siblings.",
+                risk=ToolRisk.LOCAL_WRITE,
+                input_schema={"new_index": f"0-{MAX_TREE_NODES - 1}"},
+            ),
+            reorder_current_variation,
+        ),
+        (
+            ToolSpec(
+                "gametree.delete_current_variation",
+                "Delete the active canonical variation after explicit high-impact approval.",
+                risk=ToolRisk.HIGH_IMPACT,
+            ),
+            delete_current_variation,
         ),
         (
             ToolSpec(
