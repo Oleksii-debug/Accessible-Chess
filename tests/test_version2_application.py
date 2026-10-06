@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 import tempfile
+import threading
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -18,14 +19,23 @@ from acs.bookreader import BookReader
 from acs.chesscore import Board
 from acs.engine_assisted_workflows import EngineAssistedWorkflowService
 from acs.full_product_ui_shell import UILanguage
-from acs.library_import_service import LibraryImportProgress, LibraryImportResult
+from acs.library_import_service import (
+    LibraryImportCancelledError,
+    LibraryImportProgress,
+    LibraryImportResult,
+)
 from acs.library_webview_projection import LibraryImportPhase
 from acs.pgn_document import PgnDocumentSession
 from acs.pgn_service import open_pgn
 from acs.report_paths import report_safe_name
 from acs.version2_application import PreparedBookOpen, Version2Application
 from acs.version2_windows_book_open_worker import Version2BookOpenWorker
-from acs.version2_windows_file_workflows import FileWorkflowEvent, FileWorkflowEventKind, Version2WindowsFileActionDelegate
+from acs.version2_windows_file_workflows import (
+    FileWorkflowEvent,
+    FileWorkflowEventKind,
+    Version2ImportWorkerServices,
+    Version2WindowsFileActionDelegate,
+)
 from acs.version2_windows_import_event_mailbox import Version2ImportUiEventMailbox
 
 
@@ -828,6 +838,72 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertTrue(self.files.wait_for_import(5))
         self.app.import_ui_ready(self.mailbox)
         self.assertEqual(ui.phase, LibraryImportPhase.COMPLETED)
+
+    def test_refused_close_reconciles_cooperatively_cancelled_import_ui(self):
+        class CancellableLibrary:
+            def __init__(self):
+                self.entered = threading.Event()
+                self.calls = 0
+
+            def import_games(self, *args, **kwargs):
+                self.calls += 1
+                if self.calls == 1:
+                    self.entered.set()
+                    cancel_check = kwargs["cancel_check"]
+                    while not cancel_check():
+                        threading.Event().wait(0.005)
+                raise LibraryImportCancelledError("cancelled for refused-close recovery")
+
+        library = CancellableLibrary()
+        recovered_files = Version2WindowsFileActionDelegate(
+            dialogs=self.dialogs,
+            get_pgn_session=lambda: self.app.session,
+            set_pgn_session=self.app.set_document,
+            import_services_factory=lambda: Version2ImportWorkerServices(
+                library,
+                None,
+                lambda: None,
+            ),
+            event_sink=self.mailbox,
+            next_delegate=lambda *_: None,
+        )
+        self.app._files = recovered_files
+        self.addCleanup(lambda: recovered_files.shutdown(timeout=5))
+
+        self.app.browser_command("library", "library.import")
+        self.assertTrue(library.entered.wait(2.0))
+        ui = self.app.library.projection.import_projection
+        self.assertEqual(ui.phase, LibraryImportPhase.RUNNING)
+
+        primary = OSError("training progress unavailable")
+        with patch.object(
+            self.app,
+            "save_training_progress",
+            side_effect=primary,
+        ):
+            with self.assertRaises(OSError) as caught:
+                self.app.shutdown(timeout=2.0)
+
+        self.assertIs(caught.exception, primary)
+        self.assertFalse(recovered_files.import_running)
+        self.assertGreater(self.mailbox.pending_count, 0)
+        self.assertEqual(ui.phase, LibraryImportPhase.RUNNING)
+        self.assertEqual(self.database.conn.execute("SELECT 1").fetchone(), (1,))
+
+        # Production recovery re-opens the UI pump and drains this retained
+        # mailbox terminal. Model that owner-thread delivery here: it must clear
+        # the stale RUNNING state instead of leaving future imports blocked.
+        self.app.import_ui_ready(self.mailbox)
+        self.assertEqual(ui.phase, LibraryImportPhase.CANCELLED)
+        self.assertEqual(self.mailbox.pending_count, 0)
+
+        retry = self.app._delegate("library.import", {})
+        self.assertIsInstance(retry, FileWorkflowEvent)
+        self.assertEqual(retry.kind, FileWorkflowEventKind.IMPORT_STARTED)
+        self.assertNotEqual(retry.error_code, "import_already_running")
+        self.assertTrue(recovered_files.wait_for_import(2.0))
+        self.app.import_ui_ready(self.mailbox)
+        self.assertEqual(ui.phase, LibraryImportPhase.CANCELLED)
 
     def test_failed_terminal_retires_structurally_valid_stale_observers(self):
         ui = self.app.library.projection.import_projection
