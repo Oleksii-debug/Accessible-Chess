@@ -16,9 +16,9 @@ from .position_editor import PositionState, PositionValidationError
 
 MAX_EPD_CHARS = MAX_FEN_CHARS
 MAX_EPD_OPERATIONS = 256
-MAX_EPD_OPCODE_CHARS = 64
+MAX_EPD_OPCODE_CHARS = 15
 
-_OPCODE_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
+_OPCODE_RE = re.compile(r"^(?:[a-z][a-z0-9_]{1,14}|[A-Z][A-Za-z0-9_]{0,14})$")
 
 
 class EpdParseError(ValueError):
@@ -92,8 +92,8 @@ def parse_epd(text: str) -> EpdRecord:
         raise EpdParseError("EPD must be text")
     if len(text) > MAX_EPD_CHARS:
         raise EpdParseError("EPD is too long")
-    if "\n" in text or "\r" in text or "\x00" in text:
-        raise EpdParseError("EPD must contain exactly one text record")
+    if not text.isascii() or any(ord(character) < 0x20 or ord(character) == 0x7F for character in text):
+        raise EpdParseError("EPD must use one line of printable ASCII text")
 
     stripped = text.strip()
     if not stripped:
@@ -109,11 +109,11 @@ def parse_epd(text: str) -> EpdRecord:
     fullmove = 1
     seen: set[str] = set()
     for operation in operations:
-        if operation.opcode not in {"hmvc", "fmvn"}:
-            continue
         if operation.opcode in seen:
             raise EpdParseError(f"duplicate EPD {operation.opcode} operation")
         seen.add(operation.opcode)
+        if operation.opcode not in {"hmvc", "fmvn"}:
+            continue
         value = _parse_counter(operation)
         if operation.opcode == "hmvc":
             halfmove = value
@@ -231,24 +231,35 @@ def _parse_counter(operation: EpdOperation) -> int:
 
 
 def _validate_operand(operand: str) -> None:
-    if "\n" in operand or "\r" in operand or "\x00" in operand:
-        raise EpdParseError("EPD operand contains an invalid control character")
+    if not operand.isascii():
+        raise EpdParseError("EPD operands must use ASCII text")
 
     quoted = False
     escaped = False
+    string_bytes = 0
     for character in operand:
+        code = ord(character)
+        if code < 0x20 or code == 0x7F:
+            raise EpdParseError("EPD operand contains a non-printing character")
         if escaped:
+            if character not in {'"', "\\"}:
+                raise EpdParseError("EPD string contains an invalid escape")
+            string_bytes += 1
             escaped = False
             continue
         if quoted and character == "\\":
             escaped = True
             continue
         if character == '"':
+            if quoted and string_bytes > 255:
+                raise EpdParseError("EPD string operand exceeds 255 bytes")
             quoted = not quoted
+            if quoted:
+                string_bytes = 0
             continue
         if character == ";" and not quoted:
             raise EpdParseError("EPD operand contains an unquoted semicolon")
-        if ord(character) < 0x20 and character != "\t":
-            raise EpdParseError("EPD operand contains an invalid control character")
+        if quoted:
+            string_bytes += 1
     if quoted or escaped:
         raise EpdParseError("EPD operand contains an unterminated quoted string")
