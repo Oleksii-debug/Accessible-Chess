@@ -614,6 +614,37 @@ Starting board
             [(type(block).__name__, block.text, block.block_id) for block in second_blocks],
         )
 
+    def test_markdown_escaped_closing_bracket_in_image_alt_stays_accessible(self) -> None:
+        result = import_text_book(
+            "Before ![Board \\] study](assets/(round)/board.png) after\n",
+            source_name="escaped-alt.md",
+            source_format="markdown",
+        )
+        paragraphs = [
+            block.text for block in result.document.blocks
+            if isinstance(block, Paragraph)
+        ]
+        notes = [
+            block.text for block in result.document.blocks
+            if isinstance(block, Note) and block.note_type == "image"
+        ]
+        self.assertEqual(paragraphs, ["Before", "after"])
+        self.assertEqual(notes, ["Board ] study"])
+        self.assertNotIn("assets/", " ".join(paragraphs + notes))
+
+    def test_markdown_list_escaped_bracket_alt_preserves_list_semantics(self) -> None:
+        result = import_text_book(
+            "- Study ![File \\] rank](assets/board.png) now\n",
+            source_name="escaped-alt-list.md",
+            source_format="markdown",
+        )
+        lists = [
+            block for block in result.document.blocks
+            if isinstance(block, ListBlock)
+        ]
+        self.assertEqual(len(lists), 1)
+        self.assertEqual(lists[0].items, ["Study File ] rank now"])
+
     def test_markdown_unclosed_balanced_image_destination_stays_literal(self) -> None:
         source = "Before ![Board](images/(study)/board.png after\n"
         result = import_text_book(
