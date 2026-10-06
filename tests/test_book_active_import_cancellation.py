@@ -16,7 +16,7 @@ from acs.library_import_service import LibraryImportService
 from acs.version2_windows_file_workflows import (
     FileWorkflowEventKind, Version2ImportWorkerServices, Version2WindowsFileActionDelegate,
 )
-from test_v2_book_epub_import import _simple_epub
+from test_v2_book_epub_import import _opf, _simple_epub
 
 
 HTML = ('<html lang="uk"><head><title>Книга</title></head><body>'
@@ -94,6 +94,56 @@ class BookActiveImportCancellationTests(unittest.TestCase):
         self.assertIs(caught.exception, failure)
         self.assertEqual(calls, 3)
         materialize.assert_not_called()
+
+    def test_epub_manifest_scan_observes_control_before_full_metadata_walk(self):
+        import acs.book_epub_import as epub
+
+        manifest = '\n'.join(
+            f'    <item id="i{index}" href="Text/{index}.xhtml" media-type="application/xhtml+xml"/>'
+            for index in range(300)
+        )
+        package = epub.ET.fromstring(
+            _opf(manifest=manifest, spine='    <itemref idref="i0"/>')
+        )
+        failure = SourceReadCancelledError('cancelled during EPUB manifest scan')
+        calls = 0
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise failure
+
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            epub._manifest_items(package, 'OEBPS', cancel)
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 3)
+
+    def test_epub_spine_scan_observes_control_before_full_reading_order_walk(self):
+        import acs.book_epub_import as epub
+
+        manifest_text = '\n'.join(
+            f'    <item id="i{index}" href="Text/{index}.xhtml" media-type="application/xhtml+xml"/>'
+            for index in range(300)
+        )
+        spine_text = '\n'.join(
+            f'    <itemref idref="i{index}"/>' for index in range(300)
+        )
+        package = epub.ET.fromstring(
+            _opf(manifest=manifest_text, spine=spine_text)
+        )
+        manifest = epub._manifest_items(package, 'OEBPS')
+        failure = SourceReadCancelledError('cancelled during EPUB spine scan')
+        calls = 0
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise failure
+
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            epub._spine_ids(package, epub._Warnings(), manifest, cancel)
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 3)
 
     def test_epub_nested_html_control_preserves_order_and_closes_archive_on_cancel(self):
         raw = _simple_epub(HTML.encode('utf-8'))
