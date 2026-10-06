@@ -96,6 +96,7 @@ class Version2ShutdownProgressFailureCleanupEvidenceTests(unittest.TestCase):
             callbacks = []
             entered = threading.Event()
             release = threading.Event()
+            book_worker = None
 
             def prepare(_source, *, cancel_check):
                 entered.set()
@@ -133,22 +134,19 @@ class Version2ShutdownProgressFailureCleanupEvidenceTests(unittest.TestCase):
                 self.assertEqual(database.conn.execute("SELECT 1").fetchone(), (1,))
 
                 release.set()
-                deadline = threading.Event()
                 # The worker posts exactly one stale terminal back to this UI
                 # owner. Wait without consuming it from the worker thread.
                 for _ in range(400):
                     if callbacks:
                         break
-                    deadline.wait(0.005)
+                    threading.Event().wait(0.005)
                 self.assertTrue(callbacks)
                 callbacks.pop(0)()
                 self.assertFalse(book_worker.active)
             finally:
                 release.set()
-                try:
+                if book_worker is not None:
                     book_worker.shutdown(timeout=2)
-                except UnboundLocalError:
-                    pass
                 database.close()
                 analysis.close()
     def test_partial_worker_retirement_refusal_reopens_each_recoverable_owner(self) -> None:
