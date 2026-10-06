@@ -45,6 +45,15 @@ _LABELS = {
         "of": "з",
         "result": "Результат",
         "tags": "Теги PGN",
+        "metadata_open": "Редагувати теги та результат",
+        "metadata_title": "Метадані PGN",
+        "tag_select_label": "Наявний тег",
+        "new_tag": "Новий тег",
+        "tag_name_label": "Назва тега",
+        "tag_value_label": "Значення тега",
+        "tag_save": "Зберегти тег",
+        "tag_delete": "Видалити тег",
+        "result_save": "Зберегти результат",
         "warnings": "Попередження PGN",
         "tree": "Дерево партії",
         "empty": "У PGN немає партій.",
@@ -72,6 +81,15 @@ _LABELS = {
         "of": "of",
         "result": "Result",
         "tags": "PGN tags",
+        "metadata_open": "Edit tags and result",
+        "metadata_title": "PGN metadata",
+        "tag_select_label": "Existing tag",
+        "new_tag": "New tag",
+        "tag_name_label": "Tag name",
+        "tag_value_label": "Tag value",
+        "tag_save": "Save tag",
+        "tag_delete": "Delete tag",
+        "result_save": "Save result",
         "warnings": "PGN warnings",
         "tree": "Game tree",
         "empty": "The PGN contains no games.",
@@ -457,6 +475,24 @@ class PgnWebViewProjection:
                 {"action": "pgn.copy_selection", "label": labels["copy"], "enabled": has_selection},
                 {"action": "pgn.export_selection", "label": labels["export"], "enabled": has_selection},
             ),
+            "metadata_editor": {
+                "open_label": labels["metadata_open"],
+                "title": labels["metadata_title"],
+                "tag_select_label": labels["tag_select_label"],
+                "new_tag_label": labels["new_tag"],
+                "tag_name_label": labels["tag_name_label"],
+                "tag_value_label": labels["tag_value_label"],
+                "tag_save_label": labels["tag_save"],
+                "tag_delete_label": labels["tag_delete"],
+                "result_label": labels["result"],
+                "result_save_label": labels["result_save"],
+                "close_label": labels["cancel"],
+                "result": _bounded_text(view.result, language=self._language, limit=32),
+                "editable_tags": tuple(
+                    entry for entry in tags
+                    if entry["name"] not in {"SetUp", "FEN", "Result"}
+                ),
+            },
             "comment_editor": self._comment_editor(
                 enabled=has_selection and not ambiguous_comments,
                 value=_bounded_text(
@@ -491,6 +527,21 @@ class PgnWebViewProjection:
             "game": {},
             "tree": (),
             "actions": (),
+            "metadata_editor": {
+                "open_label": labels["metadata_open"],
+                "title": labels["metadata_title"],
+                "tag_select_label": labels["tag_select_label"],
+                "new_tag_label": labels["new_tag"],
+                "tag_name_label": labels["tag_name_label"],
+                "tag_value_label": labels["tag_value_label"],
+                "tag_save_label": labels["tag_save"],
+                "tag_delete_label": labels["tag_delete"],
+                "result_label": labels["result"],
+                "result_save_label": labels["result_save"],
+                "close_label": labels["cancel"],
+                "result": "*",
+                "editable_tags": (),
+            },
             "comment_editor": self._comment_editor(
                 enabled=False,
                 value="",
@@ -597,6 +648,26 @@ class PgnWebViewProjection:
                 raise ValueError("PGN variation action requires variation selection")
         self._presenter.dispatch_edit(action_id, self._dispatch, extra=extra)
         return PgnWebViewEvent("delegated", {"action": action_id})
+
+    def edit_tag(self, name: str, value: str) -> PgnWebViewEvent:
+        if type(name) is not str or not name or len(name) > 80 or "\x00" in name:
+            raise ValueError("PGN tag name is invalid")
+        if type(value) is not str or len(value) > 360 or "\x00" in value:
+            raise ValueError("PGN tag value is invalid")
+        self._dispatch("pgn.tag_edit", {"name": name, "value": value})
+        return PgnWebViewEvent("delegated", {"action": "pgn.tag_edit"})
+
+    def delete_tag(self, name: str) -> PgnWebViewEvent:
+        if type(name) is not str or not name or len(name) > 80 or "\x00" in name:
+            raise ValueError("PGN tag name is invalid")
+        self._dispatch("pgn.tag_delete", {"name": name})
+        return PgnWebViewEvent("delegated", {"action": "pgn.tag_delete"})
+
+    def set_result(self, result: str) -> PgnWebViewEvent:
+        if type(result) is not str or result not in {"1-0", "0-1", "1/2-1/2", "*"}:
+            raise ValueError("PGN result is invalid")
+        self._dispatch("pgn.result_set", {"result": result})
+        return PgnWebViewEvent("delegated", {"action": "pgn.result_set"})
 
     def edit_comment(self, text: str) -> PgnWebViewEvent:
         if type(text) is not str:
