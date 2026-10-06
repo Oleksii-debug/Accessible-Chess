@@ -85,6 +85,21 @@ class PositionState:
     def with_turn(self, turn: str) -> "PositionState":
         return replace(self, turn=turn, en_passant="-")
 
+    def with_en_passant(self, square: str) -> "PositionState":
+        if type(square) is not str:
+            raise PositionValidationError("en-passant square must be text")
+        normalized = square.strip()
+        if normalized == "":
+            normalized = "-"
+        return replace(self, en_passant=normalized)
+
+    def with_counters(self, halfmove: int, fullmove: int) -> "PositionState":
+        if type(halfmove) is not int:
+            raise PositionValidationError("halfmove clock must be an integer")
+        if type(fullmove) is not int:
+            raise PositionValidationError("fullmove number must be an integer")
+        return replace(self, halfmove=halfmove, fullmove=fullmove)
+
     def with_castling(self, rights: Iterable[str] | str) -> "PositionState":
         if type(rights) is str:
             normalized = _normalize_castling(rights)
