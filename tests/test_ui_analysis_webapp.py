@@ -402,6 +402,51 @@ class UIAnalysisWebAppTests(unittest.TestCase):
 
         self.assertTrue(api.return_from_analysis()["ok"])
 
+    def test_failed_analysis_return_does_not_move_live_review_cursor(self):
+        api, fake = self.make_api()
+        api.toggle_engine()
+        origin_fen = api.get_state()["fen"]
+        fake.set_result(origin_fen)
+        self.assertTrue(api.explore_analysis_pv()["ok"])
+        before_tree = api.review_history.export_tree()
+        before_cursor = api.review_history.cursor_node_id
+        original = api.analysis_ui.return_from_exploration
+
+        def fail():
+            raise RuntimeError("simulated analysis return failure")
+
+        api.analysis_ui.return_from_exploration = fail
+        try:
+            result = api.return_from_analysis()
+        finally:
+            api.analysis_ui.return_from_exploration = original
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(api.review_history.export_tree(), before_tree)
+        self.assertEqual(api.review_history.cursor_node_id, before_cursor)
+        self.assertTrue(api.analysis_ui.exploration is not None)
+
+    def test_failed_analysis_insert_does_not_publish_hidden_history_branch(self):
+        api, fake = self.make_api()
+        api.toggle_engine()
+        origin_fen = api.get_state()["fen"]
+        fake.set_result(origin_fen)
+        before_tree = api.review_history.export_tree()
+        original = api.analysis_ui.return_from_exploration
+
+        def fail():
+            raise RuntimeError("simulated analysis return failure")
+
+        api.analysis_ui.return_from_exploration = fail
+        try:
+            result = api.insert_analysis_line()
+        finally:
+            api.analysis_ui.return_from_exploration = original
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(api.review_history.export_tree(), before_tree)
+        self.assertEqual(api.review_history.node_count, 1)
+
     def test_canonical_reset_releases_obsolete_locked_target(self):
         api, fake = self.make_api()
         api.toggle_engine()
