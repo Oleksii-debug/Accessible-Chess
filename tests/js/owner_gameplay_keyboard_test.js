@@ -105,6 +105,7 @@ function event(key, mods = {}, tag = 'INPUT') {
   // request is pending, a blind keyboard user must not be able to close the
   // dialog and create an active backend game behind a stale/closed surface.
   let resolveEngineStart, engineStartCalls=0, moveInputFocus=0, startButtonFocus=0;
+  const engineAnnouncements=[];
   const engineNodes={
     'engine-game-start':{disabled:false,focus:()=>{startButtonFocus+=1;}},
     'engine-game-cancel':{disabled:false},
@@ -117,12 +118,14 @@ function event(key, mods = {}, tag = 'INPUT') {
   };
   shell.el=id=>engineNodes[id];
   shell.setText=()=>{};
+  shell.announceUserAction=text=>engineAnnouncements.push(text);
   shell.apiAction=()=>{engineStartCalls+=1;return new Promise(resolve=>{resolveEngineStart=resolve;});};
   vm.runInContext('let engineGameStartInFlight=false,engineGameReturnFocusOnClose=false;',shell);
   vm.runInContext(html.split('\n').find(line=>line.startsWith('async function startEngineGame(')),shell);
   const enginePending=shell.startEngineGame();
   assert.equal(engineNodes['engine-game-start'].disabled,true);
   assert.equal(engineNodes['engine-game-cancel'].disabled,true);
+  assert.deepEqual(engineAnnouncements,['Запуск Stockfish…'],'pending start must be announced through the shared live region');
   await shell.startEngineGame();
   assert.equal(engineStartCalls,1,'a second Start during the pending bridge request must be ignored');
   resolveEngineStart({ok:true});
