@@ -283,7 +283,7 @@ jobs:
 
           bridge_actual="$(git rev-parse HEAD:acs/pgn_webview_bridge.py)"
           case "$bridge_actual" in
-            c8f108c8dcc01c37503833abb5c626d89093145e|25b3d03179f42b4565a4dd6d7a2ccd283607e09c|5532f1fc7bbb29acd3b1716d826b66b355f34480|cd719f8a37a244eac53bcddb136b58ce08ec76b9|597c46effb1da535d1c61aeb88f1a03465b762c1|15a83d8bf171f8ad914c434c61442040ed734547)
+            c8f108c8dcc01c37503833abb5c626d89093145e|25b3d03179f42b4565a4dd6d7a2ccd283607e09c|5532f1fc7bbb29acd3b1716d826b66b355f34480|cd719f8a37a244eac53bcddb136b58ce08ec76b9|597c46effb1da535d1c61aeb88f1a03465b762c1|15a83d8bf171f8ad914c434c61442040ed734547|1949082c3eb7e7af4f540daf595ae4be2c404604)
               ;;
             *)
               printf 'Feature blob mismatch: acs/pgn_webview_bridge.py actual=%s\n' "$bridge_actual" >&2
