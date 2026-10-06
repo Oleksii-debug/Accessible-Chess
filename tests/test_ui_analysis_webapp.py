@@ -494,6 +494,16 @@ class UIAnalysisWebAppTests(unittest.TestCase):
         self.assertEqual(api.review_history.node_count, 3)
         self.assertIn("вже існує", repeated["announcement"])
 
+    def test_temporary_analysis_view_disables_conflicting_webview_controls(self):
+        html = (Path(__file__).resolve().parents[1] / "web" / "index.html").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("el('analysis-restart').disabled=!enabled||exploring", html)
+        self.assertIn("el('analysis-lock').disabled=!enabled||exploring", html)
+        self.assertIn("['analysis-multipv','analysis-depth','analysis-apply'].forEach(id=>el(id).disabled=exploring)", html)
+        self.assertIn("['analysis-prev-pv','analysis-next-pv'].forEach(id=>el(id).disabled=!hasLines||exploring)", html)
+        self.assertIn("el('analysis-return').disabled=!exploring", html)
+
     def test_web_state_contains_san_and_never_raw_uci_or_provider_path(self):
         api, fake = self.make_api()
         api.toggle_engine()
