@@ -49,6 +49,7 @@ MAX_HTML_IMAGES = 10_000
 MAX_HTML_PGN_GAMES = 1_024
 MAX_HTML_PGN_CHARS = 1 * 1024 * 1024
 MAX_HTML_WARNINGS = 2_048
+MAX_HTML_AVAILABLE_ASSET_TOTAL_CHARS = MAX_HTML_SOURCE_BYTES * 2
 
 
 class BookHtmlImportErrorCode(str, Enum):
@@ -1895,21 +1896,47 @@ def _asset_set(
 ) -> frozenset[str] | None:
     if available_assets is None:
         return None
-    if not isinstance(available_assets, (set, frozenset, tuple, list)):
+    # Exact built-ins only: container subclasses can override __len__/__iter__
+    # and execute arbitrary provider code during an otherwise bounded import.
+    if type(available_assets) not in {set, frozenset, tuple, list}:
         raise BookHtmlImportError(
-            "available_assets must be a finite collection of relative asset names",
+            "available_assets must be a finite built-in collection of relative asset names",
             code=BookHtmlImportErrorCode.INVALID_ARGUMENT,
         )
-    normalized: set[str] = set()
     if len(available_assets) > MAX_HTML_IMAGES * 2:
         raise BookHtmlImportError(
             "available_assets contains too many entries",
             code=BookHtmlImportErrorCode.RESOURCE_LIMIT,
         )
+    if control_checkpoint is not None:
+        control_checkpoint()
+    normalized: set[str] = set()
+    total_chars = 0
     for item_index, item in enumerate(available_assets, start=1):
-        if control_checkpoint is not None and item_index % 128 == 0:
+        if control_checkpoint is not None and item_index % 128 == 1:
             control_checkpoint()
-        if type(item) is not str or not item.strip():
+        if type(item) is not str:
+            raise BookHtmlImportError(
+                "available_assets entries must be non-empty text",
+                code=BookHtmlImportErrorCode.INVALID_ARGUMENT,
+            )
+        # Bound exact host strings before strip/url parsing. A single asset name
+        # longer than the maximum source cannot be referenced by a valid source,
+        # and the aggregate budget prevents a finite inventory from multiplying
+        # parser work far beyond the bounded HTML source envelope.
+        item_chars = len(item)
+        if item_chars > MAX_HTML_SOURCE_BYTES:
+            raise BookHtmlImportError(
+                "available_assets entry exceeds the supported asset-name size",
+                code=BookHtmlImportErrorCode.RESOURCE_LIMIT,
+            )
+        total_chars += item_chars
+        if total_chars > MAX_HTML_AVAILABLE_ASSET_TOTAL_CHARS:
+            raise BookHtmlImportError(
+                "available_assets exceeds the supported aggregate name size",
+                code=BookHtmlImportErrorCode.RESOURCE_LIMIT,
+            )
+        if not item.strip():
             raise BookHtmlImportError(
                 "available_assets entries must be non-empty text",
                 code=BookHtmlImportErrorCode.INVALID_ARGUMENT,
@@ -1921,8 +1948,9 @@ def _asset_set(
                 code=BookHtmlImportErrorCode.INVALID_ARGUMENT,
             )
         normalized.add(name)
+    if control_checkpoint is not None:
+        control_checkpoint()
     return frozenset(normalized)
-
 
 def import_html_book(
     source: str | bytes,
