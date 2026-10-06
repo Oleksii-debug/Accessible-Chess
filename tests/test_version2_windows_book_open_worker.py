@@ -181,5 +181,58 @@ class BookOpenWorkerTests(unittest.TestCase):
         self.assertIn("UI thread", str(errors[0]))
 
 
+    def test_refused_close_can_reopen_fully_retired_worker(self) -> None:
+        callbacks = []
+        commits = []
+        worker = Version2BookOpenWorker(
+            prepare=lambda source, *, cancel_check: "reopened-book",
+            commit=commits.append,
+            post_to_ui=callbacks.append,
+            event_sink=lambda event: None,
+        )
+
+        self.assertTrue(worker.shutdown())
+        self.assertTrue(worker.closed)
+        self.assertTrue(worker.resume_after_refused_shutdown())
+        self.assertFalse(worker.closed)
+
+        self.assertTrue(worker.start(Path("book.md")))
+        self._wait(lambda: len(callbacks) == 1)
+        callbacks.pop(0)()
+        self.assertEqual(commits, ["reopened-book"])
+        self.assertTrue(worker.shutdown())
+
+    def test_refused_close_does_not_reopen_live_worker(self) -> None:
+        callbacks = []
+        entered = threading.Event()
+        release = threading.Event()
+
+        def prepare(source, *, cancel_check):
+            entered.set()
+            release.wait(2)
+            return "stale-book"
+
+        worker = Version2BookOpenWorker(
+            prepare=prepare,
+            commit=lambda value: None,
+            post_to_ui=callbacks.append,
+            event_sink=lambda event: None,
+        )
+        self.assertTrue(worker.start(Path("book.md")))
+        self.assertTrue(entered.wait(2))
+
+        self.assertFalse(worker.shutdown(timeout=0))
+        self.assertTrue(worker.closed)
+        self.assertFalse(worker.resume_after_refused_shutdown())
+
+        release.set()
+        self.assertTrue(worker.shutdown(timeout=2))
+        self.assertTrue(worker.resume_after_refused_shutdown())
+        for callback in callbacks:
+            callback()
+        self.assertFalse(worker.active)
+
+
+
 if __name__ == "__main__":
     unittest.main()

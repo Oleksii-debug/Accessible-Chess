@@ -1258,5 +1258,23 @@ class Version2WindowsFileWorkerShutdownFenceTests(unittest.TestCase):
             self.assertFalse(delegate.pgn_open_running)
 
 
+    def test_refused_close_can_reopen_idle_file_workflow(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "refused-close.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            delegate = self._delegate(source, event_sink=lambda event: event)
+
+            self.assertTrue(delegate.shutdown())
+            closed = delegate("pgn.save", {})
+            self.assertEqual(closed.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(closed.error_code, "file_workflow_closed")
+
+            self.assertTrue(delegate.resume_after_refused_shutdown())
+            reopened = delegate("pgn.save", {})
+            self.assertEqual(reopened.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(reopened.error_code, "no_pgn_document")
+
+
+
 if __name__ == "__main__":
     unittest.main()
