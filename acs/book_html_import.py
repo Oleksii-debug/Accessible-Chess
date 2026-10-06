@@ -225,13 +225,29 @@ def _deterministic_content_visibility_value(value: str) -> str | None:
 
 
 
-def _css_ascii_lower(value: str) -> str:
+def _css_ascii_lower(
+    value: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> str:
     """Apply CSS ASCII case-insensitive folding without Unicode case expansion."""
 
-    return "".join(
-        chr(ord(char) + 32) if "A" <= char <= "Z" else char
-        for char in value
-    )
+    if control_checkpoint is None:
+        return "".join(
+            chr(ord(char) + 32) if "A" <= char <= "Z" else char
+            for char in value
+        )
+    chunks: list[str] = []
+    for offset in range(0, len(value), 4_096):
+        control_checkpoint()
+        chunk = value[offset : offset + 4_096]
+        chunks.append(
+            "".join(
+                chr(ord(char) + 32) if "A" <= char <= "Z" else char
+                for char in chunk
+            )
+        )
+    control_checkpoint()
+    return "".join(chunks)
 
 
 def _inline_style_without_comments(
@@ -423,7 +439,8 @@ def _inline_style_hides(
             _css_unescape_token(
                 name.strip(_CSS_WHITESPACE),
                 control_checkpoint,
-            )
+            ),
+            control_checkpoint,
         )
         if property_name not in {"display", "content-visibility"}:
             continue
@@ -432,7 +449,8 @@ def _inline_style_hides(
             _css_unescape_token(
                 raw_value.strip(_CSS_WHITESPACE),
                 control_checkpoint,
-            )
+            ),
+            control_checkpoint,
         )
         important_match = _CSS_IMPORTANT_RE.search(value)
         important = important_match is not None
@@ -545,16 +563,37 @@ def _compact(
     return output.getvalue()
 
 
-def _asset_name(value: str) -> str:
+def _asset_name(
+    value: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> str:
+    if control_checkpoint is not None:
+        control_checkpoint()
     try:
         parts = urlsplit(value.strip())
     except ValueError:
         return ""
+    if control_checkpoint is not None:
+        control_checkpoint()
     if parts.scheme or parts.netloc or not parts.path:
         return ""
-    segments = [segment for segment in parts.path.replace("\\", "/").split("/") if segment not in {"", "."}]
-    if not segments or ".." in segments:
+    raw_segments = parts.path.replace("\\", "/").split("/")
+    if control_checkpoint is not None:
+        control_checkpoint()
+    segments: list[str] = []
+    parent_seen = False
+    for segment_index, segment in enumerate(raw_segments, start=1):
+        if control_checkpoint is not None and segment_index % 128 == 1:
+            control_checkpoint()
+        if segment in {"", "."}:
+            continue
+        if segment == "..":
+            parent_seen = True
+        segments.append(segment)
+    if not segments or parent_seen:
         return ""
+    if control_checkpoint is not None:
+        control_checkpoint()
     return "/".join(segments)
 
 
@@ -1047,7 +1086,10 @@ class _SemanticHtmlParser(HTMLParser):
             alt = self._compact_text(attrs.get("alt", ""))
             if src:
                 self.image_references.append(src)
-                local_name = _asset_name(src)
+                local_name = _asset_name(
+                    src,
+                    self._checkpoint if self.control_checkpoint is not None else None,
+                )
                 if self.available_assets is not None and local_name and local_name not in self.available_assets:
                     self.missing_assets.add(local_name)
             block_count = len(self.blocks)
@@ -1859,7 +1901,7 @@ def _asset_set(
                 "available_assets entries must be non-empty text",
                 code=BookHtmlImportErrorCode.INVALID_ARGUMENT,
             )
-        name = _asset_name(item)
+        name = _asset_name(item, control_checkpoint)
         if not name:
             raise BookHtmlImportError(
                 "available_assets entries must be relative asset names",

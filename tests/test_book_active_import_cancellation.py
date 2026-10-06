@@ -534,6 +534,52 @@ class BookActiveImportCancellationTests(unittest.TestCase):
         self.assertEqual(calls, 2)
         self.assertEqual(len(parser._captures), 400)
 
+    def test_html_css_ascii_lower_control_preserves_non_ascii_semantics(self):
+        import acs.book_html_import as html
+
+        sample = ("DISPLAY" * 1_000) + " ÄÖÜ Σ"
+        calls = []
+        controlled = html._css_ascii_lower(sample, lambda: calls.append(1))
+        self.assertEqual(controlled, html._css_ascii_lower(sample))
+        self.assertIn("ä", controlled.lower())
+        self.assertTrue(controlled.endswith(" ÄÖÜ Σ"))
+        self.assertGreater(len(calls), 2)
+
+    def test_html_css_ascii_lower_observes_control_inside_large_token(self):
+        import acs.book_html_import as html
+
+        failure = SourceReadCancelledError("cancelled during CSS ASCII folding")
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise failure
+
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            html._css_ascii_lower("DISPLAY" * 2_000, cancel)
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 2)
+
+    def test_html_asset_path_scan_observes_control_inside_large_segment_set(self):
+        import acs.book_html_import as html
+
+        failure = SourceReadCancelledError("cancelled during HTML asset path scan")
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 5:
+                raise failure
+
+        value = "/".join(f"segment{index}" for index in range(400))
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            html._asset_name(value, cancel)
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 5)
+
     def test_html_controlled_compaction_matches_uncontrolled_whitespace_semantics(self):
         import acs.book_html_import as html
 
