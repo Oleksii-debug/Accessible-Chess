@@ -134,7 +134,7 @@ class PgnSourceBudget:
     games: int = 0
 
     def __post_init__(self) -> None:
-        if not isinstance(self.limits, PgnSourceLimits):
+        if type(self.limits) is not PgnSourceLimits:
             raise TypeError("limits must be PgnSourceLimits")
         for name in ("source_bytes", "text_chars", "lexical_tokens", "games"):
             if getattr(self, name) != 0:
@@ -204,6 +204,10 @@ def _raise_limit(message: str, code: PgnRoundTripErrorCode) -> None:
     raise PgnRoundTripError(message, code=code)
 
 
+def _contains_invalid_unicode_scalar(value: str) -> bool:
+    return any(0xD800 <= ord(character) <= 0xDFFF for character in value)
+
+
 def _claim_token(counter: list[int], source_budget: PgnSourceBudget) -> None:
     counter[0] += 1
     if counter[0] > MAX_PGN_LEXICAL_TOKENS:
@@ -270,7 +274,7 @@ def _preflight_text(
         raise TypeError("text_precounted must be a boolean")
     if source_budget is None:
         source_budget = PgnSourceBudget(WHOLE_DOCUMENT_PGN_LIMITS)
-    if not isinstance(source_budget, PgnSourceBudget):
+    if type(source_budget) is not PgnSourceBudget:
         raise TypeError("source_budget must be PgnSourceBudget")
     if type(text) is not str:
         raise PgnRoundTripError(
@@ -281,6 +285,11 @@ def _preflight_text(
         _raise_limit(
             "PGN text exceeds the character safety limit",
             PgnRoundTripErrorCode.TEXT_SIZE_LIMIT,
+        )
+    if _contains_invalid_unicode_scalar(text):
+        raise PgnRoundTripError(
+            "PGN text contains an invalid Unicode scalar value",
+            code=PgnRoundTripErrorCode.INVALID_TEXT,
         )
     if not text_precounted:
         source_budget.claim_text_chars(len(text))
@@ -324,6 +333,11 @@ def _preflight_text(
                 _raise_limit(
                     "PGN game contains too many tag pairs",
                     PgnRoundTripErrorCode.TAG_COUNT_LIMIT,
+                )
+            if len(match.group(1)) > MAX_PGN_TOKEN_CHARS:
+                _raise_limit(
+                    "PGN tag name exceeds the lexical safety limit",
+                    PgnRoundTripErrorCode.TOKEN_SIZE_LIMIT,
                 )
             if len(match.group(2)) > MAX_PGN_TAG_VALUE_CHARS:
                 _raise_limit(
@@ -469,6 +483,11 @@ def _validate_parsed_comment_size(comment: object) -> None:
             "PGN comment exceeds the field safety limit",
             PgnRoundTripErrorCode.COMMENT_SIZE_LIMIT,
         )
+    if _contains_invalid_unicode_scalar(comment.text):
+        raise PgnRoundTripError(
+            "PGN comment contains an invalid Unicode scalar value",
+            code=PgnRoundTripErrorCode.INVALID_MODEL,
+        )
 
 
 def _normalize_and_validate_line(
@@ -529,6 +548,8 @@ def parse_pgn_text(
     inspection while retaining D06 resource bounds and SAN normalization.
     """
 
+    if type(strict) is not bool:
+        raise TypeError("strict must be a boolean")
     if control_checkpoint is not None and not callable(control_checkpoint):
         raise TypeError("control_checkpoint must be callable or None")
     control_failure: BaseException | None = None
@@ -548,7 +569,7 @@ def parse_pgn_text(
         effective_control()
     if source_budget is None:
         source_budget = PgnSourceBudget(WHOLE_DOCUMENT_PGN_LIMITS)
-    if not isinstance(source_budget, PgnSourceBudget):
+    if type(source_budget) is not PgnSourceBudget:
         raise TypeError("source_budget must be PgnSourceBudget")
     normalized = _preflight_text(
         text,
@@ -601,6 +622,8 @@ def parse_pgn_text(
 
 
 def parse_pgn_bytes(data: object, *, strict: bool = True) -> tuple[PgnGame, ...]:
+    if type(strict) is not bool:
+        raise TypeError("strict must be a boolean")
     return parse_pgn_text(decode_pgn_bytes(data), strict=strict)
 
 
@@ -623,6 +646,16 @@ def _measure_comment(comment: object, budget: list[int]) -> None:
         _raise_limit(
             "PGN comment exceeds the field safety limit",
             PgnRoundTripErrorCode.COMMENT_SIZE_LIMIT,
+        )
+    if _contains_invalid_unicode_scalar(comment.text):
+        raise PgnRoundTripError(
+            "PGN comment contains an invalid Unicode scalar value",
+            code=PgnRoundTripErrorCode.INVALID_MODEL,
+        )
+    if "\r" in comment.text:
+        raise PgnRoundTripError(
+            "PGN comment contains non-canonical carriage-return text",
+            code=PgnRoundTripErrorCode.INVALID_MODEL,
         )
     _claim_model_chars(budget, len(comment.text) + 16)
 
@@ -719,6 +752,11 @@ def _measure_line(
                 "PGN move comment collections must be lists",
                 code=PgnRoundTripErrorCode.INVALID_MODEL,
             )
+        if node.comments_before and node.move_number is None:
+            raise PgnRoundTripError(
+                "PGN comments-before require an explicit move-number token",
+                code=PgnRoundTripErrorCode.INVALID_MODEL,
+            )
         for comment in node.comments_before:
             _measure_comment(comment, budget)
         for comment in node.comments_after:
@@ -751,6 +789,11 @@ def _measure_line(
 
 
 def _measure_games(games: tuple[PgnGame, ...]) -> None:
+    if not games:
+        raise PgnRoundTripError(
+            "PGN serialization requires at least one game",
+            code=PgnRoundTripErrorCode.EMPTY_PGN,
+        )
     if len(games) > MAX_PGN_GAMES:
         _raise_limit(
             "PGN contains too many games",
@@ -766,7 +809,15 @@ def _measure_games(games: tuple[PgnGame, ...]) -> None:
                 "PGN serialization requires PgnGame values",
                 code=PgnRoundTripErrorCode.INVALID_MODEL,
             )
-        if len(game.tags) > MAX_PGN_TAGS_PER_GAME:
+        if type(game.warnings) is not list or any(
+            type(warning) is not str for warning in game.warnings
+        ):
+            raise PgnRoundTripError(
+                "PGN recovery warnings must be a built-in list of text diagnostics",
+                code=PgnRoundTripErrorCode.INVALID_MODEL,
+            )
+        serialized_tag_count = len(game.tags) + (0 if "Result" in game.tags else 1)
+        if serialized_tag_count > MAX_PGN_TAGS_PER_GAME:
             _raise_limit(
                 "PGN game contains too many tag pairs",
                 PgnRoundTripErrorCode.TAG_COUNT_LIMIT,
@@ -778,13 +829,38 @@ def _measure_games(games: tuple[PgnGame, ...]) -> None:
                     "PGN tags must contain exact text keys and values",
                     code=PgnRoundTripErrorCode.INVALID_MODEL,
                 )
+            if _contains_invalid_unicode_scalar(key) or _contains_invalid_unicode_scalar(value):
+                raise PgnRoundTripError(
+                    "PGN tags contain an invalid Unicode scalar value",
+                    code=PgnRoundTripErrorCode.INVALID_MODEL,
+                )
+            if len(key) > MAX_PGN_TOKEN_CHARS:
+                _raise_limit(
+                    "PGN tag name exceeds the lexical safety limit",
+                    PgnRoundTripErrorCode.TOKEN_SIZE_LIMIT,
+                )
             if len(value) > MAX_PGN_TAG_VALUE_CHARS:
                 _raise_limit(
                     "PGN tag value exceeds the field safety limit",
                     PgnRoundTripErrorCode.TAG_SIZE_LIMIT,
                 )
-            _claim_model_chars(budget, len(key) + len(value) + 16)
+            escaped_value_chars = len(value) + value.count("\\") + value.count('"')
+            _claim_model_chars(budget, len(key) + escaped_value_chars + 16)
         _measure_line(game.line, budget, seen, active, node_count, depth=0)
+        root_result = game.line.result
+        if root_result is None:
+            raise PgnRoundTripError(
+                "PGN root movetext requires an explicit result",
+                code=PgnRoundTripErrorCode.INVALID_MODEL,
+            )
+        header_result = game.tags.get("Result")
+        if header_result is not None and header_result != root_result:
+            raise PgnRoundTripError(
+                "PGN Result tag must match the root movetext result",
+                code=PgnRoundTripErrorCode.INVALID_MODEL,
+            )
+        if header_result is None:
+            _claim_model_chars(budget, len("Result") + len(root_result) + 16)
 
 
 def materialize_pgn_games_bounded(
