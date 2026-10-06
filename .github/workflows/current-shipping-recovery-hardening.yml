@@ -1,9 +1,6 @@
 name: Current Shipping Recovery Hardening
 
 on:
-  push:
-    branches:
-      - converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
   pull_request:
     branches:
       - converge/current-shipping-pgn-open-terminal-truth-20261006-c2mbezb
