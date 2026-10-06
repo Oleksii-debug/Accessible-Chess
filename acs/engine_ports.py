@@ -13,6 +13,9 @@ from typing import Protocol, Sequence, runtime_checkable
 
 from .input_limits import MAX_FEN_CHARS
 
+ANALYSIS_MIN_MOVETIME_MS = 50
+ANALYSIS_MAX_MOVETIME_MS = 60_000
+
 
 class EngineContractErrorCode(str, Enum):
     INVALID_REQUEST = "invalid_request"
@@ -156,8 +159,12 @@ class AnalysisEnginePort(Protocol):
         fen: str,
         multipv: int = 5,
         depth: int = 16,
+        movetime_ms: int | None = None,
     ) -> Sequence[AnalysisProviderLine]:
         """Return one raw analysis item per PV.
+
+        ``movetime_ms=None`` keeps depth-limited analysis. A bounded integer
+        requests time-limited analysis on the same provider.
 
         Existing UCIEngine compatibility is preserved: each item may be the
         bounded legacy tuple ``(depth, (score_kind, score_value), pv_moves)``.
