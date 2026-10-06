@@ -1,0 +1,89 @@
+name: Classroom Moderation SQLite Ledger
+
+on:
+  pull_request:
+    branches:
+      - feature/classroom-moderation-rpc-core-20261002
+    paths:
+      - 'acs/sqlite_classroom_moderation_ledger.py'
+      - 'tests/test_sqlite_classroom_moderation_ledger.py'
+      - '.github/workflows/classroom-moderation-sqlite-ledger.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: classroom-moderation-sqlite-ledger-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  durable-ledger:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact candidate head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Set up exact Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Prove exact stacked scope
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EXPECTED_BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
+          test "$EXPECTED_BASE_REF" = "feature/classroom-moderation-rpc-core-20261002"
+          git cat-file -e "${EVENT_BASE_SHA}^{commit}" || git fetch --no-tags origin "$EVENT_BASE_SHA"
+          git merge-base --is-ancestor "$EVENT_BASE_SHA" HEAD
+          test "$(git merge-base "$EVENT_BASE_SHA" HEAD)" = "$EVENT_BASE_SHA"
+          git diff --check "$EVENT_BASE_SHA...HEAD"
+          changed="$(git diff --name-only "$EVENT_BASE_SHA...HEAD" | sort)"
+          allowed="$(printf '%s\n' \
+            '.github/workflows/classroom-moderation-sqlite-ledger.yml' \
+            '.github/workflows/p0-release-critical-triad-convergence.yml' \
+            'tests/test_p0_release_critical_triad_convergence.py' \
+            'acs/sqlite_classroom_moderation_ledger.py' \
+            'tests/test_sqlite_classroom_moderation_ledger.py' | sort)"
+          test "$changed" = "$allowed"
+
+      - name: Compile durable moderation ledger
+        run: >-
+          python -m py_compile
+          acs/sqlite_classroom_moderation_ledger.py
+          tests/test_sqlite_classroom_moderation_ledger.py
+
+      - name: Run durable ledger and canonical moderation contracts
+        run: >-
+          python -m unittest -v
+          tests.test_sqlite_classroom_moderation_ledger
+          tests.test_classroom_moderation_rpc
+          tests.test_classroom_realtime_media
+
+      - name: Prove storage authority is atomic and server-local
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fq 'BEGIN IMMEDIATE' acs/sqlite_classroom_moderation_ledger.py
+          grep -Fq 'INSERT OR IGNORE' acs/sqlite_classroom_moderation_ledger.py
+          grep -Fq 'PRIMARY KEY (room_id, operation_id)' acs/sqlite_classroom_moderation_ledger.py
+          grep -Fq 'PRAGMA journal_mode=WAL' acs/sqlite_classroom_moderation_ledger.py
+          grep -Fq 'PRAGMA synchronous=FULL' acs/sqlite_classroom_moderation_ledger.py
+          ! grep -Eq 'requests|aiohttp|http://|https://' acs/sqlite_classroom_moderation_ledger.py
+
+      - name: Core selftest
+        run: python -m acs.selftest

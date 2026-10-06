@@ -4,8 +4,11 @@ on:
   pull_request:
     paths:
       - 'scripts/p0_packaged_document_copy_probe.ps1'
+      - 'tests/test_p0_packaged_document_copy_probe.py'
       - 'scripts/verify_p0_packaged_document_copy_evidence.py'
+      - 'tests/test_verify_p0_packaged_document_copy_evidence.py'
       - 'scripts/p0g_packaged_hotkey_result_probe.ps1'
+      - 'tests/test_p0g_packaged_hotkey_result_probe.py'
       - 'tests/test_p0_release_critical_triad_convergence.py'
       - '.github/workflows/p0-release-critical-triad-convergence.yml'
       - 'acs/**'
@@ -30,21 +33,38 @@ jobs:
       - name: Checkout proposed convergence merge
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
         with:
-          fetch-depth: 2
-      - name: Require intended convergence base
+          fetch-depth: 0
+      - name: Prove exact pull-request merge identity
         shell: bash
+        env:
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          CHECKED_SHA: ${{ github.sha }}
+          TARGET_BRANCH: ${{ github.event.pull_request.base.ref }}
         run: |
           set -euo pipefail
-          base='${{ github.event.pull_request.base.ref }}'
-          case "$base" in
-            codex/v2-runtime-completion-20260907|fix/p0f-packaged-starter-diagnostic-20260926|work/full-product-teacher-education-reachability-20260911|fix/convergence-full-suite-regressions-20260927|converge/p0-release-critical-to-full-product-20260926|release/w4-v2-current-p0-candidate-20260926)
-              ;;
-            *)
-              echo "unexpected convergence base: $base" >&2
-              exit 1
-              ;;
-          esac
-          git diff --check HEAD^
+          test -n "$EVENT_BASE_SHA"
+          test -n "$EVENT_HEAD_SHA"
+          test -n "$CHECKED_SHA"
+          test "$(git rev-parse HEAD)" = "$CHECKED_SHA"
+          git cat-file -e "$EVENT_BASE_SHA^{commit}"
+          git cat-file -e "$EVENT_HEAD_SHA^{commit}"
+          test -n "$TARGET_BRANCH"
+          target_ref="refs/remotes/origin/$TARGET_BRANCH"
+          git fetch --no-tags origin "+refs/heads/$TARGET_BRANCH:$target_ref"
+          live_base="$(git rev-parse "$target_ref")"
+          git cat-file -e "$live_base^{commit}"
+          git merge-base --is-ancestor "$EVENT_BASE_SHA" "$live_base"
+          git merge-base --is-ancestor "$live_base" HEAD
+          git merge-base --is-ancestor "$EVENT_HEAD_SHA" HEAD
+          test "$(git merge-base "$live_base" "$EVENT_HEAD_SHA")" = "$live_base"
+          parents="$(git show -s --format=%P HEAD)"
+          test "$parents" = "$live_base $EVENT_HEAD_SHA"
+          git diff --check "$live_base..HEAD"
+          echo "P0_TRIAD_EVENT_BASE=$EVENT_BASE_SHA"
+          echo "P0_TRIAD_TARGET_BRANCH=$TARGET_BRANCH"
+          echo "P0_TRIAD_TARGET_PARENT=$live_base"
+          echo "P0_TRIAD_PR_HEAD=$EVENT_HEAD_SHA"
       - name: Set up Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
