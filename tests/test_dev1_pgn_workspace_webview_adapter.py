@@ -174,6 +174,45 @@ class PgnWorkspaceWebViewAdapterTests(unittest.TestCase):
         self.assertEqual((), payload["line_path"])
         self.assertEqual("a" * 64, payload["expected_record_digest"])
 
+    def test_metadata_browser_payload_is_non_authoritative_and_host_enriches_identity(self) -> None:
+        before = self.projection.snapshot()
+        self.assertEqual("*", before["metadata_editor"]["result"])
+
+        event = self.bridge.dispatch(
+            "pgn.tag_edit",
+            {"name": "Event", "value": "Accessible edit"},
+        )
+        self.assertEqual("selection", event.kind)
+        action_id, payload = self.calls[-1]
+        self.assertEqual("pgn.tag_edit", action_id)
+        self.assertEqual("Accessible edit", payload["value"])
+        self.assertEqual("Event", payload["name"])
+        self.assertEqual(0, payload["game_index"])
+        self.assertEqual(7, payload["content_revision"])
+        self.assertNotIn("game_index", repr({"name": "Event", "value": "Accessible edit"}))
+
+        delete = self.bridge.dispatch("pgn.tag_delete", {"name": "Event"})
+        self.assertEqual("selection", delete.kind)
+        self.assertEqual("pgn.tag_delete", self.calls[-1][0])
+
+        result = self.bridge.dispatch("pgn.result_set", {"result": "1-0"})
+        self.assertEqual("selection", result.kind)
+        self.assertEqual("pgn.result_set", self.calls[-1][0])
+        self.assertEqual("1-0", self.calls[-1][1]["result"])
+
+    def test_metadata_browser_rejects_authority_fields_and_reserved_position_mutation(self) -> None:
+        before = len(self.calls)
+        forged = self.bridge.dispatch(
+            "pgn.tag_edit",
+            {
+                "name": "Event",
+                "value": "X",
+                "content_revision": 999,
+            },
+        )
+        self.assertEqual("error", forged.kind)
+        self.assertEqual(before, len(self.calls))
+
     def test_keyboard_and_parent_navigation_cross_real_registry_exactly_once(self) -> None:
         self.projection.snapshot()
         down = self.bridge.dispatch("pgn.move", {"delta": 1})
