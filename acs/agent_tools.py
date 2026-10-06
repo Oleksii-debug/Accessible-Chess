@@ -54,6 +54,7 @@ class ToolSpec:
 
 _MAX_TOOL_ARGUMENT_DEPTH = 32
 _MAX_TOOL_ARGUMENT_ITEMS = 4096
+_MAX_TOOL_ARGUMENT_TEXT_BYTES = 256 * 1024
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,6 +126,7 @@ def _normalize_json(
     path: str = "arguments",
     depth: int = 0,
     budget: list[int] | None = None,
+    text_budget: list[int] | None = None,
 ) -> object:
     """Clone only bounded passive JSON-like argument values.
 
@@ -137,6 +139,8 @@ def _normalize_json(
 
     if budget is None:
         budget = [_MAX_TOOL_ARGUMENT_ITEMS]
+    if text_budget is None:
+        text_budget = [_MAX_TOOL_ARGUMENT_TEXT_BYTES]
     if depth > _MAX_TOOL_ARGUMENT_DEPTH:
         raise ValueError(f"{path} exceeds the maximum tool argument depth")
 
@@ -147,7 +151,15 @@ def _normalize_json(
             raise ValueError(f"{path} must not contain NaN/infinity")
         return value
     if type(value) is str:
-        return unicodedata.normalize("NFC", value)
+        canonical = unicodedata.normalize("NFC", value)
+        try:
+            encoded_size = len(canonical.encode("utf-8"))
+        except UnicodeEncodeError as exc:
+            raise ValueError(f"{path} contains invalid Unicode text") from exc
+        text_budget[0] -= encoded_size
+        if text_budget[0] < 0:
+            raise ValueError(f"{path} contains too much text")
+        return canonical
 
     if type(value) in (list, tuple):
         budget[0] -= len(value)
@@ -159,6 +171,7 @@ def _normalize_json(
                 path=f"{path}[{i}]",
                 depth=depth + 1,
                 budget=budget,
+                text_budget=text_budget,
             )
             for i, item in enumerate(value)
         ]
@@ -173,6 +186,13 @@ def _normalize_json(
             if type(raw_key) is not str:
                 raise TypeError(f"{path} keys must be strings")
             key = unicodedata.normalize("NFC", raw_key)
+            try:
+                key_size = len(key.encode("utf-8"))
+            except UnicodeEncodeError as exc:
+                raise ValueError(f"{path} contains invalid Unicode key") from exc
+            text_budget[0] -= key_size
+            if text_budget[0] < 0:
+                raise ValueError(f"{path} contains too much text")
             if key in result:
                 raise ValueError(
                     f"{path} contains duplicate normalized key {key!r}"
@@ -182,6 +202,7 @@ def _normalize_json(
                 path=f"{path}.{key}",
                 depth=depth + 1,
                 budget=budget,
+                text_budget=text_budget,
             )
         return result
 

@@ -12,6 +12,7 @@ from acs.agent_tools import (
     ToolSpec,
     _MAX_TOOL_ARGUMENT_DEPTH,
     _MAX_TOOL_ARGUMENT_ITEMS,
+    _MAX_TOOL_ARGUMENT_TEXT_BYTES,
     _MAX_TOOL_RESULT_TEXT_BYTES,
     tool_arguments_fingerprint,
 )
@@ -55,6 +56,48 @@ class AgentToolResultAuthorityTests(unittest.TestCase):
             arguments={"cafe\u0301": "re\u0301sume\u0301"},
         )
         self.assertEqual(dict(canonical.arguments), {"café": "résumé"})
+
+    def test_tool_arguments_have_aggregate_text_budget_and_unicode_guard(self) -> None:
+        with self.assertRaisesRegex(ValueError, "too much text"):
+            ToolCall(
+                call_id="huge-text",
+                tool_id="fixture.read",
+                arguments={"value": "x" * (_MAX_TOOL_ARGUMENT_TEXT_BYTES + 1)},
+            )
+
+        half = _MAX_TOOL_ARGUMENT_TEXT_BYTES // 2
+        with self.assertRaisesRegex(ValueError, "too much text"):
+            ToolCall(
+                call_id="aggregate-text",
+                tool_id="fixture.read",
+                arguments={"first": "a" * half, "second": "b" * half},
+            )
+
+        with self.assertRaisesRegex(ValueError, "invalid Unicode"):
+            ToolCall(
+                call_id="surrogate",
+                tool_id="fixture.read",
+                arguments={"value": "\ud800"},
+            )
+
+    def test_tool_call_detaches_nested_arguments_before_fingerprinting(self) -> None:
+        original = {"query": {"moves": ["e4"], "label": "cafe\u0301"}}
+        call = ToolCall(
+            call_id="detached",
+            tool_id="fixture.read",
+            arguments=original,
+        )
+        fingerprint = tool_arguments_fingerprint(call.arguments)
+
+        original["query"]["moves"][0] = "d4"
+        original["query"]["moves"].append("Nf3")
+        original["query"]["label"] = "changed"
+
+        self.assertEqual(
+            dict(call.arguments)["query"],
+            {"moves": ["e4"], "label": "café"},
+        )
+        self.assertEqual(tool_arguments_fingerprint(call.arguments), fingerprint)
 
     def test_tool_arguments_reject_active_mapping_and_list_subclasses(self) -> None:
         class ActiveMapping(dict):
