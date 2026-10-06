@@ -225,6 +225,34 @@ def _optional_text(
         return None
     return _required_text(value, field, control_checkpoint)
 
+def _sha256_text_hex(
+    value: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> str:
+    if control_checkpoint is None:
+        return sha256(value.encode("utf-8")).hexdigest()
+    state = sha256()
+    for offset in range(0, len(value), 4_096):
+        control_checkpoint()
+        state.update(value[offset : offset + 4_096].encode("utf-8"))
+    control_checkpoint()
+    return state.hexdigest()
+
+
+def _sha256_bytes_hex(
+    value: bytes,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> str:
+    if control_checkpoint is None:
+        return sha256(value).hexdigest()
+    state = sha256()
+    for offset in range(0, len(value), 64 * 1024):
+        control_checkpoint()
+        state.update(value[offset : offset + 64 * 1024])
+    control_checkpoint()
+    return state.hexdigest()
+
+
 def _source_bytes(source: object) -> bytes:
     if type(source) is not bytes:
         raise _error(
@@ -2311,7 +2339,13 @@ def _supported_manifest_item(
     )
 
 
-def _rebase_block(block: object, entry_name: str, chapter_index: int, block_index: int):
+def _rebase_block(
+    block: object,
+    entry_name: str,
+    chapter_index: int,
+    block_index: int,
+    control_checkpoint: Callable[[], None] | None = None,
+):
     if not hasattr(block, "as_dict"):
         raise _error(
             "EPUB HTML adapter returned an invalid semantic block",
@@ -2320,7 +2354,7 @@ def _rebase_block(block: object, entry_name: str, chapter_index: int, block_inde
     data = block.as_dict()
     original_id = str(data.get("block_id") or "")
     identity = f"{entry_name}\0{chapter_index}\0{block_index}\0{original_id}"
-    data["block_id"] = f"epub-{sha256(identity.encode('utf-8')).hexdigest()[:24]}"
+    data["block_id"] = f"epub-{_sha256_text_hex(identity, control_checkpoint)[:24]}"
     anchor = data.get("source_anchor")
     rebased_anchor = entry_name if not anchor else f"{entry_name}#{anchor}"
     if len(rebased_anchor) > MAX_BOOK_SOURCE_ANCHOR_CHARS:
@@ -2627,6 +2661,7 @@ def import_epub_book(
                         item.entry_name,
                         chapter_index,
                         block_index,
+                        control_checkpoint,
                     )
                 )
             for reference_index, reference in enumerate(imported.image_references, start=1):
@@ -2688,7 +2723,7 @@ def import_epub_book(
                 BookEpubImportErrorCode.RESOURCE_LIMIT,
             ) from exc
 
-    digest = sha256(raw).hexdigest()
+    digest = _sha256_bytes_hex(raw, control_checkpoint)
     return BookEpubImportResult(
         document=document,
         source_sha256=digest,
