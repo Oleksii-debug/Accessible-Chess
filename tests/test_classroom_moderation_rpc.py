@@ -537,6 +537,57 @@ class ClassroomModerationRecoveryConstructionTests(unittest.TestCase):
                 provider_state_verifier=object(),
             )
 
+    def test_pending_recovery_workflow_binds_scope_to_live_ledger_target(self) -> None:
+        workflow = (
+            Path(__file__).parents[1]
+            / ".github"
+            / "workflows"
+            / "classroom-moderation-pending-recovery.yml"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            "EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}",
+            workflow,
+        )
+        self.assertIn(
+            "EXPECTED_BASE_REF: ${{ github.event.pull_request.base.ref }}",
+            workflow,
+        )
+        self.assertIn(
+            'git fetch --no-tags origin "+refs/heads/$EXPECTED_BASE_REF:refs/remotes/origin/$EXPECTED_BASE_REF"',
+            workflow,
+        )
+        self.assertIn(
+            'live_base="$(git rev-parse "refs/remotes/origin/$EXPECTED_BASE_REF")"',
+            workflow,
+        )
+        self.assertIn(
+            'git merge-base --is-ancestor "$EVENT_BASE_SHA" "$live_base"',
+            workflow,
+        )
+        self.assertIn(
+            'test "$(git merge-base "$EVENT_BASE_SHA" "$live_base")" = "$EVENT_BASE_SHA"',
+            workflow,
+        )
+        self.assertIn('git merge-base --is-ancestor "$live_base" HEAD', workflow)
+        self.assertIn(
+            'test "$(git merge-base "$live_base" HEAD)" = "$live_base"',
+            workflow,
+        )
+        self.assertIn('git diff --check "$live_base...HEAD"', workflow)
+        self.assertIn(
+            'changed="$(git diff --name-only "$live_base...HEAD" | LC_ALL=C sort)"',
+            workflow,
+        )
+        self.assertNotIn('git diff --check "$EVENT_BASE_SHA...HEAD"', workflow)
+        for exact_path in (
+            ".github/workflows/classroom-moderation-pending-recovery.yml",
+            "acs/classroom_moderation_rpc.py",
+            "tests/test_classroom_moderation_rpc.py",
+        ):
+            with self.subTest(exact_path=exact_path):
+                self.assertIn(exact_path, workflow)
+
 
 class ClassroomModerationRpcTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
