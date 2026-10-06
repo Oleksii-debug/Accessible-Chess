@@ -45,6 +45,71 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
         self.assertIn("CHILD_EXIT_REASON", self.source)
         self.assertIn("USER_NVDA_PROVEN: NO", self.source)
 
+    def test_native_startup_failure_popups_are_bilingual(self) -> None:
+        detail_start = self.source.index("static const WCHAR *ac_child_exit_user_detail")
+        detail_end = self.source.index("static void ac_close_child_process_handle", detail_start)
+        details = self.source[detail_start:detail_end]
+        for token in (
+            "Could not initialize the accessible WebView2/WinForms interface.",
+            "Не вдалося ініціалізувати доступний WebView2/WinForms інтерфейс.",
+            "Could not initialize the secure local WebView2 server.",
+            "Не вдалося ініціалізувати безпечний локальний сервер WebView2.",
+            "Could not start the main accessible Accessible Chess interface.",
+            "Не вдалося запустити основний доступний інтерфейс Accessible Chess.",
+            "Unknown early failure in the main application.",
+            "Невідома рання помилка основної програми.",
+        ):
+            with self.subTest(surface="early-exit-detail", token=token):
+                self.assertIn(token, details)
+
+        generic_start = self.source.index("static void ac_fail(")
+        generic_end = self.source.index("static BOOL ac_direct_directory", generic_start)
+        generic = self.source[generic_start:generic_end]
+        for token in (
+            "Accessible Chess could not start.",
+            "Accessible Chess не запустився.",
+            "Stage / Етап: ",
+            "Windows error / Код Windows: ",
+            "Launch report was not created.",
+            "Звіт запуску не створено.",
+            "The main Accessible Chess process may still be running.",
+            "Основний процес може ще працювати.",
+        ):
+            with self.subTest(surface="generic-failure", token=token):
+                self.assertIn(token, generic)
+
+        timeout_start = self.source.index("static void ac_fail_startup_timeout(HANDLE report)")
+        timeout_end = self.source.index("void WINAPI wWinMainCRTStartup(void)", timeout_start)
+        timeout = self.source[timeout_start:timeout_end]
+        for token in (
+            "Accessible Chess did not confirm a ready window within 30 seconds.",
+            "Accessible Chess не підтвердив готовність вікна протягом 30 секунд.",
+            "The unresponsive process was stopped automatically.",
+            "Завислий процес автоматично завершено.",
+            "The unresponsive process could not be stopped automatically.",
+            "Автоматично завершити завислий процес не вдалося.",
+            "Keep the launch report / Збережіть звіт:",
+        ):
+            with self.subTest(surface="startup-timeout", token=token):
+                self.assertIn(token, timeout)
+
+        main_start = self.source.index("void WINAPI wWinMainCRTStartup(void)")
+        early_start = self.source.index(
+            'ac_write_line(report, L"STATUS: FAILED_EARLY_EXIT")',
+            main_start,
+        )
+        early_end = self.source.index("ExitProcess(exit_code == 0 ? 1 : exit_code)", early_start)
+        early = self.source[early_start:early_end]
+        for token in (
+            "Accessible Chess exited before a usable window appeared.",
+            "Accessible Chess завершився до появи робочого вікна.",
+            "Exit code / Код: ",
+            "Reason / Причина: ",
+            "Report / Звіт: ",
+        ):
+            with self.subTest(surface="early-exit-popup", token=token):
+                self.assertIn(token, early)
+
     def test_all_reported_startup_failures_mark_window_and_nvda_unproven(self) -> None:
         generic_start = self.source.index("static void ac_fail(")
         generic_end = self.source.index(
