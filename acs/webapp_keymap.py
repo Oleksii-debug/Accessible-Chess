@@ -78,36 +78,21 @@ class KeymapAwareAccessibleChessAPI(_BaseKeymapAwareAccessibleChessAPI):
             return None
 
     def make_move(self, text: str) -> dict[str, Any]:
-        # Canonical null moves are a notation/import pseudo-move, not a legal
-        # end-user gameplay action. Keep the frozen Stage1 core and canonical
-        # Board replay semantics intact while fencing ordinary Move Entry.
+        # Null moves remain import/notation pseudo-moves, never manual gameplay.
+        # Everything else must pass through the central keymap composition: it
+        # owns remapped aliases, temporary-analysis fencing, canonical position
+        # readiness and the shared transactional move publisher.
         if type(text) is not str:
-            return self._error(self._t("move_text_type"))
+            return super().make_move(text)
         if len(text) > MAX_MOVE_ENTRY_CHARS:
-            return self._error(self._t("move_text_too_long"))
+            return super().make_move(text)
         if self.board.norm_san(text) == "--":
             return self._error(
                 "Нульовий хід не можна грати вручну."
                 if self.lang == "uk"
                 else "A null move cannot be played manually."
             )
-        normalized = text.strip()
-        resolution = self.keymap_service.resolve_alias(
-            BindingContext.MOVE_ENTRY.value,
-            normalized,
-        )
-        if resolution is not None:
-            return self._dispatch_move_entry_action(str(resolution["actionId"]))
-
-        # The legacy keymap implementation mutates the live board and move list
-        # before calling a removed _record_position_after_move hook. That
-        # exception is then reported as an illegal move while leaving partial
-        # state behind. Use the canonical release transaction for ordinary
-        # legal moves; aliases above still route through the keymap action table.
-        result = _webapp.AccessibleChessAPI.make_move(self, text)
-        if result.get("ok") is True:
-            self._reanchor_analysis_after_reset()
-        return result
+        return super().make_move(text)
 
     def _board_query_board(self) -> Board:
         exploration = self.analysis_ui.exploration
