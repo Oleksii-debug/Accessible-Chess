@@ -4,6 +4,7 @@ on:
   pull_request:
     branches:
       - fix/current-book-target-passive-resolution-20261004-sol57b1
+      - converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
     paths:
       - 'acs/book_progress_store.py'
       - 'tests/test_book_progress_passive_ingress_current.py'
