@@ -1197,8 +1197,7 @@ def _validate_package_document(
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
 
-    package_children = list(package)
-    for child_index, child in enumerate(package_children, start=1):
+    for child_index, child in enumerate(package, start=1):
         if control_checkpoint is not None and child_index % 128 == 1:
             control_checkpoint()
         if (child.tail or "").strip():
@@ -1215,7 +1214,7 @@ def _validate_package_document(
         )
 
     structural_children: list[str] = []
-    for child_index, child in enumerate(package_children, start=1):
+    for child_index, child in enumerate(package, start=1):
         if control_checkpoint is not None and child_index % 128 == 1:
             control_checkpoint()
         if _is_opf_namespace_tag(child.tag):
@@ -1259,8 +1258,7 @@ def _validate_package_document(
             "EPUB metadata contains invalid mixed text",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
-    metadata_children = list(metadata)
-    for metadata_index, child in enumerate(metadata_children, start=1):
+    for metadata_index, child in enumerate(metadata, start=1):
         if control_checkpoint is not None and metadata_index % 128 == 1:
             control_checkpoint()
         if (child.tail or "").strip():
@@ -1268,7 +1266,7 @@ def _validate_package_document(
                 "EPUB metadata contains invalid mixed text",
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
             )
-    for metadata_index, child in enumerate(metadata_children, start=1):
+    for metadata_index, child in enumerate(metadata, start=1):
         if control_checkpoint is not None and metadata_index % 128 == 1:
             control_checkpoint()
         if _is_opf_namespace_tag(child.tag) and child.tag not in {
@@ -1281,7 +1279,7 @@ def _validate_package_document(
             )
     _validate_package_ids_unique(package, metadata, control_checkpoint)
     dc_prefix = f"{{{_DUBLIN_CORE_NAMESPACE}}}"
-    for metadata_index, element in enumerate(metadata_children, start=1):
+    for metadata_index, element in enumerate(metadata, start=1):
         if control_checkpoint is not None and metadata_index % 128 == 1:
             control_checkpoint()
         if type(element.tag) is not str or not element.tag.startswith(dc_prefix):
