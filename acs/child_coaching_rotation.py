@@ -111,7 +111,7 @@ class RotationRound:
         raw_targets = data["target_ids"]
         if type(raw_targets) is not list:
             raise ChildCoachingRotationError("rotation target_ids must be an array")
-        return cls(
+        round_item = cls(
             round_id=data["round_id"],
             activity=data["activity"],
             title=data["title"],
@@ -119,6 +119,9 @@ class RotationRound:
             target=data["target"],
             target_ids=tuple(raw_targets),
         )
+        if round_item.to_record() != data:
+            raise ChildCoachingRotationError("rotation round record is not canonical")
+        return round_item
 
 
 @dataclass(frozen=True, slots=True)
@@ -211,6 +214,8 @@ class RotationPlan:
         )
         if plan.digest != supplied:
             raise ChildCoachingRotationError("rotation plan digest mismatch")
+        if plan.to_record() != data:
+            raise ChildCoachingRotationError("rotation plan record is not canonical")
         return plan
 
     @classmethod
@@ -306,6 +311,8 @@ class RotationState:
         )
         if state.digest != supplied:
             raise ChildCoachingRotationError("rotation state digest mismatch")
+        if state.to_record() != data:
+            raise ChildCoachingRotationError("rotation state record is not canonical")
         return state
 
     @classmethod
