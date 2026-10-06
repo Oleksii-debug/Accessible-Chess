@@ -63,6 +63,10 @@ from .pgn_roundtrip import (
 )
 
 
+MAX_PGN_EDIT_TAG_NAME_CHARS = 80
+MAX_PGN_EDIT_TAG_VALUE_CHARS = 360
+
+
 class PgnWorkspaceErrorCode(str, Enum):
     INVALID_DOCUMENT = "invalid_document"
     EMPTY_DOCUMENT = "empty_document"
@@ -502,10 +506,23 @@ class PgnWorkspace:
 
     def edit_tag(self, name: str, value: str | None) -> PgnWorkspaceView:
         """Edit or delete one PGN tag atomically on the selected game."""
-        if type(name) is not str or TAG_NAME_RE.fullmatch(name) is None:
+        if (
+            type(name) is not str
+            or len(name) > MAX_PGN_EDIT_TAG_NAME_CHARS
+            or "\x00" in name
+            or TAG_NAME_RE.fullmatch(name) is None
+        ):
             raise ValueError("PGN tag name is invalid")
-        if value is not None and type(value) is not str:
-            raise TypeError("PGN tag value must be text or None")
+        if value is not None:
+            if type(value) is not str:
+                raise TypeError("PGN tag value must be text or None")
+            if (
+                len(value) > MAX_PGN_EDIT_TAG_VALUE_CHARS
+                or "\x00" in value
+                or "\r" in value
+                or "\n" in value
+            ):
+                raise ValueError("PGN tag value is invalid")
         if name in {"SetUp", "FEN"}:
             raise ValueError("SetUp/FEN tags are edited through the position workflow")
         if name == "Result":
