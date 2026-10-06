@@ -381,6 +381,42 @@ class ChildCoachingKeyboardActionTests(unittest.TestCase):
             self.app.snapshot()["product_status"]["group_rotation_recovery_required"]
         )
 
+    def test_keyboard_resume_adopts_exact_external_generation_after_status_fence(self) -> None:
+        started = self._dispatch_chord("Ctrl+Alt+R").value
+        store = self.app._rotation_store
+        self.assertIsNotNone(store)
+        assert store is not None
+        loaded = store.load()
+        self.assertIsNotNone(loaded)
+        assert loaded is not None
+
+        external_state = advance_rotation(
+            loaded.plan,
+            loaded.state,
+            expected_revision=loaded.state.revision,
+        )
+        external_revision = store.save(
+            loaded.plan,
+            external_state,
+            expected_revision=loaded.revision,
+        )
+
+        status = self._dispatch_chord("Ctrl+Alt+S").value
+        self.assertTrue(status["recovery_required"])
+        self.assertEqual(started["revision"], self.app._rotation_state.revision)
+
+        resumed = self._dispatch_chord("Ctrl+Alt+R").value
+
+        self.assertFalse(resumed["recovery_required"])
+        self.assertEqual(external_state.revision, resumed["revision"])
+        self.assertEqual(external_state, self.app._rotation_state)
+        self.assertEqual(external_revision, self.app._rotation_store_revision)
+        durable = store.load()
+        self.assertIsNotNone(durable)
+        assert durable is not None
+        self.assertEqual(external_state, durable.state)
+        self.assertEqual(external_revision, durable.revision)
+
     def test_keyboard_status_detects_corruption_after_rotation_started(self) -> None:
         started = self._dispatch_chord("Ctrl+Alt+R").value
         store = self.app._rotation_store
