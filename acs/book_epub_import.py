@@ -12,7 +12,7 @@ here.
 from dataclasses import dataclass
 from enum import Enum
 from hashlib import sha256
-from io import BytesIO
+from io import BytesIO, StringIO
 import posixpath
 import re
 import stat
@@ -161,7 +161,42 @@ def _error(message: str, code: BookEpubImportErrorCode) -> BookEpubImportError:
     return BookEpubImportError(message, code=code)
 
 
-def _required_text(value: object, field: str) -> str:
+def _normalized_whitespace_text(
+    value: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> str:
+    """Collapse Python whitespace while bounding trusted cancellation latency."""
+
+    if control_checkpoint is None:
+        return " ".join(value.strip().split())
+
+    output = StringIO()
+    wrote_text = False
+    pending_space = False
+    for offset in range(0, len(value), 4_096):
+        control_checkpoint()
+        chunk = value[offset : offset + 4_096]
+        parts = chunk.split()
+        if not parts:
+            if wrote_text:
+                pending_space = True
+            continue
+        leading_space = chunk[0].isspace()
+        trailing_space = chunk[-1].isspace()
+        if wrote_text and (pending_space or leading_space):
+            output.write(" ")
+        output.write(" ".join(parts))
+        wrote_text = True
+        pending_space = trailing_space
+    control_checkpoint()
+    return output.getvalue()
+
+
+def _required_text(
+    value: object,
+    field: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> str:
     if type(value) is not str:
         raise _error(
             f"{field} must be non-empty text",
@@ -172,17 +207,50 @@ def _required_text(value: object, field: str) -> str:
             f"{field} exceeds the canonical BookDocument text field limit",
             BookEpubImportErrorCode.RESOURCE_LIMIT,
         )
-    if not value.strip():
+    normalized = _normalized_whitespace_text(value, control_checkpoint)
+    if not normalized:
         raise _error(
             f"{field} must be non-empty text",
             BookEpubImportErrorCode.INVALID_ARGUMENT,
         )
-    return " ".join(value.strip().split())
+    return normalized
 
-def _optional_text(value: object, field: str) -> str | None:
+
+def _optional_text(
+    value: object,
+    field: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> str | None:
     if value is None:
         return None
-    return _required_text(value, field)
+    return _required_text(value, field, control_checkpoint)
+
+def _sha256_text_hex(
+    value: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> str:
+    if control_checkpoint is None:
+        return sha256(value.encode("utf-8")).hexdigest()
+    state = sha256()
+    for offset in range(0, len(value), 4_096):
+        control_checkpoint()
+        state.update(value[offset : offset + 4_096].encode("utf-8"))
+    control_checkpoint()
+    return state.hexdigest()
+
+
+def _sha256_bytes_hex(
+    value: bytes,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> str:
+    if control_checkpoint is None:
+        return sha256(value).hexdigest()
+    state = sha256()
+    for offset in range(0, len(value), 64 * 1024):
+        control_checkpoint()
+        state.update(value[offset : offset + 64 * 1024])
+    control_checkpoint()
+    return state.hexdigest()
 
 
 def _source_bytes(source: object) -> bytes:
@@ -1164,11 +1232,57 @@ def _compact_xml_text(
     return " ".join(tokens)
 
 
+def _has_surrounding_whitespace(value: str) -> bool:
+    return bool(value) and (value[0].isspace() or value[-1].isspace())
+
+
+def _controlled_strip(
+    value: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> str:
+    if control_checkpoint is None:
+        return value.strip()
+    start = 0
+    end = len(value)
+    while start < end:
+        if start % 4_096 == 0:
+            control_checkpoint()
+        if not value[start].isspace():
+            break
+        start += 1
+    scanned_from_end = 0
+    while end > start:
+        if scanned_from_end % 4_096 == 0:
+            control_checkpoint()
+        if not value[end - 1].isspace():
+            break
+        end -= 1
+        scanned_from_end += 1
+    control_checkpoint()
+    return value[start:end]
+
+
+def _has_non_whitespace(
+    value: str | None,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> bool:
+    if not value:
+        return False
+    if control_checkpoint is None:
+        return bool(value.strip())
+    for offset in range(0, len(value), 4_096):
+        control_checkpoint()
+        if any(not character.isspace() for character in value[offset : offset + 4_096]):
+            return True
+    control_checkpoint()
+    return False
+
+
 def _is_space_separated_tokens(
     value: object,
     control_checkpoint: Callable[[], None] | None = None,
 ) -> bool:
-    if type(value) is not str or not value or value != value.strip():
+    if type(value) is not str or not value or _has_surrounding_whitespace(value):
         return False
     previous_space = False
     last_index = len(value) - 1
@@ -1193,7 +1307,6 @@ def _is_exact_identifier(
     return (
         type(value) is str
         and bool(value)
-        and value == value.strip()
         and not any(
             character.isspace()
             for character in _controlled_characters(value, control_checkpoint)
@@ -1219,14 +1332,31 @@ def _normalized_media_type(
 ) -> str:
     if control_checkpoint is not None:
         control_checkpoint()
-    if type(value) is not str or value != value.strip():
+    if (
+        type(value) is not str
+        or not value
+        or _has_surrounding_whitespace(value)
+    ):
         raise _error(
             f"EPUB {context} media type is malformed",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
-    parts = value.split("/")
-    if len(parts) != 2 or not all(
-        _is_mime_token(part, control_checkpoint) for part in parts
+    slash_index: int | None = None
+    for character_index, character in enumerate(
+        _controlled_characters(value, control_checkpoint)
+    ):
+        if character != "/":
+            continue
+        if slash_index is not None:
+            slash_index = -1
+            break
+        slash_index = character_index
+    if (
+        slash_index is None
+        or slash_index <= 0
+        or slash_index >= len(value) - 1
+        or not _is_mime_token(value[:slash_index], control_checkpoint)
+        or not _is_mime_token(value[slash_index + 1 :], control_checkpoint)
     ):
         raise _error(
             f"EPUB {context} media type is malformed",
@@ -1281,6 +1411,7 @@ def _metadata_values(
         return []
     wanted = f"{{{_DUBLIN_CORE_NAMESPACE}}}{name}"
     values: list[str] = []
+    seen_values: set[str] = set()
     for metadata_index, element in enumerate(metadata, start=1):
         if control_checkpoint is not None and metadata_index % 128 == 1:
             control_checkpoint()
@@ -1292,7 +1423,8 @@ def _metadata_values(
                 BookEpubImportErrorCode.MALFORMED_PACKAGE,
             )
         text = _compact_xml_text(element.text or "", control_checkpoint)
-        if text and text not in values:
+        if text and text not in seen_values:
+            seen_values.add(text)
             values.append(text)
     return values
 
@@ -1541,13 +1673,18 @@ def _resolve_package_href(
 ) -> str:
     if control_checkpoint is not None:
         control_checkpoint()
-    if type(href) is not str or not href.strip():
+    if type(href) is not str or not href:
         raise _error(
             "EPUB manifest href is invalid",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
         )
-    raw_href = href.strip()
-    if not allow_surrounding_whitespace and raw_href != href:
+    raw_href = _controlled_strip(href, control_checkpoint)
+    if not raw_href:
+        raise _error(
+            "EPUB manifest href is invalid",
+            BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        )
+    if not allow_surrounding_whitespace and _has_surrounding_whitespace(href):
         raise _error(
             "EPUB package href contains surrounding whitespace",
             BookEpubImportErrorCode.MALFORMED_PACKAGE,
@@ -1828,7 +1965,7 @@ def _package_rootfiles(
                     context="container link",
                     control_checkpoint=control_checkpoint,
                 )
-            if type(raw_href) is not str or not raw_href or raw_href != raw_href.strip():
+            if type(raw_href) is not str or not raw_href or _has_surrounding_whitespace(raw_href):
                 raise _error(
                     "EPUB container link href is missing or malformed",
                     BookEpubImportErrorCode.MALFORMED_PACKAGE,
@@ -1861,7 +1998,7 @@ def _package_rootfiles(
             if (
                 type(raw_rel) is not str
                 or not raw_rel
-                or raw_rel != raw_rel.strip()
+                or _has_surrounding_whitespace(raw_rel)
                 or not _is_space_separated_tokens(raw_rel, control_checkpoint)
             ):
                 raise _error(
@@ -2167,7 +2304,7 @@ def _spine_ids(
             linear = "yes"
         elif (
             raw_linear not in {"yes", "no"}
-            or raw_linear != raw_linear.strip()
+            or _has_surrounding_whitespace(raw_linear)
         ):
             raise _error(
                 "EPUB spine item has an invalid linear attribute",
@@ -2236,7 +2373,13 @@ def _supported_manifest_item(
     )
 
 
-def _rebase_block(block: object, entry_name: str, chapter_index: int, block_index: int):
+def _rebase_block(
+    block: object,
+    entry_name: str,
+    chapter_index: int,
+    block_index: int,
+    control_checkpoint: Callable[[], None] | None = None,
+):
     if not hasattr(block, "as_dict"):
         raise _error(
             "EPUB HTML adapter returned an invalid semantic block",
@@ -2245,7 +2388,7 @@ def _rebase_block(block: object, entry_name: str, chapter_index: int, block_inde
     data = block.as_dict()
     original_id = str(data.get("block_id") or "")
     identity = f"{entry_name}\0{chapter_index}\0{block_index}\0{original_id}"
-    data["block_id"] = f"epub-{sha256(identity.encode('utf-8')).hexdigest()[:24]}"
+    data["block_id"] = f"epub-{_sha256_text_hex(identity, control_checkpoint)[:24]}"
     anchor = data.get("source_anchor")
     rebased_anchor = entry_name if not anchor else f"{entry_name}#{anchor}"
     if len(rebased_anchor) > MAX_BOOK_SOURCE_ANCHOR_CHARS:
@@ -2263,7 +2406,8 @@ def _resolved_asset(
 ) -> str | None:
     if control_checkpoint is not None:
         control_checkpoint()
-    parts = urlsplit(reference.strip())
+    stripped_reference = _controlled_strip(reference, control_checkpoint)
+    parts = urlsplit(stripped_reference)
     if parts.scheme or parts.netloc or not parts.path:
         return None
     try:
@@ -2276,6 +2420,38 @@ def _resolved_asset(
         )
     except BookEpubImportError:
         return None
+
+
+def _first_heading_text(
+    blocks: list[object],
+    control_checkpoint: Callable[[], None] | None = None,
+) -> str | None:
+    for block_index, block in enumerate(blocks, start=1):
+        if control_checkpoint is not None and block_index % 128 == 1:
+            control_checkpoint()
+        if isinstance(block, Heading):
+            return block.text
+    if control_checkpoint is not None:
+        control_checkpoint()
+    return None
+
+
+def _controlled_join(
+    values: list[str],
+    separator: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> str:
+    if control_checkpoint is None:
+        return separator.join(values)
+    output = StringIO()
+    for value_index, value in enumerate(values):
+        if value_index % 128 == 0:
+            control_checkpoint()
+        if value_index:
+            output.write(separator)
+        output.write(value)
+    control_checkpoint()
+    return output.getvalue()
 
 
 def import_epub_book(
@@ -2302,10 +2478,12 @@ def import_epub_book(
     expected_archive_entries = _validate_single_disk_zip_end_records(
         raw, control_checkpoint
     )
-    display_source = _required_text(source_name, "source_name")
-    override_title = _optional_text(title, "title")
-    override_author = _optional_text(author, "author")
-    override_language = _optional_text(language, "language")
+    display_source = _required_text(
+        source_name, "source_name", control_checkpoint
+    )
+    override_title = _optional_text(title, "title", control_checkpoint)
+    override_author = _optional_text(author, "author", control_checkpoint)
+    override_language = _optional_text(language, "language", control_checkpoint)
     warnings = _Warnings()
 
     try:
@@ -2516,6 +2694,7 @@ def import_epub_book(
                         item.entry_name,
                         chapter_index,
                         block_index,
+                        control_checkpoint,
                     )
                 )
             for reference_index, reference in enumerate(imported.image_references, start=1):
@@ -2551,11 +2730,15 @@ def import_epub_book(
 
         resolved_title = override_title or (package_titles[0] if package_titles else None)
         if not resolved_title:
-            first_heading = next((block.text for block in blocks if isinstance(block, Heading)), None)
+            first_heading = _first_heading_text(blocks, control_checkpoint)
             resolved_title = first_heading or (chapter_titles[0] if chapter_titles else display_source)
-        resolved_author = override_author or ("; ".join(creators) if creators else None)
+        resolved_author = override_author or (
+            _controlled_join(creators, "; ", control_checkpoint) if creators else None
+        )
         resolved_language = override_language or (languages[0] if languages else None)
-        resolved_rights = "; ".join(rights) if rights else None
+        resolved_rights = (
+            _controlled_join(rights, "; ", control_checkpoint) if rights else None
+        )
 
         try:
             document = BookDocument(
@@ -2573,7 +2756,7 @@ def import_epub_book(
                 BookEpubImportErrorCode.RESOURCE_LIMIT,
             ) from exc
 
-    digest = sha256(raw).hexdigest()
+    digest = _sha256_bytes_hex(raw, control_checkpoint)
     return BookEpubImportResult(
         document=document,
         source_sha256=digest,
