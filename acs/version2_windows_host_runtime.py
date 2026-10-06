@@ -213,7 +213,14 @@ class Version2WindowsFileWorkflowRuntime:
         # telemetry. A presentation failure can exhaust its one automatic retry;
         # the next real owner-thread command is therefore a deterministic recovery
         # opportunity before any newer command result can overtake that terminal.
-        self._pump.request_pending_wakeup()
+        # Application-side mailbox delivery is transactional, so any remaining
+        # event after this owner-thread attempt means presentation did not commit.
+        if self._mailbox.pending_count:
+            self._pump.request_pending_wakeup()
+            if self._mailbox.pending_count:
+                raise RuntimeError(
+                    "Version 2 Windows file workflow UI recovery is still pending"
+                )
 
         # Either recovery callback above is an owner boundary and can re-enter
         # native shutdown. Never dispatch the command against a runtime that was
