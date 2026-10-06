@@ -578,6 +578,38 @@ class Version2PackagePreflightTests(unittest.TestCase):
             report = _validate_tree(root)
             self.assertEqual(report.integration_sha, _SHA)
 
+    def test_package_preflight_rejects_truncated_semantic_sound_payload(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+
+            sound_root = root / "AccessibleChess" / "assets" / "sounds"
+            manifest = json.loads(
+                (sound_root / "manifest.json").read_text(encoding="utf-8")
+            )
+            event = SoundEvent.LOW_TIME
+            file_name = manifest["files"][event.value]
+            sound_path = sound_root / file_name
+            payload = sound_path.read_bytes()
+            self.assertGreater(len(payload), 46)
+            sound_path.write_bytes(payload[:-2])
+
+            provenance_path = root / "THIRD_PARTY_NOTICES" / "SOUND_PROVENANCE.json"
+            provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+            provenance["events"][event.value]["sha256"] = _sha256(sound_path)
+            provenance_path.write_text(
+                json.dumps(provenance, sort_keys=True, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            _write_checksums(root)
+
+            with self.assertRaisesRegex(
+                Version2PackagePreflightError,
+                r"packaged sound asset is truncated: low_time",
+            ):
+                _validate_tree(root)
+
     def test_sound_manifest_allows_provenance_verified_semantic_alias(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "package"
