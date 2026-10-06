@@ -670,18 +670,19 @@ class Version2FinalProductApplication(Version2Application):
                 if loaded.state.phase is not RotationPhase.COMPLETED:
                     self._rotation_load_error = True
             else:
-                workspace = self._education_workspace
-                if type(workspace) is not EducationWorkspace:
-                    self._rotation_load_error = True
-                else:
-                    try:
-                        self._validate_rotation_group_scope(
-                            loaded.plan,
-                            lesson,
-                            workspace.classroom,
-                        )
-                    except ChildCoachingRotationError:
+                if loaded.state.phase is not RotationPhase.COMPLETED:
+                    workspace = self._education_workspace
+                    if type(workspace) is not EducationWorkspace:
                         self._rotation_load_error = True
+                    else:
+                        try:
+                            self._validate_rotation_group_scope(
+                                loaded.plan,
+                                lesson,
+                                workspace.classroom,
+                            )
+                        except ChildCoachingRotationError:
+                            self._rotation_load_error = True
 
     def _refresh_rotation_recovery_for_lesson(self, lesson: LessonSession) -> None:
         """Refresh read-only durable recovery truth for a newly owned lesson."""
@@ -706,6 +707,9 @@ class Version2FinalProductApplication(Version2Application):
             # as recovery-required before any keyboard mutation is attempted.
             self._rotation_load_error = loaded.state.phase is not RotationPhase.COMPLETED
         else:
+            if loaded.state.phase is RotationPhase.COMPLETED:
+                self._rotation_load_error = False
+                return
             workspace = self._education_workspace
             if type(workspace) is not EducationWorkspace:
                 self._rotation_load_error = True
@@ -738,11 +742,12 @@ class Version2FinalProductApplication(Version2Application):
             raise RuntimeError("Group rotation store is unavailable")
         try:
             validate_rotation_scope(plan, lesson)
-            self._validate_rotation_group_scope(
-                plan,
-                lesson,
-                workspace.classroom,
-            )
+            if state.phase is not RotationPhase.COMPLETED:
+                self._validate_rotation_group_scope(
+                    plan,
+                    lesson,
+                    workspace.classroom,
+                )
         except ChildCoachingRotationError:
             self._rotation_load_error = True
             raise RuntimeError("Group rotation requires recovery") from None
@@ -809,17 +814,18 @@ class Version2FinalProductApplication(Version2Application):
                     self._rotation_load_error = True
                     raise
             else:
-                try:
-                    self._validate_rotation_group_scope(
-                        loaded.plan,
-                        lesson,
-                        workspace.classroom,
-                    )
-                except ChildCoachingRotationError as exc:
-                    self._rotation_load_error = True
-                    raise RuntimeError(
-                        "Stored group rotation is outside current classroom scope"
-                    ) from exc
+                if loaded.state.phase is not RotationPhase.COMPLETED:
+                    try:
+                        self._validate_rotation_group_scope(
+                            loaded.plan,
+                            lesson,
+                            workspace.classroom,
+                        )
+                    except ChildCoachingRotationError as exc:
+                        self._rotation_load_error = True
+                        raise RuntimeError(
+                            "Stored group rotation is outside current classroom scope"
+                        ) from exc
                 if loaded.plan.rotation_id != rotation_id:
                     self._rotation_load_error = True
                     raise RuntimeError(
@@ -1151,11 +1157,12 @@ class Version2FinalProductApplication(Version2Application):
         try:
             lesson, workspace = self._classroom_orchestration_authorities()
             validate_rotation_scope(plan, lesson)
-            self._validate_rotation_group_scope(
-                plan,
-                lesson,
-                workspace.classroom,
-            )
+            if state.phase is not RotationPhase.COMPLETED:
+                self._validate_rotation_group_scope(
+                    plan,
+                    lesson,
+                    workspace.classroom,
+                )
         except Exception:
             # Status is the accessible read-only truth surface. A classroom
             # mutation that makes the live rotation scope invalid must become a
