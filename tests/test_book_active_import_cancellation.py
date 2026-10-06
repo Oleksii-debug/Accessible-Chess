@@ -809,7 +809,9 @@ class BookActiveImportCancellationTests(unittest.TestCase):
 
         def controlled_parse(*args, **kwargs):
             nonlocal armed
-            self.assertIs(kwargs.get('control_checkpoint'), control)
+            forwarded_control = kwargs.get('control_checkpoint')
+            self.assertTrue(callable(forwarded_control))
+            self.assertIsNot(forwarded_control, control)
             armed = True
             return real_parse(*args, **kwargs)
 
