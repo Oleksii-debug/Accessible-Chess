@@ -6,7 +6,7 @@ on:
       - work/recorded-media-truth-corpus-20261006-sol56r14
   pull_request:
     branches:
-      - work/accessible-chess-20261005-recorded-media-preprocess-fafa04-v2
+      - work/recorded-media-canonical-application-adapter-20261005-sol56q8n4
   workflow_dispatch:
 
 permissions:
@@ -39,8 +39,8 @@ jobs:
       - name: Prove exact recorded-media parent and bounded scope
         shell: bash
         env:
-          EXPECTED_PARENT: 37aa2839ac5ca316dfbaf81242de8046ff67d6b7
-          EXPECTED_PARENT_BRANCH: work/accessible-chess-20261005-recorded-media-preprocess-fafa04-v2
+          EXPECTED_PARENT: 1722d0a7c65ff2bc976f8f7a738531a1b1f405fa
+          EXPECTED_PARENT_BRANCH: work/recorded-media-canonical-application-adapter-20261005-sol56q8n4
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
@@ -60,10 +60,17 @@ jobs:
           }
 
       - name: Compile truth-corpus boundary
-        run: python -m py_compile acs/media_truth_corpus.py tests/test_recorded_media_truth_corpus.py
+        run: >-
+          python -m py_compile
+          acs/media_truth_corpus.py
+          acs/recorded_media_application.py
+          acs/recorded_media_sync.py
+          tests/test_recorded_media_truth_corpus.py
 
-      - name: Run truth-corpus and retained executor regressions
+      - name: Run truth-corpus and retained recorded-media regressions
         run: >-
           python -m unittest -v
           tests.test_recorded_media_truth_corpus
+          tests.test_recorded_media_application
+          tests.test_recorded_media_sync
           tests.test_media_preprocess_executor

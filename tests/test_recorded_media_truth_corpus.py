@@ -9,6 +9,11 @@ import tempfile
 import unittest
 
 import acs.media_truth_corpus as truth_module
+from acs.media_core import (
+    MediaEvidence,
+    MediaReconciliationResult,
+    MediaReconciliationState,
+)
 from acs.media_preprocess import (
     AdaptiveSamplingPolicy,
     BoardOrientation,
@@ -20,6 +25,11 @@ from acs.media_preprocess import (
     RecordedMediaSourceRevision,
 )
 from acs.media_preprocess_executor import RecordedMediaPreprocessExecutor
+from acs.recorded_media_application import CanonicalRecordedFrameApplicationAdapter
+from acs.recorded_media_sync import (
+    RecordedMediaTimelineBuilder,
+    RecordedSyncStepKind,
+)
 from acs.media_truth_corpus import (
     RecordedMediaTruthCorpus,
     TruthCorpusBoardVisionPort,
@@ -94,6 +104,74 @@ class RecordedMediaTruthCorpusTests(unittest.TestCase):
                 FrameDisposition.OCCLUDED,
                 FrameDisposition.AMBIGUOUS,
             ],
+        )
+
+
+    def test_truth_frame_flows_through_typed_evidence_and_canonical_timeline(self):
+        corpus = self.corpus()
+        source = RecordedMediaSourceRevision(
+            corpus.source_id,
+            corpus.source_revision,
+            corpus.source_ref,
+            corpus.duration_ms,
+        )
+        plan = RecordedMediaPreprocessPlan.build(
+            source,
+            board_revision=corpus.board_revision,
+            policy=AdaptiveSamplingPolicy(1000, 200, 0),
+        )
+        frame = TruthCorpusBoardVisionPort(corpus).observe(corpus.source_ref, 0)
+
+        class CanonicalApplication:
+            def __init__(self):
+                self.calls = []
+
+            def reconcile_media_evidence_batch(
+                self,
+                *,
+                current_chess_ref,
+                evidence,
+            ):
+                self.calls.append((current_chess_ref, evidence))
+                return MediaReconciliationResult(
+                    source_id=corpus.source_id,
+                    state=MediaReconciliationState.VERIFIED,
+                    evidence_ids=tuple(item.evidence_id for item in evidence),
+                    chess_ref="canonical:truth-fixture:0",
+                    confidence=1.0,
+                    reason="first-party truth fixture accepted by canonical application",
+                )
+
+        application = CanonicalApplication()
+        adapter = CanonicalRecordedFrameApplicationAdapter(application)
+        builder = RecordedMediaTimelineBuilder(plan, adapter)
+
+        step = builder.accept(frame)
+
+        self.assertEqual(step.kind, RecordedSyncStepKind.LINKED)
+        self.assertTrue(step.link.confirmed)
+        self.assertEqual(step.link.chess_ref, "canonical:truth-fixture:0")
+        self.assertEqual(
+            step.link.qualification,
+            MediaReconciliationState.VERIFIED,
+        )
+        self.assertEqual(len(application.calls), 1)
+        current_ref, evidence = application.calls[0]
+        self.assertIsNone(current_ref)
+        self.assertEqual(len(evidence), 1)
+        self.assertIs(type(evidence[0]), MediaEvidence)
+        self.assertEqual(evidence[0].source_id, corpus.source_id)
+        self.assertEqual(evidence[0].source_revision, corpus.source_revision)
+        self.assertEqual(
+            step.link.evidence_ids,
+            (evidence[0].evidence_id,),
+        )
+        resolution = builder.timeline.resolve_exact(0)
+        self.assertTrue(resolution.resolved)
+        self.assertEqual(resolution.chess_ref, "canonical:truth-fixture:0")
+        self.assertEqual(
+            resolution.evidence_ids,
+            (evidence[0].evidence_id,),
         )
 
     def test_asset_tamper_fails_before_fixture_truth_is_published(self):
