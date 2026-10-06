@@ -35,7 +35,7 @@ jobs:
         shell: bash
         env:
           EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
-          MEDIA_CORE_PARENT: 50c27fe9ff0f8899438d8aba4ee455119b01fe13
+          MEDIA_CORE_PARENT: 7bf0a28dc65d5ceef45f78af0a5f023503b79a28
           MEDIA_CORE_BRANCH: work/accessible-chess-20261005-media-core-sol56n4q8
         run: |
           set -euo pipefail
