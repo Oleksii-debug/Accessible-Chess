@@ -546,6 +546,69 @@ Starting board
             )
         )
 
+    def test_markdown_inline_image_balanced_destination_does_not_leak_url_text(self) -> None:
+        result = import_text_book(
+            "Before ![Board](images/(study)/board.png) after\n",
+            source_name="balanced-image.md",
+            source_format="markdown",
+        )
+        paragraphs = [
+            block.text for block in result.document.blocks
+            if isinstance(block, Paragraph)
+        ]
+        notes = [
+            block for block in result.document.blocks
+            if isinstance(block, Note) and block.note_type == "image"
+        ]
+        self.assertEqual(paragraphs, ["Before", "after"])
+        self.assertEqual([block.text for block in notes], ["Board"])
+        self.assertFalse(
+            any(
+                "images/" in block.text
+                for block in result.document.blocks
+                if hasattr(block, "text")
+            )
+        )
+
+    def test_markdown_list_image_balanced_destination_keeps_only_alt_text(self) -> None:
+        result = import_text_book(
+            "- Before ![Board](images/(study)/board.png) after\n"
+            "- ![Escaped](images/board\\).png) tail\n",
+            source_name="balanced-list-image.md",
+            source_format="markdown",
+        )
+        lists = [
+            block for block in result.document.blocks
+            if isinstance(block, ListBlock)
+        ]
+        self.assertEqual(len(lists), 1)
+        self.assertEqual(
+            lists[0].items,
+            ["Before Board after", "Escaped tail"],
+        )
+        self.assertTrue(
+            any("image inside a list item" in warning for warning in result.warnings)
+        )
+
+    def test_markdown_unclosed_balanced_image_destination_stays_literal(self) -> None:
+        source = "Before ![Board](images/(study)/board.png after\n"
+        result = import_text_book(
+            source,
+            source_name="unclosed-image.md",
+            source_format="markdown",
+        )
+        paragraphs = [
+            block.text for block in result.document.blocks
+            if isinstance(block, Paragraph)
+        ]
+        self.assertEqual(paragraphs, [source.strip()])
+        self.assertFalse(
+            any(
+                isinstance(block, Note) and block.note_type == "image"
+                for block in result.document.blocks
+            )
+        )
+
     def test_markdown_ordered_list_inline_images_keep_one_canonical_list(self) -> None:
         result = import_text_book(
             "3. ![First board](one.png) opening\n"
