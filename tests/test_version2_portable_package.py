@@ -277,6 +277,42 @@ class PortableTreeTests(unittest.TestCase):
             self.assertEqual(original_stat.st_size, rewritten_stat.st_size)
             self.assertEqual(path.read_bytes(), replacement)
 
+    def test_file_identity_fallback_rejects_unknown_or_zero_identity(self):
+        valid = SimpleNamespace(st_dev=11, st_ino=22)
+        same = SimpleNamespace(st_dev=11, st_ino=22)
+        invalid_pairs = (
+            (
+                SimpleNamespace(st_dev=0, st_ino=0),
+                SimpleNamespace(st_dev=0, st_ino=0),
+            ),
+            (
+                SimpleNamespace(st_dev=11, st_ino=0),
+                SimpleNamespace(st_dev=11, st_ino=0),
+            ),
+            (
+                SimpleNamespace(st_dev=None, st_ino=None),
+                SimpleNamespace(st_dev=None, st_ino=None),
+            ),
+            (
+                SimpleNamespace(st_dev=True, st_ino=22),
+                SimpleNamespace(st_dev=True, st_ino=22),
+            ),
+        )
+
+        with mock.patch.object(
+            portable_module.os.path,
+            "samestat",
+            side_effect=OSError("identity unavailable"),
+        ):
+            self.assertTrue(
+                portable_module._complete_file_identity(valid, same)
+            )
+            for left, right in invalid_pairs:
+                with self.subTest(left=left, right=right):
+                    self.assertFalse(
+                        portable_module._complete_file_identity(left, right)
+                    )
+
     def test_stable_change_metadata_uses_platform_reliable_fields(self):
         sample = SimpleNamespace(st_mtime_ns=123, st_ctime_ns=456)
 
