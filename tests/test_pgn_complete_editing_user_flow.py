@@ -174,6 +174,8 @@ class CompletePgnEditingUserFlowTests(unittest.TestCase):
             "embedded\x00nul",
             "line\nbreak",
             "carriage\rreturn",
+            "\ud800",
+            "safe\udffftext",
         )
         for value in invalid_values:
             with self.subTest(kind="command-value", value=repr(value[:32])):
