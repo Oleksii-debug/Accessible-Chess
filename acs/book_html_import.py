@@ -1810,7 +1810,11 @@ def _canonical_pgn_games(
                 warnings.append(f"PGN candidate {candidate_index} exceeded the per-game limit and was ignored")
             continue
         try:
-            parsed = parse_pgn_text(candidate, strict=False)
+            parsed = parse_pgn_text(
+                candidate,
+                strict=False,
+                control_checkpoint=control_checkpoint,
+            )
         except (PgnRoundTripError, RecursionError, ValueError):
             if len(warnings) < MAX_HTML_WARNINGS:
                 warnings.append(f"PGN candidate {candidate_index} could not be represented canonically and was ignored")

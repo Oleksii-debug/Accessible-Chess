@@ -725,6 +725,74 @@ class BookActiveImportCancellationTests(unittest.TestCase):
             )
         self.assertIs(caught.exception, failure)
 
+    def test_canonical_pgn_control_preserves_recovery_semantics(self):
+        from acs.pgn_roundtrip import parse_pgn_text
+
+        source = '[Event "Study"]\n[Result "*"]\n\n1. e4 {note} (1. d4 d5) e5 *\n'
+        plain = parse_pgn_text(source, strict=False)
+        calls = []
+        controlled = parse_pgn_text(
+            source,
+            strict=False,
+            control_checkpoint=lambda: calls.append(1),
+        )
+        self.assertEqual(controlled, plain)
+        self.assertGreater(len(calls), 3)
+
+    def test_canonical_pgn_large_brace_scan_preserves_exact_cancel(self):
+        from acs.pgn_roundtrip import parse_pgn_text
+
+        failure = SourceReadCancelledError('cancelled inside canonical PGN scan')
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 8:
+                raise failure
+
+        source = '[Event "Study"]\n[Result "*"]\n\n1. e4 {' + ('x' * 20_000) + '} *\n'
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            parse_pgn_text(
+                source,
+                strict=False,
+                control_checkpoint=cancel,
+            )
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 8)
+
+    def test_html_embedded_pgn_threads_control_into_canonical_authority(self):
+        import acs.pgn_roundtrip as roundtrip
+
+        failure = SourceReadCancelledError('cancelled by canonical embedded PGN authority')
+        armed = False
+        calls = 0
+
+        def control():
+            nonlocal calls
+            calls += 1
+            if armed:
+                raise failure
+
+        real_parse = roundtrip.parse_pgn_text
+
+        def controlled_parse(*args, **kwargs):
+            nonlocal armed
+            self.assertIs(kwargs.get('control_checkpoint'), control)
+            armed = True
+            return real_parse(*args, **kwargs)
+
+        with patch('acs.book_html_import.parse_pgn_text', side_effect=controlled_parse):
+            with self.assertRaises(SourceReadCancelledError) as caught:
+                import_html_book(
+                    HTML,
+                    source_name='study.html',
+                    control_checkpoint=control,
+                )
+        self.assertIs(caught.exception, failure)
+        self.assertTrue(armed)
+        self.assertGreater(calls, 1)
+
     def test_html_control_failure_is_not_translated_into_malformed_source(self):
         failure = RuntimeError('trusted control failure')
         calls = 0
