@@ -403,6 +403,102 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
             )
             self.assertTrue(runtime.shutdown())
 
+    def test_cancel_open_wins_before_retained_owner_callback_recovery(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "runtime-open-cancel-retained-owner.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            _OpenDialog.selected_paths.append(str(source))
+            owner = _FlakyOwner(2)
+            imported_events: list[object] = []
+            fallback_calls: list[tuple[str, dict[str, object]]] = []
+            session_box: dict[str, PgnDocumentSession | None] = {"value": None}
+            runtime = self._runtime(
+                owner,
+                imported_events=imported_events,
+                fallback_calls=fallback_calls,
+                pgn_session_box=session_box,
+            )
+
+            started = runtime("pgn.open", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.PGN_OPEN_STARTED)
+            self.assertTrue(runtime.wait_for_pgn_open(5.0))
+            deadline = time.monotonic() + 1.0
+            while owner.begin_invoke_calls < 2 and time.monotonic() < deadline:
+                time.sleep(0.01)
+
+            self.assertEqual(owner.begin_invoke_calls, 2)
+            self.assertEqual(owner.posted, [])
+            self.assertTrue(runtime.pgn_open_running)
+            self.assertIsNone(session_box["value"])
+
+            terminal = runtime("pgn.cancel_open", {})
+
+            self.assertEqual(
+                terminal.kind,
+                FileWorkflowEventKind.PGN_OPEN_CANCELLED,
+            )
+            self.assertFalse(runtime.pgn_open_running)
+            self.assertIsNone(session_box["value"])
+            self.assertEqual(
+                [event.kind for event in imported_events],
+                [FileWorkflowEventKind.PGN_OPEN_CANCELLED],
+            )
+
+            # The retained callback is now stale. Recovering it on a later
+            # unrelated action must not publish the cancelled document.
+            result = runtime("analysis.restart", {"source": "board"})
+            self.assertEqual(result, ("fallback", "analysis.restart"))
+            self.assertEqual(
+                fallback_calls, [("analysis.restart", {"source": "board"})]
+            )
+            self.assertIsNone(session_box["value"])
+            self.assertEqual(
+                [event.kind for event in imported_events],
+                [FileWorkflowEventKind.PGN_OPEN_CANCELLED],
+            )
+            self.assertTrue(runtime.shutdown())
+
+    def test_cancel_save_resolves_fixed_pending_result_before_callback_recovery(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "runtime-save-cancel-retained-owner.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            session = PgnDocumentSession.open(source)
+            session.edit_tag("Event", "Cancel sees fixed durable result")
+            owner = _FlakyOwner(2)
+            imported_events: list[object] = []
+            runtime = self._runtime(
+                owner,
+                pgn_session=session,
+                imported_events=imported_events,
+            )
+
+            started = runtime("pgn.save", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.PGN_SAVE_STARTED)
+            self.assertTrue(runtime.wait_for_pgn_save(5.0))
+            deadline = time.monotonic() + 1.0
+            while owner.begin_invoke_calls < 2 and time.monotonic() < deadline:
+                time.sleep(0.01)
+
+            self.assertEqual(owner.begin_invoke_calls, 2)
+            self.assertEqual(owner.posted, [])
+            self.assertTrue(runtime.pgn_save_running)
+            self.assertTrue(session.dirty)
+            self.assertIn(
+                "Cancel sees fixed durable result",
+                source.read_text(encoding="utf-8"),
+            )
+
+            terminal = runtime("pgn.cancel_save", {})
+
+            self.assertEqual(terminal.kind, FileWorkflowEventKind.PGN_SAVED)
+            self.assertFalse(runtime.pgn_save_running)
+            self.assertFalse(session.dirty)
+            self.assertEqual(
+                [event.kind for event in imported_events],
+                [FileWorkflowEventKind.PGN_SAVED],
+            )
+            self.assertTrue(runtime.shutdown())
+
     def test_shutdown_commits_durable_save_after_owner_post_failures(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "runtime-save-shutdown-recovery.pgn"
