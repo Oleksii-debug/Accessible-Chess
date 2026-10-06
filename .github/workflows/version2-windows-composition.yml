@@ -47,6 +47,9 @@ env:
   V2_ACCEPTED_SOUND_STAGE1_UI_BLOB: 23e5bcdde11acdb963515bea4bc4a93473dbbd05
   V2_ACCEPTED_SOUND_RELEASE_APP_BLOB: dbbcaabd4f6df0ab615095949d464d1371b0ffef
   V2_ACCEPTED_PGN_WORKSPACE_BLOB: b59e6bfff9806dff2092e5c7f93b68daff6407ef
+  V2_ACCEPTED_CURRENT_PGN_WORKSPACE_BLOB: 4c99aca4bb304bdad09c75e745699b57aef769cf
+  V2_ACCEPTED_CURRENT_PGN_DOCUMENT_BLOB: 699befd9a98553adb2b4050afd53c0017962be38
+  V2_ACCEPTED_CURRENT_PGN_SERVICE_BLOB: f85d605d1eccd6d1246421602ccdd07ba2331ebd
   V2_ACCEPTED_RELEASE_PREFLIGHT_BLOB: 6ec93d183da623c80c15b542fb7095725b91af52
 
 jobs:
@@ -140,10 +143,14 @@ jobs:
           fi
 
           actual_pgn_workspace_blob="$(git rev-parse HEAD:acs/pgn_workspace.py)"
-          if [ "$actual_pgn_workspace_blob" != "$V2_ACCEPTED_PGN_WORKSPACE_BLOB" ]; then
-            echo "Unexpected canonical PGN workspace blob: $actual_pgn_workspace_blob" >&2
-            exit 1
-          fi
+          case "$actual_pgn_workspace_blob" in
+            "$V2_ACCEPTED_PGN_WORKSPACE_BLOB"|"$V2_ACCEPTED_CURRENT_PGN_WORKSPACE_BLOB")
+              ;;
+            *)
+              echo "Unexpected canonical PGN workspace blob: $actual_pgn_workspace_blob" >&2
+              exit 1
+              ;;
+          esac
 
           changed="$(git diff --name-only "$scope_base" HEAD | sort)"
           if printf '%s\n' "$changed" | grep -Fxq 'acs/stage1_release_ui_core.py'; then
@@ -192,10 +199,23 @@ jobs:
             fi
           fi
 
+          for path_blob in \
+            "acs/pgn_document.py:$V2_ACCEPTED_CURRENT_PGN_DOCUMENT_BLOB" \
+            "acs/pgn_service.py:$V2_ACCEPTED_CURRENT_PGN_SERVICE_BLOB"; do
+            path="${path_blob%%:*}"
+            accepted="${path_blob#*:}"
+            if printf '%s\n' "$changed" | grep -Fxq "$path"; then
+              actual="$(git rev-parse "HEAD:$path")"
+              test "$actual" = "$accepted" || {
+                echo "Unexpected reviewed PGN integration blob: $path $actual" >&2
+                exit 1
+              }
+            fi
+          done
+
           git diff --quiet "$scope_base" HEAD -- \
             run_accessible_chess.py \
-            acs/chesscore.py acs/gametree.py acs/pgn_document.py \
-            acs/pgn_service.py \
+            acs/chesscore.py acs/gametree.py \
             web/stage1_board_actions.js \
             tools/qa
 

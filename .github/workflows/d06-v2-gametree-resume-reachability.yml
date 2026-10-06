@@ -17,8 +17,9 @@ concurrency:
 
 env:
   D06_V2_RESUME_OWNER: c2a080712ab76bd318dc6a6c3037db464ab67857
-  D06_RESUME_BLOB: 585574d61de42c3f956e050b0d7acf5e19dc7942
-  D06_TEST_BLOB: 3a52ce7a15ac296b362d25e3ca470bd99497961a
+  D06_RESUME_BLOB: f899a7eba08a242b7c9f9704770e47f3794e4894
+  D06_STORE_BLOB: db9b35b966f8b30bb96a5bea57f88832dd4a316b
+  D06_TEST_BLOB: 55714eb7c0cd307869f05f3d693963570e4346ff
 
 jobs:
   v2-resume-reachability:
@@ -63,6 +64,7 @@ jobs:
           git merge-base --is-ancestor "$D06_V2_RESUME_OWNER" HEAD
           git diff --check "$base" HEAD
           test "$(git rev-parse HEAD:acs/version2_gametree_resume.py)" = "$D06_RESUME_BLOB"
+          test "$(git rev-parse HEAD:acs/gametree_resume.py)" = "$D06_STORE_BLOB"
           test "$(git rev-parse HEAD:tests/test_d06_v2_gametree_resume_reachability.py)" = "$D06_TEST_BLOB"
           # version2_release_app.py is the Product composition surface for this
           # retained D06 owner. It may evolve independently; compatibility is
@@ -74,6 +76,7 @@ jobs:
       - name: Compile changed Python surface
         run: >-
           python -m py_compile
+          acs/gametree_resume.py
           acs/version2_gametree_resume.py
           acs/version2_release_app.py
           tests/test_d06_v2_gametree_resume_reachability.py

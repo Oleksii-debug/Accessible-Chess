@@ -103,6 +103,49 @@ class ProfessionalPgnDocumentTests(unittest.TestCase):
         self.assertEqual(len(game.line.moves[1].variations), 2)
         self.assertEqual(game.line.moves[1].variations[0].moves[0].san, "c5")
 
+    def test_edit_views_share_document_dirty_truth_for_opened_and_unsaved_sessions(self) -> None:
+        path = self.write_document("dirty-truth.pgn")
+        opened = PgnDocumentSession.open(path)
+        self.assertFalse(opened.dirty)
+        self.assertFalse(opened.workspace.dirty)
+
+        edited = opened.edit_tag("Event", "Dirty truth edit")
+        self.assertTrue(edited.dirty)
+        self.assertTrue(opened.workspace.dirty)
+        self.assertTrue(opened.dirty)
+
+        opened.save()
+        self.assertFalse(opened.workspace.dirty)
+        self.assertFalse(opened.dirty)
+
+        deleted = opened.delete_tag("White")
+        self.assertTrue(deleted.dirty)
+        self.assertTrue(opened.workspace.dirty)
+        self.assertTrue(opened.dirty)
+
+        unsaved = PgnDocumentSession.from_text(PASTE)
+        self.assertTrue(unsaved.workspace.dirty)
+        self.assertTrue(unsaved.dirty)
+        unsaved_edit = unsaved.edit_tag("Annotator", "Unsaved")
+        self.assertTrue(unsaved_edit.dirty)
+        self.assertTrue(unsaved.workspace.dirty)
+        self.assertTrue(unsaved.dirty)
+
+        target = self.root / "dirty-truth-new.pgn"
+        unsaved.save_as(target)
+        self.assertFalse(unsaved.workspace.dirty)
+        self.assertFalse(unsaved.dirty)
+
+    def test_new_document_workspace_is_dirty_until_first_save(self) -> None:
+        session = PgnDocumentSession.new_game({"White": "Ada", "Black": "Boris"})
+        self.assertTrue(session.workspace.dirty)
+        self.assertTrue(session.view().dirty)
+
+        target = self.root / "new-dirty-truth.pgn"
+        session.save_as(target)
+        self.assertFalse(session.workspace.dirty)
+        self.assertFalse(session.view().dirty)
+
     def test_save_detects_external_change_instead_of_losing_it(self) -> None:
         path = self.write_document()
         session = PgnDocumentSession.open(path)

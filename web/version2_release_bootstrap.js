@@ -79,7 +79,7 @@
     const text = boundedText(message, MAX_ANNOUNCEMENT_TEXT);
     if (!text) return;
     live.textContent = "";
-    global.setTimeout(function () { live.textContent = text.slice(0, 300); }, 20);
+    global.setTimeout(function () { live.textContent = text; }, 20);
   }
 
   const nav = documentRef.createElement("nav");
@@ -87,7 +87,7 @@
   const navHeading = documentRef.createElement("h2");
   navHeading.id = "v2-navigation-heading";
   nav.appendChild(navHeading);
-  const navList = documentRef.createElement("ul");
+  const navList = documentRef.createElement("div");
   navList.id = "v2-navigation-list";
   nav.appendChild(navList);
 
@@ -383,7 +383,7 @@
       routeIds.add(routeId);
       if (current) currentRouteIds.add(routeId);
 
-      const row = documentRef.createElement("li");
+      const row = documentRef.createElement("div");
       const button = documentRef.createElement("button");
       button.type = "button";
       button.id = "v2-nav-" + routeId;
@@ -518,6 +518,7 @@
     navHeading.textContent = uiTextFor(language, "Розділи", "Sections");
     navList.replaceChildren(navigationState.fragment);
     currentRouteId = routeId;
+    if (typeof global.showStage1Route === "function") global.showStage1Route(routeId);
   }
 
   function renderProductSurface(

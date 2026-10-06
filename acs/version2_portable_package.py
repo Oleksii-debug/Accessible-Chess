@@ -267,23 +267,32 @@ def _complete_file_identity(first: os.stat_result, second: os.stat_result) -> bo
         first_ino = getattr(first, "st_ino", None)
         second_dev = getattr(second, "st_dev", None)
         second_ino = getattr(second, "st_ino", None)
-        if None in {first_dev, first_ino, second_dev, second_ino}:
+        values = (first_dev, first_ino, second_dev, second_ino)
+        if not all(type(value) is int and value > 0 for value in values):
             return False
         return (first_dev, first_ino) == (second_dev, second_ino)
 
 
-def _stable_change_metadata(st: os.stat_result) -> tuple[int, int] | None:
-    """Return the change metadata required to prove one stable file snapshot.
+def _stable_change_metadata(st: os.stat_result) -> tuple[int, ...] | None:
+    """Return platform-reliable change metadata for one stable file snapshot.
 
     File identity plus byte size does not detect a same-length in-place rewrite
-    of an already-open inode. Supported Windows/Linux runtimes expose
-    nanosecond mtime and ctime; if either is unavailable, fail closed instead
-    of weakening portable-package integrity.
+    of an already-open inode. On POSIX, mtime_ns + ctime_ns provide independent
+    mutation metadata. On Windows, st_ctime_ns is the file creation timestamp,
+    not a mutation/change timestamp, and path-stat versus handle-fstat values
+    are not a portable stability signal; use the reliable nanosecond mtime only.
+    If the supported mutation metadata is unavailable, fail closed instead of
+    weakening the portable-package integrity boundary.
     """
 
     mtime_ns = getattr(st, "st_mtime_ns", None)
+    if type(mtime_ns) is not int or mtime_ns < 0:
+        return None
+    if os.name == "nt":
+        return (mtime_ns,)
+
     ctime_ns = getattr(st, "st_ctime_ns", None)
-    if type(mtime_ns) is not int or type(ctime_ns) is not int:
+    if type(ctime_ns) is not int or ctime_ns < 0:
         return None
     return mtime_ns, ctime_ns
 
@@ -291,7 +300,15 @@ def _stable_change_metadata(st: os.stat_result) -> tuple[int, int] | None:
 def _same_file_snapshot(first: os.stat_result, second: os.stat_result) -> bool:
     if not _complete_file_identity(first, second):
         return False
-    if getattr(first, "st_size", None) != getattr(second, "st_size", None):
+    first_size = getattr(first, "st_size", None)
+    second_size = getattr(second, "st_size", None)
+    if (
+        type(first_size) is not int
+        or type(second_size) is not int
+        or first_size < 0
+        or second_size < 0
+        or first_size != second_size
+    ):
         return False
     first_change = _stable_change_metadata(first)
     second_change = _stable_change_metadata(second)
@@ -337,10 +354,36 @@ def _stable_digest(path: Path, *, label: str, maximum: int | None = None) -> str
     return digest.hexdigest()
 
 
-def _same_identity_and_size(first: os.stat_result, second: os.stat_result) -> bool:
+def _same_publication_snapshot(first: os.stat_result, second: os.stat_result) -> bool:
+    """Compare content-stable metadata across hard-link namespace changes.
+
+    Creating or removing a POSIX hard link legitimately changes inode ctime
+    because the link count changes. Content mtime does not change for those
+    namespace operations, so publication continuity requires exact identity,
+    byte size and an available/equal nanosecond mtime while deliberately not
+    comparing ctime at this boundary.
+    """
+
+    if not _complete_file_identity(first, second):
+        return False
+    first_size = getattr(first, "st_size", None)
+    second_size = getattr(second, "st_size", None)
+    if (
+        type(first_size) is not int
+        or type(second_size) is not int
+        or first_size < 0
+        or second_size < 0
+        or first_size != second_size
+    ):
+        return False
+    first_mtime = getattr(first, "st_mtime_ns", None)
+    second_mtime = getattr(second, "st_mtime_ns", None)
     return (
-        _complete_file_identity(first, second)
-        and getattr(first, "st_size", None) == getattr(second, "st_size", None)
+        type(first_mtime) is int
+        and type(second_mtime) is int
+        and first_mtime >= 0
+        and second_mtime >= 0
+        and first_mtime == second_mtime
     )
 
 
@@ -357,7 +400,7 @@ def _fsync_file_snapshot(
             opened = os.fstat(handle.fileno())
             if (
                 not stat.S_ISREG(opened.st_mode)
-                or not _same_identity_and_size(expected, opened)
+                or not _same_file_snapshot(expected, opened)
             ):
                 _fail(f"{label} changed before durability confirmation")
             handle.flush()
@@ -369,8 +412,8 @@ def _fsync_file_snapshot(
         _fail(f"{label} could not be synchronized: {type(exc).__name__}")
     after = _safe_info(path, label=label, directory=False)
     if (
-        not _same_identity_and_size(expected, flushed)
-        or not _same_identity_and_size(expected, after)
+        not _same_file_snapshot(expected, flushed)
+        or not _same_file_snapshot(expected, after)
     ):
         _fail(f"{label} changed during durability confirmation")
     return after
@@ -406,7 +449,7 @@ def _sync_published_zip_namespace(
         if descriptor >= 0:
             os.close(descriptor)
     after = _safe_info(path, label="portable ZIP publication", directory=False)
-    if not _same_identity_and_size(expected, after):
+    if not _same_file_snapshot(expected, after):
         _fail("portable ZIP publication changed during durability confirmation")
     return after
 
@@ -649,11 +692,17 @@ def validate_portable_oneclick_tree(
     for name in doc_names:
         _safe_info(root / name, label="portable Word document", directory=False)
 
-    root_docx = tuple(
-        path.name
-        for path in root.iterdir()
-        if path.is_file() and path.name.casefold().endswith(".docx")
-    )
+    root_docx_items: list[str] = []
+    for path in root.iterdir():
+        if not path.name.casefold().endswith(".docx"):
+            continue
+        info = _safe_info(
+            path,
+            label="portable root Word document candidate",
+        )
+        if stat.S_ISREG(info.st_mode):
+            root_docx_items.append(path.name)
+    root_docx = tuple(root_docx_items)
     if {name.casefold() for name in root_docx} != {name.casefold() for name in doc_names}:
         _fail("portable package root must contain exactly the declared two Word documents")
     _validate_root_topology(root, doc_names)
@@ -680,6 +729,23 @@ def validate_portable_oneclick_tree(
     for relative in inventory:
         path = root.joinpath(*PurePosixPath(relative).parts)
         total_bytes += _safe_info(path, label="portable package file", directory=False).st_size
+
+    # Close the acceptance window after all report construction reads.  A
+    # coherent late rewrite of a member plus SHA256SUMS must not turn bytes
+    # different from the originally qualified package into a successful report.
+    final_inventory = _relative_files(root)
+    if final_inventory != inventory:
+        _fail("portable package inventory changed during validation")
+    final_checksums, final_checksum_sha256 = _checksum_inventory(
+        root,
+        final_inventory,
+    )
+    if (
+        final_checksums != checksums
+        or final_checksum_sha256 != checksum_sha256
+    ):
+        _fail("portable package checksum authority changed during validation")
+
     return Version2PortablePackageReport(
         package_root=root,
         integration_sha=sha,
@@ -971,6 +1037,11 @@ def write_portable_oneclick_zip(
                 with source.open("rb") as source_handle, archive.open(info, "w", force_zip64=True) as target_handle:
                     shutil.copyfileobj(source_handle, target_handle, length=_COPY_CHUNK_BYTES)
 
+        readback_before = _safe_info(
+            temporary,
+            label="portable ZIP archive readback",
+            directory=False,
+        )
         with zipfile.ZipFile(temporary, "r") as archive:
             infos = archive.infolist()
             names = tuple(item.filename for item in infos)
@@ -991,15 +1062,19 @@ def write_portable_oneclick_zip(
                 if expected_digest is None or digest.hexdigest() != expected_digest:
                     _fail("portable ZIP byte readback failed")
 
+        readback_after = _safe_info(
+            temporary,
+            label="portable ZIP archive readback",
+            directory=False,
+        )
+        if not _same_file_snapshot(readback_before, readback_after):
+            _fail("portable ZIP archive changed during readback")
+
         # Bind the archive readback to one durable temp-file snapshot before
         # creating the public hard link.  The final digest must later equal
         # these exact bytes; hashing only the public pathname after os.link()
         # would otherwise accept a same-inode post-link rewrite.
-        prepared = _safe_info(
-            temporary,
-            label="verified portable ZIP archive",
-            directory=False,
-        )
+        prepared = readback_after
         prepared = _fsync_file_snapshot(
             temporary,
             expected=prepared,
@@ -1010,6 +1085,8 @@ def write_portable_oneclick_zip(
             label="verified portable ZIP archive",
             directory=False,
         )
+        if not _same_file_snapshot(prepared, verified_before_digest):
+            _fail("verified portable ZIP archive changed after durability confirmation")
         verified_archive_sha = _stable_digest(
             temporary,
             label="verified portable ZIP archive",
@@ -1023,10 +1100,12 @@ def write_portable_oneclick_zip(
             _fail("verified portable ZIP archive changed after readback")
 
         published_identity: os.stat_result | None = None
+        link_created = False
         publication_accepted = False
         try:
             try:
                 os.link(temporary, target)
+                link_created = True
             except OSError as exc:
                 _fail(f"portable ZIP could not be published without replacement: {type(exc).__name__}")
 
@@ -1041,10 +1120,10 @@ def write_portable_oneclick_zip(
                 directory=False,
             )
             if (
-                not _same_identity_and_size(verified_snapshot, linked_temporary)
-                or not _same_identity_and_size(linked_temporary, linked_target)
+                not _same_publication_snapshot(verified_snapshot, linked_temporary)
+                or not _same_publication_snapshot(linked_temporary, linked_target)
             ):
-                _fail("portable ZIP publication is not the verified archive inode")
+                _fail("portable ZIP publication is not the verified archive snapshot")
             published_identity = linked_target
 
             temporary.unlink()
@@ -1053,7 +1132,7 @@ def write_portable_oneclick_zip(
                 label="portable ZIP publication",
                 directory=False,
             )
-            if not _same_identity_and_size(published_identity, published):
+            if not _same_publication_snapshot(published_identity, published):
                 _fail("portable ZIP publication changed before durability confirmation")
             published = _sync_published_zip_namespace(
                 target,
@@ -1085,10 +1164,15 @@ def write_portable_oneclick_zip(
                 checksum_sha256=checksum_file_digest,
             )
         finally:
-            if not publication_accepted and published_identity is not None:
+            if not publication_accepted and link_created:
+                cleanup_identity = (
+                    published_identity
+                    if published_identity is not None
+                    else verified_snapshot
+                )
                 try:
                     current = target.lstat()
-                    if _complete_file_identity(published_identity, current):
+                    if _complete_file_identity(cleanup_identity, current):
                         target.unlink()
                 except OSError:
                     # Never let cleanup obscure the fail-closed publication
@@ -1097,7 +1181,9 @@ def write_portable_oneclick_zip(
     finally:
         try:
             temporary.unlink()
-        except FileNotFoundError:
+        except OSError:
+            # Best-effort temp cleanup must never replace the primary
+            # fail-closed publication error with a secondary unlink failure.
             pass
 
 

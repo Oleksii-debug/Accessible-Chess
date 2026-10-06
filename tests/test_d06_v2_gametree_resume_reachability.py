@@ -4,9 +4,15 @@ from pathlib import Path
 from types import SimpleNamespace
 import tempfile
 import unittest
+from unittest import mock
 
 from acs.gametree_navigation import GameTreeCursor
-from acs.gametree_resume import GameTreeResumeCode, GameTreeResumeError, GameTreeResumeStore
+from acs.gametree_resume import (
+    GameTreeResumeCode,
+    GameTreeResumeDurabilityUnknownError,
+    GameTreeResumeError,
+    GameTreeResumeStore,
+)
 from acs.pgn_document import PgnDocumentSession
 from acs.pgn_roundtrip import parse_pgn_text
 from acs.pgn_workspace import PgnWorkspace
@@ -182,6 +188,81 @@ class D06V2GameTreeResumeReachabilityTests(unittest.TestCase):
 
         self.assertTrue(event.Cancel)
         self.assertEqual(order, ["confirm"])
+
+
+    def test_uncertain_clean_close_adopts_published_token_and_retry_advances_cas(self):
+        app = _Application()
+        app.session = self._clean_session(GameTreeCursor((), 2))
+        coordinator = Version2GameTreeResumeCoordinator(self.resume_path)
+
+        with mock.patch(
+            "acs.gametree_resume._fsync_directory",
+            side_effect=OSError("simulated directory durability failure"),
+        ):
+            with self.assertRaises(
+                GameTreeResumeDurabilityUnknownError
+            ) as caught:
+                coordinator.prepare_shutdown(app)
+
+        uncertain = caught.exception
+        self.assertEqual(
+            uncertain.code,
+            GameTreeResumeCode.DURABILITY_UNKNOWN,
+        )
+        self.assertEqual(coordinator.token, uncertain.published_token)
+        self.assertEqual(uncertain.published_generation, 1)
+
+        visible = GameTreeResumeStore(self.resume_path).load()
+        self.assertEqual(visible.token, coordinator.token)
+        self.assertEqual(visible.generation, 1)
+        self.assertEqual(visible.cursor, GameTreeCursor((), 2))
+
+        coordinator.prepare_shutdown(app)
+        retried = GameTreeResumeStore(self.resume_path).load()
+        self.assertEqual(retried.generation, 2)
+        self.assertEqual(coordinator.token, retried.token)
+        self.assertNotEqual(retried.token, uncertain.published_token)
+
+    def test_native_close_cancels_uncertain_publication_then_clean_retry_succeeds(self):
+        app = _Application()
+        app.session = self._clean_session(GameTreeCursor((), 3))
+        app.shutdown = lambda: True
+        coordinator = Version2GameTreeResumeCoordinator(self.resume_path)
+        owner = _Owner()
+        dialogs = SimpleNamespace(
+            confirm_discard_unsaved_pgn_on_exit=lambda: True,
+        )
+        _install_unsaved_pgn_close_guard(
+            app,
+            owner,
+            dialogs,
+            before_shutdown=coordinator.prepare_shutdown,
+        )
+
+        first_event = SimpleNamespace(Cancel=False)
+        with mock.patch(
+            "acs.gametree_resume._fsync_directory",
+            side_effect=OSError("simulated post-publication sync failure"),
+        ):
+            owner.FormClosing.fire(first_event)
+
+        self.assertTrue(first_event.Cancel)
+        error = getattr(app, "_native_close_resume_error")
+        self.assertIsInstance(error, GameTreeResumeDurabilityUnknownError)
+        self.assertEqual(error.code, GameTreeResumeCode.DURABILITY_UNKNOWN)
+        self.assertEqual(coordinator.token, error.published_token)
+        first_visible = GameTreeResumeStore(self.resume_path).load()
+        self.assertEqual(first_visible.generation, 1)
+        self.assertEqual(first_visible.token, error.published_token)
+
+        second_event = SimpleNamespace(Cancel=False)
+        owner.FormClosing.fire(second_event)
+
+        self.assertFalse(second_event.Cancel)
+        self.assertTrue(app._native_close_shutdown_complete)
+        second_visible = GameTreeResumeStore(self.resume_path).load()
+        self.assertEqual(second_visible.generation, 2)
+        self.assertEqual(second_visible.token, coordinator.token)
 
 
 if __name__ == "__main__":

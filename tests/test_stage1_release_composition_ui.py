@@ -780,7 +780,7 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
             "sound-settings", "sound-enabled", "sound-newgame-animation", "sound-volume",
             "sound-tick-policy", "sound-tick-last-seconds",
             "sound-low-time-policy", "sound-low-time-seconds",
-            "sound-preview-event", "sound-variant", "sound-preview",
+            "move-error-announcements",
             "sound-settings-status",
         ):
             self.assertIn(element_id, text)
@@ -792,11 +792,11 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
         self.assertIn("a.set_clock_sound_last_seconds", text)
         self.assertIn("a.set_low_time_policy", text)
         self.assertIn("a.set_low_time_seconds", text)
-        self.assertIn("a.set_sound_variant", text)
-        self.assertIn("a.preview_sound", text)
+        self.assertIn("a.set_move_error_announcements", text)
+        self.assertNotIn("sound-preview", text)
+        self.assertNotIn("a.preview_sound", text)
         self.assertIn("mate:'Мат'", text)
         self.assertIn("draw:'Нічия'", text)
-        self.assertIn("'mate','draw','tick','low_time'", text)
         self.assertIn("low_time:'Мало часу'", text)
         self.assertIn("status.setAttribute('aria-live', 'off')", text)
         self.assertNotIn("role', 'status", text)

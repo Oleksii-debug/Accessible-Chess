@@ -34,9 +34,136 @@ class SurfaceStatus(str, Enum):
     ERROR = "error"
 
 
+_MAX_LIBRARY_PROVIDER_TEXT = 65536
+_MAX_LIBRARY_BROWSER_INTEGER = (1 << 53) - 1
+_MAX_LIBRARY_STORAGE_INTEGER = (1 << 63) - 1
+
+
+def _canonical_library_text(
+    value: object,
+    *,
+    name: str,
+    optional: bool,
+) -> str | None:
+    if value is None and optional:
+        return None
+    if type(value) is not str:
+        suffix = " or null" if optional else ""
+        raise TypeError(f"library {name} must be text{suffix}")
+    if len(value) > _MAX_LIBRARY_PROVIDER_TEXT:
+        raise ValueError(f"library {name} exceeds the presentation text budget")
+    return value
+
+
+def _canonical_library_item(item: object) -> GameSearchItem:
+    """Copy one provider-owned search DTO into passive presenter-owned data."""
+    if type(item) is not GameSearchItem:
+        raise TypeError("library search item must be GameSearchItem")
+
+    for name, minimum, maximum in (
+        ("game_id", 1, _MAX_LIBRARY_BROWSER_INTEGER),
+        ("source_id", 1, _MAX_LIBRARY_STORAGE_INTEGER),
+        ("source_index", 0, _MAX_LIBRARY_STORAGE_INTEGER),
+    ):
+        value = getattr(item, name)
+        if type(value) is not int or not minimum <= value <= maximum:
+            raise ValueError(f"library {name} is invalid")
+
+    required = {
+        "source_name": _canonical_library_text(
+            item.source_name, name="source_name", optional=False
+        ),
+        "source_format": _canonical_library_text(
+            item.source_format, name="source_format", optional=False
+        ),
+        "import_status": _canonical_library_text(
+            item.import_status, name="import_status", optional=False
+        ),
+    }
+    optional = {
+        name: _canonical_library_text(
+            getattr(item, name),
+            name=name,
+            optional=True,
+        )
+        for name in (
+            "white",
+            "black",
+            "event",
+            "site",
+            "game_date",
+            "round",
+            "result",
+            "eco",
+            "opening",
+            "start_fen",
+        )
+    }
+    return GameSearchItem(
+        game_id=item.game_id,
+        source_id=item.source_id,
+        source_name=required["source_name"],
+        source_format=required["source_format"],
+        source_index=item.source_index,
+        import_status=required["import_status"],
+        white=optional["white"],
+        black=optional["black"],
+        event=optional["event"],
+        site=optional["site"],
+        game_date=optional["game_date"],
+        round=optional["round"],
+        result=optional["result"],
+        eco=optional["eco"],
+        opening=optional["opening"],
+        start_fen=optional["start_fen"],
+    )
+
+
+def _canonical_library_page(
+    page: object,
+    *,
+    query: GameSearchQuery,
+) -> GameSearchPage:
+    """Validate and detach one canonical keyset page before presenter commit."""
+    if type(page) is not GameSearchPage:
+        raise TypeError("library search provider must return GameSearchPage")
+    if type(page.items) is not tuple:
+        raise TypeError("library search page items must be a tuple")
+    if len(page.items) > query.limit:
+        raise ValueError("library search page exceeds the requested limit")
+    if type(page.has_more) is not bool:
+        raise TypeError("library search page has_more must be boolean")
+
+    items = tuple(_canonical_library_item(item) for item in page.items)
+    previous_id = 0
+    for item in items:
+        if item.game_id <= previous_id:
+            raise ValueError("library search page game ids must be strictly increasing")
+        previous_id = item.game_id
+
+    cursor = page.next_after_game_id
+    if page.has_more:
+        if not items:
+            raise ValueError("library search continuation requires a non-empty page")
+        if type(cursor) is not int or cursor != items[-1].game_id:
+            raise ValueError("library search continuation cursor is inconsistent")
+    elif cursor is not None:
+        raise ValueError("terminal library search page must not expose a cursor")
+
+    return GameSearchPage(
+        items=items,
+        next_after_game_id=cursor,
+        has_more=page.has_more,
+    )
+
+
 def _safe_source_label(value: object) -> str:
     """Keep useful source identity without projecting local directory paths."""
-    text = str(value or "").strip()
+    if type(value) is not str:
+        raise TypeError("library source label must be text")
+    if len(value) > _MAX_LIBRARY_PROVIDER_TEXT:
+        raise ValueError("library source label exceeds the presentation text budget")
+    text = value.strip()
     if not text:
         return ""
     if "/" in text or "\\" in text:
@@ -91,6 +218,16 @@ class PgnGameView:
     selected_node_id: str | None
 
 
+@dataclass(frozen=True, slots=True)
+class _PgnPresenterState:
+    """Rollback-only state for one not-yet-published browser transition."""
+
+    language: UILanguage
+    game_index: int
+    selected_node_id: str | None
+    items: tuple[PgnTreeItem, ...]
+
+
 class PgnTreePresenter:
     """Read-only recursive projection plus canonical edit-command dispatch.
 
@@ -136,6 +273,23 @@ class PgnTreePresenter:
     @property
     def status(self) -> SurfaceStatus:
         return SurfaceStatus.READY if self._games else SurfaceStatus.EMPTY
+
+    def _capture_presentation_state(self) -> _PgnPresenterState:
+        """Capture transient PGN cursor/locale state for WebView publication rollback."""
+        return _PgnPresenterState(
+            language=self._language,
+            game_index=self._game_index,
+            selected_node_id=self._selected_node_id,
+            items=self._items,
+        )
+
+    def _restore_presentation_state(self, state: _PgnPresenterState) -> None:
+        if type(state) is not _PgnPresenterState:
+            raise TypeError("PGN presentation rollback state is invalid")
+        self._language = state.language
+        self._game_index = state.game_index
+        self._selected_node_id = state.selected_node_id
+        self._items = state.items
 
     def set_language(self, language: UILanguage) -> None:
         """Rebuild localized labels transactionally before publishing the locale."""
@@ -436,14 +590,23 @@ class LibraryPresenter:
         self._message = state.message
 
     def set_language(self, language: UILanguage) -> None:
+        if type(language) is not UILanguage:
+            raise TypeError("library presenter language must be UILanguage")
         self._language = language
 
     def search(self, query: GameSearchQuery | None = None) -> LibraryView:
-        q = (query or GameSearchQuery()).normalized()
+        if query is None:
+            q = GameSearchQuery().normalized()
+        elif type(query) is GameSearchQuery:
+            q = query.normalized()
+        else:
+            raise TypeError("library search query must be GameSearchQuery")
+
+        previous = self._capture_presentation_state()
         self._status = SurfaceStatus.LOADING
         self._message = ""
         try:
-            page = self._service.search(q)
+            raw_page = self._service.search(q)
         except Exception as exc:
             self._pages = []
             self._page_index = -1
@@ -451,6 +614,16 @@ class LibraryPresenter:
             self._status = SurfaceStatus.ERROR
             self._message = concise_user_error(exc, language=self._language)
             return self.view()
+        except BaseException:
+            self._restore_presentation_state(previous)
+            raise
+
+        try:
+            page = _canonical_library_page(raw_page, query=q)
+        except BaseException:
+            self._restore_presentation_state(previous)
+            raise
+
         self._pages = [(q, page)]
         self._page_index = 0
         self._status = SurfaceStatus.READY if page.items else SurfaceStatus.EMPTY
@@ -482,13 +655,24 @@ class LibraryPresenter:
             self._pages[self._page_index][0],
             after_game_id=current.next_after_game_id,
         )
+        previous = self._capture_presentation_state()
         self._status = SurfaceStatus.LOADING
         try:
-            page = self._service.search(query)
+            raw_page = self._service.search(query)
         except Exception as exc:
             self._status = SurfaceStatus.ERROR
             self._message = concise_user_error(exc, language=self._language)
             return self.view()
+        except BaseException:
+            self._restore_presentation_state(previous)
+            raise
+
+        try:
+            page = _canonical_library_page(raw_page, query=query)
+        except BaseException:
+            self._restore_presentation_state(previous)
+            raise
+
         self._pages.append((query, page))
         self._page_index += 1
         self._status = SurfaceStatus.READY if page.items else SurfaceStatus.EMPTY
@@ -509,6 +693,12 @@ class LibraryPresenter:
         return self.view()
 
     def select(self, game_id: int) -> LibraryView:
+        if (
+            type(game_id) is not int
+            or game_id <= 0
+            or game_id > _MAX_LIBRARY_BROWSER_INTEGER
+        ):
+            raise ValueError("library game id must be a browser-safe positive integer")
         page = self.current_page()
         if page is None or game_id not in {item.game_id for item in page.items}:
             raise LookupError("Game is not present on the current library page")
@@ -538,6 +728,8 @@ class LibraryPresenter:
         )
 
     def _row(self, item: GameSearchItem) -> LibraryRowView:
+        if type(item) is not GameSearchItem:
+            raise TypeError("library cached search item is invalid")
         white = item.white or _localized(self._language, "невідомо", "unknown")
         black = item.black or _localized(self._language, "невідомо", "unknown")
         result = item.result or "*"

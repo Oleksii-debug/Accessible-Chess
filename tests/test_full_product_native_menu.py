@@ -238,6 +238,54 @@ class FullProductNativeMenuTests(unittest.TestCase):
         self.assertEqual("Попередня позиція", ua_labels["book.previous_position"])
         self.assertEqual("Попередня партія в книзі", ua_labels["book.previous_game"])
 
+    def test_pgn_menu_exposes_cancel_open_for_keyboard_and_nvda(self) -> None:
+        controller, calls, commands, _exits = make_controller()
+        pgn_menu = next(menu for menu in controller.spec() if menu.menu_id == "pgn")
+        cancel_item = next(
+            item for item in pgn_menu.items
+            if item.action_id == "pgn.cancel_open"
+        )
+        self.assertEqual("Cancel PGN Open", cancel_item.label)
+        command = controller.activate(cancel_item)
+        self.assertEqual("delegated", command.kind)
+        self.assertEqual([("pgn.cancel_open", {})], calls)
+        self.assertEqual([command], commands)
+
+        ua = build_full_product_menu_spec(
+            build_full_product_action_registry(),
+            language=UILanguage.UA,
+        )
+        ua_pgn = next(menu for menu in ua if menu.menu_id == "pgn")
+        ua_cancel = next(
+            item for item in ua_pgn.items
+            if item.action_id == "pgn.cancel_open"
+        )
+        self.assertEqual("Скасувати відкриття PGN", ua_cancel.label)
+
+    def test_pgn_menu_exposes_cancel_save_for_keyboard_and_nvda(self) -> None:
+        controller, calls, commands, _exits = make_controller()
+        pgn_menu = next(menu for menu in controller.spec() if menu.menu_id == "pgn")
+        cancel_item = next(
+            item for item in pgn_menu.items
+            if item.action_id == "pgn.cancel_save"
+        )
+        self.assertEqual("Cancel PGN Save", cancel_item.label)
+        command = controller.activate(cancel_item)
+        self.assertEqual("delegated", command.kind)
+        self.assertEqual([("pgn.cancel_save", {})], calls)
+        self.assertEqual([command], commands)
+
+        ua = build_full_product_menu_spec(
+            build_full_product_action_registry(),
+            language=UILanguage.UA,
+        )
+        ua_pgn = next(menu for menu in ua if menu.menu_id == "pgn")
+        ua_cancel = next(
+            item for item in ua_pgn.items
+            if item.action_id == "pgn.cancel_save"
+        )
+        self.assertEqual("Скасувати збереження PGN", ua_cancel.label)
+
     def test_books_menu_exposes_cancel_open_for_keyboard_and_nvda(self) -> None:
         controller, calls, commands, _exits = make_controller()
         books_menu = next(menu for menu in controller.spec() if menu.menu_id == "books")

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import hashlib
 import unittest
+from unittest.mock import patch
 
 from acs.gametree import Comment, MoveNode, VariationLine
 from acs.gametree_annotations import (
@@ -49,6 +51,40 @@ class ProfessionalPgnWorkspaceTests(unittest.TestCase):
         reopened = PgnWorkspace.from_bytes(DOCUMENT.encode("utf-8"))
         self.assertEqual(reopened.to_text(), self.workspace.to_text())
         self.assertEqual(reopened.to_bytes(), self.workspace.to_bytes())
+
+    def test_validated_content_digest_reads_do_not_reserialize_document(self):
+        digest = self.workspace.content_digest
+        self.assertEqual(
+            digest,
+            hashlib.sha256(self.workspace.to_text().encode("utf-8")).hexdigest(),
+        )
+
+        with patch(
+            "acs.pgn_workspace.serialize_pgn_text",
+            side_effect=AssertionError(
+                "validated workspace digest reads must use the cached authority"
+            ),
+        ) as serializer:
+            self.assertEqual(self.workspace.content_digest, digest)
+            self.assertEqual(self.workspace.view().content_digest, digest)
+            self.workspace.next_game()
+            self.assertEqual(self.workspace.content_digest, digest)
+
+        serializer.assert_not_called()
+
+        self.workspace.select_game(0)
+        game = self.workspace.current_game()
+        target = move_annotation_target(game, (), 0)
+        self.workspace.edit_move_annotations(
+            target,
+            MoveAnnotationPatch(comments_after=(Comment("digest cache edit"),)),
+        )
+        self.assertNotEqual(self.workspace.content_digest, digest)
+        self.assertEqual(
+            self.workspace.content_digest,
+            hashlib.sha256(self.workspace.to_text().encode("utf-8")).hexdigest(),
+        )
+        self.assertTrue(self.workspace.dirty)
 
     def test_external_game_copy_cannot_mutate_workspace(self):
         before = self.workspace.to_text()
@@ -131,6 +167,27 @@ class ProfessionalPgnWorkspaceTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, PgnWorkspaceErrorCode.NO_VARIATION)
         self.assertEqual(self.workspace.view(), before)
 
+    def test_exact_content_revert_returns_to_clean_cached_baseline(self):
+        baseline = self.workspace.content_digest
+        game = self.workspace.current_game()
+        target = move_annotation_target(game, (), 0)
+        self.workspace.edit_move_annotations(
+            target,
+            MoveAnnotationPatch(nags=("!",)),
+        )
+        self.assertTrue(self.workspace.dirty)
+        self.assertNotEqual(self.workspace.content_digest, baseline)
+
+        fresh = move_annotation_target(self.workspace.current_game(), (), 0)
+        self.workspace.edit_move_annotations(
+            fresh,
+            MoveAnnotationPatch(nags=()),
+        )
+
+        self.assertEqual(self.workspace.content_digest, baseline)
+        self.assertFalse(self.workspace.dirty)
+        self.assertEqual(self.workspace.content_revision, 2)
+
     def test_annotation_edit_marks_dirty_increments_revision_and_preserves_other_game(self):
         other_before = deepcopy(self.workspace.games()[1])
         game = self.workspace.current_game()
@@ -149,6 +206,155 @@ class ProfessionalPgnWorkspaceTests(unittest.TestCase):
         self.workspace.mark_saved()
         self.assertFalse(self.workspace.dirty)
         self.assertEqual(self.workspace.content_revision, 1)
+
+    def test_mark_saved_failure_does_not_leave_workspace_falsely_clean(self):
+        game = self.workspace.current_game()
+        target = move_annotation_target(game, (), 0)
+        self.workspace.edit_move_annotations(
+            target,
+            MoveAnnotationPatch(comments_after=(Comment("pending save"),)),
+        )
+        self.assertTrue(self.workspace.dirty)
+        baseline_before = self.workspace._baseline_digest
+        revision_before = self.workspace.content_revision
+        digest_before = self.workspace.content_digest
+
+        with patch(
+            "acs.pgn_workspace.identity_for_game",
+            side_effect=RuntimeError("semantic identity unavailable"),
+        ):
+            with self.assertRaises(RuntimeError):
+                self.workspace.mark_saved()
+
+        self.assertTrue(self.workspace.dirty)
+        self.assertEqual(self.workspace._baseline_digest, baseline_before)
+        self.assertEqual(self.workspace.content_revision, revision_before)
+        self.assertEqual(self.workspace.content_digest, digest_before)
+
+    def test_bounded_saved_checkpoint_skips_record_identity_projection(self):
+        game = self.workspace.current_game()
+        target = move_annotation_target(game, (), 0)
+        self.workspace.edit_move_annotations(
+            target,
+            MoveAnnotationPatch(comments_after=(Comment("bounded checkpoint"),)),
+        )
+        persisted_digest = self.workspace.content_digest
+
+        with patch(
+            "acs.pgn_workspace.identity_for_game",
+            side_effect=AssertionError(
+                "bounded persistence checkpoint must not build record identity"
+            ),
+        ) as identity:
+            dirty = self.workspace._checkpoint_saved_digest(persisted_digest)
+
+        identity.assert_not_called()
+        self.assertFalse(dirty)
+        self.assertFalse(self.workspace.dirty)
+        self.assertEqual(self.workspace._baseline_digest, persisted_digest)
+
+    def test_bounded_saved_checkpoint_keeps_newer_generation_dirty_without_identity(self):
+        game = self.workspace.current_game()
+        target = move_annotation_target(game, (), 0)
+        self.workspace.edit_move_annotations(
+            target,
+            MoveAnnotationPatch(nags=("!",)),
+        )
+        persisted_digest = self.workspace.content_digest
+        newer = move_annotation_target(self.workspace.current_game(), (), 0)
+        self.workspace.edit_move_annotations(
+            newer,
+            MoveAnnotationPatch(nags=("?",)),
+        )
+
+        with patch(
+            "acs.pgn_workspace.identity_for_game",
+            side_effect=AssertionError(
+                "bounded persistence checkpoint must not build record identity"
+            ),
+        ) as identity:
+            dirty = self.workspace._checkpoint_saved_digest(persisted_digest)
+
+        identity.assert_not_called()
+        self.assertTrue(dirty)
+        self.assertTrue(self.workspace.dirty)
+        self.assertEqual(self.workspace._baseline_digest, persisted_digest)
+
+    def test_bounded_saved_checkpoint_rejects_invalid_digest_without_mutation(self):
+        baseline_before = self.workspace._baseline_digest
+        dirty_before = self.workspace.dirty
+        revision_before = self.workspace.content_revision
+
+        with self.assertRaises(TypeError):
+            self.workspace._checkpoint_saved_digest("not-a-canonical-digest")
+
+        self.assertEqual(self.workspace._baseline_digest, baseline_before)
+        self.assertEqual(self.workspace.dirty, dirty_before)
+        self.assertEqual(self.workspace.content_revision, revision_before)
+
+    def test_persisted_digest_rebase_keeps_newer_content_dirty_and_revert_clean(self):
+        game = self.workspace.current_game()
+        target = move_annotation_target(game, (), 0)
+        self.workspace.edit_move_annotations(
+            target,
+            MoveAnnotationPatch(nags=("!",)),
+        )
+        persisted_digest = self.workspace.content_digest
+        baseline_before = self.workspace._baseline_digest
+
+        newer = move_annotation_target(self.workspace.current_game(), (), 0)
+        self.workspace.edit_move_annotations(
+            newer,
+            MoveAnnotationPatch(nags=("?",)),
+        )
+        self.assertNotEqual(self.workspace.content_digest, persisted_digest)
+        self.assertTrue(self.workspace.dirty)
+
+        rebased = self.workspace._rebase_saved_digest(persisted_digest)
+
+        self.assertTrue(rebased.dirty)
+        self.assertTrue(self.workspace.dirty)
+        self.assertNotEqual(self.workspace._baseline_digest, baseline_before)
+        self.assertEqual(self.workspace._baseline_digest, persisted_digest)
+
+        revert = move_annotation_target(self.workspace.current_game(), (), 0)
+        reverted = self.workspace.edit_move_annotations(
+            revert,
+            MoveAnnotationPatch(nags=("!",)),
+        )
+        self.assertEqual(self.workspace.content_digest, persisted_digest)
+        self.assertFalse(reverted.dirty)
+        self.assertFalse(self.workspace.dirty)
+
+    def test_persisted_digest_rebase_rejects_invalid_digest_without_mutation(self):
+        baseline_before = self.workspace._baseline_digest
+        dirty_before = self.workspace.dirty
+        revision_before = self.workspace.content_revision
+
+        with self.assertRaises(TypeError):
+            self.workspace._rebase_saved_digest("not-a-canonical-digest")
+
+        self.assertEqual(self.workspace._baseline_digest, baseline_before)
+        self.assertEqual(self.workspace.dirty, dirty_before)
+        self.assertEqual(self.workspace.content_revision, revision_before)
+
+    def test_unsaved_baseline_stays_dirty_through_content_edits_until_saved(self):
+        self.workspace._rebase_saved_digest(None)
+        self.assertTrue(self.workspace.dirty)
+
+        game = self.workspace.current_game()
+        target = move_annotation_target(game, (), 0)
+        edited = self.workspace.edit_move_annotations(
+            target,
+            MoveAnnotationPatch(nags=("!",)),
+        )
+        self.assertTrue(edited.dirty)
+        self.assertTrue(self.workspace.dirty)
+
+        saved = self.workspace.mark_saved()
+        self.assertFalse(saved.dirty)
+        self.assertFalse(self.workspace.dirty)
+        self.assertEqual(self.workspace._baseline_digest, self.workspace.content_digest)
 
     def test_stale_annotation_target_fails_without_partial_workspace_mutation(self):
         game = self.workspace.current_game()

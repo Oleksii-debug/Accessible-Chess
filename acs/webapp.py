@@ -10,6 +10,7 @@ to be consumed by NVDA browse/focus mode rather than by a self-voicing GUI.
 
 from pathlib import Path
 import copy
+import re
 import sys
 from typing import Any
 
@@ -17,7 +18,7 @@ from .chesscore import Board, parse_sq, sq_name, color_of
 from .history import HistoryError, ReviewHistory
 from .input_limits import MAX_FEN_CHARS
 from .move_entry import MAX_MOVE_ENTRY_CHARS
-from .notation import format_accessible_compact_san
+from .notation import format_accessible_compact_san, format_san
 from .position_text import parse_position_text
 from .ui_review_adapter import ReviewPresentationAdapter
 
@@ -75,12 +76,12 @@ class AccessibleChessAPI:
             "ready": "Готово. Документ доступності завантажено.",
             "white_turn": "Хід білих", "black_turn": "Хід чорних",
             "no_moves": "Ходів ще немає", "no_last": "Останнього ходу немає",
-            "selected": "вибрано", "illegal": "Нелегальний хід",
+            "selected": "вибрано", "illegal": "Не вдалося виконати хід",
             "undo_none": "Немає ходу для скасування", "redo_none": "Немає ходу для повторення",
             "setup_incomplete": "Редактор позиції. Додайте рівно по одному білому і чорному королю.",
             "move_text_type": "Текст ходу має бути текстовим значенням.",
             "move_text_too_long": "Текст ходу занадто довгий.",
-            "move_invalid": "Хід не розпізнано або він нелегальний.",
+            "move_invalid": "Не вдалося виконати хід. Перевірте запис і позицію.",
             "square_invalid": "Неправильне поле.",
             "fen_text_type": "FEN має бути текстовим значенням.",
             "fen_text_too_long": "FEN занадто довгий.",
@@ -101,12 +102,12 @@ class AccessibleChessAPI:
             "ready": "Ready. Accessible document loaded.",
             "white_turn": "White to move", "black_turn": "Black to move",
             "no_moves": "No moves yet", "no_last": "No last move",
-            "selected": "selected", "illegal": "Illegal move",
+            "selected": "selected", "illegal": "Could not make the move",
             "undo_none": "No move to undo", "redo_none": "No move to redo",
             "setup_incomplete": "Position editor. Add exactly one white king and one black king.",
             "move_text_type": "Move text must be a text value.",
             "move_text_too_long": "Move text is too long.",
-            "move_invalid": "Move is unrecognized or illegal.",
+            "move_invalid": "Could not make the move. Check the notation and position.",
             "square_invalid": "Invalid square.",
             "fen_text_type": "FEN must be a text value.",
             "fen_text_too_long": "FEN is too long.",
@@ -160,7 +161,7 @@ class AccessibleChessAPI:
                        if p and p.upper() == typ and color_of(p) == color]
             if squares:
                 lines.append(f"{names[typ]}: {', '.join(squares)}")
-        return "\n".join(lines) if lines else ("фігур немає" if self.lang == "uk" else "no pieces")
+        return "; ".join(lines) if lines else ("фігур немає" if self.lang == "uk" else "no pieces")
 
     def _visible_ply_count(self) -> int:
         return min(self.review_adapter.current().ply, len(self.sans))
@@ -435,7 +436,7 @@ class AccessibleChessAPI:
         )
         return {
             "version": VERSION, "lang": self.lang, "mode": self.mode,
-            "gameInfo": f"Version: {VERSION}\n{status}",
+            "gameInfo": status,
             "moves": self._moves_text(),
             "whitePieces": self._pieces_text("w", display_board),
             "blackPieces": self._pieces_text("b", display_board),
@@ -553,7 +554,18 @@ class AccessibleChessAPI:
         try:
             san = candidate_board.push_text(text)
         except ValueError:
-            return self._error(self._t("move_invalid"))
+            # Accept lowercase piece letters at the human-input boundary only.
+            # Try exact SAN first: bxc3 must remain a pawn capture when valid.
+            # PGN/Board parsing and canonical disambiguation stay unchanged.
+            if not re.fullmatch(r"[kqrbn](?:[a-h][1-8]?|[1-8])?x?[a-h][1-8][+#]?", text):
+                return self._error(self._t("move_invalid"))
+            try:
+                candidate_board = copy.deepcopy(self.board)
+                san = candidate_board.push_text(text[0].upper() + text[1:])
+            except ValueError:
+                return self._error(self._t("move_invalid"))
+            except Exception:
+                return self._error(self._t("move_history_failed"))
         except Exception:
             return self._error(self._t("move_history_failed"))
         try:
@@ -587,7 +599,7 @@ class AccessibleChessAPI:
         )
         return self._ok(
             ("Зіграно: " if self.lang == "uk" else "Played: ")
-            + format_accessible_compact_san(san, self.lang)
+            + format_san(san, "uk_literal" if self.lang == "uk" else "en_literal")
         )
 
     def activate_square(self, square: str) -> dict[str, Any]:
@@ -663,7 +675,7 @@ class AccessibleChessAPI:
         )
         return self._ok(
             ("Зіграно: " if self.lang == "uk" else "Played: ")
-            + format_accessible_compact_san(san, self.lang)
+            + format_san(san, "uk_literal" if self.lang == "uk" else "en_literal")
         )
 
     def cancel_selection(self) -> dict[str, Any]:
@@ -719,7 +731,7 @@ class AccessibleChessAPI:
         )
         return self._ok(
             ("Скасовано: " if self.lang == "uk" else "Undone: ")
-            + format_accessible_compact_san(san, self.lang)
+            + format_san(san, "uk_literal" if self.lang == "uk" else "en_literal")
         )
 
     def redo(self) -> dict[str, Any]:
@@ -772,7 +784,7 @@ class AccessibleChessAPI:
         )
         return self._ok(
             ("Повторено: " if self.lang == "uk" else "Redone: ")
-            + format_accessible_compact_san(meta_san, self.lang)
+            + format_san(meta_san, "uk_literal" if self.lang == "uk" else "en_literal")
         )
 
     def set_turn(self, color: str) -> dict[str, Any]:

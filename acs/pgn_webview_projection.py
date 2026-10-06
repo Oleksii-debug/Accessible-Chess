@@ -223,22 +223,18 @@ class PgnWebViewProjection:
             raise TypeError("language must be UILanguage")
 
         previous_language = self._language
-        presenter_changed = False
+        previous_presenter = self._presenter._capture_presentation_state()
         try:
             # PgnTreePresenter stages the complete localized tree before it
-            # commits its own locale. Do not publish the WebView locale until
-            # that presenter transaction succeeds.
+            # commits its own locale. Keep an exact rollback snapshot as well:
+            # a later browser projection abort must not publish the new locale
+            # into the hidden presenter while the user still has the old page.
             self._presenter.set_language(language)
-            presenter_changed = True
             self._language = language
             snapshot = self.snapshot()
-        except Exception:
+        except BaseException:
             self._language = previous_language
-            # If presenter rebuild itself failed, its transaction already left
-            # the previous locale/tree untouched. Only undo a committed presenter
-            # switch when later WebView projection failed.
-            if presenter_changed:
-                self._presenter.set_language(previous_language)
+            self._presenter._restore_presentation_state(previous_presenter)
             raise
         return PgnWebViewEvent("render", snapshot)
 
@@ -540,6 +536,21 @@ class PgnWebViewProjection:
             },
         )
 
+    def _render_presenter_transition(
+        self,
+        operation: Callable[[], object],
+        *,
+        announce: str = "",
+    ) -> PgnWebViewEvent:
+        """Commit PGN cursor/game changes only with a valid browser snapshot."""
+        previous = self._presenter._capture_presentation_state()
+        try:
+            operation()
+            return self._render_event(announce=announce)
+        except BaseException:
+            self._presenter._restore_presentation_state(previous)
+            raise
+
     def select(self, node_id: str) -> PgnWebViewEvent:
         if type(node_id) is not str:
             raise TypeError("PGN node id must be text")
@@ -548,24 +559,23 @@ class PgnWebViewProjection:
         normalized = node_id.strip()
         if not normalized:
             raise ValueError("invalid PGN node id")
-        self._presenter.select(normalized)
-        return self._render_event()
+        return self._render_presenter_transition(
+            lambda: self._presenter.select(normalized)
+        )
 
     def move_selection(self, delta: int) -> PgnWebViewEvent:
-        self._presenter.move_selection(delta)
-        return self._render_event()
+        return self._render_presenter_transition(
+            lambda: self._presenter.move_selection(delta)
+        )
 
     def select_parent(self) -> PgnWebViewEvent:
-        self._presenter.select_parent()
-        return self._render_event()
+        return self._render_presenter_transition(self._presenter.select_parent)
 
     def previous_game(self) -> PgnWebViewEvent:
-        self._presenter.previous_game()
-        return self._render_event()
+        return self._render_presenter_transition(self._presenter.previous_game)
 
     def next_game(self) -> PgnWebViewEvent:
-        self._presenter.next_game()
-        return self._render_event()
+        return self._render_presenter_transition(self._presenter.next_game)
 
     def _dispatch_selected(
         self,
@@ -613,8 +623,11 @@ class PgnWebViewProjection:
     def safe_call(self, method: Callable[[], PgnWebViewEvent]) -> PgnWebViewEvent:
         try:
             return method()
-        except Exception as exc:
+        except BaseException as exc:
+            # Abort-class failures are implementation/control-flow details. Never
+            # call their string conversion while building an NVDA/browser error.
+            source: object = exc if isinstance(exc, Exception) else ""
             return PgnWebViewEvent(
                 "error",
-                {"message": concise_user_error(exc, language=self._language)},
+                {"message": concise_user_error(source, language=self._language)},
             )

@@ -776,6 +776,54 @@ async function clickRoute(routeId) {
     "raw native event focus_target overrode canonical snapshot focus"
   );
 
+  const shutdownFailureMessage =
+    "Accessible Chess could not close safely. The window remains open; try exiting again.";
+  const beforeShutdownErrorSnapshots = snapshotCalls;
+  const beforeShutdownErrorRefreshes = stage1RefreshCalls;
+  eventQueue = [{ kind: "error", payload: { message: shutdownFailureMessage } }];
+  intervalCallback();
+  await flush();
+  await flush();
+  check(
+    live.textContent === shutdownFailureMessage,
+    "native refused-close error did not reach the NVDA live region"
+  );
+  check(
+    snapshotCalls === beforeShutdownErrorSnapshots,
+    "refused-close error triggered an unrelated V2 snapshot refresh"
+  );
+  check(
+    stage1RefreshCalls === beforeShutdownErrorRefreshes,
+    "refused-close error triggered an unrelated Stage 1 repaint"
+  );
+
+  const longRefusedCloseMessage =
+    "Accessible Chess could not close safely. Detailed recovery information: " +
+    "x".repeat(640);
+  check(
+    longRefusedCloseMessage.length > 300 && longRefusedCloseMessage.length < 1200,
+    "long refused-close fixture does not exercise the bounded announcement range"
+  );
+  const beforeLongShutdownSnapshots = snapshotCalls;
+  const beforeLongShutdownRefreshes = stage1RefreshCalls;
+  eventQueue = [{ kind: "error", payload: { message: longRefusedCloseMessage } }];
+  intervalCallback();
+  await flush();
+  await flush();
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  check(
+    live.textContent === longRefusedCloseMessage,
+    "bounded refused-close diagnostic was truncated in the visible/NVDA live region"
+  );
+  check(
+    snapshotCalls === beforeLongShutdownSnapshots,
+    "long refused-close diagnostic triggered an unrelated V2 snapshot refresh"
+  );
+  check(
+    stage1RefreshCalls === beforeLongShutdownRefreshes,
+    "long refused-close diagnostic triggered an unrelated Stage 1 repaint"
+  );
+
   const beforeSerializedDrainCalls = drainCalls;
   holdNextDrain = true;
   eventQueue = [{ kind: "status", payload: { announcement: "First serialized event." } }];
