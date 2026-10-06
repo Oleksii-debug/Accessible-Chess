@@ -636,8 +636,8 @@ def _inspect_windows_pe_identity(
     *,
     label: str,
     inspect_clr: bool = False,
-) -> tuple[int, int, bool] | None:
-    """Inspect one stable pathname/handle identity for PE and optional CLR metadata."""
+) -> tuple[int, int, int, bool] | None:
+    """Inspect one stable pathname/handle identity for PE, subsystem and CLR metadata."""
     if type(inspect_clr) is not bool:
         raise TypeError("inspect_clr must be bool")
     before = _safe_lstat(path, label=label)
@@ -657,7 +657,7 @@ def _inspect_windows_pe_identity(
         file_size = source.tell()
         source.seek(0)
         dos_header = source.read(64)
-        identity: tuple[int, int, bool] | None = None
+        identity: tuple[int, int, int, bool] | None = None
         if len(dos_header) >= 64 and dos_header[:2] == b"MZ":
             pe_offset = int.from_bytes(dos_header[0x3C:0x40], "little")
             if 0x40 <= pe_offset <= file_size - 24:
@@ -686,6 +686,9 @@ def _inspect_windows_pe_identity(
                                     and optional_header_size >= 112
                                 )
                             ):
+                                subsystem = int.from_bytes(
+                                    optional_header[68:70], "little"
+                                )
                                 has_clr = False
                                 if inspect_clr:
                                     if optional_magic == 0x10B:
@@ -770,7 +773,12 @@ def _inspect_windows_pe_identity(
                                                                 has_clr = (
                                                                     source.read(4) == b"BSJB"
                                                                 )
-                                identity = (machine, optional_magic, has_clr)
+                                identity = (
+                                    machine,
+                                    optional_magic,
+                                    subsystem,
+                                    has_clr,
+                                )
 
         after_read = os.fstat(source.fileno())
         after_path = _safe_lstat(path, label=label)
@@ -804,7 +812,7 @@ def _has_windows_clr_descriptor(path: Path) -> bool:
         label="managed CLR assembly",
         inspect_clr=True,
     )
-    return identity is not None and identity[2]
+    return identity is not None and identity[3]
 
 
 def _validate_windows_pe_executable(
@@ -814,6 +822,7 @@ def _validate_windows_pe_executable(
     expected_machine: int | None = None,
     expected_optional_magic: int | None = None,
     require_clr: bool = False,
+    expected_subsystem: int | None = None,
 ) -> None:
     """Require one stable PE identity plus requested CPU/managed-runtime contract."""
     if expected_machine is not None:
@@ -824,6 +833,11 @@ def _validate_windows_pe_executable(
             raise TypeError("expected_optional_magic must be PE32, PE32+, or null")
     if type(require_clr) is not bool:
         raise TypeError("require_clr must be bool")
+    if expected_subsystem is not None:
+        if type(expected_subsystem) is not int or not 0 < expected_subsystem <= 0xFFFF:
+            raise TypeError(
+                "expected_subsystem must be a positive 16-bit integer or null"
+            )
 
     identity = _inspect_windows_pe_identity(
         path,
@@ -832,7 +846,7 @@ def _validate_windows_pe_executable(
     )
     if identity is None:
         _fail(f"{label} is not a valid Windows PE executable")
-    actual_machine, actual_optional_magic, has_clr = identity
+    actual_machine, actual_optional_magic, actual_subsystem, has_clr = identity
     if expected_machine is not None and actual_machine != expected_machine:
         _fail(
             f"{label} has unexpected Windows PE machine "
@@ -846,6 +860,14 @@ def _validate_windows_pe_executable(
             f"{label} has unexpected Windows PE optional magic "
             f"0x{actual_optional_magic:04x}; "
             f"expected 0x{expected_optional_magic:04x}"
+        )
+    if (
+        expected_subsystem is not None
+        and actual_subsystem != expected_subsystem
+    ):
+        _fail(
+            f"{label} has unexpected Windows PE subsystem "
+            f"0x{actual_subsystem:04x}; expected 0x{expected_subsystem:04x}"
         )
     if require_clr and not has_clr:
         _fail(f"{label} is not a managed CLR assembly")
@@ -1436,6 +1458,7 @@ def _validate_required_runtime_resources(
         label="packaged AccessibleChess executable",
         expected_machine=0x8664,
         expected_optional_magic=0x20B,
+        expected_subsystem=0x0002,
     )
 
     app_config = _require_package_file(
