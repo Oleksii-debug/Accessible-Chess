@@ -48,7 +48,7 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
     def test_all_reported_startup_failures_mark_window_and_nvda_unproven(self) -> None:
         generic_start = self.source.index("static void ac_fail(")
         generic_end = self.source.index(
-            "static void ac_report_write_fail(",
+            "static BOOL ac_direct_directory",
             generic_start,
         )
         generic = self.source[generic_start:generic_end]
