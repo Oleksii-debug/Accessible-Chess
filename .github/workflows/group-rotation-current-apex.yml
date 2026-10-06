@@ -53,8 +53,11 @@ jobs:
       ROTATION_RECOVERY_TEST_BLOB: 5a3233b611cca861de497d3e7692560f7d9b449e
       PAIRING_BLOB: fee36f2029759d0c948c58cd3ca37ac20bbb0be4
       FINAL_PRODUCT_APP_BLOB: 7859ec3dfaa6636828923ba1f7ecd7fb222e3d0b
-      RELEASE_APP_BLOB: 1681a1e913ae1200b02a63278a60b2e121d42f18
-      GROUP_ROTATION_BINDING_TEST_BLOB: 6b5737a615af3a5f70944b9ba8fe492201623f71
+      RELEASE_APP_BLOB: d0a5188175afdc6f3e707745b525abe10c8bf411
+      GROUP_ROTATION_BINDING_TEST_BLOB: a10297078b5f25a328612ae8cd2f3dc08e434e1b
+      EDUCATION_RELEASE_BLOB: 12a0681fb69e377ebf65e4bd822d5c02458a0aa5
+      PACKAGED_STARTER_APP_BLOB: 67b83f8e605ef7534fc5834064e2c2427a4439b6
+      PACKAGED_STARTER_TEST_BLOB: 707cc45e1be42a37a40c111c52220cbbb1ab2ea0
     steps:
       - name: Checkout exact candidate head
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -67,12 +70,20 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
-          if [ -n "${EVENT_BASE_SHA:-}" ]; then
-            git cat-file -e "${EVENT_BASE_SHA}^{commit}"
-            test "$(git rev-parse "${EVENT_BASE_SHA}:acs/classroom_pairing.py")" = "$(git hash-object acs/classroom_pairing.py)"
-          else
-            test "$(git hash-object acs/classroom_pairing.py)" = "$PAIRING_BLOB"
-          fi
+          assert_inherited() {
+            path="$1"
+            fallback_blob="$2"
+            if [ -n "${EVENT_BASE_SHA:-}" ]; then
+              git cat-file -e "${EVENT_BASE_SHA}^{commit}"
+              test "$(git rev-parse "${EVENT_BASE_SHA}:${path}")" = "$(git hash-object "${path}")"
+            else
+              test "$(git hash-object "${path}")" = "$fallback_blob"
+            fi
+          }
+          assert_inherited acs/classroom_pairing.py "$PAIRING_BLOB"
+          assert_inherited acs/version2_education_mutation_release.py "$EDUCATION_RELEASE_BLOB"
+          assert_inherited acs/version2_packaged_starter_application.py "$PACKAGED_STARTER_APP_BLOB"
+          assert_inherited tests/test_v2_packaged_starter_application.py "$PACKAGED_STARTER_TEST_BLOB"
           test "$(git hash-object acs/child_coaching_rotation.py)" = "$ROTATION_BLOB"
           test "$(git hash-object acs/child_coaching_rotation_store.py)" = "$ROTATION_STORE_BLOB"
           test "$(git hash-object tests/test_child_coaching_rotation.py)" = "$ROTATION_TEST_BLOB"
@@ -94,7 +105,10 @@ jobs:
           acs/classroom_pairing.py
           acs/version2_final_product_application.py
           acs/version2_release_app.py
+          acs/version2_education_mutation_release.py
+          acs/version2_packaged_starter_application.py
           tests/test_child_coaching_rotation.py
+          tests/test_v2_packaged_starter_application.py
           tests/test_version2_group_rotation_binding.py
           tests/test_child_coaching_final_product_binding.py
           tests/test_child_coaching_rotation_completed_recovery.py
@@ -108,6 +122,7 @@ jobs:
           tests.test_classroom_pairing
           tests.test_version2_classroom_orchestration_binding
           tests.test_child_coaching_final_product_binding
+          tests.test_v2_packaged_starter_application
           tests.test_version2_teacher_session_runtime_binding
 
       - name: Run core selftest
