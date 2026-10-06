@@ -499,6 +499,44 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
             )
             self.assertTrue(runtime.shutdown())
 
+    def test_mismatched_cancel_still_recovers_retained_owner_result(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "runtime-save-mismatched-cancel-recovery.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            session = PgnDocumentSession.open(source)
+            session.edit_tag("Event", "Mismatched cancel recovery")
+            owner = _FlakyOwner(2)
+            imported_events: list[object] = []
+            runtime = self._runtime(
+                owner,
+                pgn_session=session,
+                imported_events=imported_events,
+            )
+
+            self.assertEqual(
+                runtime("pgn.save", {}).kind,
+                FileWorkflowEventKind.PGN_SAVE_STARTED,
+            )
+            self.assertTrue(runtime.wait_for_pgn_save(5.0))
+            deadline = time.monotonic() + 1.0
+            while owner.begin_invoke_calls < 2 and time.monotonic() < deadline:
+                time.sleep(0.01)
+
+            self.assertTrue(runtime.pgn_save_running)
+            self.assertTrue(session.dirty)
+
+            terminal = runtime("pgn.cancel_open", {})
+
+            self.assertEqual(terminal.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(terminal.error_code, "no_pgn_open_running")
+            self.assertFalse(runtime.pgn_save_running)
+            self.assertFalse(session.dirty)
+            self.assertEqual(
+                [event.kind for event in imported_events],
+                [FileWorkflowEventKind.PGN_SAVED],
+            )
+            self.assertTrue(runtime.shutdown())
+
     def test_shutdown_commits_durable_save_after_owner_post_failures(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "runtime-save-shutdown-recovery.pgn"
