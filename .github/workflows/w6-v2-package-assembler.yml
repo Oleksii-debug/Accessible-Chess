@@ -34,6 +34,8 @@ env:
   PE_IDENTITY_TEST_BLOB: 92748db69055ddb4220a6b36581afba6a005d36d
   SNAPSHOT_IDENTITY_PREFLIGHT_BLOB: 674b07fe6635227124acaff8c269a2be1b0030b5
   SNAPSHOT_IDENTITY_TEST_BLOB: 6c0acdd2bb62ff092418f29ffccdd70427e6dac2
+  STABLE_READS_PREFLIGHT_BLOB: fabdefb2ade679f16dda45308d5f8ce10141a6e7
+  STABLE_READS_PE_IDENTITY_TEST_BLOB: 667725692e3c15ff51d61f177fe8fc91bf8e0ee1
 
 jobs:
   focused:
@@ -72,13 +74,15 @@ jobs:
             preflight_blob="$(git rev-parse HEAD:acs/version2_package_preflight.py)"
             resource_pair="$preflight_blob:$(git rev-parse HEAD:tests/test_version2_package_assembler.py)"
             case "$resource_pair" in
-              "$CURRENT_PREFLIGHT_BLOB:$CURRENT_ASSEMBLER_TEST_BLOB"|"$RESOURCE_PREFLIGHT_BLOB:$RESOURCE_ASSEMBLER_TEST_BLOB"|"$RUNTIME_PREFLIGHT_BLOB:$RUNTIME_ASSEMBLER_TEST_BLOB"|"$PE_IDENTITY_PREFLIGHT_BLOB:$RUNTIME_ASSEMBLER_TEST_BLOB"|"$SNAPSHOT_IDENTITY_PREFLIGHT_BLOB:$RUNTIME_ASSEMBLER_TEST_BLOB") ;;
+              "$CURRENT_PREFLIGHT_BLOB:$CURRENT_ASSEMBLER_TEST_BLOB"|"$RESOURCE_PREFLIGHT_BLOB:$RESOURCE_ASSEMBLER_TEST_BLOB"|"$RUNTIME_PREFLIGHT_BLOB:$RUNTIME_ASSEMBLER_TEST_BLOB"|"$PE_IDENTITY_PREFLIGHT_BLOB:$RUNTIME_ASSEMBLER_TEST_BLOB"|"$SNAPSHOT_IDENTITY_PREFLIGHT_BLOB:$RUNTIME_ASSEMBLER_TEST_BLOB"|"$STABLE_READS_PREFLIGHT_BLOB:$RUNTIME_ASSEMBLER_TEST_BLOB") ;;
               *) echo 'Unqualified preflight/assembler-test pair' >&2; exit 1 ;;
             esac
             if [ "$preflight_blob" = "$PE_IDENTITY_PREFLIGHT_BLOB" ]; then
               test "$(git rev-parse HEAD:tests/test_version2_package_pe_identity.py)" = "$PE_IDENTITY_TEST_BLOB"
             elif [ "$preflight_blob" = "$SNAPSHOT_IDENTITY_PREFLIGHT_BLOB" ]; then
               test "$(git rev-parse HEAD:tests/test_version2_package_pe_identity.py)" = "$SNAPSHOT_IDENTITY_TEST_BLOB"
+            elif [ "$preflight_blob" = "$STABLE_READS_PREFLIGHT_BLOB" ]; then
+              test "$(git rev-parse HEAD:tests/test_version2_package_pe_identity.py)" = "$STABLE_READS_PE_IDENTITY_TEST_BLOB"
             fi
             echo 'W6_ASSEMBLER_TOPOLOGY=CURRENT_FULL_PRODUCT_COMPOSITION'
           fi
