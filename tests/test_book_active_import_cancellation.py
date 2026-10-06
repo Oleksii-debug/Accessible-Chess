@@ -725,6 +725,38 @@ class BookActiveImportCancellationTests(unittest.TestCase):
             )
         self.assertIs(caught.exception, failure)
 
+    def test_canonical_pgn_serializer_observes_control_inside_large_comment_collection(self):
+        import acs.gametree as gametree
+        from acs.gametree import Comment, VariationLine
+
+        failure = SourceReadCancelledError('cancelled during canonical PGN serialization')
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise failure
+
+        line = VariationLine(
+            leading_comments=[Comment(f'note {index}', 'brace') for index in range(300)]
+        )
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            gametree._serialize_line(line, control_checkpoint=cancel)
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 3)
+
+    def test_canonical_pgn_control_requires_callable_parse_and_serialize_hooks(self):
+        from acs.gametree import serialize_game
+        from acs.pgn_roundtrip import parse_pgn_text
+
+        source = '[Event "Study"]\n[Result "*"]\n\n*\n'
+        with self.assertRaises(TypeError):
+            parse_pgn_text(source, strict=False, control_checkpoint=True)
+        game = parse_pgn_text(source, strict=False)[0]
+        with self.assertRaises(TypeError):
+            serialize_game(game, control_checkpoint=True)
+
     def test_canonical_pgn_serializer_control_preserves_exact_output(self):
         from acs.gametree import serialize_game
         from acs.pgn_roundtrip import parse_pgn_text
