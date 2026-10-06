@@ -725,6 +725,30 @@ class BookActiveImportCancellationTests(unittest.TestCase):
             )
         self.assertIs(caught.exception, failure)
 
+    def test_canonical_pgn_normalization_observes_control_inside_large_comment_collection(self):
+        import acs.pgn_roundtrip as roundtrip
+        from acs.gametree import Comment, VariationLine
+
+        failure = SourceReadCancelledError('cancelled during canonical PGN normalization')
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise failure
+
+        line = VariationLine(
+            leading_comments=[Comment(f'note {index}', 'brace') for index in range(300)]
+        )
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            roundtrip._normalize_and_validate_line(
+                line,
+                control_checkpoint=cancel,
+            )
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 3)
+
     def test_canonical_pgn_control_preserves_recovery_semantics(self):
         from acs.pgn_roundtrip import parse_pgn_text
 

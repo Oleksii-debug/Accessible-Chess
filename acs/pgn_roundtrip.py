@@ -484,16 +484,22 @@ def _normalize_and_validate_line(
             "PGN variation nesting exceeds the safety limit",
             PgnRoundTripErrorCode.TOKEN_COUNT_LIMIT,
         )
-    for comment in line.leading_comments:
+    for comment_index, comment in enumerate(line.leading_comments, start=1):
+        if control_checkpoint is not None and comment_index % 128 == 1:
+            control_checkpoint()
         _validate_parsed_comment_size(comment)
     for node_index, node in enumerate(line.moves, start=1):
         if control_checkpoint is not None and node_index % 128 == 1:
             control_checkpoint()
         _split_attached_annotation(node)
         _validate_san(node.san)
-        for comment in node.comments_before:
+        for comment_index, comment in enumerate(node.comments_before, start=1):
+            if control_checkpoint is not None and comment_index % 128 == 1:
+                control_checkpoint()
             _validate_parsed_comment_size(comment)
-        for comment in node.comments_after:
+        for comment_index, comment in enumerate(node.comments_after, start=1):
+            if control_checkpoint is not None and comment_index % 128 == 1:
+                control_checkpoint()
             _validate_parsed_comment_size(comment)
         for variation in node.variations:
             _normalize_and_validate_line(
@@ -501,7 +507,9 @@ def _normalize_and_validate_line(
                 depth=depth + 1,
                 control_checkpoint=control_checkpoint,
             )
-    for comment in line.trailing_comments:
+    for comment_index, comment in enumerate(line.trailing_comments, start=1):
+        if control_checkpoint is not None and comment_index % 128 == 1:
+            control_checkpoint()
         _validate_parsed_comment_size(comment)
 
 
