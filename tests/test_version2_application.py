@@ -76,6 +76,24 @@ class Version2ApplicationTests(unittest.TestCase):
         self.app.bind_files(self.files)
         self.addCleanup(lambda: self.files.shutdown(timeout=5))
 
+    def test_new_pgn_replaces_document_through_existing_confirmation_and_route(self):
+        self.app.set_document(PgnDocumentSession.from_text('[Event "Old"]\n[Result "*"]\n\n1. e4 *\n'))
+        self.app.session.edit_tag("Event", "Dirty")
+        self.assertTrue(self.app.session.dirty)
+
+        self.app.confirm_document_replace = lambda: False
+        with self.assertRaises(ValueError):
+            self.app._delegate("pgn.new", {})
+        self.assertEqual("Dirty", self.app.session.workspace.current_game().tags["Event"])
+
+        self.app.confirm_document_replace = lambda: True
+        result = self.app._delegate("pgn.new", {})
+        self.assertEqual({"ok": True}, result)
+        self.assertEqual(1, self.app.session.workspace.game_count)
+        self.assertEqual("*", self.app.session.workspace.current_game().result)
+        self.assertTrue(self.app.session.dirty)
+        self.assertEqual("pgn", self.app.shell.current_route.route_id)
+
     def test_copy_fen_uses_canonical_visible_board_and_publishes_accessible_status(self):
         fen = "7k/8/8/8/8/8/8/K7 b - - 17 42"
         calls = []
