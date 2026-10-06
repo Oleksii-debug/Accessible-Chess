@@ -65,12 +65,22 @@ from .pgn_roundtrip import (
 
 MAX_PGN_EDIT_TAG_NAME_CHARS = 80
 MAX_PGN_EDIT_TAG_VALUE_CHARS = 360
+MAX_PGN_MOVE_FRAGMENT_TEXT_UNITS = 8192
+MAX_PGN_SEARCH_TEXT_UNITS = 4096
+MAX_PGN_COMMENT_TEXT_UNITS = 8000
+MAX_PGN_NAG_TEXT_UNITS = 512
 
 
 def _pgn_edit_text_units(value: str) -> int:
     """Return browser-compatible UTF-16 units for bounded PGN edit text."""
 
     return len(value.encode("utf-16-le", "surrogatepass")) // 2
+
+
+def _contains_unicode_surrogate(value: str) -> bool:
+    """Reject lone UTF-16 surrogate code points before PGN publication."""
+
+    return any(0xD800 <= ord(character) <= 0xDFFF for character in value)
 
 
 class PgnWorkspaceErrorCode(str, Enum):
@@ -141,7 +151,8 @@ def _validate_document(games: Iterable[PgnGame]) -> tuple[list[PgnGame], str]:
     try:
         text = serialize_pgn_text(snapshot)
         reparsed = parse_pgn_text(text, strict=True)
-    except PgnRoundTripError as exc:
+        content_digest = _digest_text(text)
+    except (PgnRoundTripError, UnicodeError) as exc:
         raise _workspace_error(
             "PGN document is not strict round-trip safe",
             PgnWorkspaceErrorCode.INVALID_DOCUMENT,
@@ -151,7 +162,7 @@ def _validate_document(games: Iterable[PgnGame]) -> tuple[list[PgnGame], str]:
             "PGN document changes under canonical round-trip",
             PgnWorkspaceErrorCode.INVALID_DOCUMENT,
         )
-    return list(reparsed), _digest_text(text)
+    return list(reparsed), content_digest
 
 
 def _digest_text(text: str) -> str:
@@ -516,6 +527,7 @@ class PgnWorkspace:
             type(name) is not str
             or _pgn_edit_text_units(name) > MAX_PGN_EDIT_TAG_NAME_CHARS
             or "\x00" in name
+            or _contains_unicode_surrogate(name)
             or TAG_NAME_RE.fullmatch(name) is None
         ):
             raise ValueError("PGN tag name is invalid")
@@ -527,6 +539,7 @@ class PgnWorkspace:
                 or "\x00" in value
                 or "\r" in value
                 or "\n" in value
+                or _contains_unicode_surrogate(value)
             ):
                 raise ValueError("PGN tag value is invalid")
         if name in {"SetUp", "FEN"}:
