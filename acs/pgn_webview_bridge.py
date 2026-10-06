@@ -142,6 +142,13 @@ class PgnWebViewBridge:
                 if guarded is not None:
                     return guarded
                 return self._projection.next_game()
+            if command_id == "pgn.search":
+                self._exact_fields(data, {"text"})
+                text = self._text(data["text"], name="search text", limit=4096)
+                guarded = presentation_guard()
+                if guarded is not None:
+                    return guarded
+                return self._projection.search(text)
             if command_id == "pgn.comment_edit":
                 self._exact_fields(data, {"text"})
                 text = self._text(data["text"], name="comment text", limit=8000)
