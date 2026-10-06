@@ -10,6 +10,7 @@ their execution.
 """
 
 from dataclasses import dataclass
+from .media_core import MediaCursor
 from .media_preprocess import PreprocessCheckpoint, PreprocessStatus
 from .recorded_media_sync import (
     AccessibleRecordedSyncEvent,
@@ -208,6 +209,14 @@ def _validate_sync_snapshot(snapshot: RecordedSyncSnapshot | None) -> RecordedSy
         return None
     if type(snapshot) is not RecordedSyncSnapshot:
         raise RecordedMediaAccessibilityError("invalid recorded synchronization snapshot")
+    if type(snapshot.source) is not MediaSource:
+        raise RecordedMediaAccessibilityError("invalid recorded synchronization source")
+    if type(snapshot.timeline) is not MediaPositionTimeline:
+        raise RecordedMediaAccessibilityError("invalid recorded synchronization timeline")
+    if type(snapshot.session) is not MediaChessSession:
+        raise RecordedMediaAccessibilityError("invalid recorded synchronization session")
+    if type(snapshot.session.media_cursor) is not MediaCursor:
+        raise RecordedMediaAccessibilityError("invalid recorded synchronization cursor")
     if snapshot.source.source_id != snapshot.timeline.source_id:
         raise RecordedMediaAccessibilityError("recorded synchronization source mismatch")
     if snapshot.session.media_cursor.source_id != snapshot.source.source_id:
