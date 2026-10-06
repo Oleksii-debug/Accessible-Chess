@@ -1215,7 +1215,12 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
             )
 
         self._reset_engine_game_state()
-        super().new_game()
+        reset = super().new_game()
+        if not reset.get("ok"):
+            return self._concise_error(
+                "Не вдалося підготувати стандартну позицію для гри.",
+                "The standard position could not be prepared for play.",
+            )
         session = EngineGameSessionCoordinator(
             self._engine_play_service,
             fen_provider=self.board.fen,
