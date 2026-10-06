@@ -243,6 +243,12 @@ jobs:
                   raise SystemExit(f'{label} drifted: count={count}')
               text = text.replace(needle, replacement, 1)
 
+          def yaml_block(value: str) -> str:
+              parts = value.split("\n")
+              if len(parts) <= 1:
+                  return value
+              return parts[0] + "".join("\n          " + part for part in parts[1:])
+
           helper_needle = """          function CloseByKeyboard($process,[int]$timeoutMs=10000) {"""
           helper_replacement = """          function CurrentBookBlock($report) {
             $ids=@()
@@ -335,7 +341,7 @@ jobs:
             throw "Training counters did not converge to attempts=$attempts mistakes=$mistakes; last=$last"
           }
           function CloseByKeyboard($process,[int]$timeoutMs=10000) {"""
-          once(helper_needle, helper_replacement, 'Book persistence helper insertion')
+          once(yaml_block(helper_needle), yaml_block(helper_replacement), 'Book persistence helper insertion')
 
           key_helper_needle = "            public static void Alt(byte vk) {\n"
           key_helper_replacement = """            public static void Alt(byte vk) {
@@ -348,7 +354,7 @@ jobs:
               keybd_event(vk, 0, 0, UIntPtr.Zero);
               keybd_event(vk, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
             }"""
-          once(key_helper_needle, key_helper_replacement, 'Native Enter key helper insertion')
+          once(key_helper_needle, yaml_block(key_helper_replacement), 'Native Enter key helper insertion')
 
 
           pre_needle = """            $course=WaitControl $report '' '(?i)(стартовий офлайн-курс|starter offline course)' ''
@@ -385,7 +391,7 @@ jobs:
             if($awayBookBlock -eq $savedBookBlock){throw 'Book cursor did not move away from saved bookmark'}
             Write-Host "PACKAGED_BOOK_PROGRESS_PRE_RESTART_STATE=PASS saved=$savedBookBlock away=$awayBookBlock"
             Write-Host 'PACKAGED_W3_BOOKS_DISCOVER_OPEN_READ_OFFLINE=PASS'"""
-          once(pre_needle, pre_replacement, 'Book pre-restart persistence insertion')
+          once(yaml_block(pre_needle), yaml_block(pre_replacement), 'Book pre-restart persistence insertion')
 
           training_pre_needle = """            $hint=WaitControl $report '' '^(Підказка|Hint)$' 'ControlType.Button'
             $beforeHint=AccessibleText (FindControl (Rewalk $report) 'live' '' '')
@@ -414,7 +420,7 @@ jobs:
             Write-Host "PACKAGED_TRAINING_NATIVE_KEYBOARD_ENTER=PASS attempts=$expectedTrainingAttempts mistakes=$expectedTrainingMistakes"
             Write-Host "PACKAGED_TRAINING_PROGRESS_PRE_RESTART_STATE=PASS attempts=$expectedTrainingAttempts mistakes=$expectedTrainingMistakes"
             Write-Host 'PACKAGED_W3_TRAINING_ENTER_USE_OFFLINE=PASS'"""
-          once(training_pre_needle, training_pre_replacement, 'Training pre-restart persistence insertion')
+          once(yaml_block(training_pre_needle), yaml_block(training_pre_replacement), 'Training pre-restart persistence insertion')
 
           restart_needle = """            $restartBooks=WaitControl $restartReport 'v2-nav-books' '^(Книги|Books)$' 'ControlType.Button'
             InvokeControl $restartBooks 'Restart Books navigation'
@@ -441,7 +447,7 @@ jobs:
             if($trainingOriginBookBlock -ne $awayBookBlock){throw "Book Training origin recovery mismatch: expected=$awayBookBlock actual=$trainingOriginBookBlock"}
             Write-Host "PACKAGED_BOOK_TRAINING_ORIGIN_RECOVERED=PASS block=$trainingOriginBookBlock"
             $restartTraining=WaitControl $restartReport 'v2-nav-training' '^(Тренування|Training)$' 'ControlType.Button'"""
-          once(restart_needle, restart_replacement, 'Book restart persistence insertion')
+          once(yaml_block(restart_needle), yaml_block(restart_replacement), 'Book restart persistence insertion')
 
           training_restart_needle = """            $restartTraining=WaitControl $restartReport 'v2-nav-training' '^(Тренування|Training)$' 'ControlType.Button'
             InvokeControl $restartTraining 'Restart Training navigation'
@@ -456,7 +462,7 @@ jobs:
             }
             Write-Host "PACKAGED_TRAINING_PROGRESS_RESTART_PERSISTENCE=PASS attempts=$($restartTrainingCounters.attempts) mistakes=$($restartTrainingCounters.mistakes)"
             Write-Host 'PACKAGED_RESTART_REOPEN_UIA_64_BOOKS_TRAINING=PASS'"""
-          once(training_restart_needle, training_restart_replacement, 'Training restart persistence insertion')
+          once(yaml_block(training_restart_needle), yaml_block(training_restart_replacement), 'Training restart persistence insertion')
 
           evidence_needle = """              books_discover_open_read_offline=$true
               training_enter_use_offline=$true"""
@@ -476,16 +482,16 @@ jobs:
               training_restart_attempts=$restartTrainingCounters.attempts
               training_restart_mistakes=$restartTrainingCounters.mistakes
               training_enter_use_offline=$true"""
-          once(evidence_needle, evidence_replacement, 'Book persistence evidence insertion')
+          once(yaml_block(evidence_needle), yaml_block(evidence_replacement), 'Book persistence evidence insertion')
 
           source_test_needle = """          python -m unittest -v tests.test_v2_book_training_route_rollback tests.test_v2_board_analysis_hotkey_feedback tests.test_w3_p0f_starter_books_training_content tests.test_p0_semantic_document_copy"""
           source_test_replacement = """          python -m unittest -v tests.test_v2_book_training_route_rollback tests.test_v2_board_analysis_hotkey_feedback tests.test_w3_p0f_starter_books_training_content tests.test_p0_semantic_document_copy tests.test_book_document_warning_accessibility tests.test_v2_book_epub_import tests.test_v2_book_html_import tests.test_v2_book_text_import tests.test_v2_book_game_content tests.test_v2_book_progress_store_production tests.test_w2_training_progress_crash_recovery tests.test_book_bidirectional_semantic_navigation tests.test_bookreader_snapshot_bounds tests.test_owner_oneclick_from_w4_workflow tests.test_portable_launcher_contract tests.test_portable_launcher_window_readiness tests.test_portable_localappdata_persistence_binding tests.test_pgn_post_commit_presentation_recovery_current tests.test_stage1_unbound_shortcut_capture"""
-          once(source_test_needle, source_test_replacement, 'Current completion safety regression expansion')
+          once(yaml_block(source_test_needle), yaml_block(source_test_replacement), 'Current completion safety regression expansion')
 
           source_gate_needle = """          if($LASTEXITCODE -ne 0){throw 'SOURCE_P0G_W3_REGRESSION_FAILURE'}"""
           source_gate_replacement = """          if($LASTEXITCODE -ne 0){throw 'SOURCE_P0G_W3_REGRESSION_FAILURE'}
           Write-Host 'SOURCE_CURRENT_COMPLETION_SAFETY_REGRESSIONS=PASS'"""
-          once(source_gate_needle, source_gate_replacement, 'Current completion safety PASS marker insertion')
+          once(yaml_block(source_gate_needle), yaml_block(source_gate_replacement), 'Current completion safety PASS marker insertion')
 
           required = (
               'PACKAGED_BOOKS_NATIVE_KEYBOARD_ENTER=PASS',
