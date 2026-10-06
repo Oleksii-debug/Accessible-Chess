@@ -1442,6 +1442,14 @@ class Version2PackagePreflightTests(unittest.TestCase):
             (regular_mode_directory_name, "conflicting regular-file mode")
         )
 
+        def payload_directory(archive):
+            info = zipfile.ZipInfo("AccessibleChess/payload/")
+            info.create_system = 3
+            info.external_attr = (stat.S_IFDIR | 0o755) << 16
+            archive.writestr(info, b"x")
+
+        builders.append((payload_directory, "directory member must be empty"))
+
         for builder, expected in builders:
             with self.subTest(expected=expected), tempfile.TemporaryDirectory() as td:
                 archive_path = Path(td) / "bad.zip"
