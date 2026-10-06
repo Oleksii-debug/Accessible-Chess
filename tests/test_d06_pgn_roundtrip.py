@@ -753,6 +753,22 @@ class D06PgnRoundTripTests(unittest.TestCase):
             )
             feed_line.assert_not_called()
 
+    def test_normalized_line_iteration_preserves_split_offsets_without_list(self):
+        iterator = rt._iter_normalized_lines("a\n\nb\n")
+        self.assertNotIsInstance(iterator, list)
+        self.assertEqual(next(iterator), (0, "a"))
+        self.assertEqual(
+            list(iterator),
+            [(2, ""), (3, "b"), (5, "")],
+        )
+
+    def test_many_line_preflight_reaches_parser_without_whole_line_list_contract(self):
+        source = ("\n" * 20_000) + '[Result "*"]\n\n*'
+        with patch("acs.pgn_roundtrip.parse_games", wraps=rt.parse_games) as parser:
+            games = parse_pgn_text(source)
+        self.assertEqual(len(games), 1)
+        parser.assert_called_once()
+
     def test_unicode_scalar_scan_observes_active_parse_control(self):
         failure = RuntimeError("cancelled during PGN Unicode scalar scan")
         calls = 0
