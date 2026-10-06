@@ -1206,20 +1206,26 @@ def _validate_sound_inventory(
             min_bytes=45,
         )
         try:
-            if asset.stat().st_size != byte_count:
-                _fail("sound inventory byte size mismatch")
-        except OSError as exc:
-            _fail(f"sound inventory asset cannot be inspected: {type(exc).__name__}")
-        if _sha256(asset) != digest:
-            _fail("sound inventory SHA-256 mismatch")
-        try:
-            with wave.open(str(asset), "rb") as reader:
-                actual_channels = reader.getnchannels()
-                actual_sample_width = reader.getsampwidth()
-                actual_sample_rate = reader.getframerate()
-                actual_frames = reader.getnframes()
-                actual_compression = reader.getcomptype()
-                frame_bytes = reader.readframes(actual_frames)
+            snapshot, actual_digest = _snapshot_regular_file(
+                asset,
+                label="inventory-bound sound asset",
+                max_bytes=_MAX_SOUND_FILE_BYTES,
+            )
+            with snapshot:
+                snapshot.seek(0, os.SEEK_END)
+                actual_size = snapshot.tell()
+                snapshot.seek(0)
+                if actual_size != byte_count:
+                    _fail("sound inventory byte size mismatch")
+                if actual_digest != digest:
+                    _fail("sound inventory SHA-256 mismatch")
+                with wave.open(snapshot, "rb") as reader:
+                    actual_channels = reader.getnchannels()
+                    actual_sample_width = reader.getsampwidth()
+                    actual_sample_rate = reader.getframerate()
+                    actual_frames = reader.getnframes()
+                    actual_compression = reader.getcomptype()
+                    frame_bytes = reader.readframes(actual_frames)
         except Version2PackagePreflightError:
             raise
         except (OSError, EOFError, wave.Error) as exc:
@@ -1639,16 +1645,22 @@ def _validate_required_runtime_resources(
             min_bytes=45,
         )
         try:
-            with wave.open(str(sound_path), "rb") as reader:
-                if (
-                    reader.getcomptype() != "NONE"
-                    or reader.getsampwidth() not in {1, 2}
-                    or reader.getframerate() <= 0
-                    or reader.getnframes() <= 0
-                ):
-                    _fail(
-                        f"packaged sound asset is not usable 8-bit/16-bit PCM: {event.value}"
-                    )
+            snapshot, _ = _snapshot_regular_file(
+                sound_path,
+                label=f"packaged sound asset {event.value}",
+                max_bytes=_MAX_SOUND_FILE_BYTES,
+            )
+            with snapshot:
+                with wave.open(snapshot, "rb") as reader:
+                    if (
+                        reader.getcomptype() != "NONE"
+                        or reader.getsampwidth() not in {1, 2}
+                        or reader.getframerate() <= 0
+                        or reader.getnframes() <= 0
+                    ):
+                        _fail(
+                            f"packaged sound asset is not usable 8-bit/16-bit PCM: {event.value}"
+                        )
         except Version2PackagePreflightError:
             raise
         except (OSError, EOFError, wave.Error) as exc:
