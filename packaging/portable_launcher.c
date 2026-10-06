@@ -284,6 +284,8 @@ static void ac_fail(HANDLE report, const WCHAR *stage, DWORD code) {
     ac_error_detail(code);
     if (has_report) {
         ac_write_line(report, L"STATUS: FAILED");
+        ac_write_line(report, L"USER_WINDOW_PROVEN: NO");
+        ac_write_line(report, L"USER_NVDA_PROVEN: NO");
         ac_write_utf8(report, L"STAGE: ");
         ac_write_line(report, stage);
         ac_write_utf8(report, L"WIN32_ERROR: ");
@@ -876,6 +878,7 @@ void WINAPI wWinMainCRTStartup(void) {
             ac_write_utf8(report, L"CHILD_EXIT_REASON: ");
             ac_write_line(report, ac_child_exit_reason(exit_code));
             ac_write_line(report, L"USER_WINDOW_PROVEN: NO");
+            ac_write_line(report, L"USER_NVDA_PROVEN: NO");
             ac_flush_report(report);
 
             ac_copy(g_message, AC_PATH_CAP + 2048, L"Accessible Chess завершився до появи робочого вікна.\r\n\r\nКод: ");

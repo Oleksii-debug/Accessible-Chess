@@ -45,6 +45,38 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
         self.assertIn("CHILD_EXIT_REASON", self.source)
         self.assertIn("USER_NVDA_PROVEN: NO", self.source)
 
+    def test_all_reported_startup_failures_mark_window_and_nvda_unproven(self) -> None:
+        generic_start = self.source.index("static void ac_fail(")
+        generic_end = self.source.index(
+            "static void ac_report_write_fail(",
+            generic_start,
+        )
+        generic = self.source[generic_start:generic_end]
+        for token in (
+            'L"STATUS: FAILED"',
+            'L"USER_WINDOW_PROVEN: NO"',
+            'L"USER_NVDA_PROVEN: NO"',
+        ):
+            with self.subTest(path="generic", token=token):
+                self.assertIn(token, generic)
+
+        main_start = self.source.index("void WINAPI wWinMainCRTStartup(void)")
+        early_start = self.source.index(
+            'ac_write_line(report, L"STATUS: FAILED_EARLY_EXIT")',
+            main_start,
+        )
+        early_end = self.source.index(
+            "MessageBoxW(",
+            early_start,
+        )
+        early = self.source[early_start:early_end]
+        for token in (
+            'L"USER_WINDOW_PROVEN: NO"',
+            'L"USER_NVDA_PROVEN: NO"',
+        ):
+            with self.subTest(path="early-exit", token=token):
+                self.assertIn(token, early)
+
     def test_startup_timeout_retires_child_before_fallible_report_writes(self):
         start = self.source.index("static void ac_fail_startup_timeout(HANDLE report)")
         end = self.source.index("void WINAPI wWinMainCRTStartup(void)", start)
