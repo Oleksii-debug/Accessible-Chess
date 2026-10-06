@@ -151,9 +151,12 @@ class Version2BookOpenWorker:
             self._thread = thread
         try:
             self._emit(BookOpenWorkerEventKind.STARTED, focus_target)
-            # STARTED is an observer boundary and may re-enter native FormClosing.
-            # Revalidate exact ownership after the callback before launching the
-            # non-daemon thread; shutdown may already have fenced this generation.
+            # STARTED is an observer boundary and may re-enter native FormClosing
+            # or the Cancel command. Revalidate exact ownership before launching
+            # the non-daemon thread. A cancellation that already won on this owner
+            # stack must retire the reserved generation immediately instead of
+            # starting background work only to discover the same cancel later.
+            cancelled_before_start = False
             with self._lock:
                 may_start = (
                     generation == self._generation
@@ -161,6 +164,16 @@ class Version2BookOpenWorker:
                     and self._thread is thread
                     and self._cancel is cancel
                 )
+                if may_start and cancel.is_set():
+                    self._cancel = None
+                    self._thread = None
+                    self._focus_target = ""
+                    self._pending_outcome_kind = None
+                    may_start = False
+                    cancelled_before_start = True
+            if cancelled_before_start:
+                self._emit(BookOpenWorkerEventKind.CANCELLED, focus_target)
+                return False
             if not may_start:
                 return False
             thread.start()
