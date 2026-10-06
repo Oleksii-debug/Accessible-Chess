@@ -247,7 +247,9 @@ class AgentBoardMoveToolTests(unittest.TestCase):
         )
         self.assertFalse(result.ok)
         self.assertEqual(result.error, "tool failed")
-        self.assertEqual(board.fen(), Board().clone().push_text("d4") or board.fen())
+        expected = Board()
+        expected.push_text("d4")
+        self.assertEqual(board.fen(), expected.fen())
 
     def test_owner_thread_boundary_covers_preview_and_mutation(self) -> None:
         owner = OwnerHarness()

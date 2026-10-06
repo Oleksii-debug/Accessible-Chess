@@ -60,16 +60,17 @@ def _required_move_text(arguments: Mapping[str, object]) -> str:
     value = arguments.get("move")
     if type(value) is not str:
         raise ChessAgentToolsError("move must be text")
-    value = value.strip()
     if (
-        not value
-        or len(value) > 32
+        len(value) > 32
         or "\n" in value
         or "\r" in value
         or "\x00" in value
     ):
         raise ChessAgentToolsError("move text is outside supported bounds")
-    return value
+    normalized = value.strip()
+    if not normalized:
+        raise ChessAgentToolsError("move text is outside supported bounds")
+    return normalized
 
 
 class MediaAgentBridge:
