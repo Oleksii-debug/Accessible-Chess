@@ -1417,5 +1417,95 @@ class BookActiveImportCancellationTests(unittest.TestCase):
         )
 
 
+    def test_epub_href_surrounding_whitespace_strip_observes_control(self):
+        import acs.book_epub_import as epub
+
+        failure = SourceReadCancelledError(
+            "cancelled while stripping one long EPUB href"
+        )
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise failure
+
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            epub._resolve_package_href(
+                "",
+                (" " * 20_000) + "Text/chapter.xhtml",
+                allow_surrounding_whitespace=True,
+                control_checkpoint=cancel,
+            )
+
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 3)
+
+    def test_epub_xml_whitespace_scan_observes_control_inside_one_text_node(self):
+        import acs.book_epub_import as epub
+
+        failure = SourceReadCancelledError(
+            "cancelled during one long whitespace-only XML text node"
+        )
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise failure
+
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            epub._has_non_whitespace(" " * 20_000, cancel)
+
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 2)
+
+    def test_epub_scalar_control_helpers_preserve_python_whitespace_semantics(self):
+        import acs.book_epub_import as epub
+
+        sample = "\u2003\t  Text/chapter.xhtml  \n\u2002"
+        calls = []
+        controlled = epub._controlled_strip(sample, lambda: calls.append(1))
+
+        self.assertEqual(controlled, sample.strip())
+        self.assertFalse(
+            epub._has_non_whitespace(" \t\r\n\u2003", lambda: None)
+        )
+        self.assertTrue(
+            epub._has_non_whitespace(" \t readable \u2002", lambda: None)
+        )
+        self.assertGreaterEqual(len(calls), 2)
+
+    def test_epub_mime_checkpointed_slash_scan_preserves_exact_grammar(self):
+        import acs.book_epub_import as epub
+
+        calls = []
+        self.assertEqual(
+            epub._normalized_media_type(
+                "Application/XHTML+XML",
+                context="test",
+                control_checkpoint=lambda: calls.append(1),
+            ),
+            "application/xhtml+xml",
+        )
+        self.assertGreaterEqual(len(calls), 3)
+        for malformed in (
+            "application//xhtml+xml",
+            "/xhtml+xml",
+            "application/",
+            " application/xhtml+xml",
+            "application/xhtml+xml ",
+        ):
+            with self.subTest(malformed=malformed):
+                with self.assertRaises(epub.BookEpubImportError):
+                    epub._normalized_media_type(
+                        malformed,
+                        context="test",
+                        control_checkpoint=lambda: None,
+                    )
+
+
 if __name__ == '__main__':
     unittest.main()
