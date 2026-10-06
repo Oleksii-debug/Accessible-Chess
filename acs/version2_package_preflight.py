@@ -709,6 +709,49 @@ def _raw_offset_for_pe_section(
     return None
 
 
+def _pe_section_table_is_file_backed(
+    source,
+    *,
+    section_table_offset: int,
+    section_count: int,
+    file_size: int,
+) -> bool:
+    """Require at least one bounded file-backed PE section."""
+    section_table_size = section_count * 40
+    if (
+        section_table_offset < 0
+        or section_table_offset > file_size
+        or section_table_size > file_size - section_table_offset
+    ):
+        return False
+    source.seek(section_table_offset)
+    section_table = source.read(section_table_size)
+    if len(section_table) != section_table_size:
+        return False
+
+    file_backed = False
+    for index in range(section_count):
+        offset = index * 40
+        raw_size = int.from_bytes(
+            section_table[offset + 16:offset + 20],
+            "little",
+        )
+        raw_pointer = int.from_bytes(
+            section_table[offset + 20:offset + 24],
+            "little",
+        )
+        if raw_size == 0:
+            continue
+        if (
+            raw_pointer <= 0
+            or raw_pointer > file_size
+            or raw_size > file_size - raw_pointer
+        ):
+            return False
+        file_backed = True
+    return file_backed
+
+
 def _inspect_windows_pe_stream(
     source,
     *,
@@ -837,13 +880,22 @@ def _inspect_windows_pe_stream(
                                                             has_clr = (
                                                                 source.read(4) == b"BSJB"
                                                             )
-                            identity = (
-                                machine,
-                                optional_magic,
-                                subsystem,
-                                has_clr,
-                                bool(characteristics & 0x2000),
+                            section_table_offset = (
+                                pe_offset + 24 + optional_header_size
                             )
+                            if _pe_section_table_is_file_backed(
+                                source,
+                                section_table_offset=section_table_offset,
+                                section_count=section_count,
+                                file_size=file_size,
+                            ):
+                                identity = (
+                                    machine,
+                                    optional_magic,
+                                    subsystem,
+                                    has_clr,
+                                    bool(characteristics & 0x2000),
+                                )
 
 
     return identity
