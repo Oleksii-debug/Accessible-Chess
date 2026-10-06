@@ -145,6 +145,30 @@ class FenPositionEditorCompleteUserFlowTests(unittest.TestCase):
                 self.assertEqual(api.board.fen(), before)
                 self.assertIsNone(api.selected_source)
 
+    def test_position_editor_lock_composes_history_and_analysis_reasons(self):
+        html = (Path(__file__).resolve().parents[1] / "web" / "index.html").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("positionEditorHistoryLocked||analysisMutationLocked", html)
+        self.assertIn("setPositionEditorHistoryLock(pe.editable===false)", html)
+        for control_id in (
+            "position-square",
+            "position-piece",
+            "position-piece-apply",
+            "position-turn",
+            "position-castling",
+            "position-ep",
+            "position-halfmove",
+            "position-fullmove",
+            "position-metadata-apply",
+            "position-validate",
+            "position-input",
+            "position-load",
+            "empty-board",
+        ):
+            with self.subTest(control_id=control_id):
+                self.assertIn(f"'{control_id}'", html)
+
     def test_valid_manual_editor_position_remains_playable(self):
         api = AccessibleChessAPI(lang="en")
         self.assertTrue(api.clear_board()["ok"])
