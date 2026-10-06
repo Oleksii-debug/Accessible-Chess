@@ -1050,6 +1050,53 @@ class LibraryOpenGamePublicationTests(unittest.TestCase):
             ({"kind": "route", "payload": {"route_id": "library"}},),
         )
 
+    def test_import_ui_rollback_preserves_prior_event_overflow_truth(self) -> None:
+        self.app._focus = self.app.shell.open_route("library")
+        for index in range(65):
+            self.app._events.append(
+                {
+                    "kind": "status",
+                    "payload": {"announcement": f"before-rollback-{index}"},
+                }
+            )
+        checkpoint = tuple(self.app._events)
+        self.assertTrue(self.app._events.overflowed)
+        self.assertEqual(len(checkpoint), 64)
+
+        event = LibraryExportHostEvent(
+            LibraryExportHostEventKind.FAILED,
+            focus_target="library-search-player",
+            error_code="library_export_failed",
+        )
+
+        class Batch:
+            def __enter__(self):
+                return (event,)
+
+            def __exit__(self, exc_type, exc, traceback):
+                return False
+
+        class Mailbox:
+            @staticmethod
+            def delivery_batch():
+                return Batch()
+
+        with patch.object(
+            self.app,
+            "_file_event",
+            side_effect=RuntimeError("simulated presentation failure"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "presentation failure"):
+                self.app.import_ui_ready(Mailbox())
+
+        self.assertEqual(tuple(self.app._events), checkpoint)
+        self.assertTrue(self.app._events.overflowed)
+        self.assertEqual(
+            self.app.drain_events(),
+            ({"kind": "route", "payload": {"route_id": "library"}},),
+        )
+        self.assertFalse(self.app._events.overflowed)
+
     def test_browser_library_open_fails_closed_without_ack_protocol(self) -> None:
         prior_session, prior_pgn, _prior_focus = self._prior_library_state()
         replacement = self._session("legacy.pgn", "Legacy")
