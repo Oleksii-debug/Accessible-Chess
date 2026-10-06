@@ -294,24 +294,7 @@ jobs:
             AssertSemanticFocus $target
             [AccessibleChessPackageKeys]::Key([byte]0x0D)
           }
-          function CloseByKeyboard($process,[int]$timeoutMs=10000) {"""
-          once(helper_needle, helper_replacement, 'Book persistence helper insertion')
-
-          key_helper_needle = "            public static void Alt(byte vk) {\n"
-          key_helper_replacement = """            public static void Alt(byte vk) {
-              keybd_event(0x12, 0, 0, UIntPtr.Zero);
-              keybd_event(vk, 0, 0, UIntPtr.Zero);
-              keybd_event(vk, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
-              keybd_event(0x12, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
-            }
-            public static void Key(byte vk) {
-              keybd_event(vk, 0, 0, UIntPtr.Zero);
-              keybd_event(vk, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
-            }"""
-          once(key_helper_needle, key_helper_replacement, 'Native Enter key helper insertion')
-
-          training_helper_needle = """          function CloseByKeyboard($process,[int]$timeoutMs=10000) {"""
-          training_helper_replacement = """          function TrainingCounters($report) {
+          function TrainingCounters($report) {
             $documents=@()
             foreach($e in @(Rewalk $report)){
               try {
@@ -352,7 +335,21 @@ jobs:
             throw "Training counters did not converge to attempts=$attempts mistakes=$mistakes; last=$last"
           }
           function CloseByKeyboard($process,[int]$timeoutMs=10000) {"""
-          once(training_helper_needle, training_helper_replacement, 'Training persistence helper insertion')
+          once(helper_needle, helper_replacement, 'Book persistence helper insertion')
+
+          key_helper_needle = "            public static void Alt(byte vk) {\n"
+          key_helper_replacement = """            public static void Alt(byte vk) {
+              keybd_event(0x12, 0, 0, UIntPtr.Zero);
+              keybd_event(vk, 0, 0, UIntPtr.Zero);
+              keybd_event(vk, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+              keybd_event(0x12, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+            }
+            public static void Key(byte vk) {
+              keybd_event(vk, 0, 0, UIntPtr.Zero);
+              keybd_event(vk, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+            }"""
+          once(key_helper_needle, key_helper_replacement, 'Native Enter key helper insertion')
+
 
           pre_needle = """            $course=WaitControl $report '' '(?i)(стартовий офлайн-курс|starter offline course)' ''
             if(-not (AccessibleText $course)){throw 'Packaged starter course heading is empty'}
