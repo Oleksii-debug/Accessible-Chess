@@ -121,6 +121,40 @@ class OwnerGameplayFeedbackTests(unittest.TestCase):
         finally:
             self.api._settings = settings
 
+    def test_mutable_ui_settings_fail_closed_when_persistence_is_unavailable(self):
+        settings = self.api._settings
+        baseline_known = settings._baseline_known
+        blocked_reason = settings._write_blocked_reason
+        original_feedback = settings.get('announce_move_errors', False)
+        try:
+            settings._baseline_known = False
+            self.assertFalse(self.api.get_sound_settings()['ok'])
+            self.assertEqual(
+                self.api.get_move_feedback_settings(),
+                {'ok': False, 'enabled': False},
+            )
+            self.assertFalse(self.api.set_move_error_announcements(True)['ok'])
+            self.assertEqual(
+                settings.get('announce_move_errors', False),
+                original_feedback,
+            )
+
+            settings._baseline_known = True
+            settings._write_blocked_reason = 'future schema'
+            self.assertFalse(self.api.get_sound_settings()['ok'])
+            self.assertEqual(
+                self.api.get_move_feedback_settings(),
+                {'ok': False, 'enabled': False},
+            )
+            self.assertFalse(self.api.set_move_error_announcements(True)['ok'])
+            self.assertEqual(
+                settings.get('announce_move_errors', False),
+                original_feedback,
+            )
+        finally:
+            settings._baseline_known = baseline_known
+            settings._write_blocked_reason = blocked_reason
+
     def test_new_position_dispatch_resets_and_plays_start_sound(self):
         self.api.make_move('e4')
         result = self.api.dispatch_action('file.new')
