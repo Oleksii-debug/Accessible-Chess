@@ -140,7 +140,10 @@ async function main() {
   const progress = root.querySelector("#recorded-media-progress");
   const announcement = root.querySelector("#recorded-media-announcement");
 
-  check(heading.textContent === "Записане шахове медіа" || heading.textContent === "Записане шахове медіа", "localized heading is missing");
+  const region = heading.parentNode;
+  check(region.getAttribute("role") === "region", "player is not a navigable region");
+  check(region.getAttribute("aria-labelledby") === heading.id, "player region is not labelled by its heading");
+  check(heading.textContent === "Записане шахове медіа", "localized heading is missing");
   check(status.getAttribute("role") === "status", "status is not a status region");
   check(status.getAttribute("aria-live") === "polite", "status region is not polite");
   check(announcement.getAttribute("aria-live") === "assertive", "announcement region is not assertive");
