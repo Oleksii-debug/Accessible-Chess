@@ -362,6 +362,7 @@ class Version2WindowsFileActionDelegate:
         self._pending_save_result: tuple[object, ...] | None = None
         self._worker_return_focus = ""
         self._recovery_open_cancel_focus: str | None = None
+        self._recovery_open_error_code: str | None = None
         self._generation = 0
         self._shutdown_requested = False
 
@@ -847,6 +848,7 @@ class Version2WindowsFileActionDelegate:
                 if current:
                     self._clear_worker_locked()
                     self._recovery_open_cancel_focus = None
+                    self._recovery_open_error_code = None
             if current:
                 if recovery_cancelled:
                     self._emit(
@@ -1045,6 +1047,7 @@ class Version2WindowsFileActionDelegate:
             # PGN Open. Once its real terminal is selected, that marker must not
             # publish a second cancellation on a later recovery attempt.
             self._recovery_open_cancel_focus = None
+            self._recovery_open_error_code = None
         if deliver_owner_async:
             return self._emit_owner_async(terminal)
         return terminal
@@ -2297,6 +2300,7 @@ class Version2WindowsFileActionDelegate:
         cannot remain stuck at "opening" after the candidate was discarded.
         """
         recovery_open_focus: str | None = None
+        recovery_open_error_code: str | None = None
         with self._lock:
             if not self._shutdown_requested:
                 return True
@@ -2310,6 +2314,7 @@ class Version2WindowsFileActionDelegate:
                     return False
                 self._shutdown_requested = False
                 recovery_open_focus = self._recovery_open_cancel_focus
+                recovery_open_error_code = self._recovery_open_error_code
             else:
                 recovery_open_focus = None
 
@@ -2342,15 +2347,25 @@ class Version2WindowsFileActionDelegate:
                 self._shutdown_requested = False
 
         if recovery_open_focus is not None:
-            terminal = FileWorkflowEvent(
-                FileWorkflowEventKind.PGN_OPEN_CANCELLED,
-                "pgn.open",
-                focus_target=recovery_open_focus,
+            terminal = (
+                FileWorkflowEvent(
+                    FileWorkflowEventKind.FAILED,
+                    "pgn.open",
+                    focus_target=recovery_open_focus,
+                    error_code=recovery_open_error_code,
+                )
+                if recovery_open_error_code is not None
+                else FileWorkflowEvent(
+                    FileWorkflowEventKind.PGN_OPEN_CANCELLED,
+                    "pgn.open",
+                    focus_target=recovery_open_focus,
+                )
             )
             self._emit_owner_async(terminal)
             with self._lock:
                 if self._recovery_open_cancel_focus == recovery_open_focus:
                     self._recovery_open_cancel_focus = None
+                    self._recovery_open_error_code = None
                 # Owner-async presentation can re-enter native FormClosing. If
                 # that callback fenced the delegate again, the caller must not
                 # advertise this recovery attempt as live.
@@ -2385,9 +2400,20 @@ class Version2WindowsFileActionDelegate:
         if stopped and worker_kind == "pgn_open":
             # The worker may already have queued an owner callback. Removing its
             # ownership here makes that callback terminally stale before the
-            # runtime closes its UI pump.
+            # runtime closes its UI pump. Preserve an explicit worker failure
+            # that was already fixed before shutdown; refused-close recovery must
+            # not relabel that terminal truth as cancellation.
             with self._lock:
                 if self._worker is worker and self._worker_kind == "pgn_open":
+                    pending = self._pending_open_result
+                    if (
+                        pending is not None
+                        and pending[0] == self._generation
+                        and type(pending[3]) is str
+                        and pending[3]
+                        and pending[3] != "pgn_open_cancelled"
+                    ):
+                        self._recovery_open_error_code = pending[3]
                     self._clear_worker_locked()
         elif stopped and worker_kind == "pgn_save":
             # Publication may already be durable while its owner-thread commit
