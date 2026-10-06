@@ -668,9 +668,16 @@ def _decode_game(raw: object, expected_index: int, total_budget: list[int]) -> t
         tags.setdefault("BlackElo", str(black_elo))
     if eco:
         tags.setdefault("CBH_ECO", str(eco))
+    # Structural PGN tags are derived from the canonical start position,
+    # never from backend-supplied metadata.  A backend payload may preserve
+    # arbitrary source tags, but it must not make serialized PGN describe a
+    # different starting board than the Board used to revalidate every move.
     if start_fen != Board.START:
         tags["SetUp"] = "1"
         tags["FEN"] = start_fen
+    else:
+        tags.pop("SetUp", None)
+        tags.pop("FEN", None)
 
     raw_tokens = raw.get("moves")
     if type(raw_tokens) is not list or len(raw_tokens) > MAX_DECODED_TOKENS_PER_GAME:
