@@ -19,8 +19,8 @@ concurrency:
 
 env:
   BASE_REF: converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
-  SOURCE_BLOB: 12f6bcf5257d9a238b808bb8a297eea03a742895
-  TEST_BLOB: 92a995376876ab86232d3cf59be600b28d542be9
+  SOURCE_BLOB: 3e475651958447b9b10e247180dccf8504dc5445
+  TEST_BLOB: 85c9f74edf1e3eb72d97c1da62c648c51b6b561c
 
 jobs:
   qualify:
