@@ -8,6 +8,7 @@ from acs.media_core import (
     MediaClockSnapshot,
     MediaPlaybackState,
     MediaSession,
+    MediaTimelineBarrier,
     MediaTimelineIdentity,
     CanonicalChessReconciliationPort,
     ChessStateReconciler,
@@ -703,6 +704,126 @@ class MediaCoreContractTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, MediaErrorCode.RECONCILIATION_FAILED)
 
 
+
+
+    def test_resync_barrier_blocks_stale_confirmed_fallback(self):
+        timeline = MediaPositionTimeline(
+            "lesson-1",
+            (self.link(1000, "canonical:old"),),
+            barriers=(
+                MediaTimelineBarrier(
+                    source_id="lesson-1",
+                    timestamp_ms=5000,
+                    state=MediaReconciliationState.RESYNC_REQUIRED,
+                    reason="provider jumped to an unrelated position",
+                ),
+            ),
+        )
+        before = timeline.resolve_at_or_before(4999)
+        self.assertEqual(before.chess_ref, "canonical:old")
+        blocked = timeline.resolve_at_or_before(5000)
+        self.assertFalse(blocked.resolved)
+        self.assertIsNone(blocked.chess_ref)
+        self.assertEqual(
+            blocked.qualification,
+            MediaReconciliationState.RESYNC_REQUIRED,
+        )
+        self.assertIsNotNone(blocked.barrier)
+
+    def test_ambiguous_barrier_is_explicit_and_never_guesses(self):
+        timeline = MediaPositionTimeline(
+            "lesson-1",
+            (
+                self.link(
+                    5000,
+                    "canonical:a",
+                    confirmed=False,
+                    confidence=0.9,
+                ),
+                self.link(
+                    5000,
+                    "canonical:b",
+                    confirmed=False,
+                    confidence=0.8,
+                ),
+            ),
+            barriers=(
+                MediaTimelineBarrier(
+                    source_id="lesson-1",
+                    timestamp_ms=5000,
+                    state=MediaReconciliationState.AMBIGUOUS,
+                    evidence_ids=("ev-a", "ev-b"),
+                    reason="two canonical candidates remain",
+                ),
+            ),
+        )
+        result = timeline.resolve_exact(5000)
+        self.assertTrue(result.ambiguous)
+        self.assertIsNone(result.chess_ref)
+        self.assertEqual(
+            result.qualification,
+            MediaReconciliationState.AMBIGUOUS,
+        )
+
+    def test_explicit_confirmation_removes_same_timestamp_barrier(self):
+        timeline = MediaPositionTimeline(
+            "lesson-1",
+            (
+                self.link(
+                    5000,
+                    "canonical:a",
+                    confirmed=False,
+                    confidence=0.9,
+                ),
+                self.link(
+                    5000,
+                    "canonical:b",
+                    confirmed=False,
+                    confidence=0.8,
+                ),
+            ),
+            barriers=(
+                MediaTimelineBarrier(
+                    source_id="lesson-1",
+                    timestamp_ms=5000,
+                    state=MediaReconciliationState.AMBIGUOUS,
+                    reason="needs explicit selection",
+                ),
+            ),
+        )
+        resolved = timeline.confirm_candidate(5000, "canonical:b")
+        self.assertIsNone(resolved.barrier_at(5000))
+        self.assertEqual(resolved.resolve_exact(5000).chess_ref, "canonical:b")
+
+    def test_timeline_barrier_round_trip_preserves_fail_closed_anchor(self):
+        timeline = MediaPositionTimeline(
+            "lesson-1",
+            (self.link(1000, "canonical:old"),),
+            identity=self.session_identity(),
+            barriers=(
+                MediaTimelineBarrier(
+                    source_id="lesson-1",
+                    timestamp_ms=9000,
+                    state=MediaReconciliationState.RESYNC_REQUIRED,
+                    segment_id="segment-2",
+                    evidence_ids=("ev-9",),
+                    reason="unrelated-position jump",
+                ),
+            ),
+        )
+        encoded = serialize_media_state(
+            self.source(),
+            timeline,
+            MediaChessSession(MediaCursor("lesson-1", 9000), "analysis:node"),
+        )
+        _source, restored, _session = deserialize_media_state(encoded)
+        self.assertEqual(restored.barriers, timeline.barriers)
+        result = restored.resolve_at_or_before(9000)
+        self.assertFalse(result.resolved)
+        self.assertEqual(
+            result.qualification,
+            MediaReconciliationState.RESYNC_REQUIRED,
+        )
 
     def test_timeline_identity_is_bound_preserved_and_persisted(self):
         identity = MediaTimelineIdentity(

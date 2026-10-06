@@ -720,6 +720,87 @@ class MediaChessLink:
         return self.status is MediaLinkStatus.CONFIRMED
 
 
+
+@dataclass(frozen=True, slots=True)
+class MediaTimelineBarrier:
+    """An explicit unresolved anchor that blocks stale confirmed fallback."""
+
+    source_id: str
+    timestamp_ms: int
+    state: MediaReconciliationState = MediaReconciliationState.RESYNC_REQUIRED
+    segment_id: str | None = None
+    evidence_ids: tuple[str, ...] = ()
+    reason: str = "media timeline requires resynchronization"
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "source_id",
+            _require_bounded_text(self.source_id, "source_id", max_chars=512),
+        )
+        object.__setattr__(
+            self,
+            "timestamp_ms",
+            _require_nonnegative_int(self.timestamp_ms, "timestamp_ms"),
+        )
+        if type(self.state) is MediaReconciliationState:
+            state = self.state
+        elif type(self.state) is str:
+            try:
+                state = MediaReconciliationState(self.state)
+            except ValueError as exc:
+                raise MediaContractError(
+                    "unsupported timeline barrier state",
+                    code=MediaErrorCode.INVALID_CONTAINER,
+                ) from exc
+        else:
+            raise MediaContractError(
+                "unsupported timeline barrier state",
+                code=MediaErrorCode.INVALID_CONTAINER,
+            )
+        if state not in (
+            MediaReconciliationState.OBSERVED,
+            MediaReconciliationState.AMBIGUOUS,
+            MediaReconciliationState.RESYNC_REQUIRED,
+        ):
+            raise MediaContractError(
+                "timeline barrier must represent an unresolved state",
+                code=MediaErrorCode.INVALID_CONTAINER,
+            )
+        object.__setattr__(self, "state", state)
+        if self.segment_id is not None:
+            object.__setattr__(
+                self,
+                "segment_id",
+                _require_bounded_text(self.segment_id, "segment_id", max_chars=512),
+            )
+        if type(self.evidence_ids) is not tuple:
+            raise MediaContractError(
+                "barrier evidence_ids must be an immutable tuple",
+                code=MediaErrorCode.INVALID_CONTAINER,
+            )
+        if len(self.evidence_ids) > MAX_MEDIA_RECONCILIATION_REFS:
+            raise MediaContractError(
+                "barrier evidence_ids exceed the safety limit",
+                code=MediaErrorCode.INVALID_CONTAINER,
+            )
+        evidence_ids = tuple(
+            _require_bounded_text(item, "evidence_id", max_chars=512)
+            for item in self.evidence_ids
+        )
+        if len(set(evidence_ids)) != len(evidence_ids):
+            raise MediaContractError(
+                "barrier evidence_ids must be unique",
+                code=MediaErrorCode.INVALID_CONTAINER,
+            )
+        object.__setattr__(self, "evidence_ids", evidence_ids)
+        object.__setattr__(
+            self,
+            "reason",
+            _require_bounded_text(self.reason, "barrier reason", max_chars=4096),
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class TimelineResolution:
     """Resolution of one media time without hiding uncertainty."""
@@ -730,6 +811,8 @@ class TimelineResolution:
     links: tuple[MediaChessLink, ...]
     chess_ref: str | None
     ambiguous: bool
+    barrier: MediaTimelineBarrier | None = None
+    qualification: MediaReconciliationState | None = None
 
     @property
     def resolved(self) -> bool:
@@ -936,6 +1019,8 @@ class MediaPositionTimeline:
         "_timestamps",
         "_links_by_timestamp",
         "_confirmed_timestamps_by_ref",
+        "_barriers",
+        "_barriers_by_timestamp",
         "identity",
     )
 
@@ -945,6 +1030,7 @@ class MediaPositionTimeline:
         links: Iterable[MediaChessLink] = (),
         *,
         identity: MediaTimelineIdentity | None = None,
+        barriers: Iterable[MediaTimelineBarrier] = (),
     ) -> None:
         self.source_id = _require_text(source_id, "source_id")
         if identity is not None:
@@ -987,6 +1073,32 @@ class MediaPositionTimeline:
             )
         materialized = tuple(materialized)
 
+        try:
+            barrier_iterator = iter(barriers)
+        except BaseException as exc:
+            raise MediaContractError(
+                "timeline barriers must be safely iterable",
+                code=MediaErrorCode.INVALID_CONTAINER,
+            ) from exc
+        materialized_barriers: list[MediaTimelineBarrier] = []
+        try:
+            for _ in range(MAX_MEDIA_LINKS + 1):
+                try:
+                    materialized_barriers.append(next(barrier_iterator))
+                except StopIteration:
+                    break
+        except BaseException as exc:
+            raise MediaContractError(
+                "timeline barriers must be safely iterable",
+                code=MediaErrorCode.INVALID_CONTAINER,
+            ) from exc
+        if len(materialized) + len(materialized_barriers) > MAX_MEDIA_LINKS:
+            raise MediaContractError(
+                f"media timeline exceeds {MAX_MEDIA_LINKS} total events",
+                code=MediaErrorCode.LINK_LIMIT,
+            )
+        materialized_barriers = tuple(materialized_barriers)
+
         seen: set[tuple[int, str]] = set()
         for link in materialized:
             if type(link) is not MediaChessLink:
@@ -1021,6 +1133,25 @@ class MediaPositionTimeline:
             )
         )
 
+        barrier_by_timestamp: dict[int, MediaTimelineBarrier] = {}
+        for barrier in materialized_barriers:
+            if type(barrier) is not MediaTimelineBarrier:
+                raise MediaContractError(
+                    "timeline barriers must be MediaTimelineBarrier values",
+                    code=MediaErrorCode.INVALID_CONTAINER,
+                )
+            if barrier.source_id != self.source_id:
+                raise MediaContractError(
+                    "barrier source does not match timeline source",
+                    code=MediaErrorCode.SOURCE_MISMATCH,
+                )
+            if barrier.timestamp_ms in barrier_by_timestamp:
+                raise MediaContractError(
+                    "duplicate timeline barrier timestamp",
+                    code=MediaErrorCode.DUPLICATE_LINK,
+                )
+            barrier_by_timestamp[barrier.timestamp_ms] = barrier
+
         grouped: dict[int, list[MediaChessLink]] = {}
         confirmed_by_ref: dict[str, set[int]] = {}
         for link in self._links:
@@ -1031,7 +1162,19 @@ class MediaPositionTimeline:
         self._links_by_timestamp = {
             timestamp: tuple(group) for timestamp, group in grouped.items()
         }
-        self._timestamps = tuple(self._links_by_timestamp)
+        for timestamp, barrier in barrier_by_timestamp.items():
+            if any(link.confirmed for link in self._links_by_timestamp.get(timestamp, ())):
+                raise MediaContractError(
+                    "unresolved barrier cannot coexist with confirmed link",
+                    code=MediaErrorCode.CONFIRMATION_CONFLICT,
+                )
+        self._barriers = tuple(
+            sorted(materialized_barriers, key=lambda item: item.timestamp_ms)
+        )
+        self._barriers_by_timestamp = dict(barrier_by_timestamp)
+        self._timestamps = tuple(
+            sorted(set(self._links_by_timestamp) | set(self._barriers_by_timestamp))
+        )
         self._confirmed_timestamps_by_ref = {
             chess_ref: tuple(sorted(timestamps))
             for chess_ref, timestamps in confirmed_by_ref.items()
@@ -1045,13 +1188,26 @@ class MediaPositionTimeline:
     def timestamps(self) -> tuple[int, ...]:
         return self._timestamps
 
+    @property
+    def barriers(self) -> tuple[MediaTimelineBarrier, ...]:
+        return self._barriers
+
+    def barrier_at(self, timestamp_ms: int) -> MediaTimelineBarrier | None:
+        timestamp = _require_nonnegative_int(timestamp_ms, "timestamp_ms")
+        return self._barriers_by_timestamp.get(timestamp)
+
     def links_at(self, timestamp_ms: int) -> tuple[MediaChessLink, ...]:
         timestamp = _require_nonnegative_int(timestamp_ms, "timestamp_ms")
         return self._links_by_timestamp.get(timestamp, ())
 
     def resolve_exact(self, timestamp_ms: int) -> TimelineResolution:
         timestamp = _require_nonnegative_int(timestamp_ms, "timestamp_ms")
-        return self._resolution(timestamp, timestamp, self.links_at(timestamp))
+        return self._resolution(
+            timestamp,
+            timestamp,
+            self.links_at(timestamp),
+            self.barrier_at(timestamp),
+        )
 
     def resolve_at_or_before(self, timestamp_ms: int) -> TimelineResolution:
         requested = _require_nonnegative_int(timestamp_ms, "timestamp_ms")
@@ -1061,14 +1217,31 @@ class MediaPositionTimeline:
                 self.source_id, requested, None, (), None, False
             )
         anchor = self._timestamps[index]
-        return self._resolution(requested, anchor, self.links_at(anchor))
+        return self._resolution(
+            requested,
+            anchor,
+            self.links_at(anchor),
+            self.barrier_at(anchor),
+        )
 
     def _resolution(
         self,
         requested: int,
         anchor: int,
         links: tuple[MediaChessLink, ...],
+        barrier: MediaTimelineBarrier | None,
     ) -> TimelineResolution:
+        if barrier is not None:
+            return TimelineResolution(
+                source_id=self.source_id,
+                requested_timestamp_ms=requested,
+                anchor_timestamp_ms=anchor,
+                links=links,
+                chess_ref=None,
+                ambiguous=barrier.state is MediaReconciliationState.AMBIGUOUS,
+                barrier=barrier,
+                qualification=barrier.state,
+            )
         confirmed_refs = tuple(
             sorted({link.chess_ref for link in links if link.confirmed})
         )
@@ -1079,6 +1252,14 @@ class MediaPositionTimeline:
         ambiguous = len(confirmed_refs) > 1 or (
             not confirmed_refs and len(candidate_refs) > 1
         )
+        if len(confirmed_refs) == 1:
+            qualification = MediaReconciliationState.VERIFIED
+        elif ambiguous:
+            qualification = MediaReconciliationState.AMBIGUOUS
+        elif candidate_refs:
+            qualification = MediaReconciliationState.OBSERVED
+        else:
+            qualification = None
         return TimelineResolution(
             source_id=self.source_id,
             requested_timestamp_ms=requested,
@@ -1086,6 +1267,7 @@ class MediaPositionTimeline:
             links=links,
             chess_ref=chess_ref,
             ambiguous=ambiguous,
+            qualification=qualification,
         )
 
     def confirmed_timestamps_for(self, chess_ref: str) -> tuple[int, ...]:
@@ -1097,6 +1279,23 @@ class MediaPositionTimeline:
             self.source_id,
             (*self._links, link),
             identity=self.identity,
+            barriers=self._barriers,
+        )
+
+    def with_barrier(
+        self,
+        barrier: MediaTimelineBarrier,
+    ) -> "MediaPositionTimeline":
+        if type(barrier) is not MediaTimelineBarrier:
+            raise MediaContractError(
+                "barrier must be MediaTimelineBarrier",
+                code=MediaErrorCode.INVALID_CONTAINER,
+            )
+        return MediaPositionTimeline(
+            self.source_id,
+            self._links,
+            identity=self.identity,
+            barriers=(*self._barriers, barrier),
         )
 
     def confirm_candidate(
@@ -1140,6 +1339,7 @@ class MediaPositionTimeline:
         if (
             selected.confirmed
             and not conflicts
+            and self.barrier_at(timestamp) is None
             and (replacement_evidence is None or replacement_evidence == selected.evidence)
         ):
             return self
@@ -1170,12 +1370,27 @@ class MediaPositionTimeline:
             self.source_id,
             reconciled,
             identity=self.identity,
+            barriers=tuple(
+                barrier
+                for barrier in self._barriers
+                if barrier.timestamp_ms != timestamp
+            ),
         )
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "source_id": self.source_id,
             "identity": _timeline_identity_to_dict(self.identity),
+            "barriers": [
+                {
+                    "timestamp_ms": barrier.timestamp_ms,
+                    "state": barrier.state.value,
+                    "segment_id": barrier.segment_id,
+                    "evidence_ids": list(barrier.evidence_ids),
+                    "reason": barrier.reason,
+                }
+                for barrier in self._barriers
+            ],
             "links": [
                 {
                     "timestamp_ms": link.timestamp_ms,
@@ -1198,6 +1413,39 @@ class MediaPositionTimeline:
         source_id = data.get("source_id")
         raw_identity = data.get("identity")
         identity = _timeline_identity_from_dict(raw_identity)
+        raw_barriers = data.get("barriers", [])
+        if type(raw_barriers) is not list:
+            raise MediaContractError(
+                "timeline barriers must be a list",
+                code=MediaErrorCode.INVALID_CONTAINER,
+            )
+        barriers: list[MediaTimelineBarrier] = []
+        for raw_barrier in raw_barriers:
+            if type(raw_barrier) is not dict:
+                raise MediaContractError(
+                    "timeline barrier must be an object",
+                    code=MediaErrorCode.INVALID_CONTAINER,
+                )
+            evidence_ids = raw_barrier.get("evidence_ids", [])
+            if type(evidence_ids) is not list:
+                raise MediaContractError(
+                    "barrier evidence_ids must be a list",
+                    code=MediaErrorCode.INVALID_CONTAINER,
+                )
+            barriers.append(
+                MediaTimelineBarrier(
+                    source_id=source_id,
+                    timestamp_ms=raw_barrier.get("timestamp_ms"),
+                    state=raw_barrier.get(
+                        "state", MediaReconciliationState.RESYNC_REQUIRED.value
+                    ),
+                    segment_id=raw_barrier.get("segment_id"),
+                    evidence_ids=tuple(evidence_ids),
+                    reason=raw_barrier.get(
+                        "reason", "media timeline requires resynchronization"
+                    ),
+                )
+            )
         raw_links = data.get("links")
         if type(raw_links) is not list:
             raise MediaContractError(
@@ -1226,7 +1474,12 @@ class MediaPositionTimeline:
                     evidence=raw_link.get("evidence"),
                 )
             )
-        return cls(source_id, links, identity=identity)
+        return cls(
+            source_id,
+            links,
+            identity=identity,
+            barriers=barriers,
+        )
 
 
 @dataclass(frozen=True, slots=True)
