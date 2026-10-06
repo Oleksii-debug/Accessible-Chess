@@ -15,6 +15,8 @@ on:
       - 'acs/pgn_workspace.py'
       - 'acs/pgn_workspace_webview_adapter.py'
       - 'acs/version2_pgn_commands.py'
+      - 'tests/test_dev1_pgn_webview_projection.py'
+      - 'tests/test_dev1_pgn_workspace_webview_adapter.py'
       - 'tests/test_pgn_complete_editing_user_flow.py'
       - 'web/full_product_pgn.js'
   workflow_dispatch:
@@ -30,14 +32,16 @@ env:
   HTML_IMPORT_BLOB: 8400a3a90a17e99406b99c60a7af1baefa1f784d
   ACTIVE_CANCEL_TEST_BLOB: 5bf93cd819eec762df0df65b44ebb7171d39877a
   ACTIONS_BLOB: 3979e7a3b978715fd1ddfbb9e613f5f889675e8c
-  PRESENTERS_BLOB: da56a615b8fe5d83a8a114b4ca807e34fe339fc6
-  BRIDGE_BLOB: cd719f8a37a244eac53bcddb136b58ce08ec76b9
-  PROJECTION_BLOB: a0d9f93c1ca7314ef12c13a7818d746ec4ae0d60
-  WORKSPACE_BLOB: 8208afe46c734035db23e66b4f4e9c59d6524cf5
-  ADAPTER_BLOB: 62b908f4e4c59d7060678845e6cb8ff3b31b30b1
-  COMMANDS_BLOB: b85330c2458b864ee406de75cf58072ba2ee6338
-  PGN_TEST_BLOB: 18359190f5e4724c6c2ec7a3ba4567039d6f1844
-  PGN_JS_BLOB: 98d9ced8e77aafbd718da4fbb063a7c9ea5af8a6
+  PRESENTERS_BLOB: 07c68e56666bcb37f866d91a6317490b83d8a454
+  BRIDGE_BLOB: 79a33b2acb88183dc9e76c2a1751e1e1862510d0
+  PROJECTION_BLOB: 28b782a458518676c15340b0f1a525e40d2b8fdd
+  WORKSPACE_BLOB: 4728e069d1fbc6f76daaed3116cabbe8ce6c0e0a
+  ADAPTER_BLOB: ba3879d033a2b2a297b4d37318341e6a76150d03
+  COMMANDS_BLOB: 6e2a86ffd7204f601ed21973c7ab4eb00b955d57
+  PROJECTION_TEST_BLOB: d031804bb40e9cb593e8db5075b858dc50c1c87a
+  ADAPTER_TEST_BLOB: 3f47c86fc6b451f0b2791b838025eb87068d8dc4
+  PGN_TEST_BLOB: f46f608474bedfa7d8830294e06e21fb3b24ccae
+  PGN_JS_BLOB: 2a81d303d18440f60da7c38ab1eb8668e7f9e92b
 
 jobs:
   exact-head:
@@ -85,6 +89,8 @@ jobs:
             'acs/pgn_workspace.py' \
             'acs/pgn_workspace_webview_adapter.py' \
             'acs/version2_pgn_commands.py' \
+            'tests/test_dev1_pgn_webview_projection.py' \
+            'tests/test_dev1_pgn_workspace_webview_adapter.py' \
             'tests/test_pgn_complete_editing_user_flow.py' \
             'web/full_product_pgn.js' | sort)"
           test "$changed" = "$expected_paths"
@@ -97,6 +103,8 @@ jobs:
           test "$(git rev-parse HEAD:acs/pgn_workspace.py)" = "$WORKSPACE_BLOB"
           test "$(git rev-parse HEAD:acs/pgn_workspace_webview_adapter.py)" = "$ADAPTER_BLOB"
           test "$(git rev-parse HEAD:acs/version2_pgn_commands.py)" = "$COMMANDS_BLOB"
+          test "$(git rev-parse HEAD:tests/test_dev1_pgn_webview_projection.py)" = "$PROJECTION_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_dev1_pgn_workspace_webview_adapter.py)" = "$ADAPTER_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_pgn_complete_editing_user_flow.py)" = "$PGN_TEST_BLOB"
           test "$(git rev-parse HEAD:web/full_product_pgn.js)" = "$PGN_JS_BLOB"
 
@@ -116,12 +124,14 @@ jobs:
           acs/pgn_workspace.py
           acs/pgn_workspace_webview_adapter.py
           acs/version2_pgn_commands.py
+          tests/test_dev1_pgn_webview_projection.py
+          tests/test_dev1_pgn_workspace_webview_adapter.py
           tests/test_pgn_complete_editing_user_flow.py
 
       - name: Parse PGN browser surface
         run: node --check web/full_product_pgn.js
 
-      - name: Complete PGN editing journey
+      - name: Complete bounded PGN editing journey
         run: >-
           python -m unittest -v
           tests.test_pgn_complete_editing_user_flow
@@ -139,7 +149,7 @@ jobs:
           tests.test_book_html_runtime_correctness
           tests.test_v2_book_html_import
 
-      - name: Preserve current FEN editor and whole-product composition
+      - name: Preserve captured FEN editor and whole-product composition
         run: >-
           python -m unittest -v
           tests.test_fen_editor_turn_and_visible_status
