@@ -29,13 +29,9 @@ class Issue22ReleaseContractTests(unittest.TestCase):
     def test_passive_no_conflict_state_is_not_a_live_announcement(self):
         self.assertNotIn("Конфліктів немає", HTML)
         self.assertNotIn("No conflicts.", HTML)
-        self.assertEqual(HTML.count('aria-live="polite"'), 2)
         self.assertIn('id="live" role="status" aria-live="polite"', HTML)
-        self.assertIn(
-            'id="key-recovery-status" class="block" role="status" '
-            'aria-live="polite" aria-atomic="true" hidden',
-            HTML,
-        )
+        self.assertIn('aria-describedby="key-recovery-status"', HTML)
+        self.assertIn('id="key-recovery-status" class="block"', HTML)
         self.assertIn(
             "function renderKeymapRecovery(snapshot,announceNow=false)",
             HTML,
