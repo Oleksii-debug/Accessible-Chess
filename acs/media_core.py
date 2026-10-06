@@ -17,13 +17,16 @@ from dataclasses import dataclass, replace
 from enum import Enum
 import json
 import math
-from typing import Any, Iterable
+from typing import Any, Iterable, Protocol
 
 
 MEDIA_STATE_SCHEMA = "accessible-chess.media-state"
 MEDIA_STATE_VERSION = 1
 MAX_MEDIA_LINKS = 100_000
 MAX_MEDIA_STATE_BYTES = 8 * 1024 * 1024
+MAX_MEDIA_EVIDENCE_FIELDS = 64
+MAX_MEDIA_RECONCILIATION_REFS = 64
+MAX_MEDIA_CONTRACT_TEXT = 16 * 1024
 
 
 class MediaErrorCode(str, Enum):
@@ -32,6 +35,7 @@ class MediaErrorCode(str, Enum):
     INVALID_DURATION = "invalid_duration"
     INVALID_CONFIDENCE = "invalid_confidence"
     INVALID_PLAYBACK_RATE = "invalid_playback_rate"
+    RECONCILIATION_FAILED = "reconciliation_failed"
     SOURCE_MISMATCH = "source_mismatch"
     DUPLICATE_LINK = "duplicate_link"
     LINK_LIMIT = "link_limit"
@@ -72,6 +76,148 @@ class MediaPlaybackState(str, Enum):
     PAUSED = "paused"
     BUFFERING = "buffering"
     ENDED = "ended"
+
+
+
+class MediaEvidenceKind(str, Enum):
+    """Provider-neutral evidence categories; evidence is never chess truth."""
+
+    STRUCTURED_CHESS = "structured_chess"
+    BOARD_OBSERVATION = "board_observation"
+    SPEECH_CONTEXT = "speech_context"
+    KNOWN_GAME_CANDIDATE = "known_game_candidate"
+    USER_CORRECTION = "user_correction"
+
+
+class MediaReconciliationState(str, Enum):
+    """Qualification returned by the canonical chess application boundary."""
+
+    OBSERVED = "observed"
+    INFERRED = "inferred"
+    VERIFIED = "verified"
+    AMBIGUOUS = "ambiguous"
+    RESYNC_REQUIRED = "resync_required"
+    NO_CHANGE = "no_change"
+
+
+@dataclass(frozen=True, slots=True)
+class MediaEvidenceField:
+    """One bounded immutable evidence datum with opaque text semantics."""
+
+    name: str
+    value: str
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "name",
+            _require_bounded_text(self.name, "evidence field name", max_chars=256),
+        )
+        object.__setattr__(
+            self,
+            "value",
+            _require_bounded_text(
+                self.value,
+                "evidence field value",
+                max_chars=MAX_MEDIA_CONTRACT_TEXT,
+            ),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class MediaEvidence:
+    """Deeply immutable, provider-neutral media evidence envelope."""
+
+    evidence_id: str
+    source_id: str
+    kind: MediaEvidenceKind
+    start_ms: int
+    end_ms: int
+    fields: tuple[MediaEvidenceField, ...] = ()
+    confidence: float = 1.0
+    authoritative: bool = False
+    producer_revision: str | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "evidence_id",
+            _require_bounded_text(self.evidence_id, "evidence_id", max_chars=512),
+        )
+        object.__setattr__(
+            self,
+            "source_id",
+            _require_bounded_text(self.source_id, "source_id", max_chars=512),
+        )
+        if type(self.kind) is MediaEvidenceKind:
+            kind = self.kind
+        elif type(self.kind) is str:
+            try:
+                kind = MediaEvidenceKind(self.kind)
+            except ValueError as exc:
+                raise MediaContractError(
+                    "unsupported media evidence kind",
+                    code=MediaErrorCode.INVALID_CONTAINER,
+                ) from exc
+        else:
+            raise MediaContractError(
+                "unsupported media evidence kind",
+                code=MediaErrorCode.INVALID_CONTAINER,
+            )
+        object.__setattr__(self, "kind", kind)
+        start = _require_nonnegative_int(self.start_ms, "start_ms")
+        end = _require_nonnegative_int(self.end_ms, "end_ms")
+        if end < start:
+            raise MediaContractError(
+                "evidence end_ms must be greater than or equal to start_ms",
+                code=MediaErrorCode.INVALID_TIMESTAMP,
+            )
+        if type(self.fields) is not tuple:
+            raise MediaContractError(
+                "evidence fields must be an immutable tuple",
+                code=MediaErrorCode.INVALID_CONTAINER,
+            )
+        if len(self.fields) > MAX_MEDIA_EVIDENCE_FIELDS:
+            raise MediaContractError(
+                f"media evidence exceeds {MAX_MEDIA_EVIDENCE_FIELDS} fields",
+                code=MediaErrorCode.INVALID_CONTAINER,
+            )
+        names: set[str] = set()
+        normalized_fields: list[MediaEvidenceField] = []
+        for field in self.fields:
+            if type(field) is not MediaEvidenceField:
+                raise MediaContractError(
+                    "evidence fields must contain MediaEvidenceField values",
+                    code=MediaErrorCode.INVALID_CONTAINER,
+                )
+            if field.name in names:
+                raise MediaContractError(
+                    "duplicate media evidence field name",
+                    code=MediaErrorCode.INVALID_CONTAINER,
+                )
+            names.add(field.name)
+            normalized_fields.append(field)
+        object.__setattr__(
+            self,
+            "fields",
+            tuple(sorted(normalized_fields, key=lambda item: (item.name, item.value))),
+        )
+        object.__setattr__(self, "confidence", _require_confidence(self.confidence))
+        if type(self.authoritative) is not bool:
+            raise MediaContractError(
+                "authoritative must be an exact boolean",
+                code=MediaErrorCode.INVALID_CONTAINER,
+            )
+        if self.producer_revision is not None:
+            object.__setattr__(
+                self,
+                "producer_revision",
+                _require_bounded_text(
+                    self.producer_revision,
+                    "producer_revision",
+                    max_chars=512,
+                ),
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -319,6 +465,21 @@ def _require_text(value: object, field_name: str) -> str:
     return value
 
 
+def _require_bounded_text(
+    value: object,
+    field_name: str,
+    *,
+    max_chars: int = MAX_MEDIA_CONTRACT_TEXT,
+) -> str:
+    text = _require_text(value, field_name)
+    if len(text) > max_chars:
+        raise MediaContractError(
+            f"{field_name} exceeds the safety limit",
+            code=MediaErrorCode.INVALID_TEXT,
+        )
+    return text
+
+
 def _require_optional_text(value: object, field_name: str) -> str | None:
     if value is None:
         return None
@@ -468,6 +629,197 @@ class TimelineResolution:
     @property
     def resolved(self) -> bool:
         return self.chess_ref is not None and not self.ambiguous
+
+
+
+@dataclass(frozen=True, slots=True)
+class MediaReconciliationResult:
+    """Validated result from canonical chess-state reconciliation."""
+
+    source_id: str
+    state: MediaReconciliationState
+    evidence_ids: tuple[str, ...]
+    chess_ref: str | None = None
+    candidate_refs: tuple[str, ...] = ()
+    confidence: float = 0.0
+    reason: str = "reconciliation result"
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "source_id",
+            _require_bounded_text(self.source_id, "source_id", max_chars=512),
+        )
+        if type(self.state) is MediaReconciliationState:
+            state = self.state
+        elif type(self.state) is str:
+            try:
+                state = MediaReconciliationState(self.state)
+            except ValueError as exc:
+                raise MediaContractError(
+                    "unsupported media reconciliation state",
+                    code=MediaErrorCode.RECONCILIATION_FAILED,
+                ) from exc
+        else:
+            raise MediaContractError(
+                "unsupported media reconciliation state",
+                code=MediaErrorCode.RECONCILIATION_FAILED,
+            )
+        object.__setattr__(self, "state", state)
+        if type(self.evidence_ids) is not tuple:
+            raise MediaContractError(
+                "reconciliation evidence_ids must be an immutable tuple",
+                code=MediaErrorCode.RECONCILIATION_FAILED,
+            )
+        if not self.evidence_ids or len(self.evidence_ids) > MAX_MEDIA_RECONCILIATION_REFS:
+            raise MediaContractError(
+                "reconciliation evidence_ids are empty or exceed the safety limit",
+                code=MediaErrorCode.RECONCILIATION_FAILED,
+            )
+        evidence_ids = tuple(
+            _require_bounded_text(item, "evidence_id", max_chars=512)
+            for item in self.evidence_ids
+        )
+        if len(set(evidence_ids)) != len(evidence_ids):
+            raise MediaContractError(
+                "reconciliation evidence_ids must be unique",
+                code=MediaErrorCode.RECONCILIATION_FAILED,
+            )
+        object.__setattr__(self, "evidence_ids", evidence_ids)
+        chess_ref = (
+            None
+            if self.chess_ref is None
+            else _require_bounded_text(self.chess_ref, "chess_ref", max_chars=2048)
+        )
+        object.__setattr__(self, "chess_ref", chess_ref)
+        if type(self.candidate_refs) is not tuple:
+            raise MediaContractError(
+                "candidate_refs must be an immutable tuple",
+                code=MediaErrorCode.RECONCILIATION_FAILED,
+            )
+        if len(self.candidate_refs) > MAX_MEDIA_RECONCILIATION_REFS:
+            raise MediaContractError(
+                "candidate_refs exceed the safety limit",
+                code=MediaErrorCode.RECONCILIATION_FAILED,
+            )
+        candidate_refs = tuple(
+            _require_bounded_text(item, "candidate_ref", max_chars=2048)
+            for item in self.candidate_refs
+        )
+        if len(set(candidate_refs)) != len(candidate_refs):
+            raise MediaContractError(
+                "candidate_refs must be unique",
+                code=MediaErrorCode.RECONCILIATION_FAILED,
+            )
+        object.__setattr__(self, "candidate_refs", candidate_refs)
+        object.__setattr__(self, "confidence", _require_confidence(self.confidence))
+        object.__setattr__(
+            self,
+            "reason",
+            _require_bounded_text(
+                self.reason,
+                "reconciliation reason",
+                max_chars=4096,
+            ),
+        )
+        resolved_states = (
+            MediaReconciliationState.VERIFIED,
+            MediaReconciliationState.INFERRED,
+        )
+        unresolved_states = (
+            MediaReconciliationState.OBSERVED,
+            MediaReconciliationState.AMBIGUOUS,
+            MediaReconciliationState.RESYNC_REQUIRED,
+        )
+        if state in resolved_states and chess_ref is None:
+            raise MediaContractError(
+                "verified/inferred reconciliation requires one canonical chess_ref",
+                code=MediaErrorCode.RECONCILIATION_FAILED,
+            )
+        if state in unresolved_states and chess_ref is not None:
+            raise MediaContractError(
+                "unresolved reconciliation cannot publish canonical chess_ref",
+                code=MediaErrorCode.RECONCILIATION_FAILED,
+            )
+        if state is MediaReconciliationState.AMBIGUOUS and len(candidate_refs) < 2:
+            raise MediaContractError(
+                "ambiguous reconciliation requires at least two candidate refs",
+                code=MediaErrorCode.RECONCILIATION_FAILED,
+            )
+
+
+class CanonicalChessReconciliationPort(Protocol):
+    """Application-owned legality/reconciliation authority consumed by Media Core."""
+
+    def reconcile_media_evidence(
+        self,
+        *,
+        current_chess_ref: str | None,
+        evidence: MediaEvidence,
+    ) -> MediaReconciliationResult:
+        ...
+
+
+class ChessStateReconciler:
+    """Fail-closed boundary around canonical chess application authority."""
+
+    __slots__ = ("_port",)
+
+    def __init__(self, port: CanonicalChessReconciliationPort) -> None:
+        method = getattr(port, "reconcile_media_evidence", None)
+        if not callable(method):
+            raise MediaContractError(
+                "canonical reconciliation port is unavailable",
+                code=MediaErrorCode.RECONCILIATION_FAILED,
+            )
+        self._port = port
+
+    def reconcile(
+        self,
+        evidence: MediaEvidence,
+        *,
+        current_chess_ref: str | None = None,
+    ) -> MediaReconciliationResult:
+        if type(evidence) is not MediaEvidence:
+            raise MediaContractError(
+                "evidence must be an exact MediaEvidence value",
+                code=MediaErrorCode.INVALID_CONTAINER,
+            )
+        current = (
+            None
+            if current_chess_ref is None
+            else _require_bounded_text(
+                current_chess_ref,
+                "current_chess_ref",
+                max_chars=2048,
+            )
+        )
+        try:
+            result = self._port.reconcile_media_evidence(
+                current_chess_ref=current,
+                evidence=evidence,
+            )
+        except Exception as exc:
+            raise MediaContractError(
+                "canonical chess reconciliation failed closed",
+                code=MediaErrorCode.RECONCILIATION_FAILED,
+            ) from exc
+        if type(result) is not MediaReconciliationResult:
+            raise MediaContractError(
+                "canonical reconciliation returned an invalid result",
+                code=MediaErrorCode.RECONCILIATION_FAILED,
+            )
+        if result.source_id != evidence.source_id:
+            raise MediaContractError(
+                "reconciliation result source does not match evidence source",
+                code=MediaErrorCode.RECONCILIATION_FAILED,
+            )
+        if evidence.evidence_id not in result.evidence_ids:
+            raise MediaContractError(
+                "reconciliation result is not bound to the supplied evidence",
+                code=MediaErrorCode.RECONCILIATION_FAILED,
+            )
+        return result
 
 
 class MediaPositionTimeline:

@@ -7,6 +7,13 @@ from acs.media_core import (
     MediaClock,
     MediaClockSnapshot,
     MediaPlaybackState,
+    CanonicalChessReconciliationPort,
+    ChessStateReconciler,
+    MediaEvidence,
+    MediaEvidenceField,
+    MediaEvidenceKind,
+    MediaReconciliationResult,
+    MediaReconciliationState,
     MAX_MEDIA_LINKS,
     MediaChessLink,
     MediaChessSession,
@@ -497,6 +504,199 @@ class MediaCoreContractTests(unittest.TestCase):
         with self.assertRaises(MediaContractError) as caught:
             MediaChessSession(DerivedMediaCursor("lesson-1", 0))
         self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_CONTAINER)
+
+
+    def test_media_evidence_is_deeply_immutable_and_deterministic(self):
+        evidence = MediaEvidence(
+            evidence_id="ev-1",
+            source_id="lesson-1",
+            kind=MediaEvidenceKind.BOARD_OBSERVATION,
+            start_ms=1000,
+            end_ms=1200,
+            fields=(
+                MediaEvidenceField("zeta", "opaque-z"),
+                MediaEvidenceField("alpha", "opaque-a"),
+            ),
+            confidence=0.82,
+            producer_revision="boardvision-v1",
+        )
+        self.assertEqual([field.name for field in evidence.fields], ["alpha", "zeta"])
+        with self.assertRaises(AttributeError):
+            evidence.fields = ()
+        with self.assertRaises(AttributeError):
+            evidence.fields[0].value = "mutated"
+
+    def test_media_evidence_rejects_mutable_or_duplicate_fields(self):
+        field = MediaEvidenceField("position", "opaque")
+        with self.assertRaises(MediaContractError) as caught:
+            MediaEvidence(
+                evidence_id="ev-1",
+                source_id="lesson-1",
+                kind=MediaEvidenceKind.BOARD_OBSERVATION,
+                start_ms=0,
+                end_ms=0,
+                fields=[field],
+            )
+        self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_CONTAINER)
+        with self.assertRaises(MediaContractError) as caught:
+            MediaEvidence(
+                evidence_id="ev-2",
+                source_id="lesson-1",
+                kind=MediaEvidenceKind.BOARD_OBSERVATION,
+                start_ms=0,
+                end_ms=1,
+                fields=(
+                    MediaEvidenceField("position", "one"),
+                    MediaEvidenceField("position", "two"),
+                ),
+            )
+        self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_CONTAINER)
+
+    def test_media_evidence_rejects_invalid_range_and_active_kind(self):
+        with self.assertRaises(MediaContractError) as caught:
+            MediaEvidence(
+                evidence_id="ev-1",
+                source_id="lesson-1",
+                kind=MediaEvidenceKind.SPEECH_CONTEXT,
+                start_ms=20,
+                end_ms=19,
+            )
+        self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_TIMESTAMP)
+        class ReprBomb:
+            def __repr__(self):
+                raise AssertionError("repr must not be evaluated")
+        with self.assertRaises(MediaContractError) as caught:
+            MediaEvidence(
+                evidence_id="ev-2",
+                source_id="lesson-1",
+                kind=ReprBomb(),
+                start_ms=0,
+                end_ms=0,
+            )
+        self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_CONTAINER)
+
+    def test_reconciliation_result_enforces_fail_closed_state_semantics(self):
+        verified = MediaReconciliationResult(
+            source_id="lesson-1",
+            state=MediaReconciliationState.VERIFIED,
+            evidence_ids=("ev-1",),
+            chess_ref="canonical:node:7",
+            candidate_refs=("canonical:node:7",),
+            confidence=1.0,
+            reason="canonical application verified the transition",
+        )
+        self.assertEqual(verified.chess_ref, "canonical:node:7")
+        ambiguous = MediaReconciliationResult(
+            source_id="lesson-1",
+            state=MediaReconciliationState.AMBIGUOUS,
+            evidence_ids=("ev-1",),
+            candidate_refs=("canonical:a", "canonical:b"),
+            confidence=0.7,
+            reason="two canonical candidates remain",
+        )
+        self.assertIsNone(ambiguous.chess_ref)
+        with self.assertRaises(MediaContractError) as caught:
+            MediaReconciliationResult(
+                source_id="lesson-1",
+                state=MediaReconciliationState.AMBIGUOUS,
+                evidence_ids=("ev-1",),
+                chess_ref="must-not-publish",
+                candidate_refs=("canonical:a", "canonical:b"),
+                reason="ambiguous",
+            )
+        self.assertEqual(caught.exception.code, MediaErrorCode.RECONCILIATION_FAILED)
+        with self.assertRaises(MediaContractError) as caught:
+            MediaReconciliationResult(
+                source_id="lesson-1",
+                state=MediaReconciliationState.INFERRED,
+                evidence_ids=("ev-1",),
+                reason="missing canonical ref",
+            )
+        self.assertEqual(caught.exception.code, MediaErrorCode.RECONCILIATION_FAILED)
+
+    def test_reconciler_delegates_to_canonical_port_without_chess_semantics(self):
+        evidence = MediaEvidence(
+            evidence_id="ev-1",
+            source_id="lesson-1",
+            kind=MediaEvidenceKind.STRUCTURED_CHESS,
+            start_ms=1000,
+            end_ms=1000,
+            fields=(MediaEvidenceField("provider-move", "opaque-provider-token"),),
+            confidence=1.0,
+            authoritative=True,
+        )
+        class CanonicalPort:
+            def reconcile_media_evidence(self, *, current_chess_ref, evidence):
+                self.seen = (current_chess_ref, evidence)
+                return MediaReconciliationResult(
+                    source_id=evidence.source_id,
+                    state=MediaReconciliationState.VERIFIED,
+                    evidence_ids=(evidence.evidence_id,),
+                    chess_ref="canonical:node:next",
+                    candidate_refs=("canonical:node:next",),
+                    confidence=evidence.confidence,
+                    reason="verified by canonical chess application",
+                )
+        port = CanonicalPort()
+        result = ChessStateReconciler(port).reconcile(
+            evidence,
+            current_chess_ref="canonical:node:current",
+        )
+        self.assertEqual(port.seen, ("canonical:node:current", evidence))
+        self.assertEqual(result.state, MediaReconciliationState.VERIFIED)
+        self.assertEqual(result.chess_ref, "canonical:node:next")
+
+    def test_reconciler_preserves_explicit_ambiguity_without_guessing(self):
+        evidence = MediaEvidence(
+            evidence_id="ev-ambiguous",
+            source_id="lesson-1",
+            kind=MediaEvidenceKind.BOARD_OBSERVATION,
+            start_ms=5000,
+            end_ms=5000,
+            confidence=0.91,
+        )
+        class CanonicalPort:
+            def reconcile_media_evidence(self, *, current_chess_ref, evidence):
+                return MediaReconciliationResult(
+                    source_id=evidence.source_id,
+                    state=MediaReconciliationState.AMBIGUOUS,
+                    evidence_ids=(evidence.evidence_id,),
+                    candidate_refs=("canonical:a", "canonical:b"),
+                    confidence=evidence.confidence,
+                    reason="multiple canonical states remain possible",
+                )
+        result = ChessStateReconciler(CanonicalPort()).reconcile(evidence)
+        self.assertEqual(result.state, MediaReconciliationState.AMBIGUOUS)
+        self.assertIsNone(result.chess_ref)
+        self.assertEqual(result.candidate_refs, ("canonical:a", "canonical:b"))
+
+    def test_reconciler_sanitizes_port_failure_and_rejects_unbound_results(self):
+        evidence = MediaEvidence(
+            evidence_id="ev-1",
+            source_id="lesson-1",
+            kind=MediaEvidenceKind.USER_CORRECTION,
+            start_ms=0,
+            end_ms=0,
+        )
+        class BrokenPort:
+            def reconcile_media_evidence(self, *, current_chess_ref, evidence):
+                raise RuntimeError("private C:/secret/provider/path")
+        with self.assertRaises(MediaContractError) as caught:
+            ChessStateReconciler(BrokenPort()).reconcile(evidence)
+        self.assertEqual(caught.exception.code, MediaErrorCode.RECONCILIATION_FAILED)
+        self.assertNotIn("secret", str(caught.exception))
+        class UnboundPort:
+            def reconcile_media_evidence(self, *, current_chess_ref, evidence):
+                return MediaReconciliationResult(
+                    source_id="other-source",
+                    state=MediaReconciliationState.NO_CHANGE,
+                    evidence_ids=("other-evidence",),
+                    confidence=1.0,
+                    reason="no change",
+                )
+        with self.assertRaises(MediaContractError) as caught:
+            ChessStateReconciler(UnboundPort()).reconcile(evidence)
+        self.assertEqual(caught.exception.code, MediaErrorCode.RECONCILIATION_FAILED)
 
     def test_schema_identifier_is_stable(self):
         self.assertEqual(MEDIA_STATE_SCHEMA, "accessible-chess.media-state")
