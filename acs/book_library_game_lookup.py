@@ -60,7 +60,11 @@ class AcsdbBookGameLookup:
             raise BookLibraryGameLookupError("stored book game warnings are invalid")
         try:
             warnings = json.loads(raw)
-        except (json.JSONDecodeError, RecursionError) as exc:
+        except (ValueError, RecursionError):
+            # json.loads() can raise ValueError for syntactically JSON input whose
+            # integer conversion breaches Python's bounded decimal-digit guard.
+            # Corrupt persisted diagnostics must stay behind the same sanitized
+            # Books -> Library boundary as ordinary JSON syntax/depth failures.
             raise BookLibraryGameLookupError(
                 "stored book game warnings are invalid"
             ) from None
