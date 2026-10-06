@@ -635,7 +635,7 @@ class BookBoardWorkflow:
             session = self._require_session()
             fen = session.current_fen
             expected_revision = self._revision
-        return self._engine.analyze_teacher(
+        return EngineAssistedWorkflowService.analyze_teacher(self._engine,
             fen,
             visibility=EngineVisibility.VISIBLE_TO_TEACHER,
             context_revision=expected_revision,
@@ -684,7 +684,7 @@ class BookBoardWorkflow:
             # The workflow lock stays held, so a newer Book Board session cannot
             # start in this window and be invalidated by the older Return.
             try:
-                self._engine.invalidate()
+                EngineAssistedWorkflowService.invalidate(self._engine)
             except BaseException:
                 self._reader._index = current.index
                 raise
