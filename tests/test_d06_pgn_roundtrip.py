@@ -292,5 +292,192 @@ class D06PgnRoundTripTests(unittest.TestCase):
         self.assertEqual(parse_pgn_text(serialize_pgn_text((game,))), (game,))
 
 
+    def test_strict_flag_requires_exact_boolean_before_any_parse_work(self):
+        source = '[Result "*"]\n\n*'
+        for invalid in (0, 1, None, "", (), object()):
+            with self.subTest(invalid=repr(invalid)):
+                with self.assertRaises(TypeError):
+                    parse_pgn_text(source, strict=invalid)
+        with patch(
+            "acs.pgn_roundtrip.decode_pgn_bytes",
+            side_effect=AssertionError("decode must not run"),
+        ) as decoder:
+            with self.assertRaises(TypeError):
+                parse_pgn_bytes(source.encode("utf-8"), strict=0)
+            decoder.assert_not_called()
+
+    def test_invalid_unicode_scalar_fails_closed_in_source_and_model(self):
+        surrogate = "\ud800"
+        self.assert_code(
+            PgnRoundTripErrorCode.INVALID_TEXT,
+            parse_pgn_text,
+            f'[Event "{surrogate}"]\n[Result "*"]\n\n*',
+        )
+
+        tag_game = PgnGame(
+            tags={"Event": surrogate, "Result": "*"},
+            line=VariationLine(result="*"),
+        )
+        self.assert_code(
+            PgnRoundTripErrorCode.INVALID_MODEL,
+            serialize_pgn_text,
+            (tag_game,),
+        )
+
+        comment_game = PgnGame(
+            tags={"Result": "*"},
+            line=VariationLine(
+                moves=[
+                    MoveNode(
+                        "e4",
+                        move_number="1.",
+                        comments_after=[Comment(surrogate)],
+                    )
+                ],
+                result="*",
+            ),
+        )
+        self.assert_code(
+            PgnRoundTripErrorCode.INVALID_MODEL,
+            serialize_pgn_text,
+            (comment_game,),
+        )
+
+    def test_tag_names_share_parser_and_serializer_lexical_bound(self):
+        source = '[EventLong "x"]\n[Result "*"]\n\n*'
+        with patch("acs.pgn_roundtrip.MAX_PGN_TOKEN_CHARS", 8):
+            self.assert_code(
+                PgnRoundTripErrorCode.TOKEN_SIZE_LIMIT,
+                parse_pgn_text,
+                source,
+            )
+            game = PgnGame(
+                tags={"EventLong": "x", "Result": "*"},
+                line=VariationLine(result="*"),
+            )
+            self.assert_code(
+                PgnRoundTripErrorCode.TOKEN_SIZE_LIMIT,
+                serialize_pgn_text,
+                (game,),
+            )
+
+    def test_serialization_counts_implicit_result_tag_before_payload_build(self):
+        game = PgnGame(
+            tags={"Event": "One"},
+            line=VariationLine(result="*"),
+        )
+        with (
+            patch("acs.pgn_roundtrip.MAX_PGN_TAGS_PER_GAME", 1),
+            patch("acs.pgn_roundtrip.serialize_games") as serializer,
+        ):
+            self.assert_code(
+                PgnRoundTripErrorCode.TAG_COUNT_LIMIT,
+                serialize_pgn_text,
+                (game,),
+            )
+            serializer.assert_not_called()
+
+    def test_serialization_requires_explicit_matching_root_result(self):
+        missing = PgnGame(
+            tags={"Result": "*"},
+            line=VariationLine(moves=[MoveNode("e4", move_number="1.")]),
+        )
+        self.assert_code(
+            PgnRoundTripErrorCode.INVALID_MODEL,
+            serialize_pgn_text,
+            (missing,),
+        )
+
+        mismatched = PgnGame(
+            tags={"Result": "1-0"},
+            line=VariationLine(
+                moves=[MoveNode("e4", move_number="1.")],
+                result="*",
+            ),
+        )
+        self.assert_code(
+            PgnRoundTripErrorCode.INVALID_MODEL,
+            serialize_pgn_text,
+            (mismatched,),
+        )
+
+    def test_empty_model_fails_closed_in_text_and_bytes_serialization(self):
+        self.assert_code(
+            PgnRoundTripErrorCode.EMPTY_PGN,
+            serialize_pgn_text,
+            (),
+        )
+        self.assert_code(
+            PgnRoundTripErrorCode.EMPTY_PGN,
+            serialize_pgn_bytes,
+            (),
+        )
+
+    def test_lossy_comment_layouts_fail_before_serializer(self):
+        missing_move_number = PgnGame(
+            tags={"Result": "*"},
+            line=VariationLine(
+                moves=[MoveNode("e4", comments_before=[Comment("before")])],
+                result="*",
+            ),
+        )
+        carriage_return = PgnGame(
+            tags={"Result": "*"},
+            line=VariationLine(
+                moves=[
+                    MoveNode(
+                        "e4",
+                        move_number="1.",
+                        comments_after=[Comment("one\rtwo")],
+                    )
+                ],
+                result="*",
+            ),
+        )
+        for game in (missing_move_number, carriage_return):
+            with self.subTest(game=repr(game)):
+                with patch("acs.pgn_roundtrip.serialize_games") as serializer:
+                    self.assert_code(
+                        PgnRoundTripErrorCode.INVALID_MODEL,
+                        serialize_pgn_text,
+                        (game,),
+                    )
+                    serializer.assert_not_called()
+
+    def test_recovery_warning_container_remains_passive_text_only(self):
+        game = PgnGame(
+            tags={"Result": "*"},
+            line=VariationLine(result="*"),
+        )
+        game.warnings = ("diagnostic",)
+        self.assert_code(
+            PgnRoundTripErrorCode.INVALID_MODEL,
+            serialize_pgn_text,
+            (game,),
+        )
+        game.warnings = [object()]
+        self.assert_code(
+            PgnRoundTripErrorCode.INVALID_MODEL,
+            serialize_pgn_text,
+            (game,),
+        )
+
+    def test_escaped_tag_growth_is_budgeted_before_serializer_payload(self):
+        game = PgnGame(
+            tags={"Event": "\\" * 200, "Result": "*"},
+            line=VariationLine(result="*"),
+        )
+        with (
+            patch("acs.pgn_roundtrip.MAX_PGN_TEXT_CHARS", 380),
+            patch("acs.pgn_roundtrip.serialize_games") as serializer,
+        ):
+            self.assert_code(
+                PgnRoundTripErrorCode.TEXT_SIZE_LIMIT,
+                serialize_pgn_text,
+                (game,),
+            )
+            serializer.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()
