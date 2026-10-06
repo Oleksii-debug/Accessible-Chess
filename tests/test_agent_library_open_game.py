@@ -8,6 +8,14 @@ import unittest
 
 from acs.acsdb import AcsDatabase
 from acs.agent_library_tools import register_library_open_game_tool
+from acs.agent_model_contracts import (
+    ModelRequest,
+    ModelResponse,
+    ModelUsage,
+    ProviderCapabilities,
+    ProviderKind,
+)
+from acs.agent_model_gateway import ModelGateway
 from acs.agent_tools import ToolCall, ToolExecutor, ToolRisk
 from acs.analysis_service import AnalysisService
 from acs.book_progress_store import BookProgressStore
@@ -15,6 +23,8 @@ from acs.chess_agent_tools import ChessAgentToolRegistry
 from acs.engine_assisted_workflows import EngineAssistedWorkflowService
 from acs.library_import_service import LibraryImportService
 from acs.pgn_workspace import PgnWorkspace
+from acs.search_service import GameSearchService
+from acs.universal_chess_agent import UniversalChessAgentRuntime
 from acs.version2_application import Version2Application
 
 
@@ -25,6 +35,37 @@ PGN = """[Event "Agent Library"]
 
 1. e4 e5 2. Nf3 *
 """
+
+
+class _ScriptedProvider:
+    def __init__(self, responses: list[str]) -> None:
+        self.responses = list(responses)
+        self.requests: list[ModelRequest] = []
+
+    @property
+    def capabilities(self) -> ProviderCapabilities:
+        return ProviderCapabilities(
+            provider_id="library-fixture",
+            kind=ProviderKind.LOCAL,
+            supports_private_data=True,
+        )
+
+    async def complete(self, request: ModelRequest) -> ModelResponse:
+        self.requests.append(request)
+        if not self.responses:
+            raise AssertionError("unexpected model request")
+        return ModelResponse(
+            request_id=request.request_id,
+            text=self.responses.pop(0),
+            provider_id="library-fixture",
+            provider_kind=ProviderKind.LOCAL,
+            model=request.model or "fixture-model",
+            usage=ModelUsage(
+                input_tokens=1,
+                output_tokens=1,
+                total_tokens=2,
+            ),
+        )
 
 
 class AgentLibraryOpenGameTests(unittest.TestCase):
@@ -115,6 +156,97 @@ class AgentLibraryOpenGameTests(unittest.TestCase):
             specs["library.open_game"].risk,
             ToolRisk.LOCAL_WRITE,
         )
+
+
+    def test_universal_agent_searches_then_opens_real_library_game(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                game = PgnWorkspace.from_text(PGN).games()[0]
+                imported = LibraryImportService(database).import_games(
+                    (game,),
+                    source_name="agent-library.pgn",
+                    source_format="pgn",
+                    source_sha256=sha256(PGN.encode("utf-8")).hexdigest(),
+                )
+                app = Version2Application(
+                    database,
+                    progress_store=BookProgressStore(root / "progress.json"),
+                    engine_assistance=EngineAssistedWorkflowService(analysis),
+                    board_dispatch=lambda *_args, **_kwargs: None,
+                )
+
+                executor = ToolExecutor()
+                ChessAgentToolRegistry(
+                    executor=executor,
+                    board_provider=lambda: None,
+                    board_commands_provider=lambda: None,
+                    search_service=GameSearchService(database),
+                    library_open_game_command=lambda payload: app.router.dispatch(
+                        "library.open_game", payload
+                    ).value,
+                ).register_all()
+
+                provider = _ScriptedProvider(
+                    [
+                        '{"type":"tool","tool_id":"library.search","arguments":{"event":"Agent Library","limit":5}}',
+                        (
+                            '{"type":"tool","tool_id":"library.open_game","arguments":'
+                            f'{{"game_id":{imported.first_game_id},"source_id":{imported.source_id},"source_index":0}}'
+                            "}"
+                        ),
+                        '{"type":"final","text":"Opened the matching Library game."}',
+                    ]
+                )
+                gateway = ModelGateway()
+                gateway.register(provider)
+                runtime = UniversalChessAgentRuntime(
+                    gateway=gateway,
+                    tools=executor,
+                    provider_id="library-fixture",
+                    model="fixture-model",
+                    product_instruction="Use canonical Accessible Chess Library tools.",
+                )
+
+                result = asyncio.run(
+                    runtime.run(
+                        run_id="library-open-runtime",
+                        user_text="Find Agent Library and open that game.",
+                    )
+                )
+
+                self.assertEqual(
+                    result.text,
+                    "Opened the matching Library game.",
+                )
+                self.assertEqual(result.tool_calls, 2)
+                self.assertEqual(result.model_calls, 3)
+                self.assertEqual(app.shell.current_route.route_id, "pgn")
+                self.assertEqual(
+                    app.session.workspace.current_game().tags["Event"],
+                    "Agent Library",
+                )
+                self.assertIn(
+                    '"tool_id":"library.search"',
+                    provider.requests[1].messages[-1].content,
+                )
+                self.assertIn(
+                    f'"game_id":{imported.first_game_id}',
+                    provider.requests[1].messages[-1].content,
+                )
+                self.assertIn(
+                    '"tool_id":"library.open_game"',
+                    provider.requests[2].messages[-1].content,
+                )
+                self.assertIn(
+                    '"opened":true',
+                    provider.requests[2].messages[-1].content,
+                )
+            finally:
+                analysis.close()
+                database.close()
 
     def test_real_application_open_and_dirty_document_guard(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

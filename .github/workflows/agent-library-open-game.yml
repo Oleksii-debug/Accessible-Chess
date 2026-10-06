@@ -57,7 +57,7 @@ jobs:
           }
           test "$(git rev-parse HEAD:acs/agent_library_tools.py)" = 'c9fcbe58bbfd1b65626970b17568a16146d886aa'
           test "$(git rev-parse HEAD:acs/chess_agent_tools.py)" = 'b2efb52e93aa83434d82def95ed95cb1d2e2b2ff'
-          test "$(git rev-parse HEAD:tests/test_agent_library_open_game.py)" = '95bfd1220f4afce18fc5f822b56b04b2d031c6f9'
+          test "$(git rev-parse HEAD:tests/test_agent_library_open_game.py)" = '34eb1b9629cdbde21d2e20f6ebd35234f2f9b001'
           test "$(git rev-parse HEAD:acs/version2_application.py)" = '300c0e71d1d714a51722ca4d517235be282bf9ae'
           test "$(git rev-parse HEAD:acs/search_service.py)" = '98466d081fb4c77d52029963c2f295e5f022dd07'
           echo 'AGENT_LIBRARY_OPEN_AUTHORITY=PASS'
