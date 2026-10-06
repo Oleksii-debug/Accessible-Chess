@@ -66,6 +66,7 @@ class Version2BookOpenWorker:
         self._closed = False
         self._focus_target = ""
         self._pending_outcome_kind: str | None = None
+        self._commit_active = False
         self._recovery_focus: str | None = None
         self._recovery_terminal_kind: BookOpenWorkerEventKind | None = None
         # Terminal delivery is an owner-observer transaction. Keep a distinct
@@ -247,7 +248,7 @@ class Version2BookOpenWorker:
     def cancel(self, *, focus_target: str = "") -> bool:
         self._assert_ui_thread()
         with self._lock:
-            if self._closed or self._cancel is None:
+            if self._closed or self._cancel is None or self._commit_active:
                 return False
             self._cancel.set()
         try:
@@ -358,12 +359,33 @@ class Version2BookOpenWorker:
         if cancel.is_set() or kind == "cancelled":
             terminal = BookOpenWorkerEventKind.CANCELLED
         elif kind == "prepared":
-            try:
-                self._commit(value)
-            except BaseException:
-                terminal = BookOpenWorkerEventKind.FAILED
-            else:
-                terminal = BookOpenWorkerEventKind.COMPLETED
+            # Cross one serialized publication boundary on the owner thread.
+            # Once commit starts, Cancel must no longer announce CANCELLING and
+            # a re-entrant FormClosing attempt must be refused until commit
+            # resolves. Otherwise the visible Book could commit after shutdown
+            # already fenced its generation, or produce CANCELLING -> COMPLETED.
+            with self._lock:
+                if (
+                    generation != self._generation
+                    or self._closed
+                    or self._cancel is not cancel
+                    or cancel.is_set()
+                ):
+                    terminal = BookOpenWorkerEventKind.CANCELLED
+                    may_commit = False
+                else:
+                    self._commit_active = True
+                    may_commit = True
+            if may_commit:
+                try:
+                    self._commit(value)
+                except BaseException:
+                    terminal = BookOpenWorkerEventKind.FAILED
+                else:
+                    terminal = BookOpenWorkerEventKind.COMPLETED
+                finally:
+                    with self._lock:
+                        self._commit_active = False
         else:
             terminal = BookOpenWorkerEventKind.FAILED
 
@@ -423,6 +445,12 @@ class Version2BookOpenWorker:
         ):
             raise ValueError("Book Open shutdown timeout must be non-negative or None")
         with self._lock:
+            if self._commit_active:
+                # Owner publication has crossed the cancellation boundary and
+                # is executing on this same UI stack. A close attempt cannot
+                # safely fence it mid-commit; refuse this close and let the
+                # caller retry once the transaction reaches its terminal.
+                return False
             self._closed = True
             self._generation += 1
             cancel = self._cancel
