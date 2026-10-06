@@ -5,6 +5,10 @@ import unittest
 
 from acs.gametree_navigation import GameTreeCursor, VariationStep, resolve_line
 from acs.pgn_document import PgnDocumentSession
+from acs.pgn_workspace import (
+    MAX_PGN_EDIT_TAG_NAME_CHARS,
+    MAX_PGN_EDIT_TAG_VALUE_CHARS,
+)
 from acs.version2_pgn_commands import Version2PgnCommands
 
 
@@ -146,6 +150,55 @@ class CompletePgnEditingUserFlowTests(unittest.TestCase):
             {**command_target(session), "name": "Event"},
         )
         self.assertNotIn("Event", session.workspace.current_game().tags)
+
+    def test_tag_edit_resource_fence_is_canonical_and_atomic(self):
+        session = PgnDocumentSession.from_text(
+            '[Event "Stable"]\n[Result "*"]\n\n1. e4 *'
+        )
+        commands = Version2PgnCommands(lambda: session)
+        workspace = session.workspace
+
+        def snapshot():
+            view = workspace.view()
+            return (
+                workspace.to_text(),
+                view.content_revision,
+                view.content_digest,
+                workspace.dirty,
+            )
+
+        before = snapshot()
+        invalid_values = (
+            "x" * (MAX_PGN_EDIT_TAG_VALUE_CHARS + 1),
+            "embedded\x00nul",
+            "line\nbreak",
+            "carriage\rreturn",
+        )
+        for value in invalid_values:
+            with self.subTest(kind="command-value", value=repr(value[:32])):
+                with self.assertRaises(ValueError):
+                    commands(
+                        "pgn.tag_edit",
+                        {**command_target(session), "name": "Event", "value": value},
+                    )
+                self.assertEqual(snapshot(), before)
+
+            with self.subTest(kind="workspace-value", value=repr(value[:32])):
+                with self.assertRaises(ValueError):
+                    workspace.edit_tag("Event", value)
+                self.assertEqual(snapshot(), before)
+
+        oversized_name = "X" * (MAX_PGN_EDIT_TAG_NAME_CHARS + 1)
+        with self.assertRaises(ValueError):
+            commands(
+                "pgn.tag_edit",
+                {**command_target(session), "name": oversized_name, "value": "safe"},
+            )
+        self.assertEqual(snapshot(), before)
+
+        with self.assertRaises(ValueError):
+            workspace.edit_tag(oversized_name, "safe")
+        self.assertEqual(snapshot(), before)
 
     def test_position_tags_remain_owned_by_position_workflow(self):
         session = PgnDocumentSession.from_text("1. e4 *")
