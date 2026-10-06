@@ -1,14 +1,13 @@
 name: PGN Document Integrity
 
 on:
-  push:
-    branches:
-      - 'integrate/w5-pgn-integrity-20260911-n9p3'
   pull_request:
+    branches:
+      - work/full-product-teacher-education-reachability-20260911
     paths:
       - 'acs/pgn_document.py'
-      - 'tests/test_pgn_document_context_atomicity.py'
-      - 'tests/test_pgn_document_setup_fen_integrity.py'
+      - 'tests/test_pgn_document*.py'
+      - 'tests/test_pgn_context_atomicity_workflow.py'
       - '.github/workflows/pgn-context-atomicity.yml'
   workflow_dispatch:
 
@@ -27,10 +26,8 @@ jobs:
         os: [ubuntu-22.04, windows-2025]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
-    env:
-      PARENT: 450f1cc2ccf786cd07c7b41853e449fc12740b19
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -44,32 +41,62 @@ jobs:
           git reset --hard HEAD
           git checkout-index --force --all
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install pinned verification dependency
-        run: python -m pip install -q pytest==8.4.2
-
-      - name: Prove current-parent ancestry and narrow scope
+      - name: Prove exact descendant geometry and protect PGN integrity authority
         shell: bash
         run: |
           set -euo pipefail
-          git cat-file -e "$PARENT^{commit}"
-          git merge-base --is-ancestor "$PARENT" HEAD
-          git diff --check "$PARENT" HEAD
-          changed="$(git diff --name-only "$PARENT" HEAD | sort)"
-          printf '%s\n' "$changed"
-          unexpected="$(printf '%s\n' "$changed" | grep -Ev '^(acs/pgn_document\.py|tests/test_pgn_document_context_atomicity\.py|tests/test_pgn_document_setup_fen_integrity\.py|\.github/workflows/pgn-context-atomicity\.yml)$' || true)"
-          if [ -n "$unexpected" ]; then
-            echo "Unexpected child-scope paths:" >&2
-            printf '%s\n' "$unexpected" >&2
-            exit 1
+          expected='${{ github.event.pull_request.head.sha || github.sha }}'
+          test "$(git rev-parse HEAD)" = "$expected"
+
+          if [ '${{ github.event_name }}' = 'pull_request' ]; then
+            base='${{ github.event.pull_request.base.sha }}'
+            test -n "$base"
+            git cat-file -e "$base^{commit}"
+          else
+            product_branch='work/full-product-teacher-education-reachability-20260911'
+            git fetch --no-tags origin "+refs/heads/$product_branch:refs/remotes/origin/$product_branch"
+            base="$(git rev-parse "refs/remotes/origin/$product_branch")"
           fi
+
+          git merge-base --is-ancestor "$base" HEAD
+          test "$(git merge-base "$base" HEAD)" = "$base"
+          git diff --check "$base" HEAD
+
+          changed="$(git diff --name-only "$base" HEAD | sort)"
+          printf '%s\n' "$changed"
+
           if printf '%s\n' "$changed" | grep -E '(^|/)tools/qa/|windows-stage1-strict|release_preflight|^acs/stage1_release_ui(_core)?\.py$'; then
             echo 'Frozen Stage 1 / strict-release contamination detected' >&2
             exit 1
           fi
+
+          # These two tests are the immutable acceptance authority for the
+          # historical restore-context atomicity and SetUp/FEN pairing repair.
+          # Descendant PGN-document implementations may evolve, but they must
+          # continue to satisfy these exact Product-owned regressions.
+          protected_paths=(
+            'tests/test_pgn_document_context_atomicity.py'
+            'tests/test_pgn_document_setup_fen_integrity.py'
+          )
+          for path in "${protected_paths[@]}"; do
+            base_blob="$(git rev-parse "$base:$path")"
+            candidate_blob="$(git rev-parse "HEAD:$path")"
+            test "$candidate_blob" = "$base_blob" || {
+              printf 'PGN integrity oracle drift requires a dedicated successor: %s base=%s candidate=%s\n' \
+                "$path" "$base_blob" "$candidate_blob" >&2
+              exit 1
+            }
+          done
+
+          echo "PGN_DOCUMENT_INTEGRITY_BASE=$base"
+          echo "PGN_DOCUMENT_INTEGRITY_HEAD=$(git rev-parse HEAD)"
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Install pinned verification dependency
+        run: python -m pip install -q pytest==8.4.2
 
       - name: Compile focused PGN document surface
         run: >-
@@ -78,11 +105,13 @@ jobs:
           tests/test_pgn_document.py
           tests/test_pgn_document_context_atomicity.py
           tests/test_pgn_document_setup_fen_integrity.py
+          tests/test_pgn_context_atomicity_workflow.py
           tests/test_v2_pgn_semantic_fidelity.py
 
       - name: Focused PGN document regressions
         run: >-
           python -m unittest -v
+          tests.test_pgn_context_atomicity_workflow
           tests.test_pgn_document_context_atomicity
           tests.test_pgn_document_setup_fen_integrity
           tests.test_pgn_document
