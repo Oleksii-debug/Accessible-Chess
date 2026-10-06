@@ -398,7 +398,11 @@ class Version2WindowsLibraryExportDelegate:
                 return
 
         def finish() -> None:
-            self._finish_export(generation, terminal)
+            self._finish_export(
+                generation,
+                terminal,
+                retry_on_failure=schedule_retry,
+            )
 
         try:
             assert self._post_to_ui is not None
@@ -465,6 +469,8 @@ class Version2WindowsLibraryExportDelegate:
         self,
         generation: int,
         terminal: LibraryExportHostEvent,
+        *,
+        retry_on_failure: bool = False,
     ) -> bool:
         self._assert_ui_thread()
         with self._lock:
@@ -484,6 +490,8 @@ class Version2WindowsLibraryExportDelegate:
         except BaseException:
             with self._lock:
                 self._terminal_delivery_inflight = False
+            if retry_on_failure:
+                self._schedule_terminal_retry(generation, terminal)
             _LOG.warning(
                 "Version 2 Library export terminal delivery failed",
                 exc_info=True,
