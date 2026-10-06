@@ -111,7 +111,11 @@ class AcsdbBookGameLookup:
 
         identity = self._game_id(game_id)
         try:
-            row = self._database.get_game(identity)
+            # Dispatch through the concrete class method, not an instance
+            # attribute. AcsDatabase instances are mutable and can otherwise
+            # shadow get_game on __dict__ even though the exact runtime type was
+            # validated at construction.
+            row = AcsDatabase.get_game(self._database, identity)
         except Exception:
             raise BookLibraryGameLookupError("book game lookup failed") from None
 
