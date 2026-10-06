@@ -1243,15 +1243,23 @@ class Version2WindowsPgnSaveWorkerTests(unittest.TestCase):
             controller("pgn.save", {})
             self.assertTrue(controller.wait_for_pgn_save(5.0))
             self.assertIn("Published generation", source.read_text(encoding="utf-8"))
-            cancelling = controller("pgn.cancel_save", {})
-            self.assertEqual(cancelling.kind, FileWorkflowEventKind.PGN_SAVE_CANCELLING)
-
-            poster.drain()
-
-            self.assertEqual(async_events[-1].kind, FileWorkflowEventKind.PGN_SAVED)
+            terminal = controller("pgn.cancel_save", {})
+            self.assertEqual(terminal.kind, FileWorkflowEventKind.PGN_SAVED)
+            self.assertEqual(terminal.action_id, "pgn.save")
+            self.assertEqual(async_events[-1], terminal)
+            self.assertNotIn(
+                FileWorkflowEventKind.PGN_SAVE_CANCELLING,
+                [event.kind for event in sync_events],
+            )
             self.assertFalse(session.dirty)
             self.assertFalse(controller.pgn_save_running)
-            self.assertIn(cancelling, sync_events)
+
+            # The worker's owner callback was already queued before the late
+            # Cancel resolved the fixed durable result. Draining that stale
+            # callback must not emit a duplicate terminal.
+            event_count = len(async_events)
+            poster.drain()
+            self.assertEqual(len(async_events), event_count)
 
 
 if __name__ == "__main__":
