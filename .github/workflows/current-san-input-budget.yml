@@ -40,7 +40,7 @@ jobs:
       - name: Prove exact bounded child scope
         shell: bash
         env:
-          PINNED_PARENT: 8928207ab958f88242c9ce3734f2270ce9df3d2b
+          PINNED_PARENT: dd9f48366b00f2c6ccefabcb84c3ebe977cc6d64
           EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: |
