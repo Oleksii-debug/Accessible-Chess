@@ -2503,29 +2503,36 @@ class Version2Application:
             raise retirement_error.with_traceback(retirement_traceback)
         if not retirement_complete:
             return False
+        cleanup_error: BaseException | None = None
+        cleanup_traceback = None
         if self._pending_shell_publication is not None:
             # Native close/Alt+F4 can race a browser route render. An
             # unacknowledged candidate route is not user-visible authority and
             # must never become durable merely because shutdown began. Retire
             # workers first so a refused close can keep the pending browser
             # transaction alive; once shutdown may proceed, roll it back before
-            # any Training or Book progress publication.
+            # any Training or Book progress publication. If rollback itself
+            # aborts, preserve that failure, skip progress publication from the
+            # now-uncertain presentation state, but still release ACSDB below.
             token = self._pending_shell_publication[0]
-            self._finish_shell_publication(token, commit=False)
-        progress_error: BaseException | None = None
-        progress_traceback = None
-        for save_progress in (self.save_training_progress, self.save_book_progress):
             try:
-                save_progress()
+                self._finish_shell_publication(token, commit=False)
             except BaseException as error:
-                if progress_error is None:
-                    progress_error = error
-                    progress_traceback = error.__traceback__
+                cleanup_error = error
+                cleanup_traceback = error.__traceback__
+        if cleanup_error is None:
+            for save_progress in (self.save_training_progress, self.save_book_progress):
+                try:
+                    save_progress()
+                except BaseException as error:
+                    if cleanup_error is None:
+                        cleanup_error = error
+                        cleanup_traceback = error.__traceback__
         try:
             self.database.close()
         except BaseException:
-            if progress_error is None:
+            if cleanup_error is None:
                 raise
-        if progress_error is not None:
-            raise progress_error.with_traceback(progress_traceback)
+        if cleanup_error is not None:
+            raise cleanup_error.with_traceback(cleanup_traceback)
         return True
