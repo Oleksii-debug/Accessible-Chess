@@ -327,6 +327,69 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
             )
             self.assertTrue(runtime.shutdown())
 
+    def test_refused_close_keeps_running_cancelled_import_runtime_usable(self) -> None:
+        class BlockingLibrary(_Library):
+            def __init__(self) -> None:
+                super().__init__()
+                self.entered = threading.Event()
+                self.release = threading.Event()
+
+            def import_games(self, games, **kwargs) -> LibraryImportResult:
+                self.calls += 1
+                progress_callback = kwargs["progress_callback"]
+                cancel_check = kwargs["cancel_check"]
+                progress_callback(LibraryImportProgress(1, 0, len(games)))
+                self.entered.set()
+                if not self.release.wait(2.0):
+                    raise AssertionError("test did not release runtime import")
+                if cancel_check():
+                    raise LibraryImportCancelledError("cancelled by refused close")
+                progress_callback(LibraryImportProgress(1, len(games), len(games)))
+                return LibraryImportResult(1, 1, len(games), 0, 1, len(games))
+
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "runtime-refused-close-running-import.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            _OpenDialog.selected_paths.append(str(source))
+            owner = _Owner()
+            library = BlockingLibrary()
+            imported_events: list[object] = []
+            runtime = self._runtime(
+                owner,
+                library=library,
+                imported_events=imported_events,
+            )
+
+            started = runtime("library.import", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.IMPORT_STARTED)
+            self.assertTrue(library.entered.wait(2.0))
+
+            self.assertFalse(runtime.shutdown(0.0))
+            self.assertFalse(runtime.closed)
+            self.assertTrue(runtime.resume_after_refused_shutdown())
+            self.assertFalse(runtime.closed)
+
+            busy = runtime("pgn.save", {})
+            self.assertEqual(busy.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(busy.error_code, "file_worker_busy")
+
+            library.release.set()
+            self.assertTrue(runtime.wait_for_import(2.0))
+            deadline = time.monotonic() + 1.0
+            while not owner.posted and time.monotonic() < deadline:
+                time.sleep(0.01)
+            while owner.posted:
+                owner.posted.pop(0)()
+
+            self.assertFalse(runtime.import_running)
+            self.assertIn(
+                FileWorkflowEventKind.IMPORT_CANCELLED,
+                [event.kind for event in imported_events],
+            )
+            reopened = runtime("pgn.save", {})
+            self.assertEqual(reopened.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(reopened.error_code, "no_pgn_document")
+            self.assertTrue(runtime.shutdown())
     def test_export_routes_through_owned_dialog_then_injected_canonical_exporter(self) -> None:
         owner = _Owner()
         export_calls: list[tuple[object, Path]] = []
