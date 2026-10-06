@@ -172,9 +172,9 @@ class MediaClock:
             self._fractional_ms = media_elapsed - whole_elapsed
             self._position_ms += whole_elapsed
             if (
-            self._duration_ms is not None
-            and self._position_ms >= self._duration_ms
-        ):
+                self._duration_ms is not None
+                and self._position_ms >= self._duration_ms
+            ):
                 self._position_ms = self._duration_ms
                 self._fractional_ms = 0.0
                 if self._state is not MediaPlaybackState.ENDED:
@@ -252,7 +252,11 @@ class MediaClock:
         self._revision += 1
         return self._snapshot()
 
-    def set_playback_rate(self, playback_rate: float, now_ms: int) -> MediaClockSnapshot:
+    def set_playback_rate(
+        self,
+        playback_rate: float,
+        now_ms: int,
+    ) -> MediaClockSnapshot:
         rate = self._require_rate(playback_rate)
         self._materialize(now_ms)
         if rate != self._playback_rate:
@@ -270,6 +274,8 @@ class MediaClock:
             self._state = MediaPlaybackState.ENDED
             self._revision += 1
         return self._snapshot()
+
+
 
 def _require_text(value: object, field_name: str) -> str:
     if type(value) is not str or not value.strip():
