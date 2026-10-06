@@ -206,9 +206,13 @@ class Version2Application:
             raise ValueError("stale shell publication acknowledgement")
         if pending[0] != token:
             raise ValueError("stale shell publication acknowledgement")
-        self._pending_shell_publication = None
         if commit:
+            # Retain the pending token until the shell has actually released its
+            # publication hold. If that boundary aborts, the exact same
+            # acknowledgement remains retryable instead of leaving a stuck hold
+            # with no recovery token.
             self.shell._end_publication_hold()
+            self._pending_shell_publication = None
             self._last_shell_publication_resolution = (token, True)
             return {
                 "kind": "presentation-commit",
@@ -225,11 +229,14 @@ class Version2Application:
             prior_training_workspace,
             prior_training,
         ) = pending
+        # Rollback is a transaction too: do not consume its authority until the
+        # exact shell/application checkpoint and publication hold are restored.
         self.shell._restore_presentation_state(shell_state)
         self._focus = prior_focus
         self.training_workspace = prior_training_workspace
         self.training = prior_training
         self.shell._end_publication_hold()
+        self._pending_shell_publication = None
         self._last_shell_publication_resolution = (token, False)
         return {
             "kind": "presentation-rollback",
