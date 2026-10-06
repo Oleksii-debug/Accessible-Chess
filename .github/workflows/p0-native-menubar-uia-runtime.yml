@@ -175,6 +175,7 @@ jobs:
             'uia_handle_onscreen',
             'uia_handle_probe_clean',
             'uia_probe_binding_stable',
+            'uia_poll_snapshot_clean',
             'uia_automation_id_unique_in_process',
             'uia_automation_id_row_binds_same_handle',
             'uia_from_handle_matches_automation_id_row',
