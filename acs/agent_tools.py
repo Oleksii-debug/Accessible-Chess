@@ -145,6 +145,101 @@ def tool_arguments_fingerprint(arguments: Mapping[str, object]) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+_MAX_TOOL_RESULT_DEPTH = 32
+_MAX_TOOL_RESULT_ITEMS = 4096
+_MAX_TOOL_RESULT_TEXT_BYTES = 256 * 1024
+
+
+def _snapshot_tool_output(
+    value: object,
+    *,
+    path: str = "tool output",
+    depth: int = 0,
+    remaining_items: list[int] | None = None,
+    remaining_text_bytes: list[int] | None = None,
+) -> object:
+    """Detach and bound passive handler output before it crosses Agent authority.
+
+    Exact built-in types prevent custom scalar/container subclasses from carrying
+    executable hooks into later serialization, persistence or model turns.
+    """
+
+    if depth > _MAX_TOOL_RESULT_DEPTH:
+        raise ValueError("tool output nesting is too deep")
+    budget = remaining_items if remaining_items is not None else [_MAX_TOOL_RESULT_ITEMS]
+    text_budget = (
+        remaining_text_bytes
+        if remaining_text_bytes is not None
+        else [_MAX_TOOL_RESULT_TEXT_BYTES]
+    )
+
+    if value is None or type(value) in (bool, int):
+        return value
+    if type(value) is str:
+        canonical = unicodedata.normalize("NFC", value)
+        text_budget[0] -= len(canonical.encode("utf-8"))
+        if text_budget[0] < 0:
+            raise ValueError("tool output text is too large")
+        return canonical
+    if type(value) is float:
+        if not isfinite(value):
+            raise ValueError(f"{path} must not contain NaN/infinity")
+        return value
+    if type(value) is list:
+        budget[0] -= len(value)
+        if budget[0] < 0:
+            raise ValueError("tool output has too many items")
+        return [
+            _snapshot_tool_output(
+                item,
+                path=f"{path}[{index}]",
+                depth=depth + 1,
+                remaining_items=budget,
+                remaining_text_bytes=text_budget,
+            )
+            for index, item in enumerate(value)
+        ]
+    if type(value) is tuple:
+        budget[0] -= len(value)
+        if budget[0] < 0:
+            raise ValueError("tool output has too many items")
+        return tuple(
+            _snapshot_tool_output(
+                item,
+                path=f"{path}[{index}]",
+                depth=depth + 1,
+                remaining_items=budget,
+                remaining_text_bytes=text_budget,
+            )
+            for index, item in enumerate(value)
+        )
+    if type(value) is dict:
+        budget[0] -= len(value)
+        if budget[0] < 0:
+            raise ValueError("tool output has too many items")
+        snapshot: dict[str, object] = {}
+        for key, item in value.items():
+            if type(key) is not str:
+                raise TypeError(f"{path} keys must be exact text")
+            canonical_key = unicodedata.normalize("NFC", key)
+            text_budget[0] -= len(canonical_key.encode("utf-8"))
+            if text_budget[0] < 0:
+                raise ValueError("tool output text is too large")
+            if canonical_key in snapshot:
+                raise ValueError(
+                    f"{path} contains duplicate normalized key {canonical_key!r}"
+                )
+            snapshot[canonical_key] = _snapshot_tool_output(
+                item,
+                path=f"{path}.{canonical_key}",
+                depth=depth + 1,
+                remaining_items=budget,
+                remaining_text_bytes=text_budget,
+            )
+        return snapshot
+    raise TypeError(f"{path} contains unsupported value type {type(value).__name__}")
+
+
 class ToolHandler(Protocol):
     async def __call__(self, arguments: Mapping[str, object]) -> object: ...
 
@@ -227,6 +322,14 @@ class ToolExecutor:
                 )
                 completed, output = self._effect_guard.completed_output(reservation)
                 if completed:
+                    try:
+                        output = _snapshot_tool_output(output)
+                    except (TypeError, ValueError):
+                        return ToolResult(
+                            call.call_id,
+                            call.tool_id,
+                            error="tool result not safe",
+                        )
                     return ToolResult(call.call_id, call.tool_id, output=output)
             except Exception:
                 return ToolResult(
@@ -249,6 +352,12 @@ class ToolExecutor:
         except Exception:
             self._mark_uncertain(reservation)
             return ToolResult(call.call_id, call.tool_id, error="tool failed")
+
+        try:
+            output = _snapshot_tool_output(output)
+        except (TypeError, ValueError):
+            self._mark_uncertain(reservation)
+            return ToolResult(call.call_id, call.tool_id, error="tool result not safe")
 
         if reservation is not None:
             try:

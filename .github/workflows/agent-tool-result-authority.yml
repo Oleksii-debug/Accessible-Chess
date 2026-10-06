@@ -1,0 +1,96 @@
+name: Agent Tool Result Authority
+
+on:
+  pull_request:
+    branches:
+      - work/media-agent-crossrepo-intake-20261005
+    paths:
+      - acs/agent_tools.py
+      - tests/test_agent_tool_result_authority.py
+      - .github/workflows/agent-tool-result-authority.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-tool-result-authority-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove exact Media Agent parent and bounded result-authority scope
+        shell: bash
+        env:
+          PARENT_REF: work/media-agent-crossrepo-intake-20261005
+          PARENT_SHA: 6609c35ff5fa0b1f959806866ff7403e70efdbf3
+          SOURCE_BLOB: 2acf095006d5fadd6e89793c0e2ad0a642891838
+          TEST_BLOB: 205bc4ebc2196c74eba7607f966fd9b3f5efa0c5
+        run: |
+          set -euo pipefail
+          candidate="$(git rev-parse HEAD)"
+          git fetch --no-tags origin "+refs/heads/$PARENT_REF:refs/remotes/origin/tool-result-parent"
+          live_parent="$(git rev-parse refs/remotes/origin/tool-result-parent)"
+          test "$live_parent" = "$PARENT_SHA" || {
+            printf 'TOOL_RESULT_PARENT_MOVED expected=%s live=%s\n' "$PARENT_SHA" "$live_parent" >&2
+            exit 1
+          }
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            test "${{ github.event.pull_request.base.ref }}" = "$PARENT_REF"
+            git fetch --no-tags origin "+refs/pull/${{ github.event.pull_request.number }}/head:refs/remotes/origin/tool-result-live-head"
+            test "$(git rev-parse refs/remotes/origin/tool-result-live-head)" = "$candidate"
+          fi
+
+          test "$(git merge-base "$PARENT_SHA" "$candidate")" = "$PARENT_SHA"
+          git diff --check "$PARENT_SHA"..."$candidate"
+          changed="$(git diff --name-only "$PARENT_SHA"..."$candidate" | LC_ALL=C sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/agent-tool-result-authority.yml' \
+            'acs/agent_tools.py' \
+            'tests/test_agent_tool_result_authority.py' | LC_ALL=C sort)"
+          test "$changed" = "$expected" || {
+            printf 'Unexpected Agent tool-result scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
+          test "$(git rev-parse HEAD:acs/agent_tools.py)" = "$SOURCE_BLOB"
+          test "$(git rev-parse HEAD:tests/test_agent_tool_result_authority.py)" = "$TEST_BLOB"
+          echo 'AGENT_TOOL_RESULT_AUTHORITY_GEOMETRY=PASS'
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Install retained test dependency
+        run: python -m pip install pytest==8.4.2
+
+      - name: Compile exact tool boundary
+        run: >-
+          python -m py_compile
+          acs/agent_tools.py
+          tests/test_agent_tool_result_authority.py
+          tests/test_crossrepo_runtime_integration.py
+          tests/test_chess_agent_tools_crossrepo.py
+          tests/test_universal_chess_agent_crossrepo.py
+
+      - name: Execute tool-result authority and retained Agent regressions
+        run: >-
+          python -m unittest -v
+          tests.test_agent_tool_result_authority
+          tests.test_crossrepo_runtime_integration
+          tests.test_chess_agent_tools_crossrepo
+          tests.test_universal_chess_agent_crossrepo
