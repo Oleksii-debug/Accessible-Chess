@@ -27,6 +27,7 @@ from .book_progress_store import (
 )
 from .bookdocument import BookDocument, MAX_BOOK_DOCUMENT_WARNINGS
 from .bookreader import BookReader
+from .chesscore import Board
 from .engine_assisted_workflows import EngineAssistedWorkflowService
 from .full_product_ui_shell import UILanguage, concise_user_error
 from .input_limits import MAX_FEN_CHARS
@@ -36,6 +37,7 @@ from .library_export_workspace import build_library_export_webview
 from .library_import_service import LibraryImportProgress, LibraryImportResult, LibraryImportService
 from .library_webview_projection import LibraryImportPhase, LibraryWebViewEvent
 from .pgn_document import PgnDocumentSession
+from .position_editor import PositionState
 from .pgn_workspace import PgnWorkspace
 from .pgn_webview_bridge import PgnWebViewBridge
 from .pgn_workspace_webview_adapter import PgnWorkspaceWebViewProjection
@@ -174,6 +176,9 @@ class Version2Application:
         self.training_progress_root = progress_store.path.parent / "training-progress"
         self.engine_assistance = engine_assistance
         self._board_dispatch = board_dispatch
+        if not callable(copy_text):
+            raise TypeError("copy_text must be callable")
+        self._copy_text = copy_text
         if board_position_projector is not None and not callable(board_position_projector):
             raise TypeError("board_position_projector must be callable or None")
         self._board_position_projector = board_position_projector
@@ -1511,6 +1516,64 @@ class Version2Application:
             )
 
     def _delegate(self, action, payload):
+        if action == "position.copy_fen":
+            if payload:
+                raise ValueError("Copy FEN accepts no payload")
+            result = self._board_dispatch("board.read_fen", {})
+            if type(result) is not dict or result.get("ok") is not True:
+                raise RuntimeError("canonical visible FEN is unavailable")
+            fen = result.get("fen")
+            if (
+                type(fen) is not str
+                or not fen
+                or len(fen) > MAX_FEN_CHARS
+                or "\x00" in fen
+            ):
+                raise RuntimeError("canonical visible FEN is unavailable")
+            canonical = Board(fen).fen()
+            if canonical != fen:
+                raise RuntimeError("canonical visible FEN is inconsistent")
+            self._copy_text(canonical)
+            self._events.append(
+                {
+                    "kind": "status",
+                    "payload": {
+                        "announcement": (
+                            "Поточний FEN скопійовано."
+                            if self.shell.language is UILanguage.UA
+                            else "Current FEN copied."
+                        )
+                    },
+                }
+            )
+            return {"ok": True, "fen": canonical}
+        if action == "pgn.new_from_position":
+            if payload:
+                raise ValueError("PGN position creation accepts no payload")
+            if self.shell.current_route.route_id != "board":
+                raise ValueError("PGN position creation requires the visible Board")
+            if self.shell.active_dialog_id is not None:
+                raise ValueError("close the active dialog before replacing the PGN document")
+            if self.book_workflow is not None and self.book_workflow.active:
+                raise ValueError("return to the book before replacing the PGN document")
+            result = self._board_dispatch("board.read_fen", {})
+            if type(result) is not dict or result.get("ok") is not True:
+                raise RuntimeError("canonical visible FEN is unavailable")
+            fen = result.get("fen")
+            if (
+                type(fen) is not str
+                or not fen
+                or len(fen) > MAX_FEN_CHARS
+                or "\x00" in fen
+            ):
+                raise RuntimeError("canonical visible FEN is unavailable")
+            canonical = Board(fen).fen()
+            if canonical != fen:
+                raise RuntimeError("canonical visible FEN is inconsistent")
+            position = PositionState.from_fen(canonical)
+            candidate = PgnDocumentSession.new_game_from_position(position)
+            self.set_document(candidate)
+            return {"ok": True, "fen": canonical}
         # Route-changing delegated PGN actions must respect modal focus before
         # they mutate Board projection or ownership flags. Otherwise open_route()
         # can reject the transition after domain state has already moved.
