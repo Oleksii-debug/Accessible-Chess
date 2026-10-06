@@ -64,6 +64,8 @@ class Version2BookOpenWorker:
         self._cancel: threading.Event | None = None
         self._generation = 0
         self._closed = False
+        self._focus_target = ""
+        self._recovery_cancel_focus: str | None = None
 
     def _assert_ui_thread(self) -> None:
         if threading.get_ident() != self._ui_thread_id:
@@ -82,12 +84,35 @@ class Version2BookOpenWorker:
     def _emit(self, kind: BookOpenWorkerEventKind, focus_target: str) -> None:
         self._event_sink(BookOpenWorkerEvent(kind, focus_target))
 
+    def _publish_pending_recovery_cancel(self) -> None:
+        """Publish one owner-thread cancellation retained by a refused close."""
+        self._assert_ui_thread()
+        with self._lock:
+            if self._closed or self._thread is not None or self._cancel is not None:
+                return
+            focus_target = self._recovery_cancel_focus
+        if focus_target is None:
+            return
+        self._emit(BookOpenWorkerEventKind.CANCELLED, focus_target)
+        with self._lock:
+            if (
+                self._thread is None
+                and self._cancel is None
+                and self._recovery_cancel_focus == focus_target
+            ):
+                self._recovery_cancel_focus = None
+
     def start(self, source: Path, *, focus_target: str = "") -> bool:
         self._assert_ui_thread()
         if not isinstance(source, Path):
             raise TypeError("Book Open source must be a Path")
         if type(focus_target) is not str:
             raise TypeError("Book Open focus target must be text")
+
+        # A refused close can retire an already-finished generation after its
+        # owner callback was invalidated. Clear that accessible busy state before
+        # a new Book Open is allowed to announce another STARTED terminal.
+        self._publish_pending_recovery_cancel()
 
         with self._lock:
             if self._closed:
@@ -98,6 +123,7 @@ class Version2BookOpenWorker:
             generation = self._generation
             cancel = threading.Event()
             self._cancel = cancel
+            self._focus_target = focus_target
             thread = threading.Thread(
                 target=self._run,
                 args=(generation, source, focus_target, cancel),
@@ -125,6 +151,7 @@ class Version2BookOpenWorker:
                 if generation == self._generation and self._thread is thread:
                     self._cancel = None
                     self._thread = None
+                    self._focus_target = ""
             try:
                 self._emit(BookOpenWorkerEventKind.FAILED, focus_target)
             except BaseException:
@@ -171,6 +198,7 @@ class Version2BookOpenWorker:
                 if self._cancel is cancel and self._thread is threading.current_thread():
                     self._cancel = None
                     self._thread = None
+                    self._focus_target = ""
 
     def _finish(
         self,
@@ -191,16 +219,21 @@ class Version2BookOpenWorker:
                 if self._cancel is cancel:
                     self._cancel = None
                     self._thread = None
+                    self._focus_target = ""
                     stale_reopened = not self._closed
                 else:
                     return
             elif self._closed:
                 self._cancel = None
                 self._thread = None
+                self._focus_target = ""
                 return
             current_cancel = self._cancel
         if stale_reopened:
             self._emit(BookOpenWorkerEventKind.CANCELLED, focus_target)
+            with self._lock:
+                if self._recovery_cancel_focus == focus_target:
+                    self._recovery_cancel_focus = None
             return
         if current_cancel is not cancel:
             return
@@ -222,6 +255,7 @@ class Version2BookOpenWorker:
             if generation == self._generation:
                 self._cancel = None
                 self._thread = None
+                self._focus_target = ""
         self._emit(terminal, focus_target)
 
     def resume_after_refused_shutdown(self) -> bool:
@@ -236,19 +270,27 @@ class Version2BookOpenWorker:
         _cancel until that cleanup completes.
         """
         self._assert_ui_thread()
+        fully_retired = False
         with self._lock:
             if not self._closed:
                 return True
             if self._thread is None and self._cancel is None:
                 self._closed = False
-                return True
-            if (
+                fully_retired = True
+            elif (
                 self._thread is None
                 or self._cancel is None
                 or not self._cancel.is_set()
             ):
                 return False
-            self._closed = False
+            else:
+                self._closed = False
+        if fully_retired:
+            # If shutdown retired an in-flight Book after its preparation had
+            # already finished, the stale posted callback can no longer publish
+            # a terminal. Reconcile the visible/NVDA busy state now, on the UI
+            # owner thread, before reporting recovery success.
+            self._publish_pending_recovery_cancel()
         return True
 
     def shutdown(self, timeout: float | None = None) -> bool:
@@ -264,6 +306,8 @@ class Version2BookOpenWorker:
             thread = self._thread
             if cancel is not None:
                 cancel.set()
+                if self._recovery_cancel_focus is None:
+                    self._recovery_cancel_focus = self._focus_target
         if thread is not None and thread.is_alive():
             thread.join(timeout=timeout)
             if thread.is_alive():
@@ -271,6 +315,7 @@ class Version2BookOpenWorker:
         with self._lock:
             self._cancel = None
             self._thread = None
+            self._focus_target = ""
         return True
 
 
