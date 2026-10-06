@@ -342,14 +342,28 @@ class Version2PgnCommands:
             return self._search_pgn(workspace, text)
         navigation = {"pgn.select_item", "pgn.previous_item", "pgn.next_item", "pgn.parent_variation"}
         allowed = set(_TARGET_FIELDS)
-        if action_id in {"pgn.comment_edit", "pgn.nag_edit", "pgn.variation_add"}:
-            allowed.add("text")
-        if action_id in {"pgn.variation_delete", "pgn.variation_promote"}:
-            allowed.update({"parent_path", "parent_move_index", "variation_index"})
+        allowed_variants: list[set[str]] = []
+        if action_id == "pgn.comment_edit":
+            allowed_variants = [
+                allowed | {"text"},
+                allowed | {"text", "slot", "index"},
+            ]
+        elif action_id == "pgn.comment_delete":
+            allowed_variants = [
+                allowed,
+                allowed | {"slot", "index"},
+            ]
+        else:
+            if action_id in {"pgn.nag_edit", "pgn.variation_add"}:
+                allowed.add("text")
+            if action_id in {"pgn.variation_delete", "pgn.variation_promote"}:
+                allowed.update({"parent_path", "parent_move_index", "variation_index"})
+            allowed_variants = [allowed]
         payload_fields = set(payload)
-        if (
-            payload_fields != allowed
-            and payload_fields != allowed | {"expected_content_digest"}
+        if not any(
+            payload_fields == variant
+            or payload_fields == variant | {"expected_content_digest"}
+            for variant in allowed_variants
         ):
             raise ValueError("invalid PGN command payload")
         request, cursor = self._target(
@@ -360,6 +374,85 @@ class Version2PgnCommands:
         if action_id in navigation:
             return workspace.set_cursor(cursor)
         if action_id in {"pgn.comment_edit", "pgn.comment_delete"}:
+            exact = "slot" in payload or "index" in payload
+            if exact:
+                slot = payload.get("slot")
+                index = payload.get("index")
+                if type(slot) is not str or type(index) is not int:
+                    raise ValueError("invalid PGN comment target")
+                if index < -1:
+                    raise ValueError("invalid PGN comment index")
+                text = payload.get("text", "")
+                if type(text) is not str or len(text) > 8000 or "\x00" in text:
+                    raise ValueError("invalid PGN comment")
+                game = workspace.current_game()
+                if request.move_index is None:
+                    line = resolve_line(game, cursor.line_path)
+                    if slot == "leading":
+                        source = line.leading_comments
+                    elif slot == "trailing":
+                        source = line.trailing_comments
+                    else:
+                        raise ValueError("invalid PGN line comment slot")
+                    comments = deepcopy(list(source))
+                    if action_id == "pgn.comment_delete":
+                        if index < 0 or index >= len(comments):
+                            raise ValueError("PGN comment index is stale")
+                        del comments[index]
+                    elif index == -1:
+                        if not text.strip():
+                            raise ValueError("new PGN comment cannot be empty")
+                        comments.append(Comment(text))
+                    elif 0 <= index < len(comments):
+                        if text.strip():
+                            comments[index] = Comment(text, comments[index].style)
+                        else:
+                            del comments[index]
+                    else:
+                        raise ValueError("PGN comment index is stale")
+                    patch = (
+                        LineAnnotationPatch(leading_comments=tuple(comments))
+                        if slot == "leading"
+                        else LineAnnotationPatch(trailing_comments=tuple(comments))
+                    )
+                    return workspace.edit_line_annotations(
+                        LineAnnotationTarget(cursor.line_path, request.expected_record_digest),
+                        patch,
+                    )
+                line = resolve_line(game, cursor.line_path)
+                move = line.moves[request.move_index]
+                if slot == "before":
+                    source = move.comments_before
+                elif slot == "after":
+                    source = move.comments_after
+                else:
+                    raise ValueError("invalid PGN move comment slot")
+                comments = deepcopy(list(source))
+                if action_id == "pgn.comment_delete":
+                    if index < 0 or index >= len(comments):
+                        raise ValueError("PGN comment index is stale")
+                    del comments[index]
+                elif index == -1:
+                    if not text.strip():
+                        raise ValueError("new PGN comment cannot be empty")
+                    comments.append(Comment(text))
+                elif 0 <= index < len(comments):
+                    if text.strip():
+                        comments[index] = Comment(text, comments[index].style)
+                    else:
+                        del comments[index]
+                else:
+                    raise ValueError("PGN comment index is stale")
+                patch = (
+                    MoveAnnotationPatch(comments_before=tuple(comments))
+                    if slot == "before"
+                    else MoveAnnotationPatch(comments_after=tuple(comments))
+                )
+                return workspace.edit_move_annotations(
+                    MoveAnnotationTarget(cursor.line_path, request.move_index, request.expected_record_digest),
+                    patch,
+                )
+
             text = payload.get("text", "")
             if type(text) is not str or len(text) > 8000:
                 raise ValueError("invalid PGN comment")
