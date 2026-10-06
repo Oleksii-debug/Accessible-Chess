@@ -705,7 +705,7 @@ class D06PgnRoundTripTests(unittest.TestCase):
         self.assertTrue(source.rstrip().endswith("return encoded, result.games"))
 
 
-    def test_recovery_warning_provenance_does_not_override_canonical_serialization(self):
+    def test_recovery_warning_provenance_blocks_strict_serialization(self):
         recovered = parse_pgn_text(
             '[Event "Damaged"]\n[Result "*"]\n\n1. e4 e5',
             strict=False,
@@ -713,15 +713,22 @@ class D06PgnRoundTripTests(unittest.TestCase):
         warnings_before = list(recovered[0].warnings)
         self.assertTrue(warnings_before)
 
-        canonical = serialize_pgn_text(recovered)
-
-        # Serialization normalizes the already-canonical GameTree but does not
-        # mutate or reinterpret the caller's recovery evidence.
-        self.assertEqual(recovered[0].warnings, warnings_before)
-        reparsed = parse_pgn_text(canonical, strict=True)
-        self.assertEqual([move.san for move in reparsed[0].line.moves], ["e4", "e5"])
-        self.assertEqual(reparsed[0].line.result, "*")
-        self.assertEqual(reparsed[0].warnings, [])
+        error = self.assert_code(
+            PgnRoundTripErrorCode.INVALID_MODEL,
+            serialize_pgn_text,
+            recovered,
+        )
+        self.assertIn("explicit normalization", str(error))
+        self.assertEqual(
+            recovered[0].warnings,
+            warnings_before,
+            "failed strict serialization must not consume recovery provenance",
+        )
+        self.assert_code(
+            PgnRoundTripErrorCode.INVALID_MODEL,
+            serialize_pgn_bytes,
+            recovered,
+        )
 
     def test_recovery_warning_container_must_remain_passive_text(self):
         recovered = parse_pgn_text(

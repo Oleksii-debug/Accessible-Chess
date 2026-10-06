@@ -836,15 +836,20 @@ def _measure_game(
             "PGN serialization requires PgnGame values",
             code=PgnRoundTripErrorCode.INVALID_MODEL,
         )
-    # Recovery diagnostics are source/provenance evidence, not PGN wire semantics.
-    # Strict parsing still refuses any recovered source for lossless editing, but
-    # the serializer validates the canonical GameTree itself so lawful historical
-    # recovery can be explicitly normalized by callers that own that decision.
+    # Recovery diagnostics prove that the source required repair and therefore
+    # was not accepted by the strict edit/write boundary.  Serializing such a
+    # model here would erase that provenance and turn recovered content into
+    # apparently clean PGN without an explicit higher-level normalization step.
     if type(game.warnings) is not list or any(
         type(warning) is not str for warning in game.warnings
     ):
         raise PgnRoundTripError(
             "PGN recovery warnings must be a built-in list of text diagnostics",
+            code=PgnRoundTripErrorCode.INVALID_MODEL,
+        )
+    if game.warnings:
+        raise PgnRoundTripError(
+            "PGN recovery warnings require explicit normalization before strict serialization",
             code=PgnRoundTripErrorCode.INVALID_MODEL,
         )
     serialized_tag_count = len(game.tags) + (0 if "Result" in game.tags else 1)
