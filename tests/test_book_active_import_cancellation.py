@@ -334,6 +334,25 @@ class BookActiveImportCancellationTests(unittest.TestCase):
         self.assertEqual(calls, 3)
         self.assertLess(parser._node_count, 400)
 
+    def test_html_data_fanout_observes_control_inside_deep_capture_stack(self):
+        parser = _SemanticHtmlParser(available_assets=None)
+        parser.feed('<p>' * 400)
+        failure = SourceReadCancelledError('cancelled during HTML capture fanout')
+        calls = 0
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise failure
+
+        parser.control_checkpoint = cancel
+        parser._control_event_count = 0
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            parser.feed('payload')
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 2)
+        self.assertEqual(parser.visible_chars, 0)
+
     def test_html_close_recovery_control_failure_preserves_exact_exception(self):
         failure = SourceReadCancelledError('cancelled during malformed HTML recovery')
         calls = 0
