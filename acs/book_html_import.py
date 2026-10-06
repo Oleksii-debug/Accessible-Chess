@@ -1136,7 +1136,9 @@ class _SemanticHtmlParser(HTMLParser):
         """Project inline semantics in source order without losing progress IDs."""
         cursor = 0
         legacy_identity_available = True
-        for event in capture.inline_semantics:
+        for event_index, event in enumerate(capture.inline_semantics, start=1):
+            if self.control_checkpoint is not None and event_index % 128 == 0:
+                self._checkpoint()
             resume_part_index = (
                 event.resume_part_index
                 if event.resume_part_index is not None
@@ -1212,7 +1214,9 @@ class _SemanticHtmlParser(HTMLParser):
                 source_anchor=None,
             )
 
-        for event in capture.inline_semantics:
+        for event_index, event in enumerate(capture.inline_semantics, start=1):
+            if self.control_checkpoint is not None and event_index % 128 == 0:
+                self._checkpoint()
             resume_part_index = (
                 event.resume_part_index
                 if event.resume_part_index is not None
@@ -1267,7 +1271,9 @@ class _SemanticHtmlParser(HTMLParser):
             # semantic event so an already-emitted image/position cannot jump
             # ahead of earlier list content.
             first_event = events[0]
-            for item in [item for item in captured_list.items if item]:
+            for item_index, item in enumerate((item for item in captured_list.items if item), start=1):
+                if self.control_checkpoint is not None and item_index % 128 == 0:
+                    self._checkpoint()
                 fallback_text = f"• {item}"
                 fallback = Paragraph(
                     text=fallback_text,
@@ -1284,7 +1290,9 @@ class _SemanticHtmlParser(HTMLParser):
 
         cursor = 0
         item_text_started = False
-        for event in events:
+        for event_index, event in enumerate(events, start=1):
+            if self.control_checkpoint is not None and event_index % 128 == 0:
+                self._checkpoint()
             resume_part_index = (
                 event.resume_part_index
                 if event.resume_part_index is not None
