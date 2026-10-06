@@ -162,6 +162,46 @@ class D04ChessBaseBackendImmutabilityTests(unittest.TestCase):
                     control_checkpoint=checkpoint,
                 )
 
+    def test_value_error_control_failure_is_not_reclassified_as_backend_invalid(self) -> None:
+        def checkpoint():
+            raise ValueError("trusted host control failure")
+
+        with mock.patch(
+            "acs.chessbase_library_import.decode_chessbase_external",
+        ) as decoder:
+            with self.assertRaisesRegex(ValueError, "trusted host control failure"):
+                self.service._decode_with_immutable_backend(
+                    self.source,
+                    control_checkpoint=checkpoint,
+                )
+
+        decoder.assert_not_called()
+
+    def test_os_error_control_failure_after_decode_is_not_reclassified(self) -> None:
+        state = {"decoded": False}
+
+        def checkpoint():
+            if state["decoded"]:
+                raise OSError("trusted host post-decode control failure")
+
+        def decoded_with_control(_path, _config, *, control_checkpoint=None):
+            self.assertIs(control_checkpoint, checkpoint)
+            state["decoded"] = True
+            return self._decoded()
+
+        with mock.patch(
+            "acs.chessbase_library_import.decode_chessbase_external",
+            side_effect=decoded_with_control,
+        ):
+            with self.assertRaisesRegex(
+                OSError,
+                "trusted host post-decode control failure",
+            ):
+                self.service._decode_with_immutable_backend(
+                    self.source,
+                    control_checkpoint=checkpoint,
+                )
+
     def test_backend_disappearance_discards_decoder_output(self) -> None:
         def remove_backend(*_args, **_kwargs):
             self.backend.unlink()
