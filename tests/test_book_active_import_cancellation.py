@@ -284,6 +284,60 @@ class BookActiveImportCancellationTests(unittest.TestCase):
         self.assertIs(caught.exception, failure)
         self.assertEqual(calls, 3)
 
+    def test_epub_container_accepts_repeatable_links_sections(self):
+        import acs.book_epub_import as epub
+
+        container = epub.ET.fromstring(
+            '<container xmlns="urn:oasis:names:tc:opendocument:xmlns:container" version="1.0">'
+            '<rootfiles><rootfile full-path="package.opf" media-type="application/oebps-package+xml"/>'
+            '</rootfiles>'
+            '<links><link href="metadata-a.xml" rel="alternate"/></links>'
+            '<links><link href="metadata-b.xml" rel="alternate"/></links>'
+            '</container>'
+        )
+        archive_index = {
+            'package.opf': None,
+            'metadata-a.xml': None,
+            'metadata-b.xml': None,
+        }
+
+        rootfiles = epub._package_rootfiles(
+            container,
+            epub._Warnings(),
+            archive_index,
+        )
+
+        self.assertEqual(rootfiles, ('package.opf',))
+
+    def test_epub_each_repeatable_links_section_must_remain_nonempty(self):
+        import acs.book_epub_import as epub
+
+        container = epub.ET.fromstring(
+            '<container xmlns="urn:oasis:names:tc:opendocument:xmlns:container" version="1.0">'
+            '<rootfiles><rootfile full-path="package.opf" media-type="application/oebps-package+xml"/>'
+            '</rootfiles>'
+            '<links><link href="metadata-a.xml" rel="alternate"/></links>'
+            '<links></links>'
+            '</container>'
+        )
+        archive_index = {
+            'package.opf': None,
+            'metadata-a.xml': None,
+        }
+
+        with self.assertRaises(epub.BookEpubImportError) as caught:
+            epub._package_rootfiles(
+                container,
+                epub._Warnings(),
+                archive_index,
+            )
+
+        self.assertEqual(
+            caught.exception.code,
+            epub.BookEpubImportErrorCode.MALFORMED_PACKAGE,
+        )
+        self.assertIn('links section is empty', str(caught.exception))
+
     def test_epub_rebased_source_anchor_fails_with_stable_resource_limit(self):
         import acs.book_epub_import as epub
 
