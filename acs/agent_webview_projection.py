@@ -312,7 +312,9 @@ class AgentConversationProjection:
             start(run_id, text)
         except Exception:
             self.fail(run_id)
-            return self.generic_error()
+            with self._lock:
+                message = self._labels()["error"]
+            return self._event("error", message=message, focus_target="agent-input")
         with self._lock:
             focus_target = (
                 "agent-stop"
@@ -339,7 +341,10 @@ class AgentConversationProjection:
         with self._lock:
             if self._active_run_id == run_id:
                 self._state = "cancelling"
-        return self._event("cancel-requested", focus_target="agent-stop")
+                focus_target = "agent-stop"
+            else:
+                focus_target = "agent-input"
+        return self._event("cancel-requested", focus_target=focus_target)
 
     def update_runtime_status(self, run_id: object, status: Mapping[str, object]) -> bool:
         try:
