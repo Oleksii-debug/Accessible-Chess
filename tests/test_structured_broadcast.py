@@ -14,6 +14,8 @@ from acs.structured_broadcast import (
     LICHESS_BROADCAST_MEDIA_TYPE,
     LICHESS_BROADCAST_REQUIRED_SCOPE,
     LichessBroadcastRound,
+    MAX_BROADCAST_CHECKPOINT_BYTES,
+    MAX_BROADCAST_IDENTIFIER_CHARS,
     MAX_BROADCAST_PGN_BYTES,
     StructuredBroadcastEnvelope,
     StructuredBroadcastSession,
@@ -155,6 +157,113 @@ class StructuredBroadcastTests(unittest.TestCase):
         self.assertEqual(second.changed_game_ids, ("g1",))
         self.assertEqual(third.changed_game_ids, ())
         self.assertEqual([item.provider_game_id for item in session.games], ["g1", "g2"])
+
+    def test_checkpoint_restores_replay_and_monotonic_guards_disconnected(self):
+        session = self.session()
+        original = envelope(sequence=7, observed=7000)
+        session.apply(original, Canonical((game("g1", "tree:n7", "r7"),)))
+        checkpoint = session.to_checkpoint_json()
+        restored = StructuredBroadcastSession.from_checkpoint_json(checkpoint)
+
+        self.assertEqual(restored.games, session.games)
+        self.assertEqual(restored.last_sequence, 7)
+        self.assertEqual(restored.last_observed_at_ms, 7000)
+        self.assertEqual(restored.connection_state, BroadcastConnectionState.DISCONNECTED)
+        self.assertEqual(checkpoint, session.to_checkpoint_json())
+
+        replay_canonical = Canonical((game("unused"),))
+        replay = restored.apply(
+            envelope(sequence=7, observed=7100),
+            replay_canonical,
+        )
+        self.assertEqual(replay.kind, BroadcastApplyKind.NO_CHANGE)
+        self.assertEqual(replay_canonical.calls, [])
+        self.assertEqual(restored.connection_state, BroadcastConnectionState.CONNECTED)
+
+        restarted = StructuredBroadcastSession.from_checkpoint_json(checkpoint)
+        with self.assertRaises(BroadcastContractError) as conflict:
+            restarted.apply(
+                envelope(
+                    sequence=7,
+                    observed=7200,
+                    pgn='[Event "Changed"]\\n\\n1. d4 *',
+                ),
+                Canonical((game(),)),
+            )
+        self.assertEqual(conflict.exception.code, BroadcastErrorCode.REVISION_CONFLICT)
+        with self.assertRaises(BroadcastContractError) as backward:
+            restarted.apply(envelope(sequence=6, observed=7300), Canonical((game(),)))
+        self.assertEqual(backward.exception.code, BroadcastErrorCode.OUT_OF_ORDER)
+
+    def test_empty_checkpoint_is_valid_but_applied_state_must_be_consistent(self):
+        empty = self.session()
+        restored = StructuredBroadcastSession.from_checkpoint_json(empty.to_checkpoint_json())
+        self.assertEqual(restored.games, ())
+        self.assertIsNone(restored.last_sequence)
+        self.assertEqual(restored.connection_state, BroadcastConnectionState.DISCONNECTED)
+
+        import json
+        document = json.loads(empty.to_checkpoint_json())
+        document["payload"]["games"] = [
+            {
+                "provider_game_id": "g1",
+                "chess_ref": "tree:g1",
+                "canonical_revision": "r1",
+            }
+        ]
+        document["payload_sha256"] = StructuredBroadcastSession._checkpoint_payload_digest(
+            document["payload"]
+        )
+        with self.assertRaises(BroadcastContractError) as inconsistent:
+            StructuredBroadcastSession.from_checkpoint_json(
+                json.dumps(document, sort_keys=True, separators=(",", ":"))
+            )
+        self.assertEqual(inconsistent.exception.code, BroadcastErrorCode.INVALID_CHECKPOINT)
+
+    def test_checkpoint_rejects_corruption_duplicates_unknown_fields_and_oversize(self):
+        import json
+        session = self.session()
+        session.apply(envelope(), Canonical((game(),)))
+        document = json.loads(session.to_checkpoint_json())
+
+        corrupt = dict(document)
+        corrupt["payload_sha256"] = "0" * 64
+        with self.assertRaises(BroadcastContractError) as digest:
+            StructuredBroadcastSession.from_checkpoint_json(json.dumps(corrupt))
+        self.assertEqual(digest.exception.code, BroadcastErrorCode.INVALID_CHECKPOINT)
+
+        duplicate_key = '{"schema":1,"schema":1,"payload":{},"payload_sha256":"' + ("0" * 64) + '"}'
+        with self.assertRaises(BroadcastContractError) as duplicate:
+            StructuredBroadcastSession.from_checkpoint_json(duplicate_key)
+        self.assertEqual(duplicate.exception.code, BroadcastErrorCode.INVALID_CHECKPOINT)
+
+        unknown = dict(document)
+        unknown["extra"] = True
+        with self.assertRaises(BroadcastContractError) as extra:
+            StructuredBroadcastSession.from_checkpoint_json(json.dumps(unknown))
+        self.assertEqual(extra.exception.code, BroadcastErrorCode.INVALID_CHECKPOINT)
+
+        with self.assertRaises(BroadcastContractError) as oversized:
+            StructuredBroadcastSession.from_checkpoint_json(
+                "x" * (MAX_BROADCAST_CHECKPOINT_BYTES + 1)
+            )
+        self.assertEqual(oversized.exception.code, BroadcastErrorCode.INVALID_CHECKPOINT)
+
+    def test_broadcast_identifiers_are_bounded_before_checkpointing(self):
+        with self.assertRaises(BroadcastContractError) as game_id:
+            CanonicalBroadcastGame(
+                "g" * (MAX_BROADCAST_IDENTIFIER_CHARS + 1),
+                "tree:g1",
+                "r1",
+            )
+        self.assertEqual(game_id.exception.code, BroadcastErrorCode.INVALID_TEXT)
+        with self.assertRaises(BroadcastContractError) as source_id:
+            StructuredBroadcastSession(
+                provider="lichess",
+                round_id="Ab12Cd34",
+                source_id="s" * (MAX_BROADCAST_IDENTIFIER_CHARS + 1),
+            )
+        self.assertEqual(source_id.exception.code, BroadcastErrorCode.INVALID_TEXT)
 
     def test_verified_game_projects_to_confirmed_media_core_link_only(self):
         session = self.session()
