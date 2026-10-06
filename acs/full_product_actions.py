@@ -66,6 +66,7 @@ FULL_PRODUCT_ACTIONS: tuple[ActionDefinition, ...] = (
     _action("pgn.variation_promote", BindingContext.DOCUMENT, "Promote variation"),
     _action("pgn.copy_selection", BindingContext.DOCUMENT, "Copy selected game or variation"),
     _action("pgn.export_selection", BindingContext.DOCUMENT, "Export selected game or variation"),
+    _action("position.copy_fen", BindingContext.BOARD, "Copy current FEN"),
     _action("library.search", BindingContext.DATABASE, "Search library"),
     _action("library.reset_filters", BindingContext.DATABASE, "Reset library filters"),
     _action("library.next_page", BindingContext.DATABASE, "Next library page"),

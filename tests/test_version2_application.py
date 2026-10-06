@@ -76,6 +76,45 @@ class Version2ApplicationTests(unittest.TestCase):
         self.app.bind_files(self.files)
         self.addCleanup(lambda: self.files.shutdown(timeout=5))
 
+    def test_copy_fen_uses_canonical_visible_board_and_publishes_accessible_status(self):
+        fen = "7k/8/8/8/8/8/8/K7 b - - 17 42"
+        calls = []
+
+        def board_dispatch(action, payload):
+            calls.append((action, payload))
+            self.assertEqual("board.read_fen", action)
+            self.assertEqual({}, payload)
+            return {"ok": True, "fen": fen, "announcement": "ignored presentation text"}
+
+        self.app._board_dispatch = board_dispatch
+        result = self.app._delegate("position.copy_fen", {})
+
+        self.assertEqual({"ok": True, "fen": fen}, result)
+        self.assertEqual([fen], self.copied)
+        self.assertEqual([("board.read_fen", {})], calls)
+        events = self.app.drain_events()
+        self.assertTrue(
+            any(
+                event.get("kind") == "status"
+                and event.get("payload", {}).get("announcement") == "Поточний FEN скопійовано."
+                for event in events
+            )
+        )
+
+    def test_copy_fen_rejects_noncanonical_or_failed_board_readback_before_clipboard(self):
+        for result in (
+            None,
+            {"ok": False},
+            {"ok": True, "fen": "7k/8/8/8/8/8/8/K7 b - -"},
+            {"ok": True, "fen": "not a fen"},
+        ):
+            with self.subTest(result=result):
+                before = list(self.copied)
+                self.app._board_dispatch = lambda *_args, _result=result: _result
+                with self.assertRaises((RuntimeError, ValueError)):
+                    self.app._delegate("position.copy_fen", {})
+                self.assertEqual(before, self.copied)
+
     def test_worker_factory_abort_closes_database_without_replacing_primary_failure(self):
         closed = []
 
