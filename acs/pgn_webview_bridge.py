@@ -143,6 +143,18 @@ class PgnWebViewBridge:
                 if guarded is not None:
                     return guarded
                 return self._projection.next_game()
+            if command_id == "pgn.game_add":
+                self._exact_fields(data, set())
+                guarded = presentation_guard()
+                if guarded is not None:
+                    return guarded
+                return self._projection.add_game()
+            if command_id == "pgn.game_delete":
+                self._exact_fields(data, set())
+                guarded = presentation_guard()
+                if guarded is not None:
+                    return guarded
+                return self._projection.delete_game()
             if command_id == "pgn.tag_edit":
                 self._exact_fields(data, {"name", "value"})
                 name = self._text(data["name"], name="tag name", limit=80)
