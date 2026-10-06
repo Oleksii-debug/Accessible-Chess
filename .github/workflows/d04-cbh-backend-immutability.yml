@@ -19,6 +19,14 @@ concurrency:
 
 env:
   D04_BASE: 5cf9f615d3fc2e28a02a1c27e6fd3bb6478ba145
+  LIBRARY_IMPORT_BLOB: f3457885b3fc673d100e9748a8de294e1318158d
+  D04_TEST_BLOB: c1021667c2e29a95227eb5c6dd1415638c2181a4
+  DECODER_BLOB: 58e4346dfc406d504fd1175a094a86307d95e7a6
+  IMPORT_CONTRACT_BLOB: b302b1666511289a70b5b3569ed5360b5cb66a95
+  DECODER_TEST_BLOB: 6a872279f99d7587dd0a49dfbc7bd2381f61bb20
+  CANCELLATION_TEST_BLOB: d67c1f6467ff0dc9845c543a671bf03696fc2574
+  CHESS960_CBV_TEST_BLOB: e07febed13c42c7b8ee0f5e2a6e1ccffeff03024
+  CBV_EXTRACTOR_TEST_BLOB: 289d211c3cd0f1b1ffd8e3dd4bfc92114e92a6a5
 
 jobs:
   backend-immutability:
@@ -33,6 +41,7 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
@@ -63,6 +72,19 @@ jobs:
             printf 'Unexpected D04 scope:\n%s\n' "$changed" >&2
             exit 1
           }
+
+      - name: Bind exact D04 product and retained authority bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:acs/chessbase_library_import.py)" = "$LIBRARY_IMPORT_BLOB"
+          test "$(git rev-parse HEAD:tests/test_d04_cbh_backend_immutability.py)" = "$D04_TEST_BLOB"
+          test "$(git rev-parse HEAD:acs/chessbase_decoder.py)" = "$DECODER_BLOB"
+          test "$(git rev-parse HEAD:acs/import_contract.py)" = "$IMPORT_CONTRACT_BLOB"
+          test "$(git rev-parse HEAD:tests/test_chessbase_decoder.py)" = "$DECODER_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_chessbase_active_import_cancellation.py)" = "$CANCELLATION_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_v2_chess960_cbv_runtime_inheritance.py)" = "$CHESS960_CBV_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_cbv_extractor.py)" = "$CBV_EXTRACTOR_TEST_BLOB"
 
       - name: Compile affected Python
         run: >-
