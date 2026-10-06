@@ -35,6 +35,8 @@ env:
   PACKAGE_PREFLIGHT_BLOB: 08c4024b063a7c674bada1a712cfdf44e7470c10
   PACKAGE_PREFLIGHT_TEST_BLOB: b986b679e9bb14e60f7c8297c09ddef914357c15
   ANALYSIS_FEEDBACK_TEST_BLOB: 87060c11febc787b65a482bc897f1464a443e3b2
+  PHYSICAL_RECORDER_BLOB: 91ffd7ef6c83f31c502f5fbe594caa49838f7150
+  PHYSICAL_HARDENING_TEST_BLOB: 146e403e4e89d08bfc225e46cc21f600d396f0ef
 
 jobs:
   recovery-hardening:
@@ -88,6 +90,8 @@ jobs:
             "acs/version2_windows_file_workflows.py"
             "acs/version2_windows_host_runtime.py"
             "acs/version2_windows_import_ui_pump.py"
+            "scripts/record_owner_physical_acceptance.py"
+            "tests/test_owner_physical_acceptance_json_hardening.py"
             "tests/test_v2_board_analysis_hotkey_feedback.py"
             "tests/test_v2_windows_file_worker_shutdown_fence.py"
             "tests/test_v2_windows_host_runtime.py"
@@ -126,6 +130,8 @@ jobs:
           test "$(git rev-parse HEAD:acs/version2_package_preflight.py)" = "$PACKAGE_PREFLIGHT_BLOB"
           test "$(git rev-parse HEAD:tests/test_version2_package_preflight.py)" = "$PACKAGE_PREFLIGHT_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_v2_board_analysis_hotkey_feedback.py)" = "$ANALYSIS_FEEDBACK_TEST_BLOB"
+          test "$(git rev-parse HEAD:scripts/record_owner_physical_acceptance.py)" = "$PHYSICAL_RECORDER_BLOB"
+          test "$(git rev-parse HEAD:tests/test_owner_physical_acceptance_json_hardening.py)" = "$PHYSICAL_HARDENING_TEST_BLOB"
 
       - name: Compile changed and integrated boundaries
         run: >-
@@ -138,6 +144,8 @@ jobs:
           acs/version2_windows_file_workflows.py
           acs/version2_windows_host_runtime.py
           acs/version2_windows_import_ui_pump.py
+          scripts/record_owner_physical_acceptance.py
+          tests/test_owner_physical_acceptance_json_hardening.py
           tests/test_version2_application.py
           tests/test_version2_shutdown.py
           tests/test_work_v2_shutdown_progress_failure_cleanup.py
