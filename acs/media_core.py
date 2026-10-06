@@ -31,6 +31,7 @@ class MediaErrorCode(str, Enum):
     INVALID_TIMESTAMP = "invalid_timestamp"
     INVALID_DURATION = "invalid_duration"
     INVALID_CONFIDENCE = "invalid_confidence"
+    INVALID_PLAYBACK_RATE = "invalid_playback_rate"
     SOURCE_MISMATCH = "source_mismatch"
     DUPLICATE_LINK = "duplicate_link"
     LINK_LIMIT = "link_limit"
@@ -143,13 +144,13 @@ class MediaClock:
         if type(value) not in (int, float) or isinstance(value, bool):
             raise MediaContractError(
                 "playback_rate must be a finite positive number",
-                code=MediaErrorCode.INVALID_CONTAINER,
+                code=MediaErrorCode.INVALID_PLAYBACK_RATE,
             )
         rate = float(value)
         if not math.isfinite(rate) or rate <= 0.0:
             raise MediaContractError(
                 "playback_rate must be a finite positive number",
-                code=MediaErrorCode.INVALID_CONTAINER,
+                code=MediaErrorCode.INVALID_PLAYBACK_RATE,
             )
         return rate
 
