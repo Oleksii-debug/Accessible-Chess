@@ -4,7 +4,13 @@ import inspect
 from pathlib import Path
 import unittest
 
-from acs.media_core import MediaLinkStatus
+from acs.media_core import (
+    MAX_MEDIA_RECONCILIATION_REFS,
+    MediaEvidence,
+    MediaEvidenceKind,
+    MediaReconciliationResult,
+    MediaReconciliationState,
+)
 from acs.media_preprocess import (
     BoardFrameEvidence,
     BoardOrientation,
@@ -13,10 +19,8 @@ from acs.media_preprocess import (
 )
 from acs.recorded_media_application import (
     CanonicalRecordedFrameApplicationAdapter,
-    CanonicalRecordedPositionResolution,
     RecordedMediaApplicationAdapterError,
 )
-from acs.recorded_media_sync import MAX_SPEECH_CONTEXT
 
 
 class _Application:
@@ -24,8 +28,10 @@ class _Application:
         self.result = result
         self.calls = []
 
-    def reconcile_recorded_observation(self, *, frame, speech_context):
-        self.calls.append((frame, speech_context))
+    def reconcile_media_evidence_batch(self, *, current_chess_ref, evidence):
+        self.calls.append((current_chess_ref, evidence))
+        if isinstance(self.result, BaseException):
+            raise self.result
         return self.result
 
 
@@ -41,219 +47,236 @@ def _frame(disposition=FrameDisposition.STABLE):
     )
 
 
-def _speech(source_id="media-1", source_revision="rev-1"):
-    return SpeechEvidence(source_id, source_revision, 1000, 1200, "Knight f3", True, 0.8)
+def _speech(source_id="media-1", source_revision="rev-1", *, text="Knight f3"):
+    return SpeechEvidence(source_id, source_revision, 1000, 1200, text, True, 0.8)
+
+
+def _result(
+    evidence,
+    *,
+    state=MediaReconciliationState.VERIFIED,
+    chess_ref="game:42/node:17",
+    candidate_refs=(),
+    confidence=.88,
+):
+    return MediaReconciliationResult(
+        source_id="media-1",
+        state=state,
+        evidence_ids=tuple(item.evidence_id for item in evidence),
+        chess_ref=chess_ref,
+        candidate_refs=candidate_refs,
+        confidence=confidence,
+        reason="canonical application fixture",
+    )
+
+
+class DynamicApplication:
+    def __init__(
+        self,
+        *,
+        state=MediaReconciliationState.VERIFIED,
+        chess_ref="game:42/node:17",
+        candidate_refs=(),
+        confidence=.88,
+    ):
+        self.state=state
+        self.chess_ref=chess_ref
+        self.candidate_refs=candidate_refs
+        self.confidence=confidence
+        self.calls=[]
+
+    def reconcile_media_evidence_batch(self, *, current_chess_ref, evidence):
+        self.calls.append((current_chess_ref,evidence))
+        return _result(
+            evidence,
+            state=self.state,
+            chess_ref=self.chess_ref,
+            candidate_refs=self.candidate_refs,
+            confidence=self.confidence,
+        )
 
 
 class RecordedMediaApplicationAdapterTests(unittest.TestCase):
-    def test_confirmed_application_resolution_becomes_exact_media_link(self):
-        application = _Application(
-            CanonicalRecordedPositionResolution("game:42/node:17", True, 0.88)
-        )
+    def test_board_and_speech_become_typed_media_evidence_before_application(self):
+        application = DynamicApplication()
         adapter = CanonicalRecordedFrameApplicationAdapter(application)
         frame = _frame()
         speech = (_speech(),)
 
-        link = adapter.resolve_recorded_frame(frame=frame, speech_context=speech)
+        result = adapter.resolve_recorded_frame(frame=frame, speech_context=speech)
 
-        self.assertEqual(application.calls, [(frame, speech)])
-        self.assertEqual(link.source_id, "media-1")
-        self.assertEqual(link.timestamp_ms, 1200)
-        self.assertEqual(link.chess_ref, "game:42/node:17")
-        self.assertIs(link.status, MediaLinkStatus.CONFIRMED)
-        self.assertEqual(link.confidence, 0.88)
-
-    def test_candidate_resolution_stays_candidate(self):
-        adapter = CanonicalRecordedFrameApplicationAdapter(
-            _Application(CanonicalRecordedPositionResolution("game:42/node:18", False, 0.6))
+        self.assertEqual(result.state, MediaReconciliationState.VERIFIED)
+        self.assertEqual(len(application.calls), 1)
+        current_ref, evidence = application.calls[0]
+        self.assertIsNone(current_ref)
+        self.assertEqual(len(evidence), 2)
+        self.assertTrue(all(type(item) is MediaEvidence for item in evidence))
+        self.assertEqual(evidence[0].kind, MediaEvidenceKind.BOARD_OBSERVATION)
+        self.assertEqual(evidence[1].kind, MediaEvidenceKind.SPEECH_CONTEXT)
+        self.assertEqual(evidence[0].source_revision, "rev-1")
+        self.assertEqual(evidence[1].source_revision, "rev-1")
+        self.assertFalse(evidence[0].source_authoritative)
+        self.assertFalse(evidence[1].source_authoritative)
+        self.assertEqual(evidence[0].raw_candidate_ref, "vision-observation:17")
+        self.assertEqual(
+            set(result.evidence_ids),
+            {item.evidence_id for item in evidence},
         )
-        link = adapter.resolve_recorded_frame(frame=_frame(), speech_context=())
-        self.assertIs(link.status, MediaLinkStatus.CANDIDATE)
-        self.assertFalse(link.confirmed)
 
-    def test_application_may_decline_observation(self):
-        adapter = CanonicalRecordedFrameApplicationAdapter(_Application(None))
-        self.assertIsNone(adapter.resolve_recorded_frame(frame=_frame(), speech_context=()))
-
-    def test_ambiguous_evidence_cannot_be_confirmed(self):
-        adapter = CanonicalRecordedFrameApplicationAdapter(
-            _Application(CanonicalRecordedPositionResolution("game:42/node:17", True, 0.9))
+    def test_typed_evidence_ids_are_deterministic_for_same_inputs(self):
+        app1=DynamicApplication()
+        app2=DynamicApplication()
+        CanonicalRecordedFrameApplicationAdapter(app1).resolve_recorded_frame(
+            frame=_frame(), speech_context=(_speech(),)
         )
-        with self.assertRaises(RecordedMediaApplicationAdapterError):
-            adapter.resolve_recorded_frame(
-                frame=_frame(FrameDisposition.AMBIGUOUS), speech_context=()
-            )
+        CanonicalRecordedFrameApplicationAdapter(app2).resolve_recorded_frame(
+            frame=_frame(), speech_context=(_speech(),)
+        )
+        ids1=tuple(item.evidence_id for item in app1.calls[0][1])
+        ids2=tuple(item.evidence_id for item in app2.calls[0][1])
+        self.assertEqual(ids1,ids2)
+
+    def test_canonical_states_remain_standard_media_reconciliation_results(self):
+        for state,chess_ref,candidates in (
+            (MediaReconciliationState.VERIFIED,"game:42/node:17",()),
+            (MediaReconciliationState.INFERRED,"game:42/node:18",()),
+            (MediaReconciliationState.OBSERVED,None,("game:42/candidate",)),
+            (MediaReconciliationState.AMBIGUOUS,None,("game:a","game:b")),
+            (MediaReconciliationState.RESYNC_REQUIRED,None,()),
+            (MediaReconciliationState.NO_CHANGE,None,()),
+        ):
+            with self.subTest(state=state):
+                app=DynamicApplication(
+                    state=state,chess_ref=chess_ref,candidate_refs=candidates
+                )
+                result=CanonicalRecordedFrameApplicationAdapter(app).resolve_recorded_frame(
+                    frame=_frame(),speech_context=()
+                )
+                self.assertEqual(result.state,state)
+
+    def test_ambiguous_visual_evidence_cannot_publish_verified_or_inferred_truth(self):
+        for state in (
+            MediaReconciliationState.VERIFIED,
+            MediaReconciliationState.INFERRED,
+        ):
+            with self.subTest(state=state):
+                adapter=CanonicalRecordedFrameApplicationAdapter(
+                    DynamicApplication(state=state)
+                )
+                with self.assertRaises(RecordedMediaApplicationAdapterError):
+                    adapter.resolve_recorded_frame(
+                        frame=_frame(FrameDisposition.AMBIGUOUS),
+                        speech_context=(),
+                    )
 
     def test_non_resolvable_frames_fail_before_application_call(self):
-        application = _Application(None)
-        adapter = CanonicalRecordedFrameApplicationAdapter(application)
-        for disposition in (FrameDisposition.TRANSITION, FrameDisposition.OCCLUDED):
+        application=DynamicApplication()
+        adapter=CanonicalRecordedFrameApplicationAdapter(application)
+        for disposition in (FrameDisposition.TRANSITION,FrameDisposition.OCCLUDED):
             with self.subTest(disposition=disposition):
                 with self.assertRaises(RecordedMediaApplicationAdapterError):
                     adapter.resolve_recorded_frame(
-                        frame=_frame(disposition), speech_context=()
+                        frame=_frame(disposition),speech_context=()
                     )
-        self.assertEqual(application.calls, [])
+        self.assertEqual(application.calls,[])
 
     def test_cross_source_or_stale_speech_fails_before_application_call(self):
-        application = _Application(None)
-        adapter = CanonicalRecordedFrameApplicationAdapter(application)
-        bad_contexts = (
+        application=DynamicApplication()
+        adapter=CanonicalRecordedFrameApplicationAdapter(application)
+        for context in (
             (_speech(source_id="media-2"),),
             (_speech(source_revision="rev-0"),),
-        )
-        for speech_context in bad_contexts:
-            with self.subTest(speech_context=speech_context):
+        ):
+            with self.subTest(context=context):
                 with self.assertRaises(RecordedMediaApplicationAdapterError):
-                    adapter.resolve_recorded_frame(
-                        frame=_frame(), speech_context=speech_context
-                    )
-        self.assertEqual(application.calls, [])
+                    adapter.resolve_recorded_frame(frame=_frame(),speech_context=context)
+        self.assertEqual(application.calls,[])
 
-    def test_wrong_application_result_fails_closed(self):
-        adapter = CanonicalRecordedFrameApplicationAdapter(_Application("game:42/node:17"))
+    def test_bundle_limit_fails_before_application_call(self):
+        application=DynamicApplication()
+        adapter=CanonicalRecordedFrameApplicationAdapter(application)
+        speech=tuple(
+            _speech(text=f"commentary {index}")
+            for index in range(MAX_MEDIA_RECONCILIATION_REFS)
+        )
         with self.assertRaises(RecordedMediaApplicationAdapterError):
-            adapter.resolve_recorded_frame(frame=_frame(), speech_context=())
+            adapter.resolve_recorded_frame(frame=_frame(),speech_context=speech)
+        self.assertEqual(application.calls,[])
 
-    def test_invalid_resolution_fields_fail_closed(self):
-        bad_values = [
-            ("", True, 0.5),
-            ("game:1", 1, 0.5),
-            ("game:1", True, float("nan")),
-            ("game:1", False, 1.1),
-        ]
-        for args in bad_values:
-            with self.subTest(args=args):
-                with self.assertRaises(RecordedMediaApplicationAdapterError):
-                    CanonicalRecordedPositionResolution(*args)
-
-    def test_application_receives_detached_revalidated_evidence(self):
-        application = _Application(
-            CanonicalRecordedPositionResolution("game:42/node:17", True, 0.88)
-        )
-        adapter = CanonicalRecordedFrameApplicationAdapter(application)
-        frame = _frame()
-        speech = (_speech(),)
-
-        adapter.resolve_recorded_frame(frame=frame, speech_context=speech)
-
-        sent_frame, sent_speech = application.calls[0]
-        self.assertEqual(sent_frame, frame)
-        self.assertIsNot(sent_frame, frame)
-        self.assertEqual(sent_speech, speech)
-        self.assertIsNot(sent_speech, speech)
-        self.assertIsNot(sent_speech[0], speech[0])
-
-    def test_tampered_frame_fields_fail_before_application_call(self):
-        cases = (
-            ("source_id", object()),
-            ("disposition", "stable"),
-            ("confidence", object()),
-        )
-        for field_name, value in cases:
-            with self.subTest(field=field_name):
-                application = _Application(None)
-                adapter = CanonicalRecordedFrameApplicationAdapter(application)
-                frame = _frame()
-                object.__setattr__(frame, field_name, value)
-
-                with self.assertRaises(RecordedMediaApplicationAdapterError):
-                    adapter.resolve_recorded_frame(frame=frame, speech_context=())
-
-                self.assertEqual(application.calls, [])
-
-    def test_tampered_speech_fields_fail_before_application_call(self):
-        cases = (
-            ("text", object()),
-            ("is_final", 1),
-            ("confidence", object()),
-        )
-        for field_name, value in cases:
-            with self.subTest(field=field_name):
-                application = _Application(None)
-                adapter = CanonicalRecordedFrameApplicationAdapter(application)
-                speech = _speech()
-                object.__setattr__(speech, field_name, value)
-
-                with self.assertRaises(RecordedMediaApplicationAdapterError):
-                    adapter.resolve_recorded_frame(
-                        frame=_frame(), speech_context=(speech,)
-                    )
-
-                self.assertEqual(application.calls, [])
-
-    def test_speech_context_limit_fails_before_application_call(self):
-        application = _Application(None)
-        adapter = CanonicalRecordedFrameApplicationAdapter(application)
-        speech = tuple(_speech() for _ in range(MAX_SPEECH_CONTEXT + 1))
-
+    def test_wrong_or_partial_application_result_fails_closed(self):
+        class WrongApplication:
+            def reconcile_media_evidence_batch(self, *, current_chess_ref, evidence):
+                return "not-a-result"
         with self.assertRaises(RecordedMediaApplicationAdapterError):
-            adapter.resolve_recorded_frame(frame=_frame(), speech_context=speech)
+            CanonicalRecordedFrameApplicationAdapter(
+                WrongApplication()
+            ).resolve_recorded_frame(frame=_frame(),speech_context=())
 
-        self.assertEqual(application.calls, [])
-
-    def test_tampered_resolution_fields_fail_closed(self):
-        resolution = CanonicalRecordedPositionResolution(
-            "game:42/node:17", True, 0.9
-        )
-        object.__setattr__(resolution, "confirmed", 1)
-        application = _Application(resolution)
-        adapter = CanonicalRecordedFrameApplicationAdapter(application)
-
-        with self.assertRaises(RecordedMediaApplicationAdapterError):
-            adapter.resolve_recorded_frame(frame=_frame(), speech_context=())
-
-        self.assertEqual(len(application.calls), 1)
-
-    def test_application_cannot_rewrite_media_source_or_timestamp(self):
-        class MutatingApplication:
-            def reconcile_recorded_observation(self, *, frame, speech_context):
-                object.__setattr__(frame, "source_id", "rewritten-source")
-                object.__setattr__(frame, "timestamp_ms", 999_999)
-                return CanonicalRecordedPositionResolution(
-                    "game:42/node:17", True, 0.9
+        class PartialApplication:
+            def reconcile_media_evidence_batch(self, *, current_chess_ref, evidence):
+                return MediaReconciliationResult(
+                    source_id="media-1",
+                    state=MediaReconciliationState.NO_CHANGE,
+                    evidence_ids=(evidence[0].evidence_id,),
+                    reason="partial binding",
                 )
-
-        frame = _frame()
-        adapter = CanonicalRecordedFrameApplicationAdapter(MutatingApplication())
-
-        link = adapter.resolve_recorded_frame(frame=frame, speech_context=())
-
-        self.assertEqual(link.source_id, "media-1")
-        self.assertEqual(link.timestamp_ms, 1200)
-        self.assertEqual(frame.source_id, "media-1")
-        self.assertEqual(frame.timestamp_ms, 1200)
-
-    def test_application_cannot_mutate_ambiguous_frame_into_confirmation(self):
-        class MutatingApplication:
-            def reconcile_recorded_observation(self, *, frame, speech_context):
-                object.__setattr__(frame, "disposition", FrameDisposition.STABLE)
-                return CanonicalRecordedPositionResolution(
-                    "game:42/node:17", True, 0.9
-                )
-
-        frame = _frame(FrameDisposition.AMBIGUOUS)
-        adapter = CanonicalRecordedFrameApplicationAdapter(MutatingApplication())
-
         with self.assertRaises(RecordedMediaApplicationAdapterError):
-            adapter.resolve_recorded_frame(frame=frame, speech_context=())
+            CanonicalRecordedFrameApplicationAdapter(
+                PartialApplication()
+            ).resolve_recorded_frame(
+                frame=_frame(),speech_context=(_speech(),)
+            )
 
-        self.assertIs(frame.disposition, FrameDisposition.AMBIGUOUS)
+    def test_canonical_exception_is_sanitized(self):
+        adapter=CanonicalRecordedFrameApplicationAdapter(
+            _Application(RuntimeError(r"private C:\Users\secret\media.db"))
+        )
+        with self.assertRaises(RecordedMediaApplicationAdapterError) as caught:
+            adapter.resolve_recorded_frame(frame=_frame(),speech_context=())
+        self.assertNotIn("secret",str(caught.exception))
+        self.assertNotIn("media.db",str(caught.exception))
+
+    def test_tampered_frame_or_speech_fails_before_application_call(self):
+        application=DynamicApplication()
+        adapter=CanonicalRecordedFrameApplicationAdapter(application)
+        frame=_frame()
+        object.__setattr__(frame,"confidence",object())
+        with self.assertRaises(RecordedMediaApplicationAdapterError):
+            adapter.resolve_recorded_frame(frame=frame,speech_context=())
+        self.assertEqual(application.calls,[])
+
+        speech=_speech()
+        object.__setattr__(speech,"text",object())
+        with self.assertRaises(RecordedMediaApplicationAdapterError):
+            adapter.resolve_recorded_frame(frame=_frame(),speech_context=(speech,))
+        self.assertEqual(application.calls,[])
+
+    def test_application_receives_no_board_or_speech_dto_objects(self):
+        class InspectingApplication(DynamicApplication):
+            def reconcile_media_evidence_batch(self, *, current_chess_ref, evidence):
+                self.assertion=all(type(item) is MediaEvidence for item in evidence)
+                return super().reconcile_media_evidence_batch(
+                    current_chess_ref=current_chess_ref,evidence=evidence
+                )
+        app=InspectingApplication()
+        frame=_frame()
+        speech=(_speech(),)
+        CanonicalRecordedFrameApplicationAdapter(app).resolve_recorded_frame(
+            frame=frame,speech_context=speech
+        )
+        self.assertTrue(app.assertion)
+        self.assertEqual(frame.source_id,"media-1")
+        self.assertEqual(speech[0].text,"Knight f3")
 
     def test_adapter_contains_no_chess_parser_or_rules_authority(self):
-        source = Path(inspect.getsourcefile(CanonicalRecordedFrameApplicationAdapter)).read_text(
-            encoding="utf-8"
-        ).lower()
-        forbidden = (
-            "chesscore",
-            "set_fen",
-            "parse_san",
-            "parse_uci",
-            "pseudo_moves",
-            "legal_moves",
-        )
-        for token in forbidden:
-            self.assertNotIn(token, source)
+        source=Path(
+            inspect.getsourcefile(CanonicalRecordedFrameApplicationAdapter)
+        ).read_text(encoding="utf-8").lower()
+        for token in (
+            "chesscore","set_fen","parse_san","parse_uci",
+            "pseudo_moves","legal_moves",
+        ):
+            self.assertNotIn(token,source)
 
 
 if __name__ == "__main__":

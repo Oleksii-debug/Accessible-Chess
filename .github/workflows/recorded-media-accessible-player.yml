@@ -49,7 +49,7 @@ jobs:
         shell: bash
         env:
           EXPECTED_PARENT_BRANCH: feat/recorded-media-accessible-player-20261006-sol56
-          EXPECTED_PARENT: c8e2bb18eb508043f5d49089d27e13485a40e952
+          EXPECTED_PARENT: d7e2346dfdd3aecbe72324bb7f6f2cb81efb8e86
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
