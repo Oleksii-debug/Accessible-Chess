@@ -753,5 +753,75 @@ class BookOpenWorkerTests(unittest.TestCase):
 
 
 
+    def test_reentrant_terminal_flush_is_single_delivery_and_blocks_new_generation(self) -> None:
+        callbacks = []
+        events = []
+        reentrant_flushes = []
+        reentrant_start_errors = []
+        commits = []
+        reject_post = [True]
+        holder = {}
+
+        def post(callback):
+            if reject_post[0]:
+                raise RuntimeError("owner temporarily unavailable")
+            callbacks.append(callback)
+
+        def sink(event):
+            events.append(event.kind)
+            if event.kind is BookOpenWorkerEventKind.FAILED:
+                # A retained terminal is still being delivered on this owner
+                # stack. Re-entering the drain must be a no-op, and a fresh Book
+                # Open must not overtake the terminal transaction.
+                holder["worker"].flush_pending_terminal()
+                reentrant_flushes.append(True)
+                try:
+                    holder["worker"].start(Path("reentrant-book.md"))
+                except BaseException as exc:
+                    reentrant_start_errors.append(exc)
+
+        worker = Version2BookOpenWorker(
+            prepare=lambda source, *, cancel_check: "prepared-book",
+            commit=commits.append,
+            post_to_ui=post,
+            event_sink=sink,
+        )
+        holder["worker"] = worker
+
+        self.assertTrue(worker.start(Path("book.md"), focus_target="book-open"))
+        self._wait(lambda: not worker.active)
+        self.assertEqual(events, [BookOpenWorkerEventKind.STARTED])
+
+        worker.flush_pending_terminal()
+
+        self.assertEqual(reentrant_flushes, [True])
+        self.assertEqual(len(reentrant_start_errors), 1)
+        self.assertIsInstance(reentrant_start_errors[0], RuntimeError)
+        self.assertIn("terminal delivery", str(reentrant_start_errors[0]))
+        self.assertEqual(
+            events,
+            [BookOpenWorkerEventKind.STARTED, BookOpenWorkerEventKind.FAILED],
+        )
+        worker.flush_pending_terminal()
+        self.assertEqual(
+            events,
+            [BookOpenWorkerEventKind.STARTED, BookOpenWorkerEventKind.FAILED],
+        )
+
+        # Once the accepted terminal transaction is retired, a new generation is
+        # allowed to start normally and cannot inherit the stale terminal.
+        reject_post[0] = False
+        self.assertTrue(worker.start(Path("book-2.md"), focus_target="book-open-2"))
+        self._wait(lambda: len(callbacks) == 1)
+        callbacks.pop(0)()
+        self.assertEqual(commits, ["prepared-book"])
+        self.assertEqual(events[-2:], [
+            BookOpenWorkerEventKind.STARTED,
+            BookOpenWorkerEventKind.COMPLETED,
+        ])
+        self.assertTrue(worker.shutdown())
+
+
+
 if __name__ == "__main__":
     unittest.main()
