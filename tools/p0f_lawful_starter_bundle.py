@@ -23,7 +23,6 @@ import io
 import json
 import os
 from pathlib import Path
-import shutil
 import sys
 import tempfile
 from urllib.request import Request, urlopen
@@ -630,8 +629,13 @@ def build_from_pinned_lichess(
             compressed_bytes = _download_verified(compressed)
         else:
             source = Path(source_zst)
-            compressed_bytes = _verify_local_source(source)
-            shutil.copyfile(source, compressed)
+            # Snapshot the local archive through the same bounded digest authority
+            # used by extraction.  Never perform an unbounded pathname copy after
+            # a separate verify step: the source may be replaced between those
+            # operations, turning a qualified small file into unbounded disk I/O.
+            compressed_payload = _read_verified_compressed_payload(source)
+            compressed_bytes = len(compressed_payload)
+            compressed.write_bytes(compressed_payload)
 
         curation_evidence = _extract_curated_subset(compressed, subset, starter_count)
         selected = curation_evidence["selected_games"]
