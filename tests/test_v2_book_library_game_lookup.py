@@ -269,6 +269,28 @@ class BookLibraryGameLookupTests(unittest.TestCase):
                 lookup.load_book_game(game_id)
             self.assertEqual(str(empty.exception), "stored book game is not canonical")
 
+    def test_stored_pgn_raw_length_is_bounded_before_parser_dispatch(self) -> None:
+        with AcsDatabase() as database:
+            game_id = self._stored_game(database)
+            with database.conn:
+                database.conn.execute(
+                    "UPDATE games SET pgn_text=? WHERE id=?",
+                    ("x" * 5, game_id),
+                )
+
+            with mock.patch(
+                "acs.book_library_game_lookup.MAX_PGN_TEXT_CHARS",
+                4,
+            ), mock.patch(
+                "acs.book_library_game_lookup.parse_pgn_text",
+            ) as parser:
+                with self.assertRaises(BookLibraryGameLookupError) as caught:
+                    AcsdbBookGameLookup(database).load_book_game(game_id)
+
+            self.assertEqual(str(caught.exception), "stored book game is not canonical")
+            self.assertIsNone(caught.exception.__cause__)
+            parser.assert_not_called()
+
     def test_corrupt_stored_pgn_parser_failure_has_no_internal_cause(self) -> None:
         with AcsDatabase() as database:
             game_id = self._stored_game(database)
@@ -346,6 +368,19 @@ class BookLibraryGameLookupTests(unittest.TestCase):
     def test_constructor_rejects_noncanonical_database_adapter(self) -> None:
         with self.assertRaises(TypeError):
             AcsdbBookGameLookup(object())  # type: ignore[arg-type]
+
+    def test_constructor_rejects_acsdb_subclass_before_provider_dispatch(self) -> None:
+        class ProviderDatabase(AcsDatabase):
+            def get_game(self, game_id: int):  # pragma: no cover - must never dispatch
+                raise AssertionError("provider-defined get_game executed")
+
+        database = ProviderDatabase()
+        try:
+            with self.assertRaises(TypeError) as caught:
+                AcsdbBookGameLookup(database)
+            self.assertEqual(str(caught.exception), "database must be an AcsDatabase")
+        finally:
+            database.close()
 
 
 if __name__ == "__main__":
