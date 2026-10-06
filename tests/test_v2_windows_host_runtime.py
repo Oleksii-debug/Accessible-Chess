@@ -327,6 +327,62 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
             )
             self.assertTrue(runtime.shutdown())
 
+    def test_reentrant_import_terminal_recovery_reports_closed_runtime(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "reentrant-import-terminal-recovery.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            _OpenDialog.selected_paths.append(str(source))
+            owner = _Owner()
+            imported_events: list[object] = []
+            runtime = self._runtime(
+                owner,
+                imported_events=imported_events,
+            )
+
+            started = runtime("library.import", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.IMPORT_STARTED)
+            self.assertTrue(runtime.wait_for_import(5.0))
+            self.assertGreater(runtime.import_mailbox.pending_count, 0)
+
+            self.assertTrue(runtime.shutdown())
+            self.assertTrue(runtime.closed)
+
+            reentrant_shutdowns: list[bool] = []
+            original_ui_ready = runtime._pump._ui_ready
+
+            def reentrant_ui_ready():
+                result = original_ui_ready()
+                reentrant_shutdowns.append(runtime.shutdown())
+                return result
+
+            runtime._pump._ui_ready = reentrant_ui_ready
+
+            self.assertFalse(runtime.resume_after_refused_shutdown())
+            self.assertTrue(runtime.closed)
+            self.assertEqual(reentrant_shutdowns, [True])
+            self.assertEqual(runtime.import_mailbox.pending_count, 0)
+            self.assertEqual(
+                [event.kind for event in imported_events],
+                [
+                    FileWorkflowEventKind.IMPORT_STARTED,
+                    FileWorkflowEventKind.IMPORT_PROGRESS,
+                    FileWorkflowEventKind.IMPORT_COMPLETED,
+                ],
+            )
+
+            # The owner callback queued before shutdown is stale and cannot
+            # duplicate a terminal already consumed during recovery.
+            while owner.posted:
+                owner.posted.pop(0)()
+            self.assertEqual(
+                [event.kind for event in imported_events],
+                [
+                    FileWorkflowEventKind.IMPORT_STARTED,
+                    FileWorkflowEventKind.IMPORT_PROGRESS,
+                    FileWorkflowEventKind.IMPORT_COMPLETED,
+                ],
+            )
+
     def test_refused_close_resume_delivers_terminal_from_cooperative_shutdown(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "cooperative-shutdown-terminal.pgn"
