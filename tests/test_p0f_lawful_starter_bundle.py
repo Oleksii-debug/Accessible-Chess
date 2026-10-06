@@ -148,6 +148,54 @@ def test_verified_compressed_payload_enforces_bound_before_extraction(tmp_path):
         lawful_bundle._read_verified_compressed_payload(source)
 
 
+def test_local_build_materializes_only_verified_bounded_snapshot(tmp_path):
+    source = tmp_path / "caller-source.pgn.zst"
+    destination = tmp_path / "bundle"
+    verified = b"verified-compressed-snapshot"
+    source.write_bytes(b"original-path-bytes")
+    subset_bytes = b'[Event "Fixture"]\n\n*\n'
+    observed: dict[str, object] = {}
+
+    def read_verified(path):
+        assert path == source
+        # Simulate pathname replacement immediately after the bounded verified
+        # snapshot is acquired. Later build stages must not recopy this path.
+        source.write_bytes(b"x" * 4096)
+        return verified
+
+    def extract(compressed, subset, limit):
+        observed["materialized"] = compressed.read_bytes()
+        observed["limit"] = limit
+        subset.write_bytes(subset_bytes)
+        return {"selected_games": [{}]}
+
+    def build(destination_arg, **kwargs):
+        observed["destination"] = destination_arg
+        observed["compressed_bytes"] = kwargs["source_compressed_bytes"]
+        observed["starter_pgn"] = kwargs["starter_pgn"]
+        return {"status": "ok"}
+
+    with (
+        patch.object(lawful_bundle, "_read_verified_compressed_payload", side_effect=read_verified) as verified_read,
+        patch.object(lawful_bundle, "_extract_curated_subset", side_effect=extract),
+        patch.object(lawful_bundle, "build_release_bundle_from_curated_pgn", side_effect=build),
+    ):
+        result = lawful_bundle.build_from_pinned_lichess(
+            destination,
+            source_zst=source,
+            starter_count=1,
+            stress_count=2,
+        )
+
+    assert result == {"status": "ok"}
+    assert verified_read.call_count == 1
+    assert observed["materialized"] == verified
+    assert observed["compressed_bytes"] == len(verified)
+    assert observed["limit"] == 1
+    assert observed["starter_pgn"] == subset_bytes.decode("utf-8")
+    assert observed["destination"] == destination
+
+
 def test_complete_record_framer_keeps_exact_bounded_records(tmp_path):
     source = io.StringIO(_fixture_pgn_records(MINIMUM_REAL_GAME_COUNT + 5))
     destination = tmp_path / "subset.pgn"
