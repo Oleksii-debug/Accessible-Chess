@@ -127,7 +127,7 @@ class BookActiveImportCancellationTests(unittest.TestCase):
             if calls == 3:
                 raise failure
 
-        extra = b'\\x02\\x00\\x00\\x00' * 300
+        extra = b'\x02\x00\x00\x00' * 300
         with self.assertRaises(SourceReadCancelledError) as caught:
             epub._local_zip64_sizes(
                 extra,
