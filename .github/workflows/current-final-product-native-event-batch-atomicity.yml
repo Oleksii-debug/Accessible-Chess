@@ -1,0 +1,68 @@
+name: Current Final Product Native Event Batch Atomicity
+
+on:
+  pull_request:
+    branches:
+      - converge/book-reader-final-focus-authority-20261006-c2mbezb111
+    paths:
+      - '.github/workflows/current-final-product-native-event-batch-atomicity.yml'
+      - 'web/version2_final_product_bootstrap.js'
+      - 'tests/js/version2_final_product_event_drain_serialization_test.js'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-final-product-native-event-batch-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  FINAL_PRODUCT_BOOTSTRAP_BLOB: 7de1aa152e3a05b1e546744fd8db115777358cf5
+  EVENT_DRAIN_TEST_BLOB: ddc9501be4d5d2e332c079d76723604066895c9d
+
+jobs:
+  exact-head:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove exact geometry and blobs
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="${{ github.event.pull_request.base.sha }}"
+          git cat-file -e "$base^{commit}"
+          test "$(git merge-base "$base" HEAD)" = "$base"
+          git diff --check "$base" HEAD
+          changed="$(git diff --name-only "$base"...HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/current-final-product-native-event-batch-atomicity.yml' \
+            'tests/js/version2_final_product_event_drain_serialization_test.js' \
+            'web/version2_final_product_bootstrap.js' | sort)"
+          test "$changed" = "$expected"
+          test "$(git rev-parse HEAD:web/version2_final_product_bootstrap.js)" = "$FINAL_PRODUCT_BOOTSTRAP_BLOB"
+          test "$(git rev-parse HEAD:tests/js/version2_final_product_event_drain_serialization_test.js)" = "$EVENT_DRAIN_TEST_BLOB"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: JavaScript syntax
+        run: node --check web/version2_final_product_bootstrap.js
+
+      - name: Native event and focus serialization regressions
+        run: node tests/js/version2_final_product_event_drain_serialization_test.js
+
+      - name: Canonical release presentation regression
+        run: node tests/js/version2_release_bootstrap_dom_test.js
