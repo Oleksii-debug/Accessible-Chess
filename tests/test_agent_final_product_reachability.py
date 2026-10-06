@@ -80,6 +80,11 @@ class AgentFinalProductReachabilityTests(unittest.TestCase):
             starts,
             [("agent-ui-1", "Describe the current canonical position.")],
         )
+        with self.assertRaisesRegex(RuntimeError, "active Agent run"):
+            app.bind_agent_conversation(
+                start_run=lambda _run_id, _text: None,
+                cancel_run=lambda _run_id: None,
+            )
 
         self.assertTrue(
             projection.complete(
