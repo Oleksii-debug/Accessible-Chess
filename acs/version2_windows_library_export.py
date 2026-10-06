@@ -556,11 +556,33 @@ class Version2WindowsLibraryExportDelegate:
             ):
                 return False
             recovery_terminal = self._shutdown_recovery_terminal
+            if recovery_terminal is None:
+                self._shutdown_recovery_requested = False
+                self._closed = False
+                return True
+
+        # Recovery terminal delivery is stronger than ordinary status delivery:
+        # a transient presentation/NVDA observer failure must not consume the
+        # canonical terminal or advertise this owner as live. Keep the delegate
+        # closed and the exact event retained until one owner-thread delivery
+        # commits successfully.
+        try:
+            self._event_sink(recovery_terminal)
+        except BaseException:
+            _LOG.warning(
+                "Version 2 Library export recovery terminal delivery failed",
+                exc_info=True,
+            )
+            return False
+
+        with self._lock:
+            if not self._closed:
+                return False
+            if self._shutdown_recovery_terminal is not recovery_terminal:
+                return False
             self._shutdown_recovery_terminal = None
             self._shutdown_recovery_requested = False
             self._closed = False
-        if recovery_terminal is not None:
-            self._emit(recovery_terminal)
         return True
 
     def shutdown(
