@@ -207,6 +207,201 @@ class BookOpenWorkerTests(unittest.TestCase):
             [BookOpenWorkerEventKind.STARTED, BookOpenWorkerEventKind.FAILED],
         )
         self.assertTrue(worker.shutdown())
+
+    def test_completed_terminal_observer_failure_is_retained_for_retry(self) -> None:
+        callbacks = []
+        commits = []
+        events = []
+        fail_terminal_once = [True]
+
+        def sink(event):
+            if (
+                event.kind is BookOpenWorkerEventKind.COMPLETED
+                and fail_terminal_once[0]
+            ):
+                fail_terminal_once[0] = False
+                raise RuntimeError("transient completed presentation failure")
+            events.append(event.kind)
+
+        worker = Version2BookOpenWorker(
+            prepare=lambda source, *, cancel_check: "prepared-book",
+            commit=commits.append,
+            post_to_ui=callbacks.append,
+            event_sink=sink,
+        )
+        self.assertTrue(worker.start(Path("book.md"), focus_target="book-open"))
+        self._wait(lambda: len(callbacks) == 1)
+
+        with self.assertRaisesRegex(RuntimeError, "completed presentation failure"):
+            callbacks.pop(0)()
+
+        self.assertFalse(worker.active)
+        self.assertEqual(commits, ["prepared-book"])
+        self.assertEqual(events, [BookOpenWorkerEventKind.STARTED])
+
+        worker.flush_pending_terminal()
+        self.assertEqual(
+            events,
+            [BookOpenWorkerEventKind.STARTED, BookOpenWorkerEventKind.COMPLETED],
+        )
+        self.assertEqual(commits, ["prepared-book"])
+        worker.flush_pending_terminal()
+        self.assertEqual(
+            events,
+            [BookOpenWorkerEventKind.STARTED, BookOpenWorkerEventKind.COMPLETED],
+        )
+
+    def test_failed_terminal_observer_failure_is_retained_for_retry(self) -> None:
+        callbacks = []
+        commits = []
+        events = []
+        fail_terminal_once = [True]
+
+        def prepare(source, *, cancel_check):
+            raise RuntimeError("fixed preparation failure")
+
+        def sink(event):
+            if event.kind is BookOpenWorkerEventKind.FAILED and fail_terminal_once[0]:
+                fail_terminal_once[0] = False
+                raise RuntimeError("transient failed presentation failure")
+            events.append(event.kind)
+
+        worker = Version2BookOpenWorker(
+            prepare=prepare,
+            commit=commits.append,
+            post_to_ui=callbacks.append,
+            event_sink=sink,
+        )
+        self.assertTrue(worker.start(Path("book.md"), focus_target="book-open"))
+        self._wait(lambda: len(callbacks) == 1)
+
+        with self.assertRaisesRegex(RuntimeError, "failed presentation failure"):
+            callbacks.pop(0)()
+
+        self.assertFalse(worker.active)
+        self.assertEqual(commits, [])
+        self.assertEqual(events, [BookOpenWorkerEventKind.STARTED])
+
+        worker.flush_pending_terminal()
+        self.assertEqual(
+            events,
+            [BookOpenWorkerEventKind.STARTED, BookOpenWorkerEventKind.FAILED],
+        )
+        worker.flush_pending_terminal()
+        self.assertEqual(
+            events,
+            [BookOpenWorkerEventKind.STARTED, BookOpenWorkerEventKind.FAILED],
+        )
+
+    def test_cancelled_terminal_observer_failure_is_retained_for_retry(self) -> None:
+        callbacks = []
+        commits = []
+        events = []
+        fail_terminal_once = [True]
+
+        def sink(event):
+            if (
+                event.kind is BookOpenWorkerEventKind.CANCELLED
+                and fail_terminal_once[0]
+            ):
+                fail_terminal_once[0] = False
+                raise RuntimeError("transient cancelled presentation failure")
+            events.append(event.kind)
+
+        worker = Version2BookOpenWorker(
+            prepare=lambda source, *, cancel_check: "prepared-book",
+            commit=commits.append,
+            post_to_ui=callbacks.append,
+            event_sink=sink,
+        )
+        self.assertTrue(worker.start(Path("book.md"), focus_target="book-open"))
+        self._wait(lambda: len(callbacks) == 1)
+        self.assertTrue(worker.cancel(focus_target="book-cancel"))
+
+        with self.assertRaisesRegex(RuntimeError, "cancelled presentation failure"):
+            callbacks.pop(0)()
+
+        self.assertFalse(worker.active)
+        self.assertEqual(commits, [])
+        self.assertEqual(
+            events,
+            [
+                BookOpenWorkerEventKind.STARTED,
+                BookOpenWorkerEventKind.CANCELLING,
+            ],
+        )
+
+        worker.flush_pending_terminal()
+        self.assertEqual(
+            events,
+            [
+                BookOpenWorkerEventKind.STARTED,
+                BookOpenWorkerEventKind.CANCELLING,
+                BookOpenWorkerEventKind.CANCELLED,
+            ],
+        )
+        worker.flush_pending_terminal()
+        self.assertEqual(
+            events,
+            [
+                BookOpenWorkerEventKind.STARTED,
+                BookOpenWorkerEventKind.CANCELLING,
+                BookOpenWorkerEventKind.CANCELLED,
+            ],
+        )
+
+    def test_prestart_cancel_terminal_observer_failure_retries_without_failed_terminal(
+        self,
+    ) -> None:
+        events = []
+        holder = {}
+        fail_terminal_once = [True]
+
+        def sink(event):
+            if event.kind is BookOpenWorkerEventKind.STARTED:
+                events.append(event.kind)
+                self.assertTrue(holder["worker"].cancel(focus_target="book-cancel"))
+                return
+            if (
+                event.kind is BookOpenWorkerEventKind.CANCELLED
+                and fail_terminal_once[0]
+            ):
+                fail_terminal_once[0] = False
+                raise RuntimeError("transient prestart terminal failure")
+            events.append(event.kind)
+
+        worker = Version2BookOpenWorker(
+            prepare=lambda source, *, cancel_check: "must-not-run",
+            commit=lambda value: None,
+            post_to_ui=lambda callback: callback(),
+            event_sink=sink,
+        )
+        holder["worker"] = worker
+
+        with unittest.mock.patch.object(threading.Thread, "start", autospec=True) as start:
+            with self.assertRaisesRegex(RuntimeError, "prestart terminal failure"):
+                worker.start(Path("book.md"), focus_target="book-open")
+
+        start.assert_not_called()
+        self.assertFalse(worker.active)
+        self.assertEqual(
+            events,
+            [
+                BookOpenWorkerEventKind.STARTED,
+                BookOpenWorkerEventKind.CANCELLING,
+            ],
+        )
+
+        worker.flush_pending_terminal()
+        self.assertEqual(
+            events,
+            [
+                BookOpenWorkerEventKind.STARTED,
+                BookOpenWorkerEventKind.CANCELLING,
+                BookOpenWorkerEventKind.CANCELLED,
+            ],
+        )
+
     def test_thread_start_failure_does_not_leave_worker_busy(self) -> None:
         events = []
         worker = Version2BookOpenWorker(
