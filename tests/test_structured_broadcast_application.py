@@ -9,6 +9,7 @@ from acs.structured_broadcast_application import (
     BroadcastApplicationError,
     BroadcastApplicationErrorCode,
     LichessCanonicalBroadcastAdapter,
+    MAX_CANONICAL_BROADCAST_POSITIONS,
 )
 
 
@@ -174,6 +175,24 @@ class StructuredBroadcastApplicationTests(unittest.TestCase):
             missing.exception.code,
             BroadcastApplicationErrorCode.UNKNOWN_PROVIDER_GAME,
         )
+
+    def test_position_reference_cache_is_bounded_and_evicts_oldest(self):
+        adapter = LichessCanonicalBroadcastAdapter(position_cache_limit=2)
+        first = self.ingest(adapter, pgn(moves="1. e4 *"))[0]
+        second = self.ingest(adapter, pgn(moves="1. e4 e5 *"))[0]
+        third = self.ingest(adapter, pgn(moves="1. e4 e5 2. Nf3 *"))[0]
+
+        self.assertEqual(adapter.resolve_chess_ref(second.chess_ref).chess_ref, second.chess_ref)
+        self.assertEqual(adapter.resolve_chess_ref(third.chess_ref).chess_ref, third.chess_ref)
+        with self.assertRaises(BroadcastApplicationError) as evicted:
+            adapter.resolve_chess_ref(first.chess_ref)
+        self.assertEqual(
+            evicted.exception.code,
+            BroadcastApplicationErrorCode.UNKNOWN_CHESS_REF,
+        )
+        for invalid in (0, MAX_CANONICAL_BROADCAST_POSITIONS + 1, True):
+            with self.subTest(invalid=invalid), self.assertRaises(BroadcastApplicationError):
+                LichessCanonicalBroadcastAdapter(position_cache_limit=invalid)
 
     def test_current_game_is_detached_from_application_owned_snapshot(self):
         adapter = self.adapter()
