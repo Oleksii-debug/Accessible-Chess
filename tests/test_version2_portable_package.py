@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
+from types import SimpleNamespace
 from unittest import mock
 
 import acs.version2_portable_package as portable_module
@@ -275,6 +276,24 @@ class PortableTreeTests(unittest.TestCase):
             )
             self.assertEqual(original_stat.st_size, rewritten_stat.st_size)
             self.assertEqual(path.read_bytes(), replacement)
+
+    def test_stable_change_metadata_uses_platform_reliable_fields(self):
+        sample = SimpleNamespace(st_mtime_ns=123, st_ctime_ns=456)
+
+        with mock.patch.object(portable_module.os, "name", "nt"):
+            self.assertEqual(
+                portable_module._stable_change_metadata(sample),
+                (123,),
+            )
+
+        with mock.patch.object(portable_module.os, "name", "posix"):
+            self.assertEqual(
+                portable_module._stable_change_metadata(sample),
+                (123, 456),
+            )
+
+        incomplete = SimpleNamespace(st_mtime_ns=123, st_ctime_ns=None)
+        self.assertIsNone(portable_module._stable_change_metadata(incomplete))
 
     def test_stable_bytes_rejects_same_inode_same_size_in_place_rewrite(self):
         self._assert_same_inode_same_size_stable_read_rejected(

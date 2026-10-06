@@ -1,0 +1,48 @@
+name: Current Windows Portable Stable Snapshot
+
+on:
+  pull_request:
+    branches:
+      - fix/current-shipping-recovery-hardening-v2-20261006-c2mbezb
+    paths:
+      - acs/version2_portable_package.py
+      - tests/test_version2_portable_package.py
+      - .github/workflows/current-windows-portable-stable-snapshot.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-windows-portable-stable-snapshot-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+
+      - name: Set up canonical Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile portable package authority and tests
+        run: >-
+          python -m py_compile
+          acs/version2_portable_package.py
+          tests/test_version2_portable_package.py
+
+      - name: Execute portable package contract
+        run: python -m unittest -v tests.test_version2_portable_package

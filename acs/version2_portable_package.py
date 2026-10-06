@@ -272,18 +272,26 @@ def _complete_file_identity(first: os.stat_result, second: os.stat_result) -> bo
         return (first_dev, first_ino) == (second_dev, second_ino)
 
 
-def _stable_change_metadata(st: os.stat_result) -> tuple[int, int] | None:
-    """Return the change metadata required to prove one stable file snapshot.
+def _stable_change_metadata(st: os.stat_result) -> tuple[int, ...] | None:
+    """Return platform-reliable change metadata for one stable file snapshot.
 
     File identity plus byte size does not detect a same-length in-place rewrite
-    of an already-open inode. Supported Windows/Linux runtimes expose
-    nanosecond mtime and ctime; if either is unavailable, fail closed instead
-    of weakening portable-package integrity.
+    of an already-open inode. On POSIX, mtime_ns + ctime_ns provide independent
+    mutation metadata. On Windows, st_ctime_ns is the file creation timestamp,
+    not a mutation/change timestamp, and path-stat versus handle-fstat values
+    are not a portable stability signal; use the reliable nanosecond mtime only.
+    If the supported mutation metadata is unavailable, fail closed instead of
+    weakening the portable-package integrity boundary.
     """
 
     mtime_ns = getattr(st, "st_mtime_ns", None)
+    if type(mtime_ns) is not int:
+        return None
+    if os.name == "nt":
+        return (mtime_ns,)
+
     ctime_ns = getattr(st, "st_ctime_ns", None)
-    if type(mtime_ns) is not int or type(ctime_ns) is not int:
+    if type(ctime_ns) is not int:
         return None
     return mtime_ns, ctime_ns
 
