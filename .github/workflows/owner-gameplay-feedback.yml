@@ -54,6 +54,7 @@ jobs:
         run: |
           node tests/js/owner_gameplay_keyboard_test.js
           node tests/js/owner_sound_bridge_ready_test.js
+          node tests/js/version2_release_bootstrap_dom_test.js
           node tests/js/library_surface_dom_test.js
           node tests/js/stage1_core_language_test.js
           node tests/js/remappable_input_submit_keys_current_test.js
