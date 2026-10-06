@@ -408,6 +408,9 @@ const windowObject = {
     render: (root, trainingSnapshot) => {
       if (failNextTrainingRender) {
         failNextTrainingRender = false;
+        const partialCandidate = new FakeElement("p");
+        partialCandidate.id = "malformed-training-partial";
+        root.replaceChildren(partialCandidate);
         throw new TypeError("malformed Training product snapshot");
       }
       if (trainingSnapshot && trainingSnapshot.answer &&
