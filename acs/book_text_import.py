@@ -613,13 +613,14 @@ def _accessible_inline_text(text: str) -> tuple[str, bool]:
         cursor = match.end()
         match = next(matches, None)
     parts.append(text[cursor:])
-    return re.sub(r"[ \t]+", " ", "".join(parts)).strip(), True
+    return "".join(parts).strip(), True
 
 
 def _accessible_list_item_text(text: str) -> tuple[str, bool]:
     """Preserve inline image alt text inside a flat canonical list item."""
 
-    return _accessible_inline_text(text)
+    projected, had_image = _accessible_inline_text(text)
+    return re.sub(r"[ \t]+", " ", projected).strip(), had_image
 
 
 def _readable_list_fallback(match: re.Match[str]) -> tuple[str, bool]:
