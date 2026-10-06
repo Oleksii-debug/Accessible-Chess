@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
+from types import SimpleNamespace
 from unittest import mock
 
 import acs.version2_portable_package as portable_module
@@ -275,6 +276,199 @@ class PortableTreeTests(unittest.TestCase):
             )
             self.assertEqual(original_stat.st_size, rewritten_stat.st_size)
             self.assertEqual(path.read_bytes(), replacement)
+
+    def test_stable_change_metadata_uses_platform_reliable_fields(self):
+        sample = SimpleNamespace(st_mtime_ns=123, st_ctime_ns=456)
+
+        with mock.patch.object(portable_module.os, "name", "nt"):
+            self.assertEqual(
+                portable_module._stable_change_metadata(sample),
+                (123,),
+            )
+
+        with mock.patch.object(portable_module.os, "name", "posix"):
+            self.assertEqual(
+                portable_module._stable_change_metadata(sample),
+                (123, 456),
+            )
+
+        incomplete = SimpleNamespace(st_mtime_ns=123, st_ctime_ns=None)
+        with mock.patch.object(portable_module.os, "name", "posix"):
+            self.assertIsNone(
+                portable_module._stable_change_metadata(incomplete),
+            )
+
+    def test_windows_snapshot_uses_mtime_without_ctime_and_fails_closed_without_mtime(self):
+        with mock.patch.object(portable_module.os, "name", "nt"):
+            self.assertEqual(
+                portable_module._stable_change_metadata(
+                    SimpleNamespace(st_mtime_ns=123),
+                ),
+                (123,),
+            )
+            self.assertIsNone(
+                portable_module._stable_change_metadata(
+                    SimpleNamespace(st_mtime_ns=None, st_ctime_ns=456),
+                ),
+            )
+
+    def test_windows_snapshot_ignores_creation_time_when_mtime_is_stable(self):
+        first = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=123,
+            st_ctime_ns=456,
+        )
+        second = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=123,
+            st_ctime_ns=999,
+        )
+
+        with mock.patch.object(portable_module.os, "name", "nt"):
+            with mock.patch.object(
+                portable_module,
+                "_complete_file_identity",
+                return_value=True,
+            ):
+                self.assertTrue(
+                    portable_module._same_file_snapshot(first, second),
+                )
+
+    def test_stable_bytes_accepts_windows_creation_time_drift(self):
+        with tempfile.TemporaryDirectory() as raw:
+            path = Path(raw) / "stable.bin"
+            payload = b"windows-stable-read"
+            path.write_bytes(payload)
+            real_fstat = portable_module.os.fstat
+
+            def drifted_fstat(fd):
+                actual = real_fstat(fd)
+                return SimpleNamespace(
+                    st_mode=actual.st_mode,
+                    st_dev=actual.st_dev,
+                    st_ino=actual.st_ino,
+                    st_size=actual.st_size,
+                    st_mtime_ns=actual.st_mtime_ns,
+                    st_ctime_ns=actual.st_ctime_ns + 1,
+                )
+
+            with mock.patch.object(portable_module.os, "name", "nt"):
+                with mock.patch.object(
+                    portable_module.os,
+                    "fstat",
+                    side_effect=drifted_fstat,
+                ):
+                    self.assertEqual(
+                        portable_module._stable_bytes(
+                            path,
+                            label="stable test file",
+                            maximum=8192,
+                        ),
+                        payload,
+                    )
+
+    def test_stable_digest_accepts_windows_creation_time_drift(self):
+        with tempfile.TemporaryDirectory() as raw:
+            path = Path(raw) / "stable.bin"
+            payload = b"windows-stable-read"
+            path.write_bytes(payload)
+            real_fstat = portable_module.os.fstat
+
+            def drifted_fstat(fd):
+                actual = real_fstat(fd)
+                return SimpleNamespace(
+                    st_mode=actual.st_mode,
+                    st_dev=actual.st_dev,
+                    st_ino=actual.st_ino,
+                    st_size=actual.st_size,
+                    st_mtime_ns=actual.st_mtime_ns,
+                    st_ctime_ns=actual.st_ctime_ns + 1,
+                )
+
+            with mock.patch.object(portable_module.os, "name", "nt"):
+                with mock.patch.object(
+                    portable_module.os,
+                    "fstat",
+                    side_effect=drifted_fstat,
+                ):
+                    self.assertEqual(
+                        portable_module._stable_digest(
+                            path,
+                            label="stable test file",
+                            maximum=8192,
+                        ),
+                        hashlib.sha256(payload).hexdigest(),
+                    )
+
+    def test_windows_stable_reads_accept_fstat_without_creation_time(self):
+        with tempfile.TemporaryDirectory() as raw:
+            path = Path(raw) / "stable.bin"
+            payload = b"windows-stable-read"
+            path.write_bytes(payload)
+            real_fstat = portable_module.os.fstat
+
+            def without_ctime(fd):
+                actual = real_fstat(fd)
+                return SimpleNamespace(
+                    st_mode=actual.st_mode,
+                    st_dev=actual.st_dev,
+                    st_ino=actual.st_ino,
+                    st_size=actual.st_size,
+                    st_mtime_ns=actual.st_mtime_ns,
+                )
+
+            with mock.patch.object(portable_module.os, "name", "nt"):
+                with mock.patch.object(
+                    portable_module.os,
+                    "fstat",
+                    side_effect=without_ctime,
+                ):
+                    self.assertEqual(
+                        portable_module._stable_bytes(
+                            path,
+                            label="stable test file",
+                            maximum=8192,
+                        ),
+                        payload,
+                    )
+                    self.assertEqual(
+                        portable_module._stable_digest(
+                            path,
+                            label="stable test file",
+                            maximum=8192,
+                        ),
+                        hashlib.sha256(payload).hexdigest(),
+                    )
+
+    def test_windows_snapshot_rejects_mtime_change_even_when_creation_time_is_stable(self):
+        first = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=123,
+            st_ctime_ns=456,
+        )
+        second = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=124,
+            st_ctime_ns=456,
+        )
+
+        with mock.patch.object(portable_module.os, "name", "nt"):
+            with mock.patch.object(
+                portable_module,
+                "_complete_file_identity",
+                return_value=True,
+            ):
+                self.assertFalse(
+                    portable_module._same_file_snapshot(first, second),
+                )
 
     def test_stable_bytes_rejects_same_inode_same_size_in_place_rewrite(self):
         self._assert_same_inode_same_size_stable_read_rejected(
