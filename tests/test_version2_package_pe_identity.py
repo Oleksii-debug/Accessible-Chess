@@ -195,6 +195,50 @@ class Version2PackagePeIdentityTests(unittest.TestCase):
             self.assertFalse(preflight._same_file_snapshot(left, different_inode))
             self.assertFalse(preflight._same_file_snapshot(left, different_size))
 
+    def test_snapshot_rejects_missing_or_noninteger_mtime_metadata(self):
+        valid = _snapshot(dev=5, ino=19)
+        missing = SimpleNamespace(st_dev=5, st_ino=19, st_size=4096)
+        unavailable = _snapshot(dev=5, ino=19, mtime_ns=None)
+        boolean = _snapshot(dev=5, ino=19, mtime_ns=True)
+        text = _snapshot(dev=5, ino=19, mtime_ns="123456789")
+
+        with patch.object(preflight.os.path, "samestat", return_value=True):
+            self.assertFalse(preflight._same_file_snapshot(missing, missing))
+            self.assertFalse(preflight._same_file_snapshot(valid, unavailable))
+            self.assertFalse(preflight._same_file_snapshot(boolean, boolean))
+            self.assertFalse(preflight._same_file_snapshot(text, text))
+
+    def test_snapshot_rejects_missing_invalid_or_changed_size_metadata(self):
+        valid = _snapshot(dev=5, ino=19)
+        missing = SimpleNamespace(
+            st_dev=5,
+            st_ino=19,
+            st_mtime_ns=123456789,
+        )
+        boolean = SimpleNamespace(
+            st_dev=5,
+            st_ino=19,
+            st_size=True,
+            st_mtime_ns=123456789,
+        )
+        negative = _snapshot(dev=5, ino=19, size=-1)
+        changed = _snapshot(dev=5, ino=19, size=4097)
+
+        with patch.object(preflight.os.path, "samestat", return_value=True):
+            self.assertFalse(preflight._same_file_snapshot(missing, missing))
+            self.assertFalse(preflight._same_file_snapshot(boolean, boolean))
+            self.assertFalse(preflight._same_file_snapshot(negative, negative))
+            self.assertFalse(preflight._same_file_snapshot(valid, changed))
+
+    def test_snapshot_rejects_negative_or_changed_mtime_metadata(self):
+        valid = _snapshot(dev=5, ino=19)
+        negative = _snapshot(dev=5, ino=19, mtime_ns=-1)
+        changed = _snapshot(dev=5, ino=19, mtime_ns=123456790)
+
+        with patch.object(preflight.os.path, "samestat", return_value=True):
+            self.assertFalse(preflight._same_file_snapshot(negative, negative))
+            self.assertFalse(preflight._same_file_snapshot(valid, changed))
+
     def test_pe_validation_rejects_identity_change_while_opening(self):
         with tempfile.TemporaryDirectory() as td:
             target = Path(td) / "runtime.dll"
