@@ -2,26 +2,28 @@
 
 ## 2026-10-06 final execution-run audit override
 
-Live GitHub exact heads, checks and artifacts supersede every older snapshot retained below. This section is descriptive audit state only; it does not create a new priority queue.
+Live GitHub refs, exact heads, checks and artifacts supersede every older snapshot retained below. This section is descriptive audit state only; it does not create a new priority queue.
 
 - executable Product authority remains PR #1981 at `d0e14b998bb57b5c3b53609ecef41ab646b213a3`;
-- canonical shipping/recovery is PR #2184 at exact head `7ff88c9398a60aa0393da1c7c45cdc226463627a`, base `eace8b671934c1acf6e12a4a59a95bc6274a8f1d`, open/draft/mergeable;
-- base -> #2184 remains ahead-only / behind=0 with the same exact 62-path effective delta. The two commits after `7809fbbe...` are qualification-only changes to the already-scoped Current Shipping Recovery Hardening workflow; they add inherited PGN command/WebView CAS suite bindings and do not change runtime/chess/parser/UI/package bytes;
-- Current Shipping Recovery Hardening run `37446812631` on exact `7ff88c...` is QUEUED, with the broader exact-head workflow set queued/pending. Nonterminal is not GREEN;
-- owner gameplay/accessibility #2195 and deterministic native Alt-mnemonic repair #2199 are merged into #2184. The canonical malformed-Books rollback oracle from #2073 is also integrated without importing the divergent Library runtime;
-- child-coaching recovery #2097 is reconverged onto exact current #2184 through history-preserving merge receipt `f794007f663794e941da6442bf0904fe0a56b671`: merge-base exact `7ff88c...`, ahead-only / behind=0, exact 11-path overlay, open/draft/mergeable. Fresh exact-head Child Coaching/Context/Keyboard/Group Rotation/Windows/P0 jobs are QUEUED, so no intake/merge claim is made;
-- Library #2073 remains a separate Product-relative exact 17-path lineage at `7732d3a5ca6b74738697fc6863b6a99105ffc034`, open/draft/mergeable. Its refused-close/export recovery work overlaps shipping application/runtime paths and requires semantic reconciliation rather than mechanical replay;
+- last stable audited canonical shipping/recovery checkpoint is PR #2184 at `75eab74759e4168e626ea36cfd8db552800d5517`, base `eace8b671934c1acf6e12a4a59a95bc6274a8f1d`, open/draft/mergeable, with the same exact 62-path effective scope;
+- shipping movement from `7809fbbe...` through `75eab747...` is qualification-only inside the already-scoped Current Shipping Recovery Hardening workflow: inherited PGN command/WebView CAS suites and current Training malformed-input/snapshot hardening are byte-equality-bound and executed without changing runtime/chess/parser/UI/package bytes;
+- exact-head Current Shipping Recovery Hardening run `37447425987` on `75eab747...` is QUEUED and the broader exact-head workflow set is queued/pending. Nonterminal is not GREEN;
+- #2195 gameplay/accessibility and #2199 deterministic native Alt-mnemonics are merged into #2184; the canonical semantic malformed-Books rollback oracle from #2073 is integrated without importing the divergent Library runtime;
+- child-coaching PR #2097 remains the sole 11-path child-coaching lineage, but it is actively moving under concurrent work. At this audit write its live head was `5defeaeb959f16a7355a31f33e1275734f02c2ed` with PR base snapshot `7ff88c9398a60aa0393da1c7c45cdc226463627a`. A previously audited bounded change added a non-mutating bilingual "rotation not started" Ctrl+Alt+S status and exact regression/pins; later concurrent commits supersede frozen child SHA snapshots. **Do not merge/intake #2097 from this document. Late-bind the live PR ref, require merge-base = current #2184 head, behind=0, the same 11-path effective overlay, and terminal attributable CI.**
+- Library #2073 remains the sole Product-relative 17-path Library convergence lineage; at this audit write its live head was `7732d3a5ca6b74738697fc6863b6a99105ffc034`. It is also not shipping-integrated. Its refused-close/export recovery overlaps shipping application/runtime paths and requires semantic reconciliation, not mechanical replay. Late-bind live mergeability/head before any action;
 - default-branch-only divergence from shipping remains policy/documentation only (AGENTS/README and canonical vision, Media/Agent, technical-roadmap, acceptance and Web architecture documents); no main-only executable/runtime/test/workflow/package delta was found;
-- Media Intelligence / Universal Chess Agent remains active required scope on separate live PR stacks, including Media #2197/#2198 and Agent #2200/#2201. None is silently part of the current shipping bytes.
+- Media Intelligence / Universal Chess Agent remains active required scope on separate live PR stacks, including Media #2197/#2198 and Agent #2200/#2201. None is silently part of current shipping bytes.
 
 Whole-product audit result:
 
 - the current executable/shipping lineage carries the established canonical authorities for chess state/SAN/FEN/PGN, Book semantic reading and deterministic navigation, malformed/resource fail-closed handling, lawful starter-content/provenance constraints, persistence/recovery, keyboard/WebView/native accessibility, Windows package/preflight/portable/receipt integrity, and Web-reusable application boundaries;
-- full CBF/CBI semantic compatibility is still unproven pending lawful authentic fixtures plus an independent semantic oracle;
+- full CBF/CBI semantic compatibility remains unproven pending lawful authentic fixtures plus an independent semantic oracle;
 - binding owner acceptance remains open in #730, #691, #1601 and real-user finding #22. Native menu automation, UIA evidence and sound dispatch tests do not substitute for physical Windows/NVDA/audio/semantic-copy acceptance on the exact delivered bytes;
 - no final exact Windows archive has attributable terminal qualification, fresh artifact readback and physical restart/NVDA acceptance.
 
 The supplied Drive project plan and historical Work Ledger were re-read. Their live-GitHub/Issue #14 override governs; stale Drive SHA/queue snapshots are historical and were not allowed to override newer GitHub evidence.
+
+Concurrency note: exact child/Library heads can move while autonomous workers are active. Such movement supersedes the informational SHAs above automatically. The safe final state of this audit is therefore **shipping checkpointed; moving child/Library lineages preserved, not force-converged; intake blocked until live geometry and terminal CI are re-established.**
 
 Release truth remains:
 
