@@ -411,7 +411,9 @@ const windowObject = {
         const partialCandidate = new FakeElement("p");
         partialCandidate.id = "malformed-training-partial";
         root.replaceChildren(partialCandidate);
-        throw new TypeError("malformed Training product snapshot");
+        const malformed = new TypeError("malformed Training product snapshot");
+        Object.freeze(malformed);
+        throw malformed;
       }
       if (trainingSnapshot && trainingSnapshot.answer &&
           trainingSnapshot.answer.disabled === true) {
