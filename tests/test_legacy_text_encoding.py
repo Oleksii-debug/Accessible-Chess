@@ -56,13 +56,23 @@ class LegacyTextEncodingTests(unittest.TestCase):
         self.assertEqual(decoded.text, text)
 
     def test_malformed_utf8_bom_never_falls_through_to_cp1251(self) -> None:
-        cp1251_text = "Українська книга позиції аналіз партія"
-        payload = b"\xef\xbb\xbf" + cp1251_text.encode("cp1251")
-
-        for html in (False, True):
+        cases = (
+            (
+                False,
+                "Українська книга позиції аналіз партія".encode("cp1251"),
+            ),
+            (
+                True,
+                (
+                    "<html><body><p>Українська книга позиції аналіз партія"
+                    "</p></body></html>"
+                ).encode("cp1251"),
+            ),
+        )
+        for html, body in cases:
             with self.subTest(html=html):
                 with self.assertRaises(LegacyTextEncodingError) as raised:
-                    decode_book_text_bytes(payload, html=html)
+                    decode_book_text_bytes(b"\xef\xbb\xbf" + body, html=html)
                 self.assertIn("BOM-declared UTF-8", str(raised.exception))
 
     def test_bom_utf16_little_and_big_endian_decode_deterministically(self) -> None:
