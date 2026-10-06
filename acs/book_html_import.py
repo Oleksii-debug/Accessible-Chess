@@ -1801,9 +1801,22 @@ def _canonical_pgn_games(
 ) -> list[tuple[_PgnCandidate, Game]]:
     games: list[tuple[_PgnCandidate, Game]] = []
     identities: dict[str, int] = {}
-    for candidate_index, candidate_record in enumerate(candidates, start=1):
-        if control_checkpoint is not None:
+    control_failure: BaseException | None = None
+
+    def guarded_control() -> None:
+        nonlocal control_failure
+        if control_checkpoint is None:
+            return
+        try:
             control_checkpoint()
+        except BaseException as exc:
+            control_failure = exc
+            raise
+
+    effective_control = guarded_control if control_checkpoint is not None else None
+    for candidate_index, candidate_record in enumerate(candidates, start=1):
+        if effective_control is not None:
+            effective_control()
         candidate = candidate_record.text
         if len(candidate) > MAX_HTML_PGN_CHARS:
             if len(warnings) < MAX_HTML_WARNINGS:
@@ -1813,9 +1826,11 @@ def _canonical_pgn_games(
             parsed = parse_pgn_text(
                 candidate,
                 strict=False,
-                control_checkpoint=control_checkpoint,
+                control_checkpoint=effective_control,
             )
-        except (PgnRoundTripError, RecursionError, ValueError):
+        except (PgnRoundTripError, RecursionError, ValueError) as exc:
+            if control_failure is exc:
+                raise
             if len(warnings) < MAX_HTML_WARNINGS:
                 warnings.append(f"PGN candidate {candidate_index} could not be represented canonically and was ignored")
             continue
@@ -1838,10 +1853,12 @@ def _canonical_pgn_games(
             else:
                 sources = []
                 for parsed_game in parsed:
-                    if control_checkpoint is not None:
-                        control_checkpoint()
+                    if effective_control is not None:
+                        effective_control()
                     sources.append(serialize_game(parsed_game))
-        except (GameTreeSerializationError, RecursionError, ValueError):
+        except (GameTreeSerializationError, RecursionError, ValueError) as exc:
+            if control_failure is exc:
+                raise
             if len(warnings) < MAX_HTML_WARNINGS:
                 warnings.append(f"PGN candidate {candidate_index} could not be split canonically and was ignored")
             continue
@@ -1850,8 +1867,8 @@ def _canonical_pgn_games(
                 f"PGN candidate {candidate_index}: collection split into {len(parsed)} canonical games; source formatting normalized"
             )
         for game_index, (game, game_source) in enumerate(zip(parsed, sources), start=1):
-            if control_checkpoint is not None:
-                control_checkpoint()
+            if effective_control is not None:
+                effective_control()
             # Recovery is useful for reading damaged historical sources, but it
             # is not lossless conversion. Preserve canonical diagnostics.
             for warning in game.warnings:

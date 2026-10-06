@@ -761,10 +761,41 @@ class BookActiveImportCancellationTests(unittest.TestCase):
         self.assertIs(caught.exception, failure)
         self.assertEqual(calls, 8)
 
+    def test_canonical_pgn_preserves_control_failure_even_if_it_is_gametree_error(self):
+        import acs.pgn_roundtrip as roundtrip
+        from acs.gametree import GameTreeContractError, GameTreeErrorCode
+
+        failure = GameTreeContractError(
+            'trusted control failure shaped like parser failure',
+            code=GameTreeErrorCode.INVALID_MODEL,
+        )
+        armed = False
+
+        def control():
+            if armed:
+                raise failure
+
+        def controlled_parse_games(text, control_checkpoint=None):
+            nonlocal armed
+            armed = True
+            self.assertIsNotNone(control_checkpoint)
+            control_checkpoint()
+            return []
+
+        with patch('acs.pgn_roundtrip.parse_games', side_effect=controlled_parse_games):
+            with self.assertRaises(GameTreeContractError) as caught:
+                roundtrip.parse_pgn_text(
+                    '[Event "Study"]\n[Result "*"]\n\n*\n',
+                    strict=False,
+                    control_checkpoint=control,
+                )
+        self.assertIs(caught.exception, failure)
+        self.assertTrue(armed)
+
     def test_html_embedded_pgn_threads_control_into_canonical_authority(self):
         import acs.pgn_roundtrip as roundtrip
 
-        failure = SourceReadCancelledError('cancelled by canonical embedded PGN authority')
+        failure = ValueError('trusted cancellation-shaped ValueError from canonical PGN authority')
         armed = False
         calls = 0
 
@@ -783,7 +814,7 @@ class BookActiveImportCancellationTests(unittest.TestCase):
             return real_parse(*args, **kwargs)
 
         with patch('acs.book_html_import.parse_pgn_text', side_effect=controlled_parse):
-            with self.assertRaises(SourceReadCancelledError) as caught:
+            with self.assertRaises(ValueError) as caught:
                 import_html_book(
                     HTML,
                     source_name='study.html',

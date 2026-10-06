@@ -523,8 +523,21 @@ def parse_pgn_text(
 
     if control_checkpoint is not None and not callable(control_checkpoint):
         raise TypeError("control_checkpoint must be callable or None")
-    if control_checkpoint is not None:
-        control_checkpoint()
+    control_failure: BaseException | None = None
+
+    def guarded_control() -> None:
+        nonlocal control_failure
+        if control_checkpoint is None:
+            return
+        try:
+            control_checkpoint()
+        except BaseException as exc:
+            control_failure = exc
+            raise
+
+    effective_control = guarded_control if control_checkpoint is not None else None
+    if effective_control is not None:
+        effective_control()
     if source_budget is None:
         source_budget = PgnSourceBudget(WHOLE_DOCUMENT_PGN_LIMITS)
     if not isinstance(source_budget, PgnSourceBudget):
@@ -533,11 +546,13 @@ def parse_pgn_text(
         text,
         source_budget=source_budget,
         text_precounted=text_precounted,
-        control_checkpoint=control_checkpoint,
+        control_checkpoint=effective_control,
     )
     try:
-        games = tuple(parse_games(normalized, control_checkpoint))
+        games = tuple(parse_games(normalized, effective_control))
     except GameTreeContractError as exc:
+        if control_failure is exc:
+            raise
         if exc.code in {
             GameTreeErrorCode.GRAPH_DEPTH_LIMIT,
             GameTreeErrorCode.GRAPH_NODE_LIMIT,
@@ -563,11 +578,11 @@ def parse_pgn_text(
         )
 
     for game_index, game in enumerate(games, start=1):
-        if control_checkpoint is not None and game_index % 128 == 1:
-            control_checkpoint()
+        if effective_control is not None and game_index % 128 == 1:
+            effective_control()
         _normalize_and_validate_line(
             game.line,
-            control_checkpoint=control_checkpoint,
+            control_checkpoint=effective_control,
         )
         if strict and game.warnings:
             raise PgnRoundTripError(
