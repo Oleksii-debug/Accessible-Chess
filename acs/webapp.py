@@ -19,6 +19,7 @@ from .history import HistoryError, ReviewHistory
 from .input_limits import MAX_FEN_CHARS
 from .move_entry import MAX_MOVE_ENTRY_CHARS
 from .notation import format_accessible_compact_san, format_san
+from .position_editor import PositionState, PositionValidationError
 from .position_text import parse_position_text
 from .ui_review_adapter import ReviewPresentationAdapter
 
@@ -434,6 +435,26 @@ class AccessibleChessAPI:
         ) if self.engine_enabled else (
             "Stockfish вимкнено." if self.lang == "uk" else "Stockfish disabled."
         )
+        try:
+            editor_state = PositionState.from_fen(display_view.fen)
+            editor_projection = {
+                "turn": editor_state.turn,
+                "castling": editor_state.castling,
+                "enPassant": editor_state.en_passant,
+                "halfmove": editor_state.halfmove,
+                "fullmove": editor_state.fullmove,
+                "editable": self._at_history_end(),
+            }
+        except PositionValidationError:
+            editor_projection = {
+                "turn": display_board.turn,
+                "castling": display_board.castling or "-",
+                "enPassant": "-" if display_board.ep is None else sq_name(display_board.ep),
+                "halfmove": display_board.halfmove,
+                "fullmove": display_board.fullmove,
+                "editable": self._at_history_end(),
+            }
+
         return {
             "version": VERSION, "lang": self.lang, "mode": self.mode,
             "gameInfo": status,
@@ -442,6 +463,7 @@ class AccessibleChessAPI:
             "blackPieces": self._pieces_text("b", display_board),
             "gameStatus": status, "lastMove": last, "announcement": self.announcement,
             "fen": display_view.fen, "board": self._board_cells(display_board),
+            "positionEditor": editor_projection,
             "selectedSquare": (
                 sq_name(self.selected_source)
                 if self.selected_source is not None and self._at_history_end() else None
@@ -488,6 +510,110 @@ class AccessibleChessAPI:
         self._publish_root_state(candidate_board, prepared)
         return self._ok("Дошку очищено. Введіть позицію в редакторі." if self.lang == "uk"
                         else "Board cleared. Enter a position in the editor.")
+
+    def _position_state_from_live_board(self) -> PositionState:
+        return PositionState.from_fen(self.board.fen())
+
+    def _commit_position_editor_state(self, state: PositionState, message_uk: str, message_en: str) -> dict[str, Any]:
+        if not self._at_history_end():
+            return self._error(self._t("review_before_move"))
+        try:
+            candidate_board = copy.deepcopy(self.board)
+            candidate_board.board = list(state.pieces)
+            candidate_board.turn = state.turn
+            candidate_board.castling = "" if state.castling == "-" else state.castling
+            candidate_board.ep = None if state.en_passant == "-" else parse_sq(state.en_passant)
+            candidate_board.halfmove = state.halfmove
+            candidate_board.fullmove = state.fullmove
+            candidate_board.undo_stack = []
+            candidate_board.redo_stack = []
+            candidate_board.last_move = None
+            prepared = self._prepare_root_state(candidate_board)
+        except Exception:
+            return self._error(self._t("editor_history_failed"))
+        self._publish_root_state(candidate_board, prepared)
+        return self._ok(message_uk if self.lang == "uk" else message_en)
+
+    def edit_position_piece(self, square: str, piece: str) -> dict[str, Any]:
+        if type(square) is not str or type(piece) is not str:
+            return self._error("Неправильне поле або фігура." if self.lang == "uk" else "Invalid square or piece.")
+        square = square.strip().lower()
+        if not re.fullmatch(r"[a-h][1-8]", square):
+            return self._error("Неправильне поле." if self.lang == "uk" else "Invalid square.")
+        normalized_piece = None if piece in {"", "-"} else piece
+        try:
+            state = self._position_state_from_live_board().with_piece(square, normalized_piece)
+        except (PositionValidationError, ValueError):
+            return self._error("Неправильна фігура." if self.lang == "uk" else "Invalid piece.")
+        return self._commit_position_editor_state(
+            state,
+            f"Поле {square}: " + ("очищено." if normalized_piece is None else f"встановлено {PIECE_UK[normalized_piece]}."),
+            f"Square {square}: " + ("cleared." if normalized_piece is None else f"set to {PIECE_EN[normalized_piece]}."),
+        )
+
+    def edit_position_metadata(
+        self,
+        turn: str,
+        castling: str,
+        en_passant: str,
+        halfmove_text: str,
+        fullmove_text: str,
+    ) -> dict[str, Any]:
+        values = (turn, castling, en_passant, halfmove_text, fullmove_text)
+        if any(type(value) is not str for value in values):
+            return self._error("Неправильні параметри позиції." if self.lang == "uk" else "Invalid position metadata.")
+        if turn not in {"w", "b"}:
+            return self._error("Неправильний колір." if self.lang == "uk" else "Invalid color.")
+        if not halfmove_text.isascii() or not halfmove_text.isdecimal() or not fullmove_text.isascii() or not fullmove_text.isdecimal():
+            return self._error("Лічильники ходів мають бути цілими невід’ємними числами." if self.lang == "uk" else "Move counters must be unsigned integers.")
+        try:
+            state = self._position_state_from_live_board()
+            normalized_castling = state.with_castling(castling).castling
+            state = PositionState(
+                state.pieces,
+                turn=turn,
+                castling=normalized_castling,
+                en_passant=en_passant.strip().lower() or "-",
+                halfmove=int(halfmove_text),
+                fullmove=int(fullmove_text),
+            )
+        except (PositionValidationError, ValueError):
+            return self._error("Неправильні параметри позиції." if self.lang == "uk" else "Invalid position metadata.")
+        return self._commit_position_editor_state(
+            state,
+            "Параметри позиції оновлено.",
+            "Position metadata updated.",
+        )
+
+    def _localized_position_problem(self, problem: str) -> str:
+        if self.lang != "uk":
+            return problem
+        if problem.startswith("white king count must be 1"):
+            return "має бути рівно один білий король"
+        if problem.startswith("black king count must be 1"):
+            return "має бути рівно один чорний король"
+        if problem.startswith("pawn on invalid first rank at "):
+            return "пішак не може стояти на першій горизонталі: " + problem.rsplit(" ", 1)[-1]
+        if problem.startswith("pawn on invalid eighth rank at "):
+            return "пішак не може стояти на восьмій горизонталі: " + problem.rsplit(" ", 1)[-1]
+        if "castling right inconsistent" in problem:
+            return "права рокіровки не відповідають розташуванню короля і тури"
+        return "структура позиції некоректна"
+
+    def validate_position_editor(self) -> dict[str, Any]:
+        try:
+            state = self._position_state_from_live_board()
+            structural = state.validate_playable()
+            if structural:
+                problems = [self._localized_position_problem(item) for item in structural]
+                return self._error(
+                    ("Позиція ще не готова до гри: " if self.lang == "uk" else "Position is not yet playable: ")
+                    + "; ".join(problems)
+                )
+            Board(state.to_fen())
+        except (PositionValidationError, ValueError):
+            return self._error("Позиція не пройшла перевірку легальності." if self.lang == "uk" else "Position failed legality validation.")
+        return self._ok("Позиція коректна і готова до гри." if self.lang == "uk" else "Position is valid and ready to play.")
 
     def set_position_text(self, text: str, turn: str | None = None) -> dict[str, Any]:
         try:
