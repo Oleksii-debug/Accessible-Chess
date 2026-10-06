@@ -49,7 +49,7 @@ jobs:
       CONTEXT_BLOB: 890fcc1d6cd57c1555e02a435d835d1d3fc75c4d
       CONTEXT_TEST_BLOB: 33e575d589761bb162479eea9f5e1ad06153998e
       PROGRESS_DOMAIN_BLOB: a470afdaff99413a1163e52192a0f12ee8b54671
-      PROGRESS_STORE_BLOB: 101e7e370f555998092af9f844ffe52b4b442e97
+      PROGRESS_STORE_BLOB: c4212f0a9d25a46e4d68dcaa2e0ccbdaf6c3f9de
     steps:
       - name: Checkout exact candidate head
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
