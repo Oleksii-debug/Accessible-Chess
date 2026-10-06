@@ -898,6 +898,7 @@ def _read_entry(
     name: str,
     *,
     limit: int = MAX_EPUB_ENTRY_BYTES,
+    control_checkpoint: Callable[[], None] | None = None,
 ) -> bytes:
     info = index.get(name)
     if info is None:
@@ -916,7 +917,29 @@ def _read_entry(
             BookEpubImportErrorCode.RESOURCE_LIMIT,
         )
     try:
-        data = archive.read(info)
+        chunks: list[bytes] = []
+        total = 0
+        with archive.open(info, "r") as stream:
+            while True:
+                if control_checkpoint is not None:
+                    control_checkpoint()
+                # Read at most one byte beyond the authenticated central size.
+                # This preserves the old exact-size check while making large
+                # decompression interruptible by the trusted host.
+                request = min(64 * 1024, max(1, info.file_size - total + 1))
+                chunk = stream.read(request)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                total += len(chunk)
+                if total > info.file_size or total > limit:
+                    raise _error(
+                        "EPUB package entry size is inconsistent",
+                        BookEpubImportErrorCode.UNSAFE_PACKAGE,
+                    )
+        data = b"".join(chunks)
+    except BookEpubImportError:
+        raise
     except (RuntimeError, NotImplementedError, zipfile.BadZipFile, zlib.error) as exc:
         raise _error(
             "EPUB package entry could not be read safely",
@@ -2102,7 +2125,10 @@ def import_epub_book(
                 "EPUB mimetype entry must not contain a ZIP extra field",
                 BookEpubImportErrorCode.UNSUPPORTED_CONTAINER,
             )
-        mimetype = _read_entry(archive, index, "mimetype", limit=128)
+        mimetype = _read_entry(
+            archive, index, "mimetype", limit=128,
+            control_checkpoint=control_checkpoint,
+        )
         if mimetype != b"application/epub+zip":
             raise _error(
                 "EPUB mimetype declaration is invalid",
@@ -2110,7 +2136,11 @@ def import_epub_book(
             )
 
         container = _xml_root(
-            _read_entry(archive, index, "META-INF/container.xml", limit=MAX_EPUB_XML_BYTES),
+            _read_entry(
+                archive, index, "META-INF/container.xml",
+                limit=MAX_EPUB_XML_BYTES,
+                control_checkpoint=control_checkpoint,
+            ),
             "container metadata",
             control_checkpoint,
         )
@@ -2129,6 +2159,7 @@ def import_epub_book(
                     index,
                     rendition_name,
                     limit=MAX_EPUB_XML_BYTES,
+                    control_checkpoint=control_checkpoint,
                 ),
                 "package metadata",
                 control_checkpoint,
@@ -2206,7 +2237,10 @@ def import_epub_book(
                     f"EPUB spine item {item_id!r} uses unsupported media and has no readable HTML fallback"
                 )
                 continue
-            chapter = _read_entry(archive, index, item.entry_name)
+            chapter = _read_entry(
+                archive, index, item.entry_name,
+                control_checkpoint=control_checkpoint,
+            )
             try:
                 imported = import_html_book(
                     chapter,
