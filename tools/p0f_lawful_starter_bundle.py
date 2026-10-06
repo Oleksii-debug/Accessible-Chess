@@ -23,6 +23,7 @@ import io
 import json
 import os
 from pathlib import Path
+import stat
 import sys
 import tempfile
 from urllib.request import Request, urlopen
@@ -363,6 +364,12 @@ def _read_verified_compressed_payload(path: Path) -> bytes:
 
     try:
         with path.open("rb") as source:
+            # Validate the object actually opened, not the pathname before open.
+            # A pre-open is_file() check would reintroduce a check/use race, while
+            # accepting a FIFO/device here could block indefinitely before the
+            # byte bound has any chance to apply.
+            if not stat.S_ISREG(os.fstat(source.fileno()).st_mode):
+                raise RuntimeError("compressed Lichess corpus source must be a regular file")
             payload = source.read(DOWNLOAD_LIMIT_BYTES + 1)
     except OSError as exc:
         raise RuntimeError(
