@@ -48,12 +48,16 @@ jobs:
             test -n "$EVENT_BASE_SHA"
             git cat-file -e "$EVENT_BASE_SHA^{commit}"
             git merge-base --is-ancestor "$EVENT_BASE_SHA" "$live_base"
+            absorbed_base="$(git merge-base "$live_base" HEAD)"
+            git merge-base --is-ancestor "$EVENT_BASE_SHA" "$absorbed_base"
           else
             live_base="$(git rev-parse HEAD^)"
+            absorbed_base="$live_base"
           fi
 
-          test "$(git merge-base "$live_base" HEAD)" = "$live_base"
-          git diff --check "$live_base"...HEAD
+          git merge-base --is-ancestor "$absorbed_base" "$live_base"
+          git merge-base --is-ancestor "$absorbed_base" HEAD
+          git diff --check "$absorbed_base"...HEAD
 
           if [ -n "${EVENT_BASE_REF:-}" ] && [ "$EVENT_BASE_REF" = "$DEFAULT_BRANCH" ]; then
             # Whole-Product integration intentionally contains the complete
@@ -62,7 +66,7 @@ jobs:
             # full main integration must equal this historical two-path slice.
             echo 'CURRENT_WEBUI_SCOPE_MODE=DEFAULT_BRANCH_INTEGRATION'
           else
-            changed="$(git diff --name-only "$live_base"...HEAD | sort)"
+            changed="$(git diff --name-only "$absorbed_base"...HEAD | sort)"
             oracle_paths="$(printf '%s\n' \
               '.github/workflows/current-webui-accessibility-oracle.yml' \
               'tests/test_accessible_webui.py' | sort)"
