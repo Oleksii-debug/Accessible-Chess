@@ -13,7 +13,7 @@ from acs.book_progress_store import (
     BookProgressStoreErrorCode,
 )
 from acs.book_text_import import BookTextFormat, import_text_book
-from acs.bookdocument import BookDocument, Exercise
+from acs.bookdocument import BookDocument, Exercise, Paragraph
 from acs.bookreader import BookReader
 from acs.chesscore import Board
 from acs.engine_assisted_workflows import EngineAssistedWorkflowService
@@ -1379,6 +1379,38 @@ class Version2ApplicationTests(unittest.TestCase):
             save_training.assert_not_called()
             save_book.assert_not_called()
         self.assertFalse(ActiveDocument.touched)
+
+    def test_prepared_book_open_detaches_document_before_current_progress_writes(self):
+        candidate = self.root / "book-open-detached-document.md"
+        candidate.write_text("# Candidate\n\nStable source revision.\n", encoding="utf-8")
+        prepared = self.app.prepare_book_open(candidate)
+        source_document = prepared.document
+        original_blocks = len(source_document.blocks)
+
+        original_save_training = self.app.save_training_progress
+
+        def mutate_source_after_snapshot():
+            source_document.blocks.append(
+                Paragraph(
+                    text="Late authoring mutation",
+                    block_id="late-authoring-mutation",
+                    source_anchor="test:late",
+                )
+            )
+            return original_save_training()
+
+        with patch.object(
+            self.app,
+            "save_training_progress",
+            side_effect=mutate_source_after_snapshot,
+        ):
+            self.app.commit_prepared_book_open(prepared)
+
+        self.assertEqual(len(source_document.blocks), original_blocks + 1)
+        self.assertIsNot(self.app.reader.document, source_document)
+        self.assertEqual(len(self.app.reader.document.blocks), original_blocks)
+        self.assertEqual(self.app.book_key, prepared.book_key)
+        self.assertEqual(self.app.shell.current_route.route_id, "books")
 
     def test_prepared_book_open_rejects_active_warnings_before_publication(self):
         candidate = self.root / "book-open-active-warnings.md"

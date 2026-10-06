@@ -642,8 +642,11 @@ class Version2Application:
             raise TypeError("prepared Book Open warnings are invalid")
         warning_count = len(warnings)
         # Validate and detach the mutable BookDocument before saving any current
-        # owner state. A malformed candidate must fail without causing durable
-        # Training/Book writes merely because Open was attempted.
+        # owner state. BookReader.document_snapshot() rechecks the live revision
+        # before and after cloning; bind the candidate reader to that detached
+        # canonical snapshot so later authoring mutation cannot change this Open.
+        validating_reader = BookReader(document)
+        document = validating_reader.document_snapshot()
         fresh_reader = BookReader(document)
 
         self.save_training_progress()
