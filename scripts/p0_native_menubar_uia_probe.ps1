@@ -86,13 +86,14 @@ function Convert-MenuBarDetail([System.Windows.Automation.AutomationElement]$Men
 
 function Test-CanonicalMenuBinding(
     [object]$FromHandle,
+    [object[]]$AllMenuRows,
     [object[]]$ExactRows,
     [object[]]$AnyIdRows,
     [int]$ExpectedProcessId,
     [long]$ExpectedMenuHandle
 ) {
     if($null -eq $FromHandle -or $ExpectedMenuHandle -eq 0){ return $false }
-    if($ExactRows.Count -ne 1 -or $AnyIdRows.Count -ne 1){ return $false }
+    if($AllMenuRows.Count -ne 1 -or $ExactRows.Count -ne 1 -or $AnyIdRows.Count -ne 1){ return $false }
     foreach($row in @($FromHandle, $ExactRows[0], $AnyIdRows[0])) {
         if($null -eq $row){ return $false }
         if([string]$row['automation_id'] -ne 'AccessibleChessFullProductMenu'){ return $false }
@@ -161,6 +162,7 @@ do {
         # is dereferenced after the stable binding decision.
         $bindingStable = Test-CanonicalMenuBinding `
             -FromHandle $fromHandle `
+            -AllMenuRows $barsRows `
             -ExactRows $exactRows `
             -AnyIdRows $anyIdRows `
             -ExpectedProcessId $TargetProcessId `
