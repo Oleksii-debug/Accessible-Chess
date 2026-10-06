@@ -143,7 +143,7 @@ def _same_file_identity(left: os.stat_result, right: os.stat_result) -> bool:
             getattr(right, "st_ino", None),
         )
         values = left_identity + right_identity
-        if any(value in (None, 0) for value in values):
+        if not all(type(value) is int and value > 0 for value in values):
             return False
         return left_identity == right_identity
 

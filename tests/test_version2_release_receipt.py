@@ -190,6 +190,41 @@ class Version2ReleaseReceiptTests(unittest.TestCase):
                 ):
                     read_version2_release_receipt(output)
 
+    def test_receipt_identity_fallback_rejects_unknown_and_boolean_ids(self):
+        valid = SimpleNamespace(st_dev=11, st_ino=22)
+        same = SimpleNamespace(st_dev=11, st_ino=22)
+        invalid_pairs = (
+            (
+                SimpleNamespace(st_dev=0, st_ino=0),
+                SimpleNamespace(st_dev=0, st_ino=0),
+            ),
+            (
+                SimpleNamespace(st_dev=None, st_ino=None),
+                SimpleNamespace(st_dev=None, st_ino=None),
+            ),
+            (
+                SimpleNamespace(st_dev=True, st_ino=22),
+                SimpleNamespace(st_dev=True, st_ino=22),
+            ),
+            (
+                SimpleNamespace(st_dev=11, st_ino=False),
+                SimpleNamespace(st_dev=11, st_ino=False),
+            ),
+        )
+        with patch.object(
+            release_receipt_module.os.path,
+            "samestat",
+            side_effect=OSError("identity unavailable"),
+        ):
+            self.assertTrue(
+                release_receipt_module._same_file_identity(valid, same)
+            )
+            for left, right in invalid_pairs:
+                with self.subTest(left=left, right=right):
+                    self.assertFalse(
+                        release_receipt_module._same_file_identity(left, right)
+                    )
+
     def test_receipt_snapshot_metadata_is_platform_fail_closed(self):
         base = SimpleNamespace(
             st_dev=11,
