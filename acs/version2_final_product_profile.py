@@ -128,14 +128,14 @@ _MENU_TEXT = {
         "top": "&Учитель/Клас",
         "teacher": "Режим викладача",
         "classes": "Класи та учні",
-        "agent_top": "&Помічник",
+        "agent_top": "П&омічник",
         "agent": "Шаховий помічник",
     },
     UILanguage.EN: {
         "top": "&Teacher/Classroom",
         "teacher": "Teacher mode",
         "classes": "Classes and students",
-        "agent_top": "&Assistant",
+        "agent_top": "Assista&nt",
         "agent": "Chess assistant",
     },
 }
