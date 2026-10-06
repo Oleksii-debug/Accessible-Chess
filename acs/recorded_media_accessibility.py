@@ -10,6 +10,7 @@ their execution.
 """
 
 from dataclasses import dataclass
+import math
 from typing import Any
 
 from .media_core import MediaClockSnapshot, MediaPlaybackState
@@ -189,6 +190,9 @@ def _validate_clock(clock: MediaClockSnapshot | None) -> tuple[int | None, int |
     if type(clock.playback_rate) not in (int, float) or isinstance(
         clock.playback_rate, bool
     ):
+        raise RecordedMediaAccessibilityError("invalid media playback rate")
+    rate = float(clock.playback_rate)
+    if not math.isfinite(rate) or rate <= 0.0:
         raise RecordedMediaAccessibilityError("invalid media playback rate")
     if type(clock.revision) is not int or clock.revision < 0:
         raise RecordedMediaAccessibilityError("invalid media clock revision")
