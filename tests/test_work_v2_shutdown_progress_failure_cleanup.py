@@ -35,6 +35,115 @@ class Version2ShutdownProgressFailureCleanupEvidenceTests(unittest.TestCase):
         application.book_key = "shutdown-evidence-book"
         return application
 
+    def test_book_worker_refusal_still_retires_file_worker_and_keeps_shared_state_open(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                application = self._application(
+                    database,
+                    analysis,
+                    _FailingProgressStore(root / "book-progress.json"),
+                )
+                book_worker = mock.Mock()
+                book_worker.shutdown.return_value = False
+                file_worker = mock.Mock()
+                file_worker.shutdown.return_value = True
+                application._book_open_worker = book_worker
+                application._files = file_worker
+
+                with mock.patch.object(application, "save_training_progress") as training, \
+                     mock.patch.object(application, "save_book_progress") as book, \
+                     mock.patch.object(database, "close", wraps=database.close) as close:
+                    self.assertFalse(application.shutdown(timeout=0.25))
+
+                book_worker.shutdown.assert_called_once_with(timeout=0.25)
+                file_worker.shutdown.assert_called_once_with(timeout=0.25)
+                training.assert_not_called()
+                book.assert_not_called()
+                close.assert_not_called()
+                self.assertEqual(database.conn.execute("SELECT 1").fetchone(), (1,))
+            finally:
+                database.close()
+                analysis.close()
+
+    def test_worker_abort_still_retires_other_worker_and_preserves_first_abort(self) -> None:
+        class BookAbort(BaseException):
+            pass
+
+        class FileAbort(BaseException):
+            pass
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            primary = BookAbort("PRIMARY_BOOK_WORKER")
+            secondary = FileAbort("SECONDARY_FILE_WORKER")
+            try:
+                application = self._application(
+                    database,
+                    analysis,
+                    _FailingProgressStore(root / "book-progress.json"),
+                )
+                book_worker = mock.Mock()
+                book_worker.shutdown.side_effect = primary
+                file_worker = mock.Mock()
+                file_worker.shutdown.side_effect = secondary
+                application._book_open_worker = book_worker
+                application._files = file_worker
+
+                with mock.patch.object(application, "save_training_progress") as training, \
+                     mock.patch.object(application, "save_book_progress") as book, \
+                     mock.patch.object(database, "close", wraps=database.close) as close:
+                    with self.assertRaises(BookAbort) as caught:
+                        application.shutdown(timeout=0.5)
+
+                self.assertIs(caught.exception, primary)
+                book_worker.shutdown.assert_called_once_with(timeout=0.5)
+                file_worker.shutdown.assert_called_once_with(timeout=0.5)
+                training.assert_not_called()
+                book.assert_not_called()
+                close.assert_not_called()
+                self.assertEqual(database.conn.execute("SELECT 1").fetchone(), (1,))
+            finally:
+                database.close()
+                analysis.close()
+
+    def test_non_boolean_worker_success_fails_closed_before_shared_cleanup(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                application = self._application(
+                    database,
+                    analysis,
+                    _FailingProgressStore(root / "book-progress.json"),
+                )
+                book_worker = mock.Mock()
+                book_worker.shutdown.return_value = 1
+                file_worker = mock.Mock()
+                file_worker.shutdown.return_value = True
+                application._book_open_worker = book_worker
+                application._files = file_worker
+
+                with mock.patch.object(application, "save_training_progress") as training, \
+                     mock.patch.object(application, "save_book_progress") as book, \
+                     mock.patch.object(database, "close", wraps=database.close) as close:
+                    self.assertFalse(application.shutdown())
+
+                book_worker.shutdown.assert_called_once_with(timeout=None)
+                file_worker.shutdown.assert_called_once_with(timeout=None)
+                training.assert_not_called()
+                book.assert_not_called()
+                close.assert_not_called()
+                self.assertEqual(database.conn.execute("SELECT 1").fetchone(), (1,))
+            finally:
+                database.close()
+                analysis.close()
+
     def test_progress_save_failure_does_not_skip_database_close(self) -> None:
         """Shutdown must release ACSDB even when durable Book progress fails."""
 
