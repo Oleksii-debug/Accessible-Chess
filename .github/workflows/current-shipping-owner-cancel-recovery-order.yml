@@ -1,9 +1,6 @@
 name: Current Shipping PGN Cancel Terminal Convergence
 
 on:
-  push:
-    branches:
-      - fix/current-shipping-owner-cancel-recovery-order-20261006-ooxple7
   pull_request:
     branches:
       - converge/current-shipping-pgn-open-terminal-truth-20261006-c2mbezb
