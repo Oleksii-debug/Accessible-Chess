@@ -24,6 +24,7 @@ from acs.pgn_document import PgnDocumentSession
 from acs.pgn_service import open_pgn
 from acs.report_paths import report_safe_name
 from acs.version2_application import Version2Application
+from acs.version2_windows_book_open_worker import Version2BookOpenWorker
 from acs.version2_windows_file_workflows import FileWorkflowEvent, FileWorkflowEventKind, Version2WindowsFileActionDelegate
 from acs.version2_windows_import_event_mailbox import Version2ImportUiEventMailbox
 
@@ -203,6 +204,43 @@ class Version2ApplicationTests(unittest.TestCase):
         with self.app._observation_lock:
             self.assertIsNone(self.app._progress)
             self.assertIsNone(self.app._result)
+
+    def test_book_open_worker_exact_unbind_makes_failed_startup_retryable(self):
+        worker = Version2BookOpenWorker(
+            prepare=lambda *_args, **_kwargs: object(),
+            commit=lambda _prepared: None,
+            post_to_ui=lambda callback: callback(),
+            event_sink=lambda _event: None,
+        )
+        self.addCleanup(worker.shutdown)
+
+        self.app.bind_book_open_worker(worker)
+        self.assertIs(self.app._book_open_worker, worker)
+        self.assertTrue(self.app.unbind_book_open_worker(worker))
+        self.assertIsNone(self.app._book_open_worker)
+        self.assertFalse(self.app.unbind_book_open_worker(worker))
+
+    def test_set_document_route_abort_restores_exact_application_focus_checkpoint(self):
+        candidate = PgnDocumentSession.open(self.source)
+        self.app.shell.open_route("library")
+        self.app._focus = "native-library-result-focus"
+        before_focus = self.app._focus
+        before_route = self.app.shell.current_route.route_id
+        original_open_route = self.app.shell.open_route
+
+        class RouteAbort(BaseException):
+            pass
+
+        def open_then_abort(route_id):
+            original_open_route(route_id)
+            raise RouteAbort("route publication aborted")
+
+        with patch.object(self.app.shell, "open_route", side_effect=open_then_abort):
+            with self.assertRaises(RouteAbort):
+                self.app.set_document(candidate)
+
+        self.assertEqual(self.app.shell.current_route.route_id, before_route)
+        self.assertEqual(self.app._focus, before_focus)
 
     def test_set_document_rejects_active_session_subclass_before_hooks(self):
         touched = []
