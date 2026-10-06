@@ -45,7 +45,8 @@ env:
   RELEASE_RECEIPT_BLOB: 7efbb09f8a51c82a9fb9ec48994ecc177f865ccb
   RELEASE_RECEIPT_TEST_BLOB: 15b91e9ac619c2865b6bcd7a3290a8c43c4f3983
   ANALYSIS_FEEDBACK_TEST_BLOB: 87060c11febc787b65a482bc897f1464a443e3b2
-  V2_RELEASE_DOM_TEST_BLOB: 6052ddfde81b98ef842660390be7a033b688bc9a
+  V2_RELEASE_BOOTSTRAP_BLOB: 4c2d80826c3fea81c13befb60532bf9ef9c7853e
+  V2_RELEASE_DOM_TEST_BLOB: f95d76dd1b5e8d2dd9e9aaf36d329868e6a00569
   PHYSICAL_RECORDER_BLOB: d569f82be929b3b979ef2c4514501521052696a9
   PHYSICAL_HARDENING_TEST_BLOB: 3b20f3295b420984151bfe1048660182e5d16c23
   PGN_OPEN_WORKER_TEST_BLOB: 3af4594cab4ee0d2e66eeeb6ef2e3d40e985a59f
@@ -112,6 +113,7 @@ jobs:
             "acs/version2_windows_host_runtime.py"
             "acs/version2_windows_import_ui_pump.py"
             "scripts/record_owner_physical_acceptance.py"
+            "web/version2_release_bootstrap.js"
             "tests/js/version2_release_bootstrap_dom_test.js"
             "tests/test_owner_physical_acceptance_json_hardening.py"
             "tests/test_v2_board_analysis_hotkey_feedback.py"
@@ -168,6 +170,7 @@ jobs:
           test "$(git rev-parse HEAD:acs/version2_release_receipt.py)" = "$RELEASE_RECEIPT_BLOB"
           test "$(git rev-parse HEAD:tests/test_version2_release_receipt.py)" = "$RELEASE_RECEIPT_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_v2_board_analysis_hotkey_feedback.py)" = "$ANALYSIS_FEEDBACK_TEST_BLOB"
+          test "$(git rev-parse HEAD:web/version2_release_bootstrap.js)" = "$V2_RELEASE_BOOTSTRAP_BLOB"
           test "$(git rev-parse HEAD:tests/js/version2_release_bootstrap_dom_test.js)" = "$V2_RELEASE_DOM_TEST_BLOB"
           test "$(git rev-parse HEAD:scripts/record_owner_physical_acceptance.py)" = "$PHYSICAL_RECORDER_BLOB"
           test "$(git rev-parse HEAD:tests/test_owner_physical_acceptance_json_hardening.py)" = "$PHYSICAL_HARDENING_TEST_BLOB"
