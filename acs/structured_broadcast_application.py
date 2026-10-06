@@ -26,11 +26,15 @@ from .pgn_roundtrip import parse_pgn_text
 from .structured_broadcast import (
     CanonicalBroadcastGame,
     LICHESS_BROADCAST_PROVIDER,
+    LichessBroadcastRound,
     MAX_BROADCAST_GAMES,
+    MAX_BROADCAST_IDENTIFIER_CHARS,
+    MAX_BROADCAST_PGN_BYTES,
 )
 
 
 MAX_CANONICAL_BROADCAST_POSITIONS = 8192
+MAX_LICHESS_GAME_URL_CHARS = 2048
 
 
 class BroadcastApplicationErrorCode(str, Enum):
@@ -68,6 +72,11 @@ def _exact_text(value: object, name: str) -> str:
 
 def _lichess_game_id_from_url(value: object, round_id: str) -> str:
     url = _exact_text(value, "Lichess GameURL")
+    if len(url) > MAX_LICHESS_GAME_URL_CHARS:
+        raise BroadcastApplicationError(
+            "Lichess broadcast game URL exceeds the safety limit",
+            code=BroadcastApplicationErrorCode.INVALID_PROVIDER_GAME_ID,
+        )
     parsed = urlsplit(url)
     if (
         parsed.scheme != "https"
@@ -214,11 +223,32 @@ class LichessCanonicalBroadcastAdapter:
         round_value = _exact_text(round_id, "round_id")
         source_value = _exact_text(source_id, "source_id")
         text = _exact_text(pgn_text, "pgn_text")
+        if (
+            len(provider_value) > MAX_BROADCAST_IDENTIFIER_CHARS
+            or len(round_value) > MAX_BROADCAST_IDENTIFIER_CHARS
+            or len(source_value) > MAX_BROADCAST_IDENTIFIER_CHARS
+        ):
+            raise BroadcastApplicationError(
+                "broadcast identity exceeds the structured-ingress safety limit",
+                code=BroadcastApplicationErrorCode.INVALID_INPUT,
+            )
+        if len(text.encode("utf-8")) > MAX_BROADCAST_PGN_BYTES:
+            raise BroadcastApplicationError(
+                "broadcast PGN exceeds the structured-ingress byte limit",
+                code=BroadcastApplicationErrorCode.INVALID_INPUT,
+            )
         if provider_value != LICHESS_BROADCAST_PROVIDER:
             raise BroadcastApplicationError(
                 "structured broadcast provider is not supported by this adapter",
                 code=BroadcastApplicationErrorCode.UNSUPPORTED_PROVIDER,
             )
+        try:
+            LichessBroadcastRound(round_value)
+        except Exception:
+            raise BroadcastApplicationError(
+                "Lichess broadcast round identity is invalid",
+                code=BroadcastApplicationErrorCode.INVALID_INPUT,
+            ) from None
 
         try:
             games = parse_pgn_text(text, strict=True)
