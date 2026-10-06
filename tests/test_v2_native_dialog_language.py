@@ -124,7 +124,7 @@ class Version2NativeDialogLanguageTests(unittest.TestCase):
         self.assertEqual(_SaveDialog.instances[-1].show_args, (owner,))
 
         self.assertEqual(dialogs.select_library_import(), Path("selected.pgn"))
-        self.assertEqual(_OpenDialog.instances[-1].Title, "Імпортувати до бібліотеки")
+        self.assertEqual(_OpenDialog.instances[-1].Title, "Імпортувати партії до бібліотеки (текст книги залишається у вихідному файлі)")
         self.assertIn("Підтримувані шахові джерела", _OpenDialog.instances[-1].Filter)
 
         self.assertTrue(dialogs.confirm_discard_unsaved_pgn())
@@ -139,7 +139,7 @@ class Version2NativeDialogLanguageTests(unittest.TestCase):
         self.assertEqual(dialogs.save_pgn_as("private.pgn"), Path("private.pgn"))
         self.assertEqual(_SaveDialog.instances[-1].Title, "Save PGN As")
         self.assertEqual(dialogs.select_library_import(), Path("selected.pgn"))
-        self.assertEqual(_OpenDialog.instances[-1].Title, "Import into Library")
+        self.assertEqual(_OpenDialog.instances[-1].Title, "Import games into Library (book text remains in its source file)")
         self.assertTrue(dialogs.confirm_discard_unsaved_pgn())
         self.assertEqual(_MessageBox.calls[-1][2], "Unsaved PGN changes")
 
@@ -273,7 +273,7 @@ class Version2NativeDialogLanguageTests(unittest.TestCase):
                 mock.patch.object(release_app, "EnginePlayService", return_value=mock.MagicMock()),
                 mock.patch.object(release_app, "SoundRuntime", return_value=mock.MagicMock()),
                 mock.patch.object(release_app, "GameSoundRuntime", return_value=mock.MagicMock()),
-                mock.patch.object(release_app, "Version2ReleaseAccessibleChessAPI", return_value=api),
+                mock.patch.object(release_app, "Version2ProfileAccessibleChessAPI", return_value=api),
                 mock.patch.object(release_app, "AcsDatabase", return_value=database),
                 mock.patch.object(release_app, "Version2Application", return_value=application),
                 mock.patch.object(release_app, "_share_v2_action_registry"),
@@ -337,7 +337,7 @@ class Version2NativeDialogLanguageTests(unittest.TestCase):
                 mock.patch.object(release_app, "EnginePlayService", return_value=mock.MagicMock()),
                 mock.patch.object(release_app, "SoundRuntime", return_value=mock.MagicMock()),
                 mock.patch.object(release_app, "GameSoundRuntime", return_value=mock.MagicMock()),
-                mock.patch.object(release_app, "Version2ReleaseAccessibleChessAPI", return_value=api),
+                mock.patch.object(release_app, "Version2ProfileAccessibleChessAPI", return_value=api),
                 mock.patch.object(release_app, "AcsDatabase", return_value=database),
                 mock.patch.object(release_app, "Version2Application", return_value=application),
                 mock.patch.object(release_app, "_share_v2_action_registry"),
@@ -393,7 +393,7 @@ class Version2NativeDialogLanguageTests(unittest.TestCase):
         self.assertEqual(dialogs.save_pgn_as("game.pgn"), Path("game.pgn"))
         self.assertEqual(_SaveDialog.instances[-1].Title, "Save PGN As")
         self.assertEqual(dialogs.select_library_import(), Path("selected.pgn"))
-        self.assertEqual(_OpenDialog.instances[-1].Title, "Import into Library")
+        self.assertEqual(_OpenDialog.instances[-1].Title, "Import games into Library (book text remains in its source file)")
         self.assertTrue(dialogs.confirm_discard_unsaved_pgn())
         self.assertEqual(_MessageBox.calls[-1][2], "Unsaved PGN changes")
         self.assertEqual(exports.export_selection(), Path("selection.pgn"))

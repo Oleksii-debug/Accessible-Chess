@@ -8,7 +8,7 @@ permissions:
   contents: read
 concurrency:
   group: owner-windows-compiler-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 env:
   PYTHON_VERSION: 3.12.10
   PYWEBVIEW_VERSION: 6.2.1
@@ -61,6 +61,17 @@ jobs:
         if ($LASTEXITCODE -ne 0) { throw 'Owner gameplay/audio regression failed' }
         python run_accessible_chess_v2.py --diagnostic
         if ($LASTEXITCODE -ne 0) { throw 'Composition diagnostic failed' }
+    - name: Qualify package journeys and current Library keyboard semantics
+      shell: pwsh
+      run: |
+        python -m unittest tests.test_whole_product_user_journey tests.test_version2_release_ui tests.test_version2_epub_application_reachability tests.test_v2_book_progress_store_production tests.test_v2_native_dialog_language tests.test_v2_board_analysis_hotkey_feedback tests.test_version2_portable_package
+        if ($LASTEXITCODE -ne 0) { throw 'Package functional gate failed' }
+        node tests/js/library_surface_dom_test.js
+        if ($LASTEXITCODE -ne 0) { throw 'Library keyboard gate failed' }
+        node tests/js/owner_gameplay_keyboard_test.js
+        if ($LASTEXITCODE -ne 0) { throw 'Owner keyboard gate failed' }
+        node tests/js/owner_sound_bridge_ready_test.js
+        if ($LASTEXITCODE -ne 0) { throw 'Late sound bridge gate failed' }
     - name: Build shipping standalone with unchanged qualification command
       shell: pwsh
       run: |
@@ -82,6 +93,21 @@ jobs:
         if($sourceHash -ne $distHash){throw "Standalone app-config byte mismatch source=$sourceHash dist=$distHash"}
         Write-Host "STANDALONE_APPCONFIG_SHA256=$distHash"
         Write-Host 'STANDALONE_APPCONFIG_BOUND=PASS'
+    - name: Execute freshly compiled application diagnostic
+      shell: pwsh
+      run: |
+        $ErrorActionPreference='Stop'
+        $root=(Resolve-Path 'run_accessible_chess_v2.dist').Path
+        $exe=Join-Path $root 'AccessibleChess.exe'
+        $out=Join-Path $env:RUNNER_TEMP 'owner-compiled.stdout.txt'
+        $err=Join-Path $env:RUNNER_TEMP 'owner-compiled.stderr.txt'
+        $p=Start-Process -FilePath $exe -WorkingDirectory $root -ArgumentList '--diagnostic' -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
+        if(-not $p.WaitForExit(60000)){ $p.Kill(); throw 'Compiled application diagnostic timed out' }
+        $p.Refresh()
+        Get-Content $out
+        Get-Content $err
+        if($p.ExitCode -ne 0){throw "Compiled diagnostic failed: $($p.ExitCode)"}
+        if((Get-Content $out -Raw) -notmatch 'ACCESSIBLE CHESS V2 FINAL-PRODUCT COMPOSITION DIAGNOSTIC PASS'){throw 'Compiled diagnostic success marker missing'}
     - name: Compile current native launcher
       shell: cmd
       run: |

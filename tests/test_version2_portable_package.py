@@ -1568,7 +1568,7 @@ class PortableTreeTests(unittest.TestCase):
             readback_mtime_ns = None
             injected = False
 
-            def safe_info_with_mutation(path, *, label, directory):
+            def safe_info_with_mutation(path, *, label, directory=None):
                 nonlocal readback_mtime_ns, injected
                 if label == "portable ZIP archive readback":
                     if readback_mtime_ns is None:

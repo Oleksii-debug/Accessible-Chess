@@ -227,6 +227,13 @@ check(
 
 async function runNavigationContract() {
 const liveResolver = window.accessibleChessKeymapAction;
+// Down must have a next row; the real list correctly stops at its boundary.
+const navigationSnapshot = { ...exportSnapshot, rows: [exportSnapshot.rows[0], {
+  ...exportSnapshot.rows[0], game_id: 2, position: 2, selected: false,
+  dom_id: "library-game-1123456789abcdefabcd",
+  export_dom_id: "library-game-1123456789abcdefabcd-export",
+  export_selected: false
+}] };
 
 // Resolver presence before keymap readiness must not suppress default keyboard
 // navigation. null means "not ready"; an empty string below still means
@@ -236,7 +243,7 @@ const startupCalls = [];
 const startupRoot = new FakeElement("div");
 window.AccessibleChessLibrarySurface.render(
   startupRoot,
-  exportSnapshot,
+  navigationSnapshot,
   (command, payload) => {
     startupCalls.push([command, payload || {}]);
     return { kind: "error", payload: { message: "" } };
@@ -251,8 +258,7 @@ startupOption.listeners.keydown({
   preventDefault: () => { startupPrevented = true; },
   stopPropagation: () => {}
 });
-await Promise.resolve();
-await Promise.resolve();
+await new Promise((resolve) => setImmediate(resolve));
 check(startupPrevented, "not-ready Library resolver suppressed default ArrowDown");
 check(
   startupCalls.length === 1 &&
@@ -266,7 +272,7 @@ const navigationCalls = [];
 const navigationRoot = new FakeElement("div");
 window.AccessibleChessLibrarySurface.render(
   navigationRoot,
-  exportSnapshot,
+  navigationSnapshot,
   (command, payload) => {
     navigationCalls.push([command, payload || {}]);
     return { kind: "error", payload: { message: "" } };
@@ -284,8 +290,7 @@ navigationOption.listeners.keydown({
   preventDefault: () => { downPrevented = true; },
   stopPropagation: () => { downStopped = true; }
 });
-await Promise.resolve();
-await Promise.resolve();
+await new Promise((resolve) => setImmediate(resolve));
 check(downPrevented && downStopped, "default Library Down binding was not locally owned");
 check(
   navigationCalls.length === 1 &&
@@ -303,8 +308,7 @@ navigationOption.listeners.keydown({
   preventDefault: () => { stalePrevented = true; },
   stopPropagation: () => {}
 });
-await Promise.resolve();
-await Promise.resolve();
+await new Promise((resolve) => setImmediate(resolve));
 check(!stalePrevented, "old Library ArrowDown binding survived live remap");
 check(navigationCalls.length === staleStart, "old Library ArrowDown still dispatched");
 
@@ -315,8 +319,7 @@ navigationOption.listeners.keydown({
   preventDefault: () => { remapPrevented = true; },
   stopPropagation: () => { remapStopped = true; }
 });
-await Promise.resolve();
-await Promise.resolve();
+await new Promise((resolve) => setImmediate(resolve));
 check(remapPrevented && remapStopped, "remapped Library next-result key was not handled");
 check(navigationCalls.length === staleStart + 1, "remapped Library key did not dispatch exactly once");
 check(
@@ -334,8 +337,7 @@ navigationOption.listeners.keydown({
   preventDefault: () => { copyPrevented = true; },
   stopPropagation: () => { copyStopped = true; }
 });
-await Promise.resolve();
-await Promise.resolve();
+await new Promise((resolve) => setImmediate(resolve));
 check(!copyPrevented && !copyStopped, "Ctrl+C was hijacked by Library navigation");
 check(navigationCalls.length === beforeCopy, "Ctrl+C unexpectedly became a Library command");
 libraryBindings.ArrowDown = "library.next_result";
@@ -562,19 +564,14 @@ async function runPendingLibraryResponseContract() {
   await tick();
   submit();
   await tick();
-  check(pending.length === 2, "independent Library requests were not dispatched");
+  check(pending.length === 1, "second Library request bypassed serialized host authority");
+  pending[0].resolve(response("First results", "First search finished"));
+  await tick();
+  check(pending.length === 2, "queued Library search did not resume after settlement");
   pending[1].resolve(response("Newest results", "Newest search finished"));
   await tick();
-  const stable = pendingRoot.replaceChildrenCalls;
-  const currentInput = pendingRoot.querySelector("#library-search-player");
-  currentInput.value = "Unsubmitted reading/search text";
-  currentInput.focus();
-  pending[0].resolve(response("Older results", "Older search finished"));
-  await tick();
-  check(pendingRoot.__accessibleChessLibrarySnapshot.heading === "Newest results", "late old response replaced the newer Library results");
-  check(pendingRoot.replaceChildrenCalls === stable, "late old response rebuilt the Library DOM");
-  check(document.activeElement === currentInput && currentInput.value === "Unsubmitted reading/search text", "late old response erased editing or moved focus");
-  check(messages.length === 1 && messages[0] === "Newest search finished", "late old response announced obsolete results");
+  check(pendingRoot.__accessibleChessLibrarySnapshot.heading === "Newest results", "queued search did not publish current results");
+  check(messages.length === 2 && messages[0] === "First search finished" && messages[1] === "Newest search finished", "serialized search feedback order changed");
 
   submit();
   await tick();
@@ -583,13 +580,13 @@ async function runPendingLibraryResponseContract() {
   pending[2].reject(new Error("private source path"));
   await tick();
   check(pendingRoot.__accessibleChessLibrarySnapshot.heading === "Host replacement", "stale transport failure replaced host state");
-  check(document.activeElement === replacementFocus && messages.length === 1, "stale transport failure moved focus or announced obsolete error");
+  check(document.activeElement === replacementFocus && messages.length === 2, "stale transport failure moved focus or announced obsolete error");
 
   submit();
   await tick();
   pending[3].reject(new Error("private source path"));
   await tick();
-  check(messages.length === 2 && messages[1] === snapshot.transport_error_message, "current transport failure lost the safe announcement");
+  check(messages.length === 3 && messages[2] === snapshot.transport_error_message, "current transport failure lost the safe announcement");
 
   submit();
   await tick();
@@ -603,7 +600,7 @@ async function runPendingLibraryResponseContract() {
   check(pendingRoot.__accessibleChessLibrarySnapshot.heading === "Search during import", "independent import progress discarded current search results");
   check(pendingRoot.__accessibleChessLibrarySnapshot.import.phase === "completed", "late search snapshot regressed canonical import completion");
 }
-Promise.resolve().then(function () {
+new Promise((resolve) => setImmediate(resolve)).then(function () {
   check(dateCalls.length === 1 && dateCalls[0][0] === "library.search", "date search did not dispatch");
   check(dateCalls[0][1].date_from === "2026.01.01" && dateCalls[0][1].date_to === "2026.12.31", "date bounds lost on submit");
   return runNavigationContract();

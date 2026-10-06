@@ -34,3 +34,13 @@ After explicit permission to publish the prepared GitHub build branch and run Wi
 ## Authorization update
 
 The owner explicitly approved publishing this build branch and running Windows compilation on 2026-10-06. Direct git push subsequently failed because the shell has no GitHub credential helper. Continue publication through the existing authenticated GitHub connector.
+
+## Current continuation after approval
+
+The authenticated GitHub connector published branch `build/owner-windows-20261006-6be0afe` at `efaf3bef3abd2c40b034f9c5b5142fcf1070ccf0`; run 37494875006 was queued. The compiler workflow now cancels only superseded runs in its own exact branch concurrency group and verifies the freshly compiled executable diagnostic before publishing intermediate inputs.
+
+Fixed the proven native Library import localization gap: the expanded Book-game import title and file filter now follow the live Ukrainian/English dialog authority and preserve supported extensions. Reconciled old test doubles with the current Profile API, optional file-stat argument, and current variation-error messages. Library DOM regression now models two actual navigation rows, waits for serialized commands, proves queued search order, and retains stale completion/import-progress fences. No Library runtime semantics were changed for the test repair.
+
+Local gate: all 98 package-journey/EPUB/progress/native-dialog/analysis-hotkey/portable tests pass. Library DOM, owner keyboard, late sound bridge and export DOM tests pass. Native compilation and audible Windows/NVDA acceptance are still pending.
+
+Prepared local package inputs: exact official Stockfish 18 archive (SHA256 40cc975817e7eee270b03f354810d20956df565420d320f6dd37d454dc81a139); existing 330-WAV archive (SHA256 6ea155b578b70d030792223aad0fef772c132c0740a0bf66efa9958071ec8547); lawful 240-game starter and 1200-game stress PGN; current hotkey/testing DOCX. A package-local seed exposes the 240 real starter games on first launch and repeated startup reuses the source. This is one public starter source, not the separate six-source/3738-game private owner collection. No Drive rescan was performed after the owner asked to reuse existing inputs. Media/YouTube/Agent lines are not represented as completed integrated features.

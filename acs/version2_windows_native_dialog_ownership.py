@@ -29,10 +29,11 @@ _DIALOG_TEXT: dict[str, dict[str, str]] = {
         "open_pgn_title": "Open PGN",
         "save_pgn_as_title": "Save PGN As",
         "pgn_filter": "PGN files (*.pgn)|*.pgn|All files (*.*)|*.*",
-        "import_library_title": "Import into Library",
+        "import_library_title": "Import games into Library (book text remains in its source file)",
         "import_library_filter": (
-            "Supported chess sources (*.pgn;*.cbh;*.cbv)|*.pgn;*.cbh;*.cbv|"
-            "PGN files (*.pgn)|*.pgn|ChessBase files (*.cbh;*.cbv)|*.cbh;*.cbv"
+            "Supported chess sources and book games|*.pgn;*.cbh;*.cbv;*.epub;*.html;*.htm;*.xhtml;*.md;*.markdown|"
+            "PGN files (*.pgn)|*.pgn|ChessBase files (*.cbh;*.cbv)|*.cbh;*.cbv|"
+            "Book game collections (*.epub;*.html;*.htm;*.xhtml;*.md;*.markdown)|*.epub;*.html;*.htm;*.xhtml;*.md;*.markdown"
         ),
         "unsaved_pgn_title": "Unsaved PGN changes",
         "unsaved_pgn_message": (
@@ -61,10 +62,11 @@ _DIALOG_TEXT: dict[str, dict[str, str]] = {
         "open_pgn_title": "Відкрити PGN",
         "save_pgn_as_title": "Зберегти PGN як",
         "pgn_filter": "Файли PGN (*.pgn)|*.pgn|Усі файли (*.*)|*.*",
-        "import_library_title": "Імпортувати до бібліотеки",
+        "import_library_title": "Імпортувати партії до бібліотеки (текст книги залишається у вихідному файлі)",
         "import_library_filter": (
-            "Підтримувані шахові джерела (*.pgn;*.cbh;*.cbv)|*.pgn;*.cbh;*.cbv|"
-            "Файли PGN (*.pgn)|*.pgn|Файли ChessBase (*.cbh;*.cbv)|*.cbh;*.cbv"
+            "Підтримувані шахові джерела та партії з книг|*.pgn;*.cbh;*.cbv;*.epub;*.html;*.htm;*.xhtml;*.md;*.markdown|"
+            "Файли PGN (*.pgn)|*.pgn|Файли ChessBase (*.cbh;*.cbv)|*.cbh;*.cbv|"
+            "Збірки партій у книгах (*.epub;*.html;*.htm;*.xhtml;*.md;*.markdown)|*.epub;*.html;*.htm;*.xhtml;*.md;*.markdown"
         ),
         "unsaved_pgn_title": "Незбережені зміни PGN",
         "unsaved_pgn_message": (
