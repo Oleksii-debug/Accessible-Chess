@@ -704,6 +704,7 @@
       if (value === editor.result) option.selected = true;
       resultSelect.appendChild(option);
     });
+    resultSelect.value = editor.result;
     const saveResult = node("button", editor.result_save_label);
     saveResult.type = "button";
     const close = node("button", editor.close_label);
@@ -784,14 +785,15 @@
     saveResult.addEventListener("click", function () {
       run("pgn.result_set", { result: resultSelect.value }, resultSelect);
     });
-    close.addEventListener("click", function () {
+    function closeAndRestore() {
       if (pending) return;
       if (dialog.open) dialog.close();
       if (opener && typeof opener.focus === "function") opener.focus({ preventScroll: true });
-    });
+    }
+    close.addEventListener("click", closeAndRestore);
     dialog.addEventListener("cancel", function (event) {
       event.preventDefault();
-      if (!pending) close.click();
+      closeAndRestore();
     });
 
     dialog.appendChild(saveTag);
