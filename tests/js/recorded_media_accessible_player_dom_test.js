@@ -243,6 +243,29 @@ async function main() {
     check(String(error).includes("invalid seek value"), "invalid seek did not fail closed");
   }
 
+  const noStateRoot = new FakeElement("div");
+  const noStateCalls = [];
+  window.AccessibleChessRecordedMediaPlayer.render(
+    noStateRoot,
+    state(),
+    async (command) => {
+      noStateCalls.push(command);
+      return undefined;
+    },
+    false,
+  );
+  const noStatePlay = noStateRoot.querySelector("#recorded-media-play-toggle");
+  check(noStatePlay.disabled === false, "play control started disabled");
+  await noStatePlay.listeners.click();
+  check(
+    JSON.stringify(noStateCalls) === JSON.stringify([{ action: "play" }]),
+    "event-driven play command did not dispatch once",
+  );
+  check(
+    noStatePlay.disabled === false,
+    "successful command without immediate state left native control disabled",
+  );
+
   const staleRoot = new FakeElement("div");
   let releaseFirst;
   const firstResult = new Promise((resolve) => { releaseFirst = resolve; });
