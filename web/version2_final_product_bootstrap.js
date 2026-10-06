@@ -395,88 +395,139 @@
   }
 
   function renderProductSurface(snapshot, routeId, requestedFocus, restoreFocus, heading) {
-    originalMain.hidden = true;
-    workspace.hidden = false;
+    const workspaceWasHidden = workspace.hidden;
+    const originalMainWasHidden = originalMain.hidden;
+    const previousWorkspaceNodes = Array.from(
+      workspace.childNodes || workspace.children || []
+    );
+    const previousActiveElement = documentRef.activeElement;
 
-    if (routeId === "pgn") {
-      if (snapshot.pgn && global.AccessibleChessPgnSurface) {
-        global.AccessibleChessPgnSurface.render(workspace, snapshot.pgn, areaInvoke("pgn"), announce, requestedFocus || "");
-      } else {
-        renderEmptyProduct(routeId, heading);
+    try {
+      if (routeId === "pgn") {
+        if (snapshot.pgn && global.AccessibleChessPgnSurface) {
+          global.AccessibleChessPgnSurface.render(workspace, snapshot.pgn, areaInvoke("pgn"), announce, requestedFocus || "");
+        } else {
+          renderEmptyProduct(routeId, heading);
+        }
+      } else if (routeId === "library") {
+        if (snapshot.library && global.AccessibleChessLibrarySurface) {
+          global.AccessibleChessLibrarySurface.render(workspace, snapshot.library, areaInvoke("library"), announce, requestedFocus || "");
+        } else {
+          renderEmptyProduct(routeId, heading);
+        }
+      } else if (routeId === "books") {
+        if (snapshot.books && global.AccessibleChessBookSurface) {
+          global.AccessibleChessBookSurface.render(workspace, snapshot.books, areaInvoke("books"), announce, requestedFocus || "");
+        } else {
+          renderEmptyProduct(routeId, heading);
+        }
+      } else if (routeId === "training") {
+        const focus = requestedFocus === "training-prompt" ? "training-answer" : requestedFocus;
+        if (snapshot.training && global.AccessibleChessTrainingSurface) {
+          global.AccessibleChessTrainingSurface.render(
+            workspace, snapshot.training, areaInvoke("training"), announce, focus || "training-answer"
+          );
+          requestedFocus = focus;
+        } else {
+          renderEmptyProduct(routeId, heading);
+        }
+      } else if (routeId === "teacher") {
+        if (snapshot.teacher && global.AccessibleChessTeacherSurface) {
+          global.AccessibleChessTeacherSurface.render(
+            workspace, snapshot.teacher, areaInvoke("teacher"), announce, requestedFocus || ""
+          );
+        } else {
+          renderEmptyProduct(routeId, heading);
+        }
+      } else if (routeId === "classes") {
+        if (snapshot.education && global.AccessibleChessEducationSurface) {
+          global.AccessibleChessEducationSurface.render(
+            workspace,
+            snapshot.education,
+            areaInvoke("classes"),
+            announce,
+            requestedFocus || "",
+            uiText("Не вдалося виконати дію з класами.", "Could not complete the Classes action.")
+          );
+        } else {
+          renderEmptyProduct(routeId, heading);
+        }
       }
-    } else if (routeId === "library") {
-      if (snapshot.library && global.AccessibleChessLibrarySurface) {
-        global.AccessibleChessLibrarySurface.render(workspace, snapshot.library, areaInvoke("library"), announce, requestedFocus || "");
-      } else {
-        renderEmptyProduct(routeId, heading);
+
+      originalMain.hidden = true;
+      workspace.hidden = false;
+      if (restoreFocus || workspaceWasHidden) {
+        restoreProductFocus(snapshot, routeId, requestedFocus);
       }
-    } else if (routeId === "books") {
-      if (snapshot.books && global.AccessibleChessBookSurface) {
-        global.AccessibleChessBookSurface.render(workspace, snapshot.books, areaInvoke("books"), announce, requestedFocus || "");
-      } else {
-        renderEmptyProduct(routeId, heading);
+    } catch (error) {
+      try {
+        workspace.replaceChildren(...previousWorkspaceNodes);
+      } catch (_) {}
+      workspace.hidden = workspaceWasHidden;
+      originalMain.hidden = originalMainWasHidden;
+      if (
+        previousActiveElement &&
+        typeof previousActiveElement.focus === "function" &&
+        !hiddenByAncestor(previousActiveElement)
+      ) {
+        try {
+          previousActiveElement.focus({ preventScroll: true });
+        } catch (_) {}
       }
-    } else if (routeId === "training") {
-      const focus = requestedFocus === "training-prompt" ? "training-answer" : requestedFocus;
-      if (snapshot.training && global.AccessibleChessTrainingSurface) {
-        global.AccessibleChessTrainingSurface.render(
-          workspace, snapshot.training, areaInvoke("training"), announce, focus || "training-answer"
-        );
-        requestedFocus = focus;
-      } else {
-        renderEmptyProduct(routeId, heading);
-      }
-    } else if (routeId === "teacher") {
-      if (snapshot.teacher && global.AccessibleChessTeacherSurface) {
-        global.AccessibleChessTeacherSurface.render(
-          workspace, snapshot.teacher, areaInvoke("teacher"), announce, requestedFocus || ""
-        );
-      } else {
-        renderEmptyProduct(routeId, heading);
-      }
-    } else if (routeId === "classes") {
-      if (snapshot.education && global.AccessibleChessEducationSurface) {
-        global.AccessibleChessEducationSurface.render(
-          workspace,
-          snapshot.education,
-          areaInvoke("classes"),
-          announce,
-          requestedFocus || "",
-          uiText("Не вдалося виконати дію з класами.", "Could not complete the Classes action.")
-        );
-      } else {
-        renderEmptyProduct(routeId, heading);
-      }
+      throw error;
     }
-
-    if (restoreFocus) restoreProductFocus(snapshot, routeId, requestedFocus);
   }
 
   function render(snapshot, restoreFocus) {
     if (!snapshot || typeof snapshot !== "object") return;
     const selectionSnapshot = captureWorkspaceSelection();
-    currentLanguage = snapshot.document && snapshot.document.lang === "en" ? "en" : "uk";
-    documentRef.documentElement.lang = currentLanguage;
-    nav.setAttribute("aria-label", uiText("Розділи Accessible Chess", "Accessible Chess sections"));
-    navHeading.textContent = uiText("Розділи", "Sections");
-    renderNavigation(snapshot);
-    const screen = snapshot.screen && typeof snapshot.screen === "object" ? snapshot.screen : {};
-    const routeId = String(screen.route_id || "board");
-    currentRouteId = routeId;
-    if (typeof global.showStage1Route === "function") global.showStage1Route(routeId);
-    const requestedFocus = String(screen.focus_target || "");
-    const heading = String(screen.heading || "");
+    const previousLanguage = currentLanguage;
+    const previousDocumentLanguage = documentRef.documentElement.lang;
+    const previousRouteId = currentRouteId;
+    const previousNavigationNodes = Array.from(
+      navList.childNodes || navList.children || []
+    );
+    const previousNavigationHeading = navHeading.textContent;
 
-    if (productRoutes.has(routeId)) {
-      renderProductSurface(snapshot, routeId, requestedFocus, restoreFocus, heading);
-      restoreWorkspaceSelection(selectionSnapshot, routeId);
-      return;
+    try {
+      currentLanguage = snapshot.document && snapshot.document.lang === "en" ? "en" : "uk";
+      documentRef.documentElement.lang = currentLanguage;
+      nav.setAttribute("aria-label", uiText("Розділи Accessible Chess", "Accessible Chess sections"));
+      navHeading.textContent = uiText("Розділи", "Sections");
+      renderNavigation(snapshot);
+      const screen = snapshot.screen && typeof snapshot.screen === "object" ? snapshot.screen : {};
+      const routeId = String(screen.route_id || "board");
+      currentRouteId = routeId;
+      if (typeof global.showStage1Route === "function") global.showStage1Route(routeId);
+      const requestedFocus = String(screen.focus_target || "");
+      const heading = String(screen.heading || "");
+
+      if (productRoutes.has(routeId)) {
+        renderProductSurface(snapshot, routeId, requestedFocus, restoreFocus, heading);
+        restoreWorkspaceSelection(selectionSnapshot, routeId);
+        return;
+      }
+
+      workspace.hidden = true;
+      workspace.replaceChildren();
+      originalMain.hidden = false;
+      if (restoreFocus) restoreStage1Focus(routeId, requestedFocus);
+    } catch (error) {
+      currentLanguage = previousLanguage;
+      documentRef.documentElement.lang = previousDocumentLanguage;
+      try {
+        navList.replaceChildren(...previousNavigationNodes);
+      } catch (_) {}
+      nav.setAttribute("aria-label", uiText("Розділи Accessible Chess", "Accessible Chess sections"));
+      navHeading.textContent = previousNavigationHeading;
+      currentRouteId = previousRouteId;
+      if (typeof global.showStage1Route === "function") {
+        try {
+          global.showStage1Route(previousRouteId);
+        } catch (_) {}
+      }
+      throw error;
     }
-
-    workspace.hidden = true;
-    workspace.replaceChildren();
-    originalMain.hidden = false;
-    if (restoreFocus) restoreStage1Focus(routeId, requestedFocus);
   }
 
   function refresh(restoreFocus) {
