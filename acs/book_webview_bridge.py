@@ -88,6 +88,4 @@ class BookWebViewBridge:
             raise ValueError("unsupported book browser command")
         except BaseException:
             # Do not echo FEN, bookmark input, local paths, source data or internals.
-            projection = self._projection
-            projection_type = type(projection)
-            return projection_type.generic_error(projection)
+            return BookWebViewProjection.generic_error(self._projection)
