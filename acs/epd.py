@@ -64,6 +64,20 @@ class EpdRecord:
             if operation.opcode in seen:
                 raise EpdParseError(f"duplicate EPD {operation.opcode} operation")
             seen.add(operation.opcode)
+            if operation.opcode == "hmvc":
+                value = _parse_counter(operation)
+                if value != self.position.halfmove:
+                    raise EpdParseError(
+                        "EPD hmvc operation does not match the position halfmove counter"
+                    )
+            elif operation.opcode == "fmvn":
+                value = _parse_counter(operation)
+                if value < 1:
+                    raise EpdParseError("EPD fmvn must be at least 1")
+                if value != self.position.fullmove:
+                    raise EpdParseError(
+                        "EPD fmvn operation does not match the position fullmove counter"
+                    )
 
     def to_epd(self) -> str:
         return serialize_epd(self)
