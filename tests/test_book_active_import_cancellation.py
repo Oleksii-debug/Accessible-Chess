@@ -76,6 +76,31 @@ class BookActiveImportCancellationTests(unittest.TestCase):
         self.assertIs(caught.exception, failure)
         self.assertEqual(calls, 3)
 
+    def test_epub_entry_decompression_observes_control_before_full_payload_read(self):
+        import acs.book_epub_import as epub
+
+        buffer = BytesIO()
+        payload = b'x' * (512 * 1024)
+        with zipfile.ZipFile(buffer, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr('large.bin', payload)
+
+        failure = SourceReadCancelledError('cancelled during EPUB entry decompression')
+        calls = 0
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise failure
+
+        with zipfile.ZipFile(BytesIO(buffer.getvalue()), 'r') as archive:
+            index = {'large.bin': archive.getinfo('large.bin')}
+            with self.assertRaises(SourceReadCancelledError) as caught:
+                epub._read_entry(
+                    archive, index, 'large.bin', control_checkpoint=cancel
+                )
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 3)
+
     def test_epub_xml_structure_scan_observes_control_before_tree_materialization(self):
         import acs.book_epub_import as epub
 
