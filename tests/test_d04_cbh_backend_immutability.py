@@ -58,6 +58,41 @@ class D04ChessBaseBackendImmutabilityTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, ChessBaseDecodeCode.BACKEND_INVALID)
         self.assertNotIn(str(self.backend.parent), str(caught.exception))
 
+    def test_same_size_backend_mutation_is_rejected_by_hash_not_only_size(self) -> None:
+        original = self.backend.read_bytes()
+        replacement = b"altered decoder bytes"
+        self.assertEqual(len(replacement), len(original))
+
+        def mutate_backend(*_args, **_kwargs):
+            self.backend.write_bytes(replacement)
+            return self._decoded()
+
+        with mock.patch(
+            "acs.chessbase_library_import.decode_chessbase_external",
+            side_effect=mutate_backend,
+        ):
+            with self.assertRaises(ChessBaseDecodeError) as caught:
+                self.service._decode_source(self.source)
+
+        self.assertEqual(caught.exception.code, ChessBaseDecodeCode.BACKEND_INVALID)
+        self.assertNotIn(str(self.backend.parent), str(caught.exception))
+
+    def test_backend_replaced_by_directory_discards_decoder_output(self) -> None:
+        def replace_backend(*_args, **_kwargs):
+            self.backend.unlink()
+            self.backend.mkdir()
+            return self._decoded()
+
+        with mock.patch(
+            "acs.chessbase_library_import.decode_chessbase_external",
+            side_effect=replace_backend,
+        ):
+            with self.assertRaises(ChessBaseDecodeError) as caught:
+                self.service._decode_source(self.source)
+
+        self.assertEqual(caught.exception.code, ChessBaseDecodeCode.BACKEND_INVALID)
+        self.assertNotIn(str(self.backend.parent), str(caught.exception))
+
     def test_control_checkpoint_is_forwarded_without_weakening_backend_identity(self) -> None:
         checkpoints = []
 
