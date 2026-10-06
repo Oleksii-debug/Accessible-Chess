@@ -83,6 +83,7 @@ class Version2WindowsLibraryImportObserverTests(unittest.TestCase):
             progress_values = []
             results = []
             events = []
+            canonical_result_seen = threading.Event()
 
             def base_factory():
                 database = AcsDatabase(database_path)
@@ -92,14 +93,26 @@ class Version2WindowsLibraryImportObserverTests(unittest.TestCase):
                     database.close,
                 )
 
+            def observe_result(value):
+                results.append(value)
+                canonical_result_seen.set()
+
             factory = Version2ObservedImportServicesFactory(
                 base_factory,
                 progress_sink=progress_values.append,
-                result_sink=results.append,
+                result_sink=observe_result,
             )
             controller = self._controller(source, factory, events)
             controller("library.import", {})
-            self.assertTrue(controller.wait_for_import(10.0))
+            self.assertTrue(
+                canonical_result_seen.wait(30.0),
+                "canonical Library import did not reach result publication",
+            )
+            self.assertTrue(
+                controller.wait_for_import(5.0),
+                "import worker did not close promptly after canonical result publication",
+            )
+            self.assertFalse(controller.import_running)
 
             self.assertTrue(progress_values)
             self.assertEqual(len(results), 1)
