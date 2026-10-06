@@ -561,6 +561,35 @@ class PgnWebViewProjectionTests(unittest.TestCase):
         self.projection.edit_comment(accepted)
         self.assertEqual(accepted, self.calls[-1][1]["text"])
 
+        bounded_calls = (
+            (lambda text: self.projection.search(text), 2048),
+            (lambda text: self.projection.append_moves(text), 4096),
+            (lambda text: self.projection.edit_tag("Event", text), 180),
+            (lambda text: self.projection.edit_nags(text), 256),
+            (lambda text: self.projection.add_variation(text), 4096),
+        )
+        for call, emoji_limit in bounded_calls:
+            with self.subTest(emoji_limit=emoji_limit):
+                before = list(self.calls)
+                with self.assertRaises(ValueError):
+                    call("😀" * (emoji_limit + 1))
+                self.assertEqual(before, self.calls)
+                call("😀" * emoji_limit)
+                self.assertEqual("😀" * emoji_limit, self.calls[-1][1]["text"] if "text" in self.calls[-1][1] else self.calls[-1][1]["value"])
+
+        with patch.object(
+            self.projection,
+            "search",
+            side_effect=AssertionError("bridge must reject UTF-16 overflow first"),
+        ) as search:
+            result = self.bridge.dispatch("pgn.search", {"text": "😀" * 2049})
+        self.assertEqual("error", result.kind)
+        search.assert_not_called()
+
+        result = self.bridge.dispatch("pgn.search", {"text": "😀" * 2048})
+        self.assertEqual("delegated", result.kind)
+        self.assertEqual("😀" * 2048, self.calls[-1][1]["text"])
+
     def test_comment_input_is_bounded_and_nul_rejected_before_dispatch(self) -> None:
         before = list(self.calls)
         with self.assertRaises(ValueError):
