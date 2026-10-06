@@ -1,0 +1,71 @@
+name: Current EPD Roundtrip Resource Bounds
+
+on:
+  pull_request:
+    branches:
+      - converge/current-pgn-fen-tag-bounds-20261006-hy6ez0h113
+    paths:
+      - '.github/workflows/current-epd-roundtrip-resource-bounds.yml'
+      - 'acs/epd.py'
+      - 'tests/test_epd.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-epd-roundtrip-resource-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  EPD_BLOB: fc18228360ad3f398271996aef4cc25b3e55801c
+  EPD_TEST_BLOB: 4d6eee510eeb779a4bf59d43c834908952153d6d
+
+jobs:
+  exact-head:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove exact geometry and blobs
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="${{ github.event.pull_request.base.sha }}"
+          test "$(git merge-base "$base" HEAD)" = "$base"
+          git diff --check "$base" HEAD
+          changed="$(git diff --name-only "$base"...HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/current-epd-roundtrip-resource-bounds.yml' \
+            'acs/epd.py' \
+            'tests/test_epd.py' | sort)"
+          test "$changed" = "$expected"
+          test "$(git rev-parse HEAD:acs/epd.py)" = "$EPD_BLOB"
+          test "$(git rev-parse HEAD:tests/test_epd.py)" = "$EPD_TEST_BLOB"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Compile EPD implementation
+        run: python -m py_compile acs/epd.py tests/test_epd.py
+
+      - name: EPD canonical format flow
+        run: python -m unittest tests.test_epd
+
+      - name: Position text and FEN integration
+        run: >-
+          python -m unittest
+          tests.test_position_text_authority
+          tests.test_fen_position_editor_complete_user_flow
+          tests.test_ui_analysis_webapp
