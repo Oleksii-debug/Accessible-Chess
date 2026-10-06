@@ -32,6 +32,7 @@ from .version2_package_preflight import (
     V2_PACKAGE_MANIFEST_SCHEMA_VERSION,
     V2_PACKAGE_PROFILE,
     Version2PackagePreflightReport,
+    _passive_path,
     validate_version2_package_tree,
     validate_version2_package_zip,
 )
@@ -230,18 +231,23 @@ def _write_checksums(root: Path) -> None:
         _fail(f"checksum inventory could not be written: {type(exc).__name__}")
 
 
-def _diagnostics(value: Mapping[str, str | Path] | None) -> Mapping[str, Path]:
+def _diagnostics(value: dict[str, str | Path] | None) -> Mapping[str, Path]:
     if value is None:
         return MappingProxyType({})
-    if not isinstance(value, Mapping):
-        raise TypeError("diagnostic_files must be a mapping or None")
+    # This is caller-supplied release policy. Reject arbitrary Mapping
+    # implementations before .items() can execute active iteration hooks.
+    if type(value) is not dict:
+        raise TypeError("diagnostic_files must be an exact dict or None")
     normalized: dict[str, Path] = {}
     for name, source in value.items():
         if type(name) is not str or name not in _ALLOWED_DIAGNOSTICS:
             _fail("diagnostic file name is not allowed in the Version 2 package")
         if name in normalized:
             _fail("diagnostic file names must be unique")
-        normalized[name] = Path(source)
+        normalized[name] = _passive_path(
+            source,
+            label="release diagnostic evidence source",
+        )
     return MappingProxyType(normalized)
 
 
@@ -311,14 +317,17 @@ def assemble_version2_package_tree(
     output_root: str | Path,
     *,
     integration_sha: str,
-    diagnostic_files: Mapping[str, str | Path] | None = None,
+    diagnostic_files: dict[str, str | Path] | None = None,
 ) -> Version2PackageAssemblyReport:
     """Atomically assemble and validate one canonical Version 2 package tree."""
 
     sha = _sha40(integration_sha)
-    product = Path(prepared_product_dir)
-    notices = Path(third_party_notices_dir)
-    output = Path(output_root)
+    product = _passive_path(prepared_product_dir, label="prepared product directory")
+    notices = _passive_path(
+        third_party_notices_dir,
+        label="third-party notices directory",
+    )
+    output = _passive_path(output_root, label="package output")
     diagnostics = _diagnostics(diagnostic_files)
 
     _safe_info(product, label="prepared product directory", directory=True)
@@ -361,8 +370,8 @@ def write_version2_package_zip(
     """Create one deterministic archive and accept it only after readback."""
 
     sha = _sha40(expected_integration_sha)
-    root = Path(package_root)
-    target = Path(zip_path)
+    root = _passive_path(package_root, label="package root")
+    target = _passive_path(zip_path, label="Version 2 ZIP output")
     tree_report = validate_version2_package_tree(root, expected_integration_sha=sha)
     if _path_entry_exists(target, label="Version 2 ZIP output"):
         _fail("Version 2 ZIP output must not already exist")
