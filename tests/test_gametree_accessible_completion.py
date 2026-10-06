@@ -4,14 +4,16 @@ from pathlib import Path
 import tempfile
 import unittest
 
+from acs.full_product_actions import FullProductActionRouter
 from acs.full_product_presenters import PgnTreePresenter
-from acs.full_product_ui_shell import UILanguage
+from acs.full_product_ui_shell import AccessibleShellState, UILanguage
 from acs.gametree import parse_games
 from acs.gametree_navigation import GameTreeCursor, VariationStep, resolve_line
 from acs.pgn_document import PgnDocumentSession
 from acs.pgn_workspace import MAX_PGN_EDIT_TAG_NAME_CHARS, MAX_PGN_EDIT_TAG_VALUE_CHARS
 from acs.pgn_webview_bridge import PgnWebViewBridge
 from acs.pgn_webview_projection import PgnWebViewProjection
+from acs.pgn_workspace_webview_adapter import PgnWorkspaceWebViewProjection
 from acs.version2_pgn_commands import Version2PgnCommands
 
 
@@ -257,6 +259,52 @@ class AccessibleGameTreeCompletionTests(unittest.TestCase):
         self.assertEqual(down.kind, "delegated")
         self.assertEqual(calls[-1][0], "pgn.variation_move_down")
         self.assertEqual(set(calls[-1][1]), {"game_index", "node_id"})
+
+    def test_webview_reorder_crosses_trusted_adapter_into_canonical_workspace(self):
+        session = PgnDocumentSession.from_text(DOCUMENT)
+        commands = Version2PgnCommands(lambda: session)
+        router = FullProductActionRouter(
+            AccessibleShellState(language=UILanguage.EN),
+            commands,
+        )
+        projection = PgnWorkspaceWebViewProjection(
+            session.workspace,
+            router,
+            language=UILanguage.EN,
+        )
+        bridge = PgnWebViewBridge(projection)
+        middle = next(
+            item
+            for item in projection.snapshot()["tree"]
+            if item["kind"] == "variation"
+            and item["node_id"].endswith("/m1/v1")
+        )
+
+        selected = bridge.dispatch("pgn.select", {"node_id": middle["node_id"]})
+        self.assertEqual(selected.kind, "selection")
+        moved = bridge.dispatch("pgn.variation_move_down", {})
+        self.assertEqual(moved.kind, "selection")
+
+        game = session.workspace.current_game()
+        self.assertEqual(
+            [
+                resolve_line(game, (VariationStep(1, index),)).moves[0].san
+                for index in range(3)
+            ],
+            ["c5", "d5", "c6"],
+        )
+        self.assertEqual(
+            session.workspace.cursor,
+            GameTreeCursor((VariationStep(1, 2),), 0),
+        )
+        snapshot = moved.payload["snapshot"]
+        self.assertIn("Alternative 3 of 3", snapshot["selection_context"])
+        actions = {item["action"]: item for item in snapshot["actions"]}
+        self.assertTrue(actions["pgn.variation_move_up"]["enabled"])
+        self.assertFalse(actions["pgn.variation_move_down"]["enabled"])
+        browser_payload = repr(moved.payload)
+        self.assertNotIn("expected_record_digest", browser_payload)
+        self.assertNotIn("line_path", browser_payload)
 
     def test_browser_action_toolbar_has_localized_accessible_name(self):
         js = (
