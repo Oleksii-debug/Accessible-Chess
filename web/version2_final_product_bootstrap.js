@@ -30,7 +30,7 @@
   const navHeading = documentRef.createElement("h2");
   navHeading.id = "v2-navigation-heading";
   nav.appendChild(navHeading);
-  const navList = documentRef.createElement("ul");
+  const navList = documentRef.createElement("div");
   navList.id = "v2-navigation-list";
   nav.appendChild(navList);
 
@@ -368,7 +368,7 @@
     const items = Array.isArray(snapshot.navigation) ? snapshot.navigation : [];
     const fragment = documentRef.createDocumentFragment();
     items.forEach(function (item) {
-      const row = documentRef.createElement("li");
+      const row = documentRef.createElement("div");
       const button = documentRef.createElement("button");
       button.type = "button";
       button.id = "v2-nav-" + String(item.route_id || "");
@@ -457,6 +457,7 @@
     const screen = snapshot.screen && typeof snapshot.screen === "object" ? snapshot.screen : {};
     const routeId = String(screen.route_id || "board");
     currentRouteId = routeId;
+    if (typeof global.showStage1Route === "function") global.showStage1Route(routeId);
     const requestedFocus = String(screen.focus_target || "");
     const heading = String(screen.heading || "");
 

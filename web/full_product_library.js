@@ -788,9 +788,10 @@
     const main = node("section");
     main.appendChild(node("h2", snapshot.heading || ""));
     main.appendChild(node("p", snapshot.description || ""));
+    // Existing games are the primary surface; search/import are additional actions.
+    renderResults(root, main, snapshot, invoke, announce);
     renderImport(root, main, snapshot, invoke, announce);
     renderFilters(root, main, snapshot, invoke, announce);
-    renderResults(root, main, snapshot, invoke, announce);
     renderExportSelection(root, main, snapshot, invoke, announce);
     renderActions(root, main, snapshot, invoke, announce);
     if (snapshot.message) {

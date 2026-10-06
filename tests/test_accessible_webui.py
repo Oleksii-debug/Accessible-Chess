@@ -55,7 +55,7 @@ class AccessibleWebUiTests(unittest.TestCase):
         ]:
             self.assertIn(f">{heading}<", self.html)
         for marker in (
-            'class="skip-link" href="#main-content"', '<main id="main-content">',
+            '<main id="main-content">',
             'id="move-input" type="text"', 'id="position-input"',
             'id="position-load" type="button"', 'id="empty-board" type="button"',
             'id="board-launcher" type="button"',

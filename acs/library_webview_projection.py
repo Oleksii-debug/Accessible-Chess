@@ -43,6 +43,7 @@ _LABELS = {
         "next": "Наступна сторінка",
         "open": "Відкрити вибрану партію",
         "empty": "За цими фільтрами партій не знайдено.",
+        "empty_library": "У бібліотеці ще немає партій. Імпортуйте файл із партіями.",
         "shown_one": "Показано 1 партію.",
         "shown_many": "Показано партій: {count}.",
         "source": "Джерело",
@@ -71,6 +72,7 @@ _LABELS = {
         "next": "Next page",
         "open": "Open selected game",
         "empty": "No games match these filters.",
+        "empty_library": "The library has no games yet. Import a file with games.",
         "shown_one": "1 game shown.",
         "shown_many": "{count} games shown.",
         "source": "Source",
@@ -550,7 +552,12 @@ class LibraryWebViewProjection:
         if view.status is SurfaceStatus.ERROR:
             return _scrub_visible_text(view.message, language=self._language, limit=500)
         if not view.rows:
-            return labels["empty"]
+            query = self._query
+            filtered = any(getattr(query, field) is not None for field in (
+                "player", "event", "eco", "opening", "game_date", "date_from",
+                "date_to", "result", "source_id", "source_name",
+            ))
+            return labels["empty" if filtered else "empty_library"]
         if len(view.rows) == 1:
             return labels["shown_one"]
         return labels["shown_many"].format(count=len(view.rows))
