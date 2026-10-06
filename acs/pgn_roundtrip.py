@@ -1059,16 +1059,6 @@ def materialize_pgn_games_bounded(
         )
     return tuple(snapshot)
 
-def _validate_unicode_scalar_text(text: str) -> None:
-    """Reject code points that cannot be encoded as strict UTF-8."""
-
-    if any(0xD800 <= ord(character) <= 0xDFFF for character in text):
-        raise PgnRoundTripError(
-            "PGN model contains non-scalar Unicode text",
-            code=PgnRoundTripErrorCode.INVALID_MODEL,
-        )
-
-
 def serialize_pgn_text(games: Iterable[PgnGame]) -> str:
     """Serialize only a bounded model that can be reparsed by the strict codec."""
 
@@ -1085,7 +1075,6 @@ def serialize_pgn_text(games: Iterable[PgnGame]) -> str:
             "PGN serialization exceeds the character safety limit",
             PgnRoundTripErrorCode.TEXT_SIZE_LIMIT,
         )
-    _validate_unicode_scalar_text(text)
     return text
 
 
