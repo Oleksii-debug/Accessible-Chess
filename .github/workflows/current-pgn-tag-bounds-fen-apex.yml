@@ -1,0 +1,119 @@
+name: PGN Tag Bounds and FEN Regression Apex
+
+on:
+  pull_request:
+    branches:
+      - converge/pgn-editing-books-fen-apex-20261006-zftrkmo121
+    paths:
+      - '.github/workflows/current-pgn-tag-bounds-fen-apex.yml'
+      - 'acs/pgn_webview_bridge.py'
+      - 'acs/pgn_workspace.py'
+      - 'tests/test_pgn_complete_editing_user_flow.py'
+      - 'tests/test_fen_editor_turn_and_visible_status.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pgn-tag-bounds-fen-apex-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  PGN_BRIDGE_BLOB: 79a33b2acb88183dc9e76c2a1751e1e1862510d0
+  PGN_WORKSPACE_BLOB: 4728e069d1fbc6f76daaed3116cabbe8ce6c0e0a
+  PGN_FLOW_TEST_BLOB: f46f608474bedfa7d8830294e06e21fb3b24ccae
+  FEN_TURN_TEST_BLOB: b70774b1bd9fbd333733dd4d0dd0d2a23956b9d7
+
+jobs:
+  exact-head:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prove live parent and bounded child
+        shell: bash
+        env:
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          expected="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
+          test "$(git rev-parse HEAD)" = "$expected"
+          base_ref="${EVENT_BASE_REF:-converge/pgn-editing-books-fen-apex-20261006-zftrkmo121}"
+          git fetch --no-tags origin "+refs/heads/$base_ref:refs/remotes/origin/$base_ref"
+          live_base="$(git rev-parse "refs/remotes/origin/$base_ref")"
+          if [ -n "${EVENT_BASE_SHA:-}" ]; then
+            test "$EVENT_BASE_SHA" = "$live_base"
+          fi
+          test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+          git diff --check "$live_base"...HEAD
+          changed="$(git diff --name-only "$live_base"...HEAD | sort)"
+          expected_paths="$(printf '%s\n'             '.github/workflows/current-pgn-tag-bounds-fen-apex.yml'             'acs/pgn_webview_bridge.py'             'acs/pgn_workspace.py'             'tests/test_fen_editor_turn_and_visible_status.py'             'tests/test_pgn_complete_editing_user_flow.py' | sort)"
+          test "$changed" = "$expected_paths"
+          test "$(git rev-parse HEAD:acs/pgn_webview_bridge.py)" = "$PGN_BRIDGE_BLOB"
+          test "$(git rev-parse HEAD:acs/pgn_workspace.py)" = "$PGN_WORKSPACE_BLOB"
+          test "$(git rev-parse HEAD:tests/test_pgn_complete_editing_user_flow.py)" = "$PGN_FLOW_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_fen_editor_turn_and_visible_status.py)" = "$FEN_TURN_TEST_BLOB"
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile changed Python
+        run: >-
+          python -m py_compile
+          acs/pgn_webview_bridge.py
+          acs/pgn_workspace.py
+          tests/test_pgn_complete_editing_user_flow.py
+          tests/test_fen_editor_turn_and_visible_status.py
+
+      - name: Execute bounded PGN editing and atomicity
+        run: >-
+          python -m unittest -v
+          tests.test_pgn_complete_editing_user_flow
+          tests.test_pgn_workspace
+          tests.test_version2_pgn_commands
+          tests.test_dev1_pgn_webview_projection
+          tests.test_dev1_pgn_workspace_webview_adapter
+          tests.test_pgn_document
+          tests.test_d06_pgn_roundtrip
+
+      - name: Preserve current FEN and analysis ownership
+        run: >-
+          python -m unittest -v
+          tests.test_fen_editor_turn_and_visible_status
+          tests.test_fen_position_editor_complete_user_flow
+          tests.test_ui_analysis_webapp
+          tests.test_analysis_webview_bridge
+          tests.test_fen_input_budget_current
+
+      - name: Preserve application and whole-product flow
+        run: >-
+          python -m unittest -v
+          tests.test_version2_application
+          tests.test_dev1_full_product_webview_adapter
+          tests.test_version2_final_product_composition
+          tests.test_webapp_accessibility
+          tests.test_webapp_release_ui
+
+      - name: Preserve Books runtime adjacency
+        run: >-
+          python -m unittest -v
+          tests.test_book_html_runtime_correctness
+          tests.test_book_epub_runtime_correctness
+          tests.test_book_reader
+
+      - name: Core selftest
+        run: python -m acs.selftest
