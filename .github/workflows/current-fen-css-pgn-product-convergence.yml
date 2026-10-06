@@ -1,0 +1,152 @@
+name: Current FEN CSS PGN Product Convergence
+
+on:
+  pull_request:
+    branches:
+      - anchor/c2mbezb113-fen-base-6de1c43
+    paths:
+      - '.github/workflows/current-fen-css-pgn-product-convergence.yml'
+      - 'acs/book_html_import.py'
+      - 'tests/test_book_active_import_cancellation.py'
+      - 'acs/full_product_actions.py'
+      - 'acs/full_product_presenters.py'
+      - 'acs/pgn_webview_bridge.py'
+      - 'acs/pgn_webview_projection.py'
+      - 'acs/pgn_workspace.py'
+      - 'acs/pgn_workspace_webview_adapter.py'
+      - 'acs/version2_pgn_commands.py'
+      - 'tests/test_pgn_complete_editing_user_flow.py'
+      - 'web/full_product_pgn.js'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-fen-css-pgn-convergence-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  HTML_IMPORT_BLOB: 8400a3a90a17e99406b99c60a7af1baefa1f784d
+  ACTIVE_CANCEL_TEST_BLOB: 5bf93cd819eec762df0df65b44ebb7171d39877a
+  ACTIONS_BLOB: 3979e7a3b978715fd1ddfbb9e613f5f889675e8c
+  PRESENTERS_BLOB: da56a615b8fe5d83a8a114b4ca807e34fe339fc6
+  BRIDGE_BLOB: cd719f8a37a244eac53bcddb136b58ce08ec76b9
+  PROJECTION_BLOB: a0d9f93c1ca7314ef12c13a7818d746ec4ae0d60
+  WORKSPACE_BLOB: 8208afe46c734035db23e66b4f4e9c59d6524cf5
+  ADAPTER_BLOB: 62b908f4e4c59d7060678845e6cb8ff3b31b30b1
+  COMMANDS_BLOB: b85330c2458b864ee406de75cf58072ba2ee6338
+  PGN_TEST_BLOB: 18359190f5e4724c6c2ec7a3ba4567039d6f1844
+  PGN_JS_BLOB: 98d9ced8e77aafbd718da4fbb063a7c9ea5af8a6
+
+jobs:
+  exact-head:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prove exact parent geometry and source blobs
+        shell: bash
+        env:
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          expected="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
+          test "$(git rev-parse HEAD)" = "$expected"
+          base_ref="${EVENT_BASE_REF:-anchor/c2mbezb113-fen-base-6de1c43}"
+          git fetch --no-tags origin "+refs/heads/$base_ref:refs/remotes/origin/$base_ref"
+          live_base="$(git rev-parse "refs/remotes/origin/$base_ref")"
+          if [ -n "${EVENT_BASE_SHA:-}" ]; then
+            test "$EVENT_BASE_SHA" = "$live_base"
+          fi
+          test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+          git diff --check "$live_base"...HEAD
+          changed="$(git diff --name-only "$live_base"...HEAD | sort)"
+          expected_paths="$(printf '%s\n' \
+            '.github/workflows/current-fen-css-pgn-product-convergence.yml' \
+            'acs/book_html_import.py' \
+            'tests/test_book_active_import_cancellation.py' \
+            'acs/full_product_actions.py' \
+            'acs/full_product_presenters.py' \
+            'acs/pgn_webview_bridge.py' \
+            'acs/pgn_webview_projection.py' \
+            'acs/pgn_workspace.py' \
+            'acs/pgn_workspace_webview_adapter.py' \
+            'acs/version2_pgn_commands.py' \
+            'tests/test_pgn_complete_editing_user_flow.py' \
+            'web/full_product_pgn.js' | sort)"
+          test "$changed" = "$expected_paths"
+          test "$(git rev-parse HEAD:acs/book_html_import.py)" = "$HTML_IMPORT_BLOB"
+          test "$(git rev-parse HEAD:tests/test_book_active_import_cancellation.py)" = "$ACTIVE_CANCEL_TEST_BLOB"
+          test "$(git rev-parse HEAD:acs/full_product_actions.py)" = "$ACTIONS_BLOB"
+          test "$(git rev-parse HEAD:acs/full_product_presenters.py)" = "$PRESENTERS_BLOB"
+          test "$(git rev-parse HEAD:acs/pgn_webview_bridge.py)" = "$BRIDGE_BLOB"
+          test "$(git rev-parse HEAD:acs/pgn_webview_projection.py)" = "$PROJECTION_BLOB"
+          test "$(git rev-parse HEAD:acs/pgn_workspace.py)" = "$WORKSPACE_BLOB"
+          test "$(git rev-parse HEAD:acs/pgn_workspace_webview_adapter.py)" = "$ADAPTER_BLOB"
+          test "$(git rev-parse HEAD:acs/version2_pgn_commands.py)" = "$COMMANDS_BLOB"
+          test "$(git rev-parse HEAD:tests/test_pgn_complete_editing_user_flow.py)" = "$PGN_TEST_BLOB"
+          test "$(git rev-parse HEAD:web/full_product_pgn.js)" = "$PGN_JS_BLOB"
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile changed Python
+        run: >-
+          python -m py_compile
+          acs/book_html_import.py
+          tests/test_book_active_import_cancellation.py
+          acs/full_product_actions.py
+          acs/full_product_presenters.py
+          acs/pgn_webview_bridge.py
+          acs/pgn_webview_projection.py
+          acs/pgn_workspace.py
+          acs/pgn_workspace_webview_adapter.py
+          acs/version2_pgn_commands.py
+          tests/test_pgn_complete_editing_user_flow.py
+
+      - name: Parse PGN browser surface
+        run: node --check web/full_product_pgn.js
+
+      - name: Complete PGN editing journey
+        run: >-
+          python -m unittest -v
+          tests.test_pgn_complete_editing_user_flow
+          tests.test_pgn_workspace
+          tests.test_version2_pgn_commands
+          tests.test_dev1_pgn_webview_projection
+          tests.test_dev1_pgn_workspace_webview_adapter
+          tests.test_pgn_document
+          tests.test_d06_pgn_roundtrip
+
+      - name: Preserve HTML cancellation and runtime safety
+        run: >-
+          python -m unittest -v
+          tests.test_book_active_import_cancellation
+          tests.test_book_html_runtime_correctness
+          tests.test_v2_book_html_import
+
+      - name: Preserve current FEN editor and whole-product composition
+        run: >-
+          python -m unittest -v
+          tests.test_fen_editor_turn_and_visible_status
+          tests.test_fen_position_editor_complete_user_flow
+          tests.test_version2_application
+          tests.test_dev1_full_product_webview_adapter
+          tests.test_version2_final_product_composition
+
+      - name: Core selftest
+        run: python -m acs.selftest
