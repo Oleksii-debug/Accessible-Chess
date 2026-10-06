@@ -55,7 +55,7 @@ jobs:
           EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
           PRODUCT_BASE: d0e14b998bb57b5c3b53609ecef41ab646b213a3
           PRODUCT_BRANCH: converge/current-product-books-provider-20261005-ooxple7
-          MEDIA_PRESENTATION_SOURCE: df38ca6e2d3ec48e43d03cf9fdc948be4533a4e3
+          MEDIA_PRESENTATION_SOURCE: bd1d608bf8229e9bb5c0fe92d7d3ce6784570bf0
           MEDIA_PRESENTATION_BRANCH: work/media-accessible-restore-presentation-20261005-sol56h8n4
         run: |
           set -euo pipefail
@@ -98,16 +98,16 @@ jobs:
             exit 1
           }
 
-          test "$(git rev-parse HEAD:.github/workflows/media-accessible-restore-presentation.yml)" = '1c37febb7ca9e88a23dc9e211140d3af271f0ec7'
-          test "$(git rev-parse HEAD:.github/workflows/media-application-restore-position.yml)" = 'a8cfe3c0bf77f2d5c9a2637afdfa4a1455e99792'
+          test "$(git rev-parse HEAD:.github/workflows/media-accessible-restore-presentation.yml)" = '6002c836ca57d7d2c68962487e159617887eb791'
+          test "$(git rev-parse HEAD:.github/workflows/media-application-restore-position.yml)" = '58865b653afb1422a8979ca5484d573943a76cb9'
           test "$(git rev-parse HEAD:acs/media_accessibility.py)" = 'd741c76cbd94c4015c67e978a5396dfce1369ced'
           test "$(git rev-parse HEAD:acs/media_application.py)" = '1518064a092e6773d4e1ceeef293059421678b9c'
-          test "$(git rev-parse HEAD:acs/media_core.py)" = 'dfb9f8628c84a142951d98ff126c51fe573f9fc7'
+          test "$(git rev-parse HEAD:acs/media_core.py)" = '6460bfdb5b0d26d1040d612e1789e63e2479cea6'
           test "$(git rev-parse HEAD:tests/js/media_accessible_restore_dom_test.js)" = '7c57252ffdd2220628d92d42cf765a8bd575b7f5'
           test "$(git rev-parse HEAD:tests/test_architecture.py)" = 'a2216884c60ef4e51c0164f3917b3c135dc78de4'
           test "$(git rev-parse HEAD:tests/test_media_accessibility.py)" = '5c60914e1e7ffcd516d1dbdb1881231d06d9ab67'
           test "$(git rev-parse HEAD:tests/test_media_application.py)" = '50bda338c6c791ce0c30ea07c7cb6588111feb87'
-          test "$(git rev-parse HEAD:tests/test_media_core.py)" = '00f8082bd9bfaf0aeb2f09700346128ea04e2651'
+          test "$(git rev-parse HEAD:tests/test_media_core.py)" = 'c513275b88d81e021fc9ac395ef1684e7fc98f58'
           test "$(git rev-parse HEAD:web/media_accessible_restore.js)" = 'bc93b90c294814cf85cb08afec5905b91ae0b057'
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
