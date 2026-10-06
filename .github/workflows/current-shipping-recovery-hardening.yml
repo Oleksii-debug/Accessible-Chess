@@ -203,6 +203,17 @@ jobs:
             test "${paths[$i]}" = "${expected[$i]}"
           done
           test ! -e .github/workflows/current-shipping-owner-cancel-recovery-order.yml
+
+      - name: Prove exact blob authorities
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            base_sha="${{ github.event.pull_request.base.sha }}"
+          else
+            base_sha="$PARENT_SHA"
+          fi
+          git cat-file -e "$base_sha^{commit}"
           test "$(git rev-parse HEAD:.github/workflows/sound-scaled-cache-integrity.yml)" = "0650e282bb6fedaee2a6f6434e3271947c319ec5"
           test "$(git rev-parse HEAD:.github/workflows/w6-v2-package-assembler.yml)" = "fcad08b5f1d48cdb9b6251a97be43d94b6019c08"
           test "$(git rev-parse HEAD:.github/workflows/w6-v2-package-preflight-current-runtime.yml)" = "608a631a9d05f6b5c90e38c2f94eca0241a368a8"
