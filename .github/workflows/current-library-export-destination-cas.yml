@@ -54,10 +54,13 @@ jobs:
           EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
           SHIPPING_REF: converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
-          PINNED_SHIPPING_SHA: 34197e963e9d5091c79b3d2fc396cdecfa229b77
+          PINNED_SHIPPING_SHA: 167e2e8e4f273277f5b2997ed2b3c70287a16eda
           PINNED_PGN_SERVICE_BLOB: 76ae657c9cea85cbb57b5c202bc2954717ce9d58
           PINNED_PGN_EXPORT_HOST_BLOB: 913a74348f1323887d9d880285814a7680869ae1
           PINNED_PGN_COMMANDS_BLOB: 74a94b45597fbdc1607e7b3452df41b88837b42f
+          LIBRARY_OPEN_TEST_BLOB: cc3c1eadd86498e6ced76c3ea898f80b33d25975
+          LIBRARY_HOST_RUNTIME_TEST_BLOB: 6eaa40f7e8c4997d5d3d61d224080aeb350d8d3b
+          LIBRARY_EXPORT_BACKGROUND_TEST_BLOB: 9b7de203065595261988568e3b9702d7cfcb61b1
         run: |
           set -euo pipefail
           expected_head="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
@@ -90,21 +93,9 @@ jobs:
           expected="$(printf '%s\n' \
             '.github/workflows/current-library-export-destination-cas.yml' \
             '.github/workflows/current-library-open-publication-ack.yml' \
-            'acs/full_product_actions.py' \
-            'acs/library_export_service.py' \
-            'acs/library_export_webview_projection.py' \
-            'acs/library_webview_bridge.py' \
-            'acs/ui_keymap_adapter.py' \
-            'acs/version2_application.py' \
-            'acs/version2_windows_host_runtime.py' \
-            'acs/version2_windows_library_export.py' \
-            'tests/js/library_export_surface_dom_test.js' \
-            'tests/js/version2_release_bootstrap_dom_test.js' \
             'tests/test_library_open_game_publication.py' \
             'tests/test_v2_windows_host_runtime.py' \
-            'tests/test_v2_windows_library_export_background.py' \
-            'web/full_product_library.js' \
-            'web/version2_release_bootstrap.js' | sort)"
+            'tests/test_v2_windows_library_export_background.py' | sort)"
           test "$changed" = "$expected" || {
             printf 'Unexpected Library export background/CAS scope:\n%s\n' "$changed" >&2
             exit 1
@@ -114,6 +105,9 @@ jobs:
           test "$(git rev-parse HEAD:acs/version2_windows_pgn_export.py)" = "$PINNED_PGN_EXPORT_HOST_BLOB"
           test "$(git rev-parse HEAD:acs/version2_pgn_commands.py)" = "$PINNED_PGN_COMMANDS_BLOB"
 
+          test "$(git rev-parse HEAD:tests/test_library_open_game_publication.py)" = "$LIBRARY_OPEN_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_v2_windows_host_runtime.py)" = "$LIBRARY_HOST_RUNTIME_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_v2_windows_library_export_background.py)" = "$LIBRARY_EXPORT_BACKGROUND_TEST_BLOB"
           echo "CURRENT_LIBRARY_EXPORT_DESTINATION_CAS_SHIPPING=$live_shipping"
           echo "CURRENT_LIBRARY_EXPORT_DESTINATION_CAS_SCOPE=PASS"
 
