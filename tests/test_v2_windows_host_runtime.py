@@ -6,7 +6,10 @@ import threading
 import time
 import unittest
 from unittest import mock
+from unittest.mock import patch
 
+from acs.acsdb import AcsDatabase
+from acs.library_export_service import LibraryExportRequest, LibraryExportService
 from acs.pgn_document import PgnDocumentSession
 from acs.library_import_service import (
     LibraryImportCancelledError,
@@ -186,6 +189,11 @@ class _BlockingProgressLibrary(_Library):
         return LibraryImportResult(1, 1, total, 0, 1, total)
 
 
+class _ImportCapableLibrary:
+    def import_games(self, *args, **kwargs):
+        raise AssertionError("import service must not run")
+
+
 class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
     def setUp(self) -> None:
         _OpenDialog.selected_paths.clear()
@@ -202,6 +210,7 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
         export_events: list[object] | None = None,
         fallback_calls: list[tuple[str, dict[str, object]]] | None = None,
         closed_services: list[bool] | None = None,
+        library_export_worker_services_factory=None,
         pgn_session: PgnDocumentSession | None = None,
         pgn_session_box: dict[str, PgnDocumentSession | None] | None = None,
     ) -> Version2WindowsFileWorkflowRuntime:
@@ -2094,6 +2103,490 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
         self.assertIsInstance(errors[0], RuntimeError)
         self.assertIn("UI thread", str(errors[0]))
         self.assertTrue(runtime.closed)
+
+    def test_export_save_dialog_rejects_reentrant_import_before_open_dialog(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "outer-export.pgn"
+            source = Path(directory) / "nested-import.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            _SaveDialog.selected_paths.append(str(destination))
+            _OpenDialog.selected_paths.append(str(source))
+            owner = _Owner()
+            runtime = self._runtime(owner)
+            nested_errors: list[BaseException] = []
+            original_show = _SaveDialog.ShowDialog
+
+            def reentrant_show(dialog, dialog_owner):
+                try:
+                    runtime("library.import", {})
+                except BaseException as exc:
+                    nested_errors.append(exc)
+                return original_show(dialog, dialog_owner)
+
+            try:
+                with patch.object(_SaveDialog, "ShowDialog", new=reentrant_show):
+                    started = runtime(
+                        "library.export",
+                        LibraryExportRequest.selected([1]).browser_payload(),
+                    )
+                self.assertEqual(started.kind, LibraryExportHostEventKind.STARTED)
+                self.assertEqual(len(nested_errors), 1)
+                self.assertIsInstance(nested_errors[0], RuntimeError)
+                self.assertIn("export is already active", str(nested_errors[0]))
+                self.assertEqual(_OpenDialog.owners, [])
+                self.assertEqual(_SaveDialog.owners, [owner])
+                self.assertTrue(runtime.wait_for_export(5.0))
+                for callback in list(owner.posted):
+                    callback()
+            finally:
+                self.assertTrue(runtime.shutdown())
+
+
+    def test_import_open_dialog_rejects_reentrant_export_before_save_dialog(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "outer-import.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            destination = Path(directory) / "nested-export.pgn"
+            _OpenDialog.selected_paths.append(str(source))
+            _SaveDialog.selected_paths.append(str(destination))
+            owner = _Owner()
+            runtime = self._runtime(owner)
+            nested_errors: list[BaseException] = []
+            original_show = _OpenDialog.ShowDialog
+
+            def reentrant_show(dialog, dialog_owner):
+                try:
+                    runtime(
+                        "library.export",
+                        LibraryExportRequest.selected([1]).browser_payload(),
+                    )
+                except BaseException as exc:
+                    nested_errors.append(exc)
+                return original_show(dialog, dialog_owner)
+
+            try:
+                with patch.object(_OpenDialog, "ShowDialog", new=reentrant_show):
+                    started = runtime("library.import", {})
+                self.assertEqual(started.kind, FileWorkflowEventKind.IMPORT_STARTED)
+                self.assertEqual(len(nested_errors), 1)
+                self.assertIsInstance(nested_errors[0], RuntimeError)
+                self.assertIn("import is already active", str(nested_errors[0]))
+                self.assertEqual(_SaveDialog.owners, [])
+                self.assertEqual(_OpenDialog.owners, [owner])
+                self.assertTrue(runtime.wait_for_import(5.0))
+                for callback in list(owner.posted):
+                    callback()
+            finally:
+                self.assertTrue(runtime.shutdown())
+
+
+    def test_reentrant_shutdown_during_import_dialog_is_retryable_not_false_success(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "modal-shutdown-import.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            _OpenDialog.selected_paths.append(str(source))
+            owner = _Owner()
+            runtime = self._runtime(owner)
+            shutdown_results: list[bool] = []
+            closed_during_dialog: list[bool] = []
+            original_show = _OpenDialog.ShowDialog
+
+            def reentrant_show(dialog, dialog_owner):
+                shutdown_results.append(runtime.shutdown(timeout=0.1))
+                closed_during_dialog.append(runtime.closed)
+                return original_show(dialog, dialog_owner)
+
+            with patch.object(_OpenDialog, "ShowDialog", new=reentrant_show):
+                started = runtime("library.import", {})
+
+            self.assertEqual(shutdown_results, [False])
+            self.assertEqual(closed_during_dialog, [False])
+            self.assertFalse(runtime.closed)
+            self.assertEqual(started.kind, FileWorkflowEventKind.IMPORT_STARTED)
+            self.assertTrue(runtime.wait_for_import(5.0))
+            for callback in list(owner.posted):
+                callback()
+            self.assertTrue(runtime.shutdown(5.0))
+            self.assertTrue(runtime.closed)
+
+
+    def test_reentrant_shutdown_during_export_dialog_is_retryable_not_false_success(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "modal-shutdown-export.pgn"
+            _SaveDialog.selected_paths.append(str(destination))
+            owner = _Owner()
+            runtime = self._runtime(owner)
+            shutdown_results: list[bool] = []
+            closed_during_dialog: list[bool] = []
+            original_show = _SaveDialog.ShowDialog
+
+            def reentrant_show(dialog, dialog_owner):
+                shutdown_results.append(runtime.shutdown(timeout=0.1))
+                closed_during_dialog.append(runtime.closed)
+                return original_show(dialog, dialog_owner)
+
+            with patch.object(_SaveDialog, "ShowDialog", new=reentrant_show):
+                started = runtime(
+                    "library.export",
+                    LibraryExportRequest.selected([1]).browser_payload(),
+                )
+
+            self.assertEqual(shutdown_results, [False])
+            self.assertEqual(closed_during_dialog, [False])
+            self.assertFalse(runtime.closed)
+            self.assertEqual(started.kind, LibraryExportHostEventKind.STARTED)
+            self.assertTrue(runtime.wait_for_export(5.0))
+            for callback in list(owner.posted):
+                callback()
+            self.assertTrue(runtime.shutdown(5.0))
+            self.assertTrue(runtime.closed)
+
+
+    def test_library_export_worker_factory_rejects_active_service_containers_passively(self) -> None:
+        touched: list[str] = []
+
+        class HostileServices(Version2ImportWorkerServices):
+            def __getattribute__(self, name):
+                if name in {"close", "library", "chessbase"}:
+                    touched.append(name)
+                    raise AssertionError("rejected services hook executed")
+                return super().__getattribute__(name)
+
+        hostile = HostileServices.__new__(HostileServices)
+        object.__setattr__(hostile, "library", _ImportCapableLibrary())
+        object.__setattr__(hostile, "chessbase", None)
+        object.__setattr__(hostile, "close", lambda: touched.append("close-call"))
+
+        create = Version2WindowsFileWorkflowRuntime._library_export_worker_factory(
+            lambda: hostile
+        )
+
+        with self.assertRaisesRegex(TypeError, "invalid bundle"):
+            create()
+        self.assertEqual(touched, [])
+
+
+    def test_library_export_worker_factory_rejects_active_cleanup_before_owner_lookup(self) -> None:
+        touched: list[str] = []
+
+        class ActiveClose:
+            def __call__(self):
+                touched.append("call")
+
+            def __getattribute__(self, name):
+                if name == "__self__":
+                    touched.append("owner")
+                    raise AssertionError("active cleanup owner hook executed")
+                return super().__getattribute__(name)
+
+        services = Version2ImportWorkerServices(
+            _ImportCapableLibrary(),
+            None,
+            ActiveClose(),
+        )
+        create = Version2WindowsFileWorkflowRuntime._library_export_worker_factory(
+            lambda: services
+        )
+
+        with self.assertRaisesRegex(TypeError, "canonical AcsDatabase owner"):
+            create()
+        self.assertEqual(touched, [])
+
+
+    def test_library_export_worker_factory_preserves_constructor_abort_and_closes_database(self) -> None:
+        class ConstructionAbort(BaseException):
+            pass
+
+        database = AcsDatabase()
+        services = Version2ImportWorkerServices(
+            _ImportCapableLibrary(),
+            None,
+            database.close,
+        )
+        create = Version2WindowsFileWorkflowRuntime._library_export_worker_factory(
+            lambda: services
+        )
+
+        with patch(
+            "acs.version2_windows_host_runtime.LibraryExportService",
+            side_effect=ConstructionAbort("Library export service construction aborted"),
+        ):
+            with self.assertRaises(ConstructionAbort):
+                create()
+
+        with self.assertRaises(Exception):
+            database.conn.execute("SELECT 1")
+
+
+    def test_next_library_start_recovers_export_terminal_after_both_ui_posts_fail(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            database_path = Path(directory) / "library.acsdb"
+            database = AcsDatabase(database_path)
+            try:
+                database.import_pgn_text(_PGN, source_name="export-source.pgn")
+                row = database.conn.execute(
+                    "SELECT id FROM games ORDER BY id LIMIT 1"
+                ).fetchone()
+                assert row is not None
+                game_id = int(row["id"])
+            finally:
+                database.close()
+
+            destination = Path(directory) / "recovered-export.pgn"
+            import_source = Path(directory) / "next-import.pgn"
+            import_source.write_text(_PGN, encoding="utf-8")
+            _SaveDialog.selected_paths.append(str(destination))
+            _OpenDialog.selected_paths.append(str(import_source))
+            owner = _FlakyOwner(2)
+            export_events: list[object] = []
+
+            def export_worker_factory() -> LibraryExportWorkerServices:
+                worker_db = AcsDatabase(database_path)
+                return LibraryExportWorkerServices(
+                    LibraryExportService(worker_db),
+                    worker_db.close,
+                )
+
+            runtime = self._runtime(
+                owner,
+                export_events=export_events,
+                library_export_worker_services_factory=export_worker_factory,
+            )
+            try:
+                started = runtime(
+                    "library.export",
+                    LibraryExportRequest.selected([game_id]).browser_payload(),
+                )
+                self.assertEqual(started.kind, LibraryExportHostEventKind.STARTED)
+                self.assertTrue(runtime.wait_for_export(5.0))
+
+                deadline = threading.Event()
+                for _ in range(200):
+                    if owner.begin_invoke_calls >= 2:
+                        break
+                    deadline.wait(0.01)
+                self.assertEqual(owner.begin_invoke_calls, 2)
+                self.assertEqual(owner.posted, [])
+                self.assertTrue(runtime.export_running)
+                self.assertEqual(
+                    [event.kind for event in export_events],
+                    [LibraryExportHostEventKind.STARTED],
+                )
+
+                import_started = runtime("library.import", {})
+
+                self.assertEqual(
+                    import_started.kind,
+                    FileWorkflowEventKind.IMPORT_STARTED,
+                )
+                self.assertFalse(runtime.export_running)
+                self.assertEqual(
+                    [event.kind for event in export_events],
+                    [
+                        LibraryExportHostEventKind.STARTED,
+                        LibraryExportHostEventKind.EXPORTED,
+                    ],
+                )
+                self.assertTrue(destination.exists())
+                self.assertTrue(runtime.wait_for_import(5.0))
+                for callback in list(owner.posted):
+                    callback()
+            finally:
+                self.assertTrue(runtime.shutdown(5.0))
+
+
+    def test_import_running_rejects_export_before_save_dialog(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "busy-import.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            _OpenDialog.selected_paths.append(str(source))
+            owner = _Owner()
+            library = _CancellableLibrary()
+            runtime = self._runtime(owner, library=library)
+            try:
+                started = runtime("library.import", {})
+                self.assertEqual(started.kind, FileWorkflowEventKind.IMPORT_STARTED)
+                self.assertTrue(library.entered.wait(2.0))
+                self.assertTrue(runtime.import_running)
+
+                with self.assertRaisesRegex(RuntimeError, "import is already active"):
+                    runtime(
+                        "library.export",
+                        LibraryExportRequest.selected([1]).browser_payload(),
+                    )
+                self.assertEqual(_SaveDialog.owners, [])
+
+                runtime("library.cancel_import", {})
+                self.assertTrue(runtime.wait_for_import(5.0))
+            finally:
+                self.assertTrue(runtime.shutdown())
+
+
+    def test_export_running_rejects_import_before_open_dialog(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "busy-export.pgn"
+            _SaveDialog.selected_paths.append(str(destination))
+            owner = _Owner()
+            export_events: list[object] = []
+            runtime = Version2WindowsFileWorkflowRuntime(
+                owner_control=owner,
+                get_pgn_session=lambda: None,
+                set_pgn_session=lambda session: None,
+                import_services_factory=lambda: Version2ImportWorkerServices(
+                    _Library(),
+                    None,
+                    lambda: None,
+                ),
+                export_selected=lambda request, path: None,
+                import_ui_ready=lambda mailbox: None,
+                pgn_export_event_sink=export_events.append,
+                next_delegate=lambda action_id, payload: (action_id, dict(payload)),
+                library_export_worker_services_factory=lambda: object(),
+                current_focus_provider=lambda: "library-export-selected",
+                ui_delegate_factory=lambda callback: callback,
+                file_forms_loader=_forms_loader,
+                export_forms_loader=_forms_loader,
+            )
+            try:
+                started = runtime(
+                    "library.export",
+                    LibraryExportRequest.selected([1]).browser_payload(),
+                )
+                self.assertEqual(started.kind, LibraryExportHostEventKind.STARTED)
+                self.assertTrue(runtime.wait_for_export(5.0))
+                # The worker has selected a terminal event, but until the owner
+                # callback consumes it the operation still owns cancellation.
+                self.assertTrue(runtime.export_running)
+
+                with self.assertRaisesRegex(RuntimeError, "export is already active"):
+                    runtime("library.import", {})
+                self.assertEqual(_OpenDialog.owners, [])
+
+                class HostileCancelPayload(dict):
+                    def __bool__(self):
+                        raise AssertionError("payload truthiness must not run")
+
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "Library cancellation accepts no payload",
+                ):
+                    runtime(
+                        "library.cancel_import",
+                        HostileCancelPayload(unexpected=True),
+                    )
+                self.assertTrue(runtime.export_running)
+
+                self.assertEqual(len(owner.posted), 1)
+                owner.posted.pop(0)()
+                self.assertFalse(runtime.export_running)
+            finally:
+                self.assertTrue(runtime.shutdown())
+
+
+    def test_real_library_export_uses_worker_local_acsdb_and_owner_terminal_post(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            database_path = root / "library.acsdb"
+            database = AcsDatabase(database_path)
+            try:
+                report = database.import_pgn_text(
+                    _PGN,
+                    source_name="runtime-library-export.pgn",
+                )
+                game_id = report.game_ids[0]
+            finally:
+                database.close()
+
+            destination = root / "library-export.pgn"
+            _SaveDialog.selected_paths.append(str(destination))
+            owner = _Owner()
+            export_events: list[object] = []
+
+            def import_services_factory() -> Version2ImportWorkerServices:
+                worker_database = AcsDatabase(database_path)
+                return Version2ImportWorkerServices(
+                    _Library(),
+                    None,
+                    worker_database.close,
+                )
+
+            runtime = Version2WindowsFileWorkflowRuntime(
+                owner_control=owner,
+                get_pgn_session=lambda: None,
+                set_pgn_session=lambda session: None,
+                import_services_factory=import_services_factory,
+                export_selected=lambda request, path: None,
+                import_ui_ready=lambda mailbox: None,
+                pgn_export_event_sink=export_events.append,
+                next_delegate=lambda action_id, payload: (action_id, dict(payload)),
+                current_focus_provider=lambda: "library-export-selected",
+                ui_delegate_factory=lambda callback: callback,
+                file_forms_loader=_forms_loader,
+                export_forms_loader=_forms_loader,
+            )
+            try:
+                started = runtime(
+                    "library.export",
+                    LibraryExportRequest.selected([game_id]).browser_payload(),
+                )
+
+                self.assertEqual(started.kind, LibraryExportHostEventKind.STARTED)
+                self.assertEqual(started.focus_target, "library-export-selected")
+                self.assertTrue(runtime.export_running)
+                self.assertEqual(_SaveDialog.owners, [owner])
+                self.assertEqual(export_events, [started])
+
+                self.assertTrue(runtime.wait_for_export(5.0))
+                self.assertTrue(runtime.export_running)
+                self.assertEqual(len(owner.posted), 1)
+                self.assertFalse(destination.name in repr(export_events))
+
+                owner.posted.pop(0)()
+
+                self.assertFalse(runtime.export_running)
+                self.assertEqual(
+                    [event.kind for event in export_events],
+                    [
+                        LibraryExportHostEventKind.STARTED,
+                        LibraryExportHostEventKind.EXPORTED,
+                    ],
+                )
+                terminal = export_events[-1]
+                self.assertEqual(terminal.focus_target, "library-export-selected")
+                self.assertEqual(terminal.game_count, 1)
+                self.assertNotIn(str(destination), repr(terminal))
+
+                reopened = open_pgn(destination)
+                self.assertEqual(len(reopened.games), 1)
+                self.assertEqual(reopened.games[0].tags["Event"], "Runtime")
+            finally:
+                self.assertTrue(runtime.shutdown())
+
+
+    def test_refused_import_shutdown_does_not_retire_library_export_delegate(self) -> None:
+        owner = _Owner()
+        runtime = self._runtime(owner)
+
+        with patch.object(
+            runtime._file_delegate,
+            "shutdown",
+            return_value=False,
+        ) as import_shutdown, patch.object(
+            runtime._library_export_delegate,
+            "shutdown",
+            wraps=runtime._library_export_delegate.shutdown,
+        ) as export_shutdown:
+            self.assertFalse(runtime.shutdown(0.0))
+            import_shutdown.assert_called_once_with(0.0)
+            export_shutdown.assert_not_called()
+
+        self.assertFalse(runtime.closed)
+        still_live = runtime._library_export_delegate.cancel_export()
+        self.assertEqual(still_live.kind, LibraryExportHostEventKind.FAILED)
+        self.assertEqual(still_live.error_code, "no_library_export_running")
+        self.assertTrue(runtime.shutdown())
+        self.assertTrue(runtime.closed)
+
 
 
 if __name__ == "__main__":
