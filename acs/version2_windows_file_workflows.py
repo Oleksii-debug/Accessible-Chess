@@ -2242,21 +2242,53 @@ class Version2WindowsFileActionDelegate:
         return not worker.is_alive()
 
     def resume_after_refused_shutdown(self) -> bool:
-        """Re-open an idle workflow after the owning Form refused to close.
+        """Re-open file control after the owning Form refused to close.
 
-        Shutdown may have invalidated queued callbacks, so only a fully cleared
-        worker transaction can resume. The generation fence is not rewound.
+        Idle retirement can reopen immediately. If bounded shutdown timed out
+        after a worker actually started, its cancel fence is already authoritative
+        and the shared worker slot still blocks all new file work. Re-open only
+        that cancelled-draining generation so its truthful terminal can reach the
+        owner/NVDA path and clear the slot. A reserved-but-unstarted worker remains
+        fenced: allowing re-entrant recovery there could start work after shutdown.
         """
         with self._lock:
             if not self._shutdown_requested:
                 return True
+            if self._worker is None:
+                if (
+                    self._cancel_event is not None
+                    or self._terminal_pending is not None
+                    or self._pending_open_result is not None
+                    or self._pending_save_result is not None
+                ):
+                    return False
+                self._shutdown_requested = False
+                return True
+
             if (
-                self._worker is not None
-                or self._cancel_event is not None
+                not self._worker_started
+                or self._cancel_event is None
+                or not self._cancel_event.is_set()
+                or self._worker_kind not in {"import", "pgn_open", "pgn_save"}
                 or self._terminal_pending is not None
-                or self._pending_open_result is not None
-                or self._pending_save_result is not None
             ):
+                return False
+            if self._worker_kind == "pgn_open":
+                if self._pending_save_result is not None:
+                    return False
+                pending = self._pending_open_result
+            elif self._worker_kind == "pgn_save":
+                if self._pending_open_result is not None:
+                    return False
+                pending = self._pending_save_result
+            else:
+                if (
+                    self._pending_open_result is not None
+                    or self._pending_save_result is not None
+                ):
+                    return False
+                pending = None
+            if pending is not None and pending[0] != self._generation:
                 return False
             self._shutdown_requested = False
         return True
