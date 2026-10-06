@@ -465,6 +465,15 @@ jobs:
 
           Start-Sleep -Seconds 7
 
+          $reportedChild.Kill()
+          $reportedChild.WaitForExit()
+          foreach ($guardedDirectory in @($root, $app, $data)) {
+            $probeError = [AccessibleChessDirectoryDeleteProbe]::Probe($guardedDirectory)
+            if ($probeError -ne 0) {
+              throw "Directory guard leaked after child exit for $guardedDirectory; DELETE-open result=$probeError"
+            }
+          }
+
       - name: Execute transient-window false-success regression
         shell: pwsh
         run: |
