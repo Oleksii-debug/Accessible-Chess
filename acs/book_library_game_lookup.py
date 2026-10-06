@@ -38,7 +38,10 @@ class AcsdbBookGameLookup:
     """Resolve one Book ``game_id`` through the existing ACSDB read contract."""
 
     def __init__(self, database: AcsDatabase) -> None:
-        if not isinstance(database, AcsDatabase):
+        if type(database) is not AcsDatabase:
+            # This adapter owns a concrete ACSDB trust boundary, not an extensible
+            # provider interface. Reject subclasses before later get_game()
+            # dispatch can execute provider-defined code inside the Books ingress.
             raise TypeError("database must be an AcsDatabase")
         self._database = database
 
@@ -119,7 +122,12 @@ class AcsdbBookGameLookup:
         persisted_warnings = self._stored_warnings(row)
 
         pgn_text = row.get("pgn_text")
-        if type(pgn_text) is not str or not pgn_text.strip():
+        # Bound the exact stored scalar before strip() or D06 parsing. A corrupt
+        # database row must not force a full scan/allocation beyond the canonical
+        # PGN ingress envelope merely to discover that it is invalid.
+        if type(pgn_text) is not str or len(pgn_text) > MAX_PGN_TEXT_CHARS:
+            raise BookLibraryGameLookupError("stored book game is not canonical")
+        if not pgn_text.strip():
             raise BookLibraryGameLookupError("stored book game is not canonical")
 
         try:
