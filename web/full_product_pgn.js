@@ -100,14 +100,15 @@
     requireText(editor.save_label, "PGN comment editor save label", false, 120);
     requireText(editor.cancel_label, "PGN comment editor cancel label", false, 120);
     if (editor.entries !== undefined) {
-      if (!Array.isArray(editor.entries) || editor.entries.length > MAX_PGN_COMMENTS_PER_ITEM * 2) {
+      if (!Array.isArray(editor.entries) || editor.entries.length > MAX_PGN_COMMENTS_PER_ITEM * 4) {
         throw new TypeError("PGN comment editor entries are invalid");
       }
       editor.entries.forEach(function (entry) {
         requireRecord(entry, "PGN comment entry");
         if (["before", "after", "leading", "trailing"].indexOf(entry.slot) < 0 ||
             !Number.isSafeInteger(entry.index) || entry.index < 0 ||
-            entry.index >= MAX_PGN_COMMENTS_PER_ITEM) {
+            entry.index >= MAX_PGN_COMMENTS_PER_ITEM ||
+            typeof entry.main !== "boolean") {
           throw new TypeError("PGN comment entry target is invalid");
         }
         requireText(entry.label, "PGN comment entry label", false, 160);
@@ -120,7 +121,8 @@
       }
       editor.add_slots.forEach(function (entry) {
         requireRecord(entry, "PGN comment add slot");
-        if (["before", "after", "leading", "trailing"].indexOf(entry.slot) < 0) {
+        if (["before", "after", "leading", "trailing"].indexOf(entry.slot) < 0 ||
+            typeof entry.main !== "boolean") {
           throw new TypeError("PGN comment add slot is invalid");
         }
         requireText(entry.label, "PGN comment add slot label", false, 160);
@@ -736,10 +738,22 @@
       const index = Number(parts[1]);
       if (parts[0] === "existing") {
         const entry = entries[index];
-        return entry ? { slot: entry.slot, index: entry.index, existing: true, value: entry.value } : null;
+        return entry ? {
+          slot: entry.slot,
+          index: entry.index,
+          existing: true,
+          value: entry.value,
+          main: entry.main === true
+        } : null;
       }
       const slot = addSlots[index];
-      return slot ? { slot: slot.slot, index: -1, existing: false, value: "" } : null;
+      return slot ? {
+        slot: slot.slot,
+        index: -1,
+        existing: false,
+        value: "",
+        main: slot.main === true
+      } : null;
     }
 
     function syncTarget() {
@@ -790,7 +804,12 @@
       textarea.focus({ preventScroll: true });
       const selected = currentTarget();
       const payload = selected
-        ? { text: textarea.value, slot: selected.slot, index: selected.index }
+        ? {
+            text: textarea.value,
+            slot: selected.slot,
+            index: selected.index,
+            ...(selected.main ? { main: true } : {})
+          }
         : { text: textarea.value };
       const started = invokeCommand(
         root,
@@ -825,7 +844,11 @@
         invoke,
         announce,
         "pgn.comment_delete",
-        { slot: selected.slot, index: selected.index },
+        {
+          slot: selected.slot,
+          index: selected.index,
+          ...(selected.main ? { main: true } : {})
+        },
         {
           afterResult: function (result) {
             if (result.kind === "error") {
