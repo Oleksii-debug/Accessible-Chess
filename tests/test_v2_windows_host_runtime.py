@@ -390,6 +390,7 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
             self.assertEqual(reopened.kind, FileWorkflowEventKind.FAILED)
             self.assertEqual(reopened.error_code, "no_pgn_document")
             self.assertTrue(runtime.shutdown())
+
     def test_export_routes_through_owned_dialog_then_injected_canonical_exporter(self) -> None:
         owner = _Owner()
         export_calls: list[tuple[object, Path]] = []
