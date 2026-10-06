@@ -440,6 +440,14 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
             "$ownedChildren.Count -ne 1",
             "Expected exactly one package-local child after overlapping launchers",
             "Single package-local child PID mismatch",
+            "AccessibleChessDirectoryDeleteProbe",
+            "DeleteAccess = 0x00010000",
+            "ShareDelete = 0x00000004",
+            "BackupSemantics = 0x02000000",
+            "OpenReparsePoint = 0x00200000",
+            "foreach ($guardedDirectory in @($root, $app, $data))",
+            "$probeError -ne 32",
+            "Transferred directory guard missing",
             "Start-Sleep -Seconds 7",
         ):
             with self.subTest(token=token):
