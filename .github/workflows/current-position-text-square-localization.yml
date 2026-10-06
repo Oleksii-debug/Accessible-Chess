@@ -64,6 +64,20 @@ jobs:
             exit 1
           }
 
+      - name: Bind exact position-text and square authority bytes
+        shell: bash
+        env:
+          POSITION_EDITOR_BLOB: b3b51e71f55f7477bf1b4dc9e35492f82625be7f
+          POSITION_TEXT_BLOB: c4eed9078ec8f12b9286235355e7af09bd778355
+          POSITION_TEXT_TEST_BLOB: e6676e6b6f8ed0299662e35f4e12ee329abe4bc4
+          SQUARES_BLOB: b74cf01767590f057deb805b0793e040bac62044
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:acs/position_editor.py)" = "$POSITION_EDITOR_BLOB"
+          test "$(git rev-parse HEAD:acs/position_text.py)" = "$POSITION_TEXT_BLOB"
+          test "$(git rev-parse HEAD:tests/test_position_text_authority.py)" = "$POSITION_TEXT_TEST_BLOB"
+          test "$(git rev-parse HEAD:acs/squares.py)" = "$SQUARES_BLOB"
+
       - name: Compile exact localization slice
         run: >-
           python -m py_compile
