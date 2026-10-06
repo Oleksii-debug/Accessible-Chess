@@ -975,13 +975,53 @@ def _parse_markdown(text: str, builder: _Builder, control_checkpoint: Callable[[
             continue
         if quote_match:
             flush()
-            quote, quote_had_image = _accessible_inline_text(quote_match.group(1))
-            if quote:
-                builder.paragraph(quote, number)
-            builder.warning("Markdown block quote structure was preserved as reading text because the current BookDocument has no quote block kind")
+            quote_source = quote_match.group(1)
+            quote_images = _iter_semantic_images(quote_source)
+            first_quote_image = next(quote_images, None)
+            quote_had_image = first_quote_image is not None
+            if first_quote_image is None:
+                quote = quote_source.strip()
+                if quote:
+                    builder.paragraph(quote, number)
+            else:
+                # Before this quote-specific path existed, the generic inline
+                # image projection emitted Paragraph -> Image Note -> Paragraph
+                # and assigned the first paragraph the image-stripped full-line
+                # identity. Keep those meaningful durable targets intact while
+                # removing the quote marker from newly published reading text.
+                legacy_paragraph_identity = (
+                    _semantic_image_stripped_text(line).strip() or None
+                )
+                legacy_identity_available = legacy_paragraph_identity is not None
+                cursor = 0
+                match = first_quote_image
+                while match is not None:
+                    leading = quote_source[cursor:match.start()].strip()
+                    if leading:
+                        builder.paragraph(
+                            leading,
+                            number,
+                            identity_text=(
+                                legacy_paragraph_identity
+                                if legacy_identity_available
+                                else None
+                            ),
+                        )
+                        legacy_identity_available = False
+                    alt = match.group(1).strip()
+                    if alt:
+                        builder.image_note(alt, number)
+                    cursor = match.end()
+                    match = next(quote_images, None)
+                trailing = quote_source[cursor:].strip()
+                if trailing:
+                    builder.paragraph(trailing, number)
+            builder.warning(
+                "Markdown block quote structure was preserved as reading text because the current BookDocument has no quote block kind"
+            )
             if quote_had_image:
                 builder.warning(
-                    "Markdown image inside an unrepresentable block quote was preserved as accessible text; no asset was fetched and the image destination was excluded from reading text"
+                    "Markdown image inside an unrepresentable block quote was preserved in accessible reading order; no asset was fetched and the image destination was excluded from reading text"
                 )
             index += 1
             continue
