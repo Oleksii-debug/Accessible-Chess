@@ -25,6 +25,7 @@ from urllib.parse import urlsplit
 
 from .bookdocument import (
     MAX_BOOK_DOCUMENT_BLOCKS,
+    MAX_BOOK_SOURCE_ANCHOR_CHARS,
     MAX_BOOK_TEXT_FIELD_CHARS,
     BookDocument,
     BookDocumentError,
@@ -781,6 +782,18 @@ class _SemanticHtmlParser(HTMLParser):
             self._control_failure = exc
             raise
 
+    def _source_anchor(self, attrs: dict[str, str]) -> str | None:
+        value = attrs.get("id")
+        if not value:
+            return None
+        if len(value) > MAX_BOOK_SOURCE_ANCHOR_CHARS:
+            raise BookHtmlImportError(
+                "HTML semantic source anchor exceeds the canonical BookDocument identifier limit",
+                code=BookHtmlImportErrorCode.RESOURCE_LIMIT,
+            )
+        return value
+
+
     def _compact_text(self, value: str) -> str:
         return _compact(
             value,
@@ -966,7 +979,7 @@ class _SemanticHtmlParser(HTMLParser):
                 legacy_identity,
             )
             captured.legacy_identity_block.source_anchor = (
-                captured.attrs.get("id") or None
+                self._source_anchor(captured.attrs)
             )
 
         if not items:
@@ -1004,7 +1017,7 @@ class _SemanticHtmlParser(HTMLParser):
                     Paragraph(
                         text=text,
                         block_id=self._block_id(identity_kind, text),
-                        source_anchor=captured.attrs.get("id") or None,
+                        source_anchor=self._source_anchor(captured.attrs),
                     )
                 )
             return
@@ -1022,7 +1035,7 @@ class _SemanticHtmlParser(HTMLParser):
                 ordered=ordered,
                 start=start if ordered else None,
                 block_id=self._block_id("List", identity),
-                source_anchor=captured.attrs.get("id") or None,
+                source_anchor=self._source_anchor(captured.attrs),
             )
         )
 
@@ -1040,7 +1053,7 @@ class _SemanticHtmlParser(HTMLParser):
         if raw_fen is None:
             return
         fen = self._validate_fen(raw_fen)
-        source_anchor = attrs.get("id") or None
+        source_anchor = self._source_anchor(attrs)
         if tag == "img":
             alt = self._compact_text(attrs.get("alt", "")) or None
             payload = fen + "\0" + (alt or "")
@@ -1218,7 +1231,7 @@ class _SemanticHtmlParser(HTMLParser):
                         text=alt,
                         note_type="image",
                         block_id=self._block_id("ImageNote", src + "\0" + alt),
-                        source_anchor=attrs.get("id") or None,
+                        source_anchor=self._source_anchor(attrs),
                     )
                 )
             else:
@@ -1564,7 +1577,7 @@ class _SemanticHtmlParser(HTMLParser):
                 fallback = Paragraph(
                     text=fallback_text,
                     block_id=self._block_id("ListFallbackItem", fallback_text),
-                    source_anchor=captured_list.attrs.get("id") or None,
+                    source_anchor=captured_list.self._source_anchor(attrs),
                 )
                 self._insert_block(
                     self._block_identity_index(first_event.block),
@@ -1665,7 +1678,7 @@ class _SemanticHtmlParser(HTMLParser):
             if text and not self.title:
                 self.title = text
             return
-        source_anchor = capture.attrs.get("id") or None
+        source_anchor = capture.self._source_anchor(attrs)
         requires_semantic_split = self._inline_requires_split(capture)
         if capture.kind == "list_item" and requires_semantic_split:
             active_list = (
