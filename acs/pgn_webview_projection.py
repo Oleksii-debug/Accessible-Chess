@@ -340,7 +340,7 @@ class PgnWebViewProjection:
         value: str,
         message: str,
         entries: tuple[dict[str, object], ...] = (),
-        add_slots: tuple[dict[str, str], ...] = (),
+        add_slots: tuple[dict[str, object], ...] = (),
     ) -> dict[str, object]:
         labels = _LABELS[self._language]
         return {
@@ -358,24 +358,53 @@ class PgnWebViewProjection:
     def _comment_editor_for_selected(
         self,
         selected: PgnTreeItem | None,
+        *,
+        main_leading_comments: tuple[str, ...],
+        main_trailing_comments: tuple[str, ...],
     ) -> dict[str, object]:
         labels = _LABELS[self._language]
-        if selected is None:
-            return self._comment_editor(enabled=False, value="", message="")
         entries: list[dict[str, object]] = []
-        add_slots: list[dict[str, str]] = []
-        if selected.kind == "move":
-            slots = (
-                ("before", selected.comments_before, labels["comment_before"]),
-                ("after", selected.comments_after, labels["comment_after"]),
-            )
-        else:
-            slots = (
-                ("leading", selected.comments, labels["comment_leading"]),
-                ("trailing", selected.trailing_comments, labels["comment_trailing"]),
-            )
-        for slot, comments, slot_label in slots:
-            add_slots.append({"slot": slot, "label": slot_label})
+        add_slots: list[dict[str, object]] = []
+
+        if selected is not None:
+            if selected.kind == "move":
+                selected_slots = (
+                    ("before", selected.comments_before, labels["comment_before"]),
+                    ("after", selected.comments_after, labels["comment_after"]),
+                )
+            else:
+                selected_slots = (
+                    ("leading", selected.comments, labels["comment_leading"]),
+                    ("trailing", selected.trailing_comments, labels["comment_trailing"]),
+                )
+            for slot, comments, slot_label in selected_slots:
+                add_slots.append({"slot": slot, "label": slot_label, "main": False})
+                for index, comment in enumerate(comments):
+                    safe = _bounded_text(comment, language=self._language, limit=8000)
+                    entries.append(
+                        {
+                            "slot": slot,
+                            "index": index,
+                            "label": f"{slot_label} {index + 1}",
+                            "value": safe,
+                            "main": False,
+                        }
+                    )
+
+        main_slots = (
+            (
+                "leading",
+                main_leading_comments,
+                labels["game_leading_comments"],
+            ),
+            (
+                "trailing",
+                main_trailing_comments,
+                labels["game_trailing_comments"],
+            ),
+        )
+        for slot, comments, slot_label in main_slots:
+            add_slots.append({"slot": slot, "label": slot_label, "main": True})
             for index, comment in enumerate(comments):
                 safe = _bounded_text(comment, language=self._language, limit=8000)
                 entries.append(
@@ -384,11 +413,13 @@ class PgnWebViewProjection:
                         "index": index,
                         "label": f"{slot_label} {index + 1}",
                         "value": safe,
+                        "main": True,
                     }
                 )
+
         first_value = str(entries[0]["value"]) if entries else ""
         return self._comment_editor(
-            enabled=True,
+            enabled=bool(add_slots),
             value=first_value,
             message="",
             entries=tuple(entries),
@@ -538,10 +569,14 @@ class PgnWebViewProjection:
             )
             if safe
         )
-        comment_editor = self._comment_editor_for_selected(selected)
+        comment_editor = self._comment_editor_for_selected(
+            selected,
+            main_leading_comments=view.leading_comments,
+            main_trailing_comments=view.trailing_comments,
+        )
         has_selection = selected is not None
         selected_is_variation = bool(selected and selected.kind == "variation")
-        has_selected_comments = bool(comment_editor["entries"])
+        has_comments = bool(comment_editor["entries"])
         return {
             "status": "ready",
             "empty_message": "",
@@ -575,8 +610,8 @@ class PgnWebViewProjection:
                 {"action": "pgn.tag_edit", "label": labels["tag_edit"], "enabled": True},
                 {"action": "pgn.tag_delete", "label": labels["tag_delete"], "enabled": True},
                 {"action": "pgn.parent", "label": labels["parent"], "enabled": bool(selected and selected.parent_id)},
-                {"action": "pgn.comment_edit", "label": labels["comment_edit"], "enabled": has_selection},
-                {"action": "pgn.comment_delete", "label": labels["comment_delete"], "enabled": has_selected_comments},
+                {"action": "pgn.comment_edit", "label": labels["comment_edit"], "enabled": bool(comment_editor["add_slots"])},
+                {"action": "pgn.comment_delete", "label": labels["comment_delete"], "enabled": has_comments},
                 {"action": "pgn.nag_edit", "label": labels["nag_edit"], "enabled": bool(selected and selected.kind == "move")},
                 {"action": "pgn.variation_add", "label": labels["variation_add"], "enabled": bool(selected and selected.kind == "move")},
                 {"action": "pgn.variation_delete", "label": labels["variation_delete"], "enabled": selected_is_variation},
@@ -754,13 +789,33 @@ class PgnWebViewProjection:
         )
         return PgnWebViewEvent("delegated", {"action": "pgn.search"})
 
+    def _dispatch_main_line_comment(
+        self,
+        action_id: str,
+        *,
+        extra: Mapping[str, object],
+    ) -> PgnWebViewEvent:
+        view = self._presenter.view()
+        if type(view) is not PgnGameView or type(view.game_index) is not int or view.game_index < 0:
+            raise LookupError("PGN game is required")
+        payload = {
+            "game_index": view.game_index,
+            "node_id": f"g{view.game_index}:main",
+            **dict(extra),
+        }
+        self._dispatch(action_id, payload)
+        return PgnWebViewEvent("delegated", {"action": action_id})
+
     def edit_comment(
         self,
         text: str,
         *,
         slot: str | None = None,
         index: int | None = None,
+        main: bool = False,
     ) -> PgnWebViewEvent:
+        if type(main) is not bool:
+            raise TypeError("PGN main-line comment flag must be bool")
         if type(text) is not str:
             raise TypeError("PGN comment text must be text")
         if _utf16_units(text) > 8000 or "\x00" in text:
@@ -772,6 +827,10 @@ class PgnWebViewProjection:
             if type(index) is not int or index < -1 or index > 255:
                 raise ValueError("PGN comment index is invalid")
             extra.update(slot=slot, index=index)
+        if main:
+            if slot not in {"leading", "trailing"} or type(index) is not int:
+                raise ValueError("PGN main-line comment target is invalid")
+            return self._dispatch_main_line_comment("pgn.comment_edit", extra=extra)
         return self._dispatch_selected("pgn.comment_edit", extra=extra)
 
     def delete_comment(
@@ -779,7 +838,10 @@ class PgnWebViewProjection:
         *,
         slot: str | None = None,
         index: int | None = None,
+        main: bool = False,
     ) -> PgnWebViewEvent:
+        if type(main) is not bool:
+            raise TypeError("PGN main-line comment flag must be bool")
         extra: dict[str, object] | None = None
         if slot is not None or index is not None:
             if type(slot) is not str or slot not in {"before", "after", "leading", "trailing"}:
@@ -787,6 +849,10 @@ class PgnWebViewProjection:
             if type(index) is not int or index < 0 or index > 255:
                 raise ValueError("PGN comment index is invalid")
             extra = {"slot": slot, "index": index}
+        if main:
+            if slot not in {"leading", "trailing"} or type(index) is not int or extra is None:
+                raise ValueError("PGN main-line comment target is invalid")
+            return self._dispatch_main_line_comment("pgn.comment_delete", extra=extra)
         return self._dispatch_selected("pgn.comment_delete", extra=extra)
 
     def edit_nags(self, text: str) -> PgnWebViewEvent:
