@@ -453,8 +453,11 @@
               root._pgnFlight === flight
             ) {
               root._pgnFlight = null;
-              recoverAfterFailure();
-              announceRejected(root, announce, focusBefore);
+              try {
+                announceRejected(root, announce, focusBefore);
+              } finally {
+                recoverAfterFailure();
+              }
             }
             return;
           }
@@ -476,8 +479,11 @@
             return;
           }
           root._pgnFlight = null;
-          recoverAfterFailure();
-          announceRejected(root, announce, focusBefore);
+          try {
+            announceRejected(root, announce, focusBefore);
+          } finally {
+            recoverAfterFailure();
+          }
         }
       );
     return true;
@@ -633,6 +639,7 @@
       savePending = value === true;
       save.disabled = savePending || !editor.enabled;
       cancel.disabled = savePending;
+      textarea.readOnly = savePending;
       dialog.setAttribute("aria-busy", savePending ? "true" : "false");
     }
 
@@ -657,6 +664,9 @@
     save.addEventListener("click", function () {
       if (savePending) return;
       setSavePending(true);
+      // Keep deterministic focus inside the modal on a selectable/copyable,
+      // read-only text surface instead of leaving focus on a disabled button.
+      textarea.focus({ preventScroll: true });
       const started = invokeCommand(
         root,
         invoke,
