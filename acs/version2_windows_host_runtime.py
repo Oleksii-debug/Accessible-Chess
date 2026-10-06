@@ -492,7 +492,10 @@ class Version2WindowsFileWorkflowRuntime:
         stopped = self._file_delegate.shutdown(timeout)
         if not stopped:
             return False
-        export_stopped = self._library_export_delegate.shutdown(timeout)
+        export_stopped = self._library_export_delegate.shutdown(
+            timeout,
+            retain_terminal_for_recovery=True,
+        )
         if not export_stopped:
             return False
 
