@@ -537,6 +537,7 @@ class _SemanticHtmlParser(HTMLParser):
         self._hidden_tags: list[str] = []
         self._head_depth = 0
         self._node_count = 0
+        self._control_event_count = 0
         self._text_boundary_count = 0
         self._ids: dict[str, int] = {}
         self._warned_table_flatten = False
@@ -550,6 +551,14 @@ class _SemanticHtmlParser(HTMLParser):
         except BaseException as exc:
             self._control_failure = exc
             raise
+
+    def _parser_event_checkpoint(self) -> None:
+        """Bound trusted cancellation latency inside a single HTMLParser feed chunk."""
+        if self.control_checkpoint is None:
+            return
+        self._control_event_count += 1
+        if self._control_event_count % 128 == 1:
+            self._checkpoint()
 
     def _warning(self, message: str) -> None:
         if self._warnings_suppressed:
@@ -798,6 +807,7 @@ class _SemanticHtmlParser(HTMLParser):
         )
 
     def handle_starttag(self, tag: str, attrs_list: list[tuple[str, str | None]]) -> None:
+        self._parser_event_checkpoint()
         tag = tag.lower()
         self._node_count += 1
         if self._node_count > MAX_HTML_BLOCKS * 20:
@@ -980,6 +990,7 @@ class _SemanticHtmlParser(HTMLParser):
             self.handle_endtag(tag)
 
     def handle_endtag(self, tag: str) -> None:
+        self._parser_event_checkpoint()
         tag = tag.lower()
         if tag in _SUPPRESSED_TAGS:
             if self._suppressed_depth:
@@ -1081,6 +1092,7 @@ class _SemanticHtmlParser(HTMLParser):
             self._append_text_boundary()
 
     def handle_data(self, data: str) -> None:
+        self._parser_event_checkpoint()
         if self._suppressed_depth or self._hidden_tags:
             return
         if self._head_depth or any(capture.kind == "title" for capture in self._captures):
