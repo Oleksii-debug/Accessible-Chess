@@ -1,0 +1,83 @@
+name: Current 2CBH CBONE Topology
+
+on:
+  pull_request:
+    branches:
+      - converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
+    paths:
+      - acs/chessbase_adapter.py
+      - acs/chessbase_integrity.py
+      - tests/test_v2_2cbh_cbone_topology.py
+      - .github/workflows/v2-2cbh-cbone-topology.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  EXPECTED_BASE: ${{ github.event.pull_request.base.sha || '6be0afe67366b62757baae53ab0eaae6b8bfafdf' }}
+  EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+  ADAPTER_BLOB: 8c597f775720a0a087060947de5ab44d94626d26
+  INTEGRITY_BLOB: f44c478a35918ed39e4991334acf55953bfe0360
+  TEST_BLOB: c9dbfe72ad9664a6bd346ef3bc1cb842428dec40
+
+jobs:
+  topology-contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_HEAD }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Exact-head ancestry scope and blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          git merge-base --is-ancestor "$EXPECTED_BASE" HEAD
+          git diff --check "$EXPECTED_BASE" HEAD
+          actual="$(git diff --name-only "$EXPECTED_BASE" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/v2-2cbh-cbone-topology.yml' \
+            'acs/chessbase_adapter.py' \
+            'acs/chessbase_integrity.py' \
+            'tests/test_v2_2cbh_cbone_topology.py' | sort)"
+          test "$actual" = "$expected"
+          test "$(git hash-object acs/chessbase_adapter.py)" = "$ADAPTER_BLOB"
+          test "$(git hash-object acs/chessbase_integrity.py)" = "$INTEGRITY_BLOB"
+          test "$(git hash-object tests/test_v2_2cbh_cbone_topology.py)" = "$TEST_BLOB"
+          python -m compileall -q acs tests
+      - name: Focused topology and integrity regressions
+        run: >-
+          python -m unittest -v
+          tests.test_chessbase_adapter
+          tests.test_chessbase_integrity
+          tests.test_v2_2cbh_cbone_topology
+          tests.test_import_contract
+          tests.test_dev4_chessbase_integrity_atomicity
+          tests.test_dev4_chessbase_symlink_security
+
+  retained-library-boundary:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_HEAD }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Retained ChessBase Library boundary
+        run: >-
+          python -m unittest -v
+          tests.test_chessbase_library_import
+          tests.test_v2_windows_library_import_observer
