@@ -304,6 +304,67 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
             )
             self.assertTrue(runtime.shutdown())
 
+    def test_failed_retained_mailbox_delivery_blocks_new_dispatch_until_recovered(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "retained-terminal-recovery.pgn"
+            source.write_text(_PGN, encoding="utf-8")
+            _OpenDialog.selected_paths.append(str(source))
+            owner = _Owner()
+            imported_events: list[object] = []
+            fallback_calls: list[tuple[str, dict[str, object]]] = []
+            runtime = self._runtime(
+                owner,
+                imported_events=imported_events,
+                fallback_calls=fallback_calls,
+            )
+
+            started = runtime("library.import", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.IMPORT_STARTED)
+            self.assertTrue(runtime.wait_for_import(5.0))
+            self.assertGreater(runtime.import_mailbox.pending_count, 0)
+
+            original_ui_ready = runtime._pump._ui_ready
+
+            class ReadyAbort(BaseException):
+                pass
+
+            runtime._pump._ui_ready = lambda: (_ for _ in ()).throw(ReadyAbort())
+            try:
+                with mock.patch.object(runtime._pump, "_schedule_retry") as retry:
+                    with self.assertRaisesRegex(
+                        RuntimeError,
+                        "UI recovery is still pending",
+                    ):
+                        runtime("analysis.restart", {"source": "board"})
+                    retry.assert_called_once()
+            finally:
+                runtime._pump._ui_ready = original_ui_ready
+
+            self.assertEqual(fallback_calls, [])
+            self.assertGreater(runtime.import_mailbox.pending_count, 0)
+            self.assertEqual(imported_events, [])
+
+            result = runtime("analysis.restart", {"source": "board"})
+
+            self.assertEqual(result, ("fallback", "analysis.restart"))
+            self.assertEqual(
+                fallback_calls,
+                [("analysis.restart", {"source": "board"})],
+            )
+            self.assertEqual(runtime.import_mailbox.pending_count, 0)
+            self.assertEqual(
+                [event.kind for event in imported_events],
+                [
+                    FileWorkflowEventKind.IMPORT_STARTED,
+                    FileWorkflowEventKind.IMPORT_PROGRESS,
+                    FileWorkflowEventKind.IMPORT_COMPLETED,
+                ],
+            )
+
+            while owner.posted:
+                owner.posted.pop(0)()
+            self.assertTrue(runtime.shutdown())
+
     def test_pending_owner_recovery_cannot_dispatch_after_reentrant_close(self) -> None:
         owner = _Owner()
         fallback_calls: list[tuple[str, dict[str, object]]] = []
