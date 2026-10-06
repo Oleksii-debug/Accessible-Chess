@@ -55,6 +55,7 @@ FULL_PRODUCT_ACTIONS: tuple[ActionDefinition, ...] = (
     _action("pgn.select_item", BindingContext.DOCUMENT, "Select GameTree item"),
     _action("pgn.previous_game", BindingContext.DOCUMENT, "Previous PGN game"),
     _action("pgn.next_game", BindingContext.DOCUMENT, "Next PGN game"),
+    _action("pgn.search", BindingContext.DOCUMENT, "Search PGN"),
     _action("pgn.previous_item", BindingContext.PGN_TREE, "Previous GameTree item", "Up"),
     _action("pgn.next_item", BindingContext.PGN_TREE, "Next GameTree item", "Down"),
     _action("pgn.parent_variation", BindingContext.PGN_TREE, "Return to parent variation", "Left"),
