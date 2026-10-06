@@ -209,8 +209,18 @@ def _raise_limit(message: str, code: PgnRoundTripErrorCode) -> None:
     raise PgnRoundTripError(message, code=code)
 
 
-def _contains_invalid_unicode_scalar(value: str) -> bool:
-    return any(0xD800 <= ord(character) <= 0xDFFF for character in value)
+def _contains_invalid_unicode_scalar(
+    value: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> bool:
+    """Reject surrogate code points without hiding long scans from cancellation."""
+
+    for index, character in enumerate(value, start=1):
+        if 0xD800 <= ord(character) <= 0xDFFF:
+            return True
+        if control_checkpoint is not None and index % 4_096 == 0:
+            control_checkpoint()
+    return False
 
 
 def _claim_token(counter: list[int], source_budget: PgnSourceBudget) -> None:
@@ -291,7 +301,7 @@ def _preflight_text(
             "PGN text exceeds the character safety limit",
             PgnRoundTripErrorCode.TEXT_SIZE_LIMIT,
         )
-    if _contains_invalid_unicode_scalar(text):
+    if _contains_invalid_unicode_scalar(text, control_checkpoint):
         raise PgnRoundTripError(
             "PGN text contains an invalid Unicode scalar value",
             code=PgnRoundTripErrorCode.INVALID_TEXT,

@@ -753,6 +753,30 @@ class D06PgnRoundTripTests(unittest.TestCase):
             )
             feed_line.assert_not_called()
 
+    def test_unicode_scalar_scan_observes_active_parse_control(self):
+        failure = RuntimeError("cancelled during PGN Unicode scalar scan")
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise failure
+
+        with patch(
+            "acs.pgn_roundtrip.parse_games",
+            side_effect=AssertionError("parser must not run after cancellation"),
+        ) as parser:
+            with self.assertRaises(RuntimeError) as caught:
+                parse_pgn_text(
+                    "x" * 12_500,
+                    strict=False,
+                    control_checkpoint=cancel,
+                )
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 2)
+        parser.assert_not_called()
+
     def test_model_subclasses_fail_before_overrideable_attribute_hooks(self):
         touches = []
 
