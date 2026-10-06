@@ -114,6 +114,7 @@ class Version2ImportUiWakeupPump:
         self._ready_failures = 0
         self._retry_timer: threading.Timer | None = None
         self._owner_callback: Callable[[], None] | None = None
+        self._owner_callback_active = False
         self._owner_wakeup_pending = False
         self._owner_post_failures = 0
         self._owner_retry_timer: threading.Timer | None = None
@@ -199,7 +200,7 @@ class Version2ImportUiWakeupPump:
         with self._lock:
             if self._closed or self._owner_callback is None:
                 return False
-            if self._owner_wakeup_pending:
+            if self._owner_callback_active or self._owner_wakeup_pending:
                 return True
             self._owner_wakeup_pending = True
         try:
@@ -237,18 +238,30 @@ class Version2ImportUiWakeupPump:
             raise RuntimeError("owner callback UI wakeup ran on the wrong thread")
         with self._lock:
             self._owner_wakeup_pending = False
-            if self._closed:
+            if self._closed or self._owner_callback_active:
                 return
             callback = self._owner_callback
-            self._owner_callback = None
-        if callback is not None:
+            if callback is None:
+                return
+            self._owner_callback_active = True
+        try:
             callback()
+        except BaseException:
+            with self._lock:
+                self._owner_callback_active = False
+            raise
+        with self._lock:
+            self._owner_callback_active = False
+            if self._owner_callback is callback:
+                self._owner_callback = None
 
     def request_pending_owner_callback(self) -> bool:
         """Recover a retained owner completion after UI posting failed."""
         with self._lock:
             if self._closed or self._owner_callback is None:
                 return False
+            if self._owner_callback_active:
+                return True
         if threading.get_ident() == self._ui_thread_id:
             self._run_owner_callback()
             return True
@@ -361,6 +374,7 @@ class Version2ImportUiWakeupPump:
                 self._retry_timer is not None
                 or self._owner_retry_timer is not None
                 or self._owner_callback is not None
+                or self._owner_callback_active
                 or self._wakeup_pending
                 or self._owner_wakeup_pending
             ):
@@ -376,6 +390,7 @@ class Version2ImportUiWakeupPump:
             self._wakeup_pending = False
             self._owner_wakeup_pending = False
             self._owner_callback = None
+            self._owner_callback_active = False
             retry_timer = self._retry_timer
             owner_retry_timer = self._owner_retry_timer
             self._retry_timer = None
