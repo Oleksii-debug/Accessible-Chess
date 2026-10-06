@@ -583,18 +583,36 @@ class Version2FinalProductApplication(Version2Application):
             try:
                 validate_rotation_scope(loaded.plan, lesson)
             except ChildCoachingRotationError as exc:
-                self._rotation_load_error = True
-                raise RuntimeError(
-                    "Stored group rotation belongs to a different teaching session"
-                ) from exc
-            if loaded.plan.rotation_id != rotation_id:
-                self._rotation_load_error = True
-                raise RuntimeError(
-                    "A different durable group rotation already exists"
-                )
-            plan = loaded.plan
-            state = loaded.state
-            revision = loaded.revision
+                if loaded.state.phase is not RotationPhase.COMPLETED:
+                    self._rotation_load_error = True
+                    raise RuntimeError(
+                        "Stored group rotation belongs to a different teaching session"
+                    ) from exc
+                # The release composition owns one durable rotation slot for
+                # all lessons. A completed prior lesson is terminal and may be
+                # retired atomically, but an active foreign lesson must never
+                # be overwritten. Reuse the observed file revision as CAS
+                # authority so a concurrent writer still wins safely.
+                plan = default_group_rotation(lesson, rotation_id=rotation_id)
+                state = start_rotation(plan)
+                try:
+                    revision = store.save(
+                        plan,
+                        state,
+                        expected_revision=loaded.revision,
+                    )
+                except Exception:
+                    self._rotation_load_error = True
+                    raise
+            else:
+                if loaded.plan.rotation_id != rotation_id:
+                    self._rotation_load_error = True
+                    raise RuntimeError(
+                        "A different durable group rotation already exists"
+                    )
+                plan = loaded.plan
+                state = loaded.state
+                revision = loaded.revision
 
         self._rotation_plan = plan
         self._rotation_state = state
