@@ -174,6 +174,28 @@ class PgnWorkspaceWebViewAdapterTests(unittest.TestCase):
         self.assertEqual((), payload["line_path"])
         self.assertEqual("a" * 64, payload["expected_record_digest"])
 
+    def test_game_management_browser_payload_is_empty_and_host_enriches_identity(self) -> None:
+        added = self.bridge.dispatch("pgn.game_add", {})
+        self.assertEqual("selection", added.kind)
+        action_id, payload = self.calls[-1]
+        self.assertEqual("pgn.game_add", action_id)
+        self.assertEqual(0, payload["game_index"])
+        self.assertEqual(7, payload["content_revision"])
+        self.assertNotIn("game_index", repr({}))
+
+        deleted = self.bridge.dispatch("pgn.game_delete", {})
+        self.assertEqual("selection", deleted.kind)
+        self.assertEqual("pgn.game_delete", self.calls[-1][0])
+
+    def test_game_management_browser_rejects_authority_fields(self) -> None:
+        before = len(self.calls)
+        forged = self.bridge.dispatch(
+            "pgn.game_add",
+            {"content_revision": 999},
+        )
+        self.assertEqual("error", forged.kind)
+        self.assertEqual(before, len(self.calls))
+
     def test_metadata_browser_payload_is_non_authoritative_and_host_enriches_identity(self) -> None:
         before = self.projection.snapshot()
         self.assertEqual("*", before["metadata_editor"]["result"])
