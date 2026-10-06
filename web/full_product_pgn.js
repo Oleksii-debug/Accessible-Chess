@@ -9,6 +9,7 @@
   const MAX_PGN_DEPTH = 256;
   const MAX_PGN_NODE_ID = 4096;
   const MAX_PGN_COMMENT_TEXT = 8000;
+  const MAX_PGN_EDIT_CONTRACT_LIMIT = 8192;
   const FOCUS_ID_PATTERN = /^[A-Za-z0-9_-]{1,160}$/;
   const PGN_DOM_ID_PATTERN = /^pgn-node-[0-9a-f]{20}$/;
   const PRESENTATION_TOKEN_PATTERN = /^[0-9a-f]{64}$/;
@@ -48,6 +49,13 @@
     }
     if (value.length > limit || value.indexOf("\x00") >= 0) {
       throw new TypeError(label + " exceeds its canonical text contract");
+    }
+    return value;
+  }
+
+  function requirePositiveLimit(value, label) {
+    if (!Number.isSafeInteger(value) || value < 1 || value > MAX_PGN_EDIT_CONTRACT_LIMIT) {
+      throw new TypeError(label + " is invalid");
     }
     return value;
   }
@@ -162,6 +170,18 @@
         (documentSpec.lang !== "uk" && documentSpec.lang !== "en")) {
       throw new TypeError("PGN document contract is invalid");
     }
+    const editContract = requireRecord(snapshot.edit_contract, "PGN edit contract");
+    if (Object.keys(editContract).length !== 2) {
+      throw new TypeError("PGN edit contract shape is invalid");
+    }
+    const tagNameMaxChars = requirePositiveLimit(
+      editContract.tag_name_max_chars,
+      "PGN tag-name edit limit"
+    );
+    const tagValueMaxChars = requirePositiveLimit(
+      editContract.tag_value_max_chars,
+      "PGN tag-value edit limit"
+    );
 
     requireText(snapshot.error_message, "PGN error message", false, 240);
     if (
@@ -270,8 +290,8 @@
         throw new TypeError("PGN tags must be dense");
       }
       const tag = requireRecord(game.tags[index], "PGN tag");
-      requireText(tag.name, "PGN tag name", false, 80);
-      requireText(tag.value, "PGN tag value", true, 360);
+      requireText(tag.name, "PGN tag name", false, tagNameMaxChars);
+      requireText(tag.value, "PGN tag value", true, tagValueMaxChars);
     }
     requireDenseTextArray(
       game.warnings,
@@ -922,15 +942,16 @@
     const nameLabel = node("label", en ? "Tag name" : "Назва тегу");
     const nameInput = node("input");
     nameInput.id = "pgn-tag-name";
-    nameInput.maxLength = 80;
+    nameInput.maxLength = snapshot.edit_contract.tag_name_max_chars;
     nameLabel.htmlFor = nameInput.id;
     dialog.appendChild(nameLabel);
     dialog.appendChild(nameInput);
 
     const valueLabel = node("label", en ? "Tag value" : "Значення тегу");
-    const valueInput = node("textarea");
+    const valueInput = node("input");
+    valueInput.type = "text";
     valueInput.id = "pgn-tag-value";
-    valueInput.maxLength = 360;
+    valueInput.maxLength = snapshot.edit_contract.tag_value_max_chars;
     valueLabel.htmlFor = valueInput.id;
     dialog.appendChild(valueLabel);
     dialog.appendChild(valueInput);

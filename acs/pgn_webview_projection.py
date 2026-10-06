@@ -15,6 +15,10 @@ from typing import Any
 
 from .full_product_presenters import PgnGameView, PgnTreeItem, PgnTreePresenter
 from .full_product_ui_shell import UILanguage, concise_user_error
+from .pgn_workspace import (
+    MAX_PGN_EDIT_TAG_NAME_CHARS,
+    MAX_PGN_EDIT_TAG_VALUE_CHARS,
+)
 
 CommandDispatch = Callable[[str, Mapping[str, object]], Any]
 GameCountProvider = Callable[[], int]
@@ -538,8 +542,16 @@ class PgnWebViewProjection:
             raise ValueError("PGN presenter snapshot selection has no browser focus target")
         tags = tuple(
             {
-                "name": _bounded_text(name, language=self._language, limit=80),
-                "value": _bounded_text(value, language=self._language, limit=360),
+                "name": _bounded_text(
+                    name,
+                    language=self._language,
+                    limit=MAX_PGN_EDIT_TAG_NAME_CHARS,
+                ),
+                "value": _bounded_text(
+                    value,
+                    language=self._language,
+                    limit=MAX_PGN_EDIT_TAG_VALUE_CHARS,
+                ),
             }
             for name, value in view.tags
         )
@@ -630,6 +642,10 @@ class PgnWebViewProjection:
         return {
             "document": {"lang": self._language.value, "landmark": "main"},
             "error_message": _LABELS[self._language]["action_failed"],
+            "edit_contract": {
+                "tag_name_max_chars": MAX_PGN_EDIT_TAG_NAME_CHARS,
+                "tag_value_max_chars": MAX_PGN_EDIT_TAG_VALUE_CHARS,
+            },
             **self._safe_view(view, count),
         }
 
@@ -638,6 +654,10 @@ class PgnWebViewProjection:
         return {
             "document": {"lang": self._language.value, "landmark": "main"},
             "error_message": labels["action_failed"],
+            "edit_contract": {
+                "tag_name_max_chars": MAX_PGN_EDIT_TAG_NAME_CHARS,
+                "tag_value_max_chars": MAX_PGN_EDIT_TAG_VALUE_CHARS,
+            },
             "status": "unavailable",
             "unavailable_message": labels["presentation_unavailable"],
             "refresh_label": labels["refresh"],
@@ -763,15 +783,21 @@ class PgnWebViewProjection:
         return self._dispatch("pgn.append_moves", {"text": text})
 
     def edit_tag(self, name: str, value: str) -> PgnWebViewEvent:
-        if type(name) is not str or not name or _utf16_units(name) > 80 or "\x00" in name:
+        if type(name) is not str or not name or _utf16_units(name) > MAX_PGN_EDIT_TAG_NAME_CHARS or "\x00" in name:
             raise ValueError("PGN tag name is invalid")
-        if type(value) is not str or _utf16_units(value) > 360 or "\x00" in value:
+        if (
+            type(value) is not str
+            or _utf16_units(value) > MAX_PGN_EDIT_TAG_VALUE_CHARS
+            or "\x00" in value
+            or "\r" in value
+            or "\n" in value
+        ):
             raise ValueError("PGN tag value is invalid")
         self._dispatch("pgn.tag_edit", {"name": name, "value": value})
         return PgnWebViewEvent("delegated", {"action": "pgn.tag_edit"})
 
     def delete_tag(self, name: str) -> PgnWebViewEvent:
-        if type(name) is not str or not name or _utf16_units(name) > 80 or "\x00" in name:
+        if type(name) is not str or not name or _utf16_units(name) > MAX_PGN_EDIT_TAG_NAME_CHARS or "\x00" in name:
             raise ValueError("PGN tag name is invalid")
         self._dispatch("pgn.tag_delete", {"name": name})
         return PgnWebViewEvent("delegated", {"action": "pgn.tag_delete"})

@@ -170,6 +170,7 @@ class CompletePgnEditingUserFlowTests(unittest.TestCase):
         before = snapshot()
         invalid_values = (
             "x" * (MAX_PGN_EDIT_TAG_VALUE_CHARS + 1),
+            "😀" * ((MAX_PGN_EDIT_TAG_VALUE_CHARS // 2) + 1),
             "embedded\x00nul",
             "line\nbreak",
             "carriage\rreturn",

@@ -75,6 +75,7 @@ function snapshot(selectedId) {
     status: "ready",
     empty_message: "",
     error_message: "The action could not be completed.",
+    edit_contract: { tag_name_max_chars: 80, tag_value_max_chars: 360 },
     game: {
       index: 0,
       number: 1,
@@ -183,6 +184,7 @@ async function run() {
     calls.push([command, payload || {}]);
     if (command === "pgn.move") return { kind: "selection", payload: { snapshot: snapshot("pgn-node-bbbbbbbbbbbbbbbbbbbb"), focus_target: "pgn-node-bbbbbbbbbbbbbbbbbbbb", announcement: "" } };
     if (command === "pgn.comment_edit") return { kind: "selection", payload: { snapshot: snapshot("pgn-node-aaaaaaaaaaaaaaaaaaaa"), focus_target: "pgn-node-aaaaaaaaaaaaaaaaaaaa", announcement: "" } };
+    if (command === "pgn.tag_edit") return { kind: "delegated", payload: { action: command } };
     if (command === "pgn.copy_selection") return { kind: "delegated", payload: { action: command } };
     throw new Error("unexpected command " + command);
   };
@@ -464,6 +466,40 @@ async function run() {
   check(calls.length === beforeCopy, "Ctrl+C unexpectedly became a PGN command");
 
   const all = root.descendants();
+  const tagEdit = all.find((item) => item.dataset.action === "pgn.tag_edit");
+  const tagName = all.find((item) => item.id === "pgn-tag-name");
+  const tagValue = all.find((item) => item.id === "pgn-tag-value");
+  check(tagEdit && tagName && tagValue, "PGN tag editor controls missing");
+  check(
+    tagName.tagName === "INPUT" && tagName.maxLength === 80,
+    "PGN tag-name input did not consume the canonical limit"
+  );
+  check(
+    tagValue.tagName === "INPUT" &&
+      tagValue.type === "text" &&
+      tagValue.maxLength === 360,
+    "PGN tag-value editor is not canonical single-line text"
+  );
+  tagEdit.listeners.click();
+  const tagDialog = tagName.parentNode;
+  check(tagDialog && tagDialog.tagName === "DIALOG" && tagDialog.open, "PGN tag dialog did not open");
+  tagName.value = "Event";
+  tagValue.value = "Accessible event";
+  const tagSave = tagDialog.descendants().find(
+    (item) => item.tagName === "BUTTON" && item.textContent === "Save"
+  );
+  check(tagSave, "PGN tag save action missing");
+  tagSave.listeners.click();
+  await flush();
+  await flush();
+  const tagCall = calls.find((call) => call[0] === "pgn.tag_edit");
+  check(
+    tagCall &&
+      tagCall[1].name === "Event" &&
+      tagCall[1].value === "Accessible event",
+    "PGN tag editor did not preserve the canonical payload"
+  );
+
   const textarea = all.find((item) => item.tagName === "TEXTAREA");
   check(textarea && !textarea.listeners.keydown, "comment textarea editing semantics changed");
   const edit = all.find((item) => item.dataset.action === "pgn.comment_edit");

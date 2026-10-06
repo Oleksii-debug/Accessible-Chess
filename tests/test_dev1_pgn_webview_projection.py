@@ -16,6 +16,10 @@ from acs.gametree import (
 )
 from acs.pgn_webview_bridge import PgnWebViewBridge
 from acs.pgn_webview_projection import PgnWebViewProjection
+from acs.pgn_workspace import (
+    MAX_PGN_EDIT_TAG_NAME_CHARS,
+    MAX_PGN_EDIT_TAG_VALUE_CHARS,
+)
 
 
 PGN = """[Event \"C:/Users/private/tournament.pgn\"]
@@ -60,6 +64,13 @@ class PgnWebViewProjectionTests(unittest.TestCase):
     def test_recursive_tree_tags_warnings_and_paths_are_safely_projected(self) -> None:
         snapshot = self.projection.snapshot()
         self.assertEqual("ready", snapshot["status"])
+        self.assertEqual(
+            {
+                "tag_name_max_chars": MAX_PGN_EDIT_TAG_NAME_CHARS,
+                "tag_value_max_chars": MAX_PGN_EDIT_TAG_VALUE_CHARS,
+            },
+            snapshot["edit_contract"],
+        )
         self.assertEqual("Game 1 of 2", snapshot["game"]["position_label"])
         self.assertEqual("White — Black", snapshot["game"]["heading"])
         tree = snapshot["tree"]
