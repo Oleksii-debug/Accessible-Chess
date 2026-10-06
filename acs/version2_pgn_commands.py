@@ -96,7 +96,11 @@ class _PgnNavigationTarget:
         )
 
 
-def _utf16_units(value: str) -> int:\n    return len(value.encode("utf-16-le")) // 2\n\n\nclass Version2PgnCommands:
+def _utf16_units(value: str) -> int:
+    return len(value.encode("utf-16-le")) // 2
+
+
+class Version2PgnCommands:
     def __init__(self, get_session, *, copy_text=lambda _: None):
         self._get_session = get_session
         self._copy_text = copy_text
@@ -188,7 +192,9 @@ def _utf16_units(value: str) -> int:\n    return len(value.encode("utf-16-le")) 
 
     @staticmethod
     def _search_pgn(workspace, query: str):
-        if type(query) is not str or len(query) > 4096 or _utf16_units(query) > 4096 or "\x00" in query:\n            raise ValueError("PGN search text is invalid")\n        normalized = normalize_search_term(query, name="PGN search")
+        if type(query) is not str or len(query) > 4096 or _utf16_units(query) > 4096 or "\x00" in query:
+            raise ValueError("PGN search text is invalid")
+        normalized = normalize_search_term(query, name="PGN search")
         if normalized is None:
             raise ValueError("PGN search text must not be empty")
         needle = search_fold(normalized)
