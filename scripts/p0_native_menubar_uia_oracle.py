@@ -198,6 +198,14 @@ def _uia_menu_handle_binding_checks(
         and isinstance(any_id_rows[0], dict)
         else {}
     )
+    process_menu_rows = uia.get("same_process_menu_bars")
+    process_menu_row = (
+        process_menu_rows[0]
+        if isinstance(process_menu_rows, list)
+        and len(process_menu_rows) == 1
+        and isinstance(process_menu_rows[0], dict)
+        else {}
+    )
     return {
         "uia_handle_element_present": bool(from_handle),
         "uia_handle_automation_id_canonical": (
@@ -215,6 +223,18 @@ def _uia_menu_handle_binding_checks(
         "uia_handle_probe_clean": not bool(uia.get("menu_from_handle_error")),
         "uia_probe_binding_stable": uia.get("menu_binding_stable") is True,
         "uia_poll_snapshot_clean": uia.get("poll_snapshot_error") == "",
+        "uia_process_menu_bar_unique": (
+            isinstance(process_menu_rows, list) and len(process_menu_rows) == 1
+        ),
+        "uia_process_menu_bar_binds_same_handle": (
+            menu_handle != 0
+            and process_menu_row.get("automation_id") == "AccessibleChessFullProductMenu"
+            and process_menu_row.get("control_type") == "ControlType.MenuBar"
+            and process_menu_row.get("process_id") == pid
+            and process_menu_row.get("native_window_handle") == menu_handle
+            and process_menu_row.get("enabled") is True
+            and process_menu_row.get("offscreen") is False
+        ),
         "uia_automation_id_unique_in_process": (
             isinstance(any_id_rows, list) and len(any_id_rows) == 1
         ),
