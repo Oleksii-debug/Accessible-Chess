@@ -622,6 +622,53 @@ def _publish_exclusive(path: Path, payload: bytes) -> None:
         ):
             _remove_owned_publication_file(temporary, staging_identity)
 
+    if not publication_accepted or staging_identity is None:
+        _fail("physical acceptance publication did not reach an accepted state")
+
+    # Staging hard-link cleanup mutates the shared inode namespace and can race
+    # with an external writer through the canonical pathname. Revalidate the
+    # exact canonical object and bytes only after cleanup has completed.
+    try:
+        final_before = path.lstat()
+        if (
+            not stat.S_ISREG(final_before.st_mode)
+            or _is_reparse(final_before)
+            or not _same_file_identity(staging_identity, final_before)
+        ):
+            _fail(
+                "physical acceptance canonical pathname changed after staging cleanup"
+            )
+        try:
+            final_readback = _stable_bytes(
+                path,
+                label="physical acceptance record final publication",
+                maximum=MAX_ACCEPTANCE_BYTES,
+            )
+        except Version2PortablePackageError as exc:
+            raise OwnerPhysicalAcceptanceError(
+                "physical acceptance record cannot be read back after staging cleanup"
+            ) from exc
+        if final_readback != payload:
+            _fail("physical acceptance published bytes changed after staging cleanup")
+        final_after = path.lstat()
+        if (
+            not stat.S_ISREG(final_after.st_mode)
+            or _is_reparse(final_after)
+            or not _same_file_snapshot(final_before, final_after)
+            or not _same_file_identity(staging_identity, final_after)
+        ):
+            _fail(
+                "physical acceptance canonical pathname changed after final readback"
+            )
+    except OwnerPhysicalAcceptanceError:
+        _remove_owned_publication_file(path, staging_identity)
+        raise
+    except OSError as exc:
+        _remove_owned_publication_file(path, staging_identity)
+        raise OwnerPhysicalAcceptanceError(
+            "physical acceptance publication cannot be revalidated after staging cleanup"
+        ) from exc
+
 
 def record_owner_physical_acceptance(
     machine_receipt_path: str | Path,
