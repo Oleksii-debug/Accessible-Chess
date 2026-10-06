@@ -341,6 +341,36 @@ class Version2ImportUiWakeupPump:
         self._request_wakeup()
         return True
 
+    def resume_after_refused_shutdown(self) -> bool:
+        """Re-open a quiesced pump after native FormClosing refused shutdown.
+
+        close() runs only after the file delegate has retired its worker and
+        intentionally drops transient poster/timer ownership. The bounded mailbox,
+        however, can still contain an already-produced terminal that remains valid
+        when the owner Form stays open. Reopening therefore restores scheduling
+        without inventing a new event or reviving a discarded owner callback.
+        """
+        if threading.get_ident() != self._ui_thread_id:
+            raise RuntimeError("UI wakeup pump recovery requires UI thread")
+        with self._lock:
+            if not self._closed:
+                return True
+            if (
+                self._wakeup_pending
+                or self._owner_wakeup_pending
+                or self._owner_callback is not None
+                or self._retry_timer is not None
+                or self._owner_retry_timer is not None
+            ):
+                return False
+            self._closed = False
+
+        # A worker terminal may have reached the mailbox immediately before the
+        # close fence. The owner Form is alive again, so republish that exact
+        # retained batch through the existing transactional presentation path.
+        self.request_pending_wakeup()
+        return True
+
     def close(self) -> None:
         """Stop future wakeup scheduling; caller must stop the import worker first."""
 
