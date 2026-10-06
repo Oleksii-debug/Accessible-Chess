@@ -237,6 +237,29 @@ class BookLibraryGameLookupTests(unittest.TestCase):
             self.assertIsNone(caught.exception.__cause__)
             serializer.assert_not_called()
 
+    def test_merged_warning_provenance_allows_exact_budget_and_deduplicates(self) -> None:
+        with AcsDatabase() as database:
+            game_id = self._stored_game(database)
+            with database.conn:
+                database.conn.execute(
+                    "UPDATE games SET warnings_json=? WHERE id=?",
+                    (json.dumps(["shared warning"]), game_id),
+                )
+
+            reparsed = parse_pgn_text(REALISTIC_PGN, strict=False)[0]
+            reparsed.warnings = ["shared warning", "new warning"]
+
+            with mock.patch(
+                "acs.book_library_game_lookup.MAX_PGN_LEXICAL_TOKENS",
+                2,
+            ), mock.patch(
+                "acs.book_library_game_lookup.parse_pgn_text",
+                return_value=[reparsed],
+            ):
+                loaded = AcsdbBookGameLookup(database).load_book_game(game_id)
+
+            self.assertEqual(loaded.warnings, ["shared warning", "new warning"])
+
     def test_empty_nul_and_whitespace_warning_metadata_fail_closed(self) -> None:
         malformed = (
             '[""]',
