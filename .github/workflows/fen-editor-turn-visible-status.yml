@@ -3,7 +3,7 @@ name: FEN Editor Turn Semantics
 on:
   pull_request:
     branches:
-      - converge/fen-editor-books-runtime-20261006-sol56z9
+      - fix/html-css-declaration-partition-apex-20261006-hy6ez0h113
     paths:
       - '.github/workflows/fen-editor-turn-visible-status.yml'
       - 'acs/webapp.py'
@@ -47,7 +47,7 @@ jobs:
           set -euo pipefail
           expected="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
           test "$(git rev-parse HEAD)" = "$expected"
-          base_ref="${EVENT_BASE_REF:-converge/fen-editor-books-runtime-20261006-sol56z9}"
+          base_ref="${EVENT_BASE_REF:-fix/html-css-declaration-partition-apex-20261006-hy6ez0h113}"
           git fetch --no-tags origin "+refs/heads/$base_ref:refs/remotes/origin/$base_ref"
           live_base="$(git rev-parse "refs/remotes/origin/$base_ref")"
           if [ -n "${EVENT_BASE_SHA:-}" ]; then
@@ -91,6 +91,12 @@ jobs:
           tests.test_version2_application
           tests.test_dev1_full_product_webview_adapter
           tests.test_version2_final_product_composition
+
+      - name: Preserve converged Books cancellation repair
+        run: >-
+          python -m unittest -v
+          tests.test_book_active_import_cancellation
+          tests.test_book_html_runtime_correctness
 
       - name: Core selftest
         run: python -m acs.selftest
