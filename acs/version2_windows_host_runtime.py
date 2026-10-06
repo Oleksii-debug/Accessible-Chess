@@ -195,6 +195,11 @@ class Version2WindowsFileWorkflowRuntime:
             if self._closed:
                 raise RuntimeError("Version 2 Windows file workflow runtime is closed")
         delegate_was_fenced = self._file_delegate.shutdown_requested
+        cancellation_action = action_id in {
+            "pgn.cancel_open",
+            "pgn.cancel_save",
+            "library.cancel_import",
+        }
         # Cancellation owns the matching pre-publication decision itself. If an
         # owner callback is retained after UI-post failures, running it before a
         # matching Cancel would publish/commit the pending result first and make
@@ -221,7 +226,7 @@ class Version2WindowsFileWorkflowRuntime:
         # event after this owner-thread attempt means presentation did not commit.
         if self._mailbox.pending_count:
             self._pump.request_pending_wakeup()
-            if self._mailbox.pending_count:
+            if self._mailbox.pending_count and not cancellation_action:
                 raise RuntimeError(
                     "Version 2 Windows file workflow UI recovery is still pending"
                 )
