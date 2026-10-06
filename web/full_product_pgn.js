@@ -17,6 +17,8 @@
     "pgn.next_game",
     "pgn.search",
     "pgn.append_moves",
+    "pgn.tag_edit",
+    "pgn.tag_delete",
     "pgn.parent",
     "pgn.comment_edit",
     "pgn.comment_delete",
@@ -716,6 +718,147 @@
     };
   }
 
+  function buildTagDialog(root, snapshot, invoke, announce) {
+    const en = snapshot.document.lang === "en";
+    const dialog = node("dialog");
+    dialog.id = "pgn-tag-dialog";
+    const title = node("h2", en ? "Edit PGN tag" : "Редагувати тег PGN");
+    title.id = "pgn-tag-dialog-title";
+    dialog.setAttribute("aria-labelledby", title.id);
+    dialog.setAttribute("aria-busy", "false");
+    dialog.appendChild(title);
+
+    const existingLabel = node("label", en ? "Existing tags" : "Наявні теги");
+    const existing = node("select");
+    existing.id = "pgn-tag-existing";
+    existingLabel.htmlFor = existing.id;
+    const custom = node("option", en ? "Custom tag" : "Власний тег");
+    custom.value = "";
+    existing.appendChild(custom);
+    snapshot.game.tags.forEach(function (tag) {
+      const option = node("option", tag.name + ": " + tag.value);
+      option.value = tag.name;
+      existing.appendChild(option);
+    });
+    dialog.appendChild(existingLabel);
+    dialog.appendChild(existing);
+
+    const nameLabel = node("label", en ? "Tag name" : "Назва тегу");
+    const nameInput = node("input");
+    nameInput.id = "pgn-tag-name";
+    nameInput.maxLength = 80;
+    nameLabel.htmlFor = nameInput.id;
+    dialog.appendChild(nameLabel);
+    dialog.appendChild(nameInput);
+
+    const valueLabel = node("label", en ? "Tag value" : "Значення тегу");
+    const valueInput = node("textarea");
+    valueInput.id = "pgn-tag-value";
+    valueInput.maxLength = 360;
+    valueLabel.htmlFor = valueInput.id;
+    dialog.appendChild(valueLabel);
+    dialog.appendChild(valueInput);
+
+    const save = node("button", en ? "Save" : "Зберегти");
+    save.type = "button";
+    const remove = node("button", en ? "Delete tag" : "Видалити тег");
+    remove.type = "button";
+    const cancel = node("button", en ? "Cancel" : "Скасувати");
+    cancel.type = "button";
+    let opener = null;
+    let pending = false;
+
+    function selectedTag() {
+      const name = existing.value || nameInput.value.trim();
+      return snapshot.game.tags.find(function (tag) { return tag.name === name; }) || null;
+    }
+    function syncFromExisting() {
+      if (!existing.value) return;
+      const tag = selectedTag();
+      nameInput.value = existing.value;
+      valueInput.value = tag ? tag.value : "";
+    }
+    existing.addEventListener("change", syncFromExisting);
+
+    function setPending(value) {
+      pending = value === true;
+      save.disabled = pending;
+      remove.disabled = pending;
+      cancel.disabled = pending;
+      existing.disabled = pending;
+      nameInput.readOnly = pending;
+      valueInput.readOnly = pending;
+      dialog.setAttribute("aria-busy", pending ? "true" : "false");
+    }
+    function restore() {
+      setPending(false);
+      if (dialog.open) nameInput.focus({ preventScroll: true });
+    }
+    function closeAndRestore() {
+      if (pending) return;
+      if (dialog.open) dialog.close();
+      if (opener && typeof opener.focus === "function") opener.focus({ preventScroll: true });
+    }
+    function submit(command) {
+      const name = nameInput.value.trim();
+      if (!name) {
+        announce(en ? "Enter a tag name." : "Введіть назву тегу.");
+        nameInput.focus({ preventScroll: true });
+        return;
+      }
+      if ((name === "SetUp" || name === "FEN")) {
+        announce(en ? "Use the position workflow to change SetUp/FEN." : "Для SetUp/FEN використайте роботу з позицією.");
+        nameInput.focus({ preventScroll: true });
+        return;
+      }
+      if (command === "pgn.tag_delete" && name === "Result") {
+        announce(en ? "Result cannot be deleted." : "Тег Result не можна видалити.");
+        nameInput.focus({ preventScroll: true });
+        return;
+      }
+      setPending(true);
+      const payload = command === "pgn.tag_edit" ? { name: name, value: valueInput.value } : { name: name };
+      const started = invokeCommand(root, invoke, announce, command, payload, {
+        afterResult: function (result) {
+          if (result.kind === "error") {
+            restore();
+            return;
+          }
+          setPending(false);
+          if (result.kind === "delegated") closeAndRestore();
+        },
+        afterFailure: restore
+      });
+      if (!started) restore();
+    }
+    save.addEventListener("click", function () { submit("pgn.tag_edit"); });
+    remove.addEventListener("click", function () { submit("pgn.tag_delete"); });
+    cancel.addEventListener("click", closeAndRestore);
+    dialog.addEventListener("cancel", function (event) {
+      event.preventDefault();
+      closeAndRestore();
+    });
+    dialog.appendChild(save);
+    dialog.appendChild(remove);
+    dialog.appendChild(cancel);
+
+    return {
+      dialog: dialog,
+      open: function (button) {
+        const activeFlight = root._pgnFlight;
+        const epoch = root._pgnRenderEpoch || 0;
+        if (activeFlight && activeFlight.epoch === epoch) return;
+        opener = button;
+        existing.value = "";
+        nameInput.value = "";
+        valueInput.value = "";
+        setPending(false);
+        dialog.showModal();
+        existing.focus();
+      }
+    };
+  }
+
   function buildSimpleEditDialog(root, snapshot, invoke, announce, spec) {
     const dialog = node("dialog");
     const title = node("h2", spec.title);
@@ -819,7 +962,7 @@
     };
   }
 
-  function renderActions(root, host, snapshot, invoke, announce, searchDialog, appendDialog, commentDialog, nagDialog, variationDialog) {
+  function renderActions(root, host, snapshot, invoke, announce, searchDialog, appendDialog, tagDialog, commentDialog, nagDialog, variationDialog) {
     const toolbar = node("div");
     toolbar.setAttribute("role", "toolbar");
     toolbar.setAttribute("aria-orientation", "horizontal");
@@ -845,6 +988,10 @@
         }
         if (action.action === "pgn.append_moves") {
           appendDialog.open(button);
+          return;
+        }
+        if (action.action === "pgn.tag_edit" || action.action === "pgn.tag_delete") {
+          tagDialog.open(button);
           return;
         }
         if (action.action === "pgn.comment_edit") {
@@ -1004,6 +1151,7 @@
       emptyMessage: en ? "Enter search text." : "Введіть текст для пошуку.",
       initialValue: function () { return root._pgnLastSearch || ""; }
     });
+    const tagDialog = buildTagDialog(root, snapshot, invoke, announce);
     const appendDialog = buildSimpleEditDialog(root, snapshot, invoke, announce, {
       id: "pgn-append-dialog",
       title: en ? "Continue current line" : "Продовжити поточну лінію",
@@ -1042,9 +1190,10 @@
       emptyMessage: en ? "Enter at least one move." : "Введіть хоча б один хід.",
       initialValue: function () { return ""; }
     });
-    renderActions(root, main, snapshot, invoke, announce, searchDialog, appendDialog, commentDialog, nagDialog, variationDialog);
+    renderActions(root, main, snapshot, invoke, announce, searchDialog, appendDialog, tagDialog, commentDialog, nagDialog, variationDialog);
     main.appendChild(searchDialog.dialog);
     main.appendChild(appendDialog.dialog);
+    main.appendChild(tagDialog.dialog);
     main.appendChild(commentDialog.dialog);
     main.appendChild(nagDialog.dialog);
     main.appendChild(variationDialog.dialog);
