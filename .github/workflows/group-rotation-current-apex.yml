@@ -46,6 +46,7 @@ jobs:
     timeout-minutes: 25
     env:
       EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+      EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
       ROTATION_BLOB: f7e0c146317c5b95d191b77302a4debf873682c9
       ROTATION_STORE_BLOB: 15b480f880992020cc7c8bdf10cf7b467e809cc2
       ROTATION_TEST_BLOB: 814c391014db668160d6432a8a8384becca4676f
@@ -65,11 +66,16 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          if [ -n "${EVENT_BASE_SHA:-}" ]; then
+            git cat-file -e "${EVENT_BASE_SHA}^{commit}"
+            test "$(git rev-parse "${EVENT_BASE_SHA}:acs/classroom_pairing.py")" = "$(git hash-object acs/classroom_pairing.py)"
+          else
+            test "$(git hash-object acs/classroom_pairing.py)" = "$PAIRING_BLOB"
+          fi
           test "$(git hash-object acs/child_coaching_rotation.py)" = "$ROTATION_BLOB"
           test "$(git hash-object acs/child_coaching_rotation_store.py)" = "$ROTATION_STORE_BLOB"
           test "$(git hash-object tests/test_child_coaching_rotation.py)" = "$ROTATION_TEST_BLOB"
           test "$(git hash-object tests/test_child_coaching_rotation_completed_recovery.py)" = "$ROTATION_RECOVERY_TEST_BLOB"
-          test "$(git hash-object acs/classroom_pairing.py)" = "$PAIRING_BLOB"
           test "$(git hash-object acs/version2_final_product_application.py)" = "$FINAL_PRODUCT_APP_BLOB"
           test "$(git hash-object tests/test_version2_group_rotation_binding.py)" = "$GROUP_ROTATION_BINDING_TEST_BLOB"
           git diff --check
