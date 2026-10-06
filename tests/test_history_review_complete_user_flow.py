@@ -135,6 +135,32 @@ class HistoryReviewCompleteUserFlowTests(unittest.TestCase):
         self.assertFalse(state["canHistoryPrevious"])
         self.assertFalse(state["canHistoryNext"])
 
+    def test_semantically_divergent_move_metadata_never_labels_other_positions(self) -> None:
+        api = AccessibleChessAPI("en")
+        play(api, "e4", "e5")
+        live_fen = api.board.fen()
+        api.sans[0] = "d4"
+
+        state = api.get_state()
+        self.assertEqual(state["historyItems"], [])
+        self.assertFalse(state["historyProjectionValid"])
+        self.assertEqual(state["moves"], "Could not read move history.")
+        self.assertEqual(state["lastMove"], "Could not read move history.")
+        self.assertEqual(state["fen"], live_fen)
+
+    def test_live_board_and_history_fen_desynchronization_fails_closed(self) -> None:
+        api = AccessibleChessAPI("en")
+        play(api, "e4")
+        api.board = Board()
+
+        state = api.get_state()
+        self.assertEqual(state["historyItems"], [])
+        self.assertFalse(state["historyProjectionValid"])
+        self.assertEqual(state["reviewStatus"], "Could not read move history.")
+        self.assertEqual(state["moves"], "Could not read move history.")
+        self.assertFalse(state["canUndo"])
+        self.assertFalse(state["positionEditor"]["editable"])
+
     def test_malformed_history_metadata_fails_closed_without_breaking_state(self) -> None:
         cases = (
             (["e4"], [], "length mismatch"),

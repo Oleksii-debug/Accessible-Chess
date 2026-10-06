@@ -203,13 +203,52 @@ class AccessibleChessAPI:
                 return False
         return True
 
-    def _visible_ply_count(self) -> int:
+    def _validated_history_lineage(self) -> list[int] | None:
         if not self._history_metadata_valid():
+            return None
+        try:
+            lineage = self._live_line_nodes()
+            records = {
+                record.node_id: record
+                for record in self.review_history.tree_nodes()
+            }
+        except Exception:
+            return None
+        current_node = self.review_history.cursor_node_id
+        if len(lineage) != len(self.sans) + 1:
+            return None
+        if current_node not in set(lineage):
+            return None
+        root = records.get(lineage[0])
+        live = records.get(self.live_history_node)
+        if root is None or root.snapshot.fen != self.start_fen:
+            return None
+        if live is None or live.snapshot.fen != self.board.fen():
+            return None
+        for ply, (san, side) in enumerate(
+            zip(self.sans, self.move_sides),
+            start=1,
+        ):
+            record = records.get(lineage[ply])
+            if record is None:
+                return None
+            snapshot = record.snapshot
+            if snapshot.san is not None and snapshot.san != san:
+                return None
+            if snapshot.side is not None and snapshot.side != side:
+                return None
+            if snapshot.last_move is not None and snapshot.last_move != san:
+                return None
+        return lineage
+
+    def _visible_ply_count(self) -> int:
+        lineage = self._validated_history_lineage()
+        if lineage is None:
             return 0
-        return min(self.review_adapter.current().ply, len(self.sans))
+        return lineage.index(self.review_history.cursor_node_id)
 
     def _moves_text(self) -> str:
-        if not self._history_metadata_valid():
+        if self._validated_history_lineage() is None:
             return self._t("history_metadata_invalid")
         count = self._visible_ply_count()
         if count == 0:
@@ -244,17 +283,10 @@ class AccessibleChessAPI:
         canonical ply target that go_to_move already validates before review
         publication. Review selection never mutates the live Board.
         """
-        try:
-            lineage = self._live_line_nodes()
-        except Exception:
+        lineage = self._validated_history_lineage()
+        if lineage is None:
             return []
         current_node = self.review_history.cursor_node_id
-        if not self._history_metadata_valid():
-            return []
-        if len(lineage) != len(self.sans) + 1:
-            return []
-        if current_node not in set(lineage):
-            return []
         items: list[dict[str, Any]] = [
             {
                 "ply": 0,
@@ -553,14 +585,19 @@ class AccessibleChessAPI:
     def get_state(self) -> dict[str, Any]:
         display_view = self._display_review()
         display_board = self._display_board()
-        history_metadata_valid = self._history_metadata_valid()
-        visible = self._visible_ply_count()
+        history_lineage = self._validated_history_lineage()
+        history_source_valid = history_lineage is not None
+        visible = (
+            history_lineage.index(self.review_history.cursor_node_id)
+            if history_lineage is not None
+            else 0
+        )
         last = (
             format_accessible_compact_san(self.sans[visible - 1], self.lang)
-            if history_metadata_valid and visible
+            if history_source_valid and visible
             else (
                 self._t("no_last")
-                if history_metadata_valid
+                if history_source_valid
                 else self._t("history_metadata_invalid")
             )
         )
@@ -593,7 +630,7 @@ class AccessibleChessAPI:
         history_items = self._history_items()
         history_length = len(self.sans) if type(self.sans) is list else 0
         history_projection_valid = (
-            self._history_metadata_valid()
+            history_source_valid
             and len(history_items) == history_length + 1
             and sum(bool(item["selected"]) for item in history_items) == 1
             and sum(bool(item["live"]) for item in history_items) == 1
