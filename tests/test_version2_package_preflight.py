@@ -1152,6 +1152,31 @@ class Version2PackagePreflightTests(unittest.TestCase):
                 ):
                     _validate_tree(root)
 
+    def test_terminal_revalidation_rejects_new_unchecksummed_file_after_hygiene(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+            injected = root / "AccessibleChess" / "web" / "post-validation.txt"
+            original_scan = preflight._scan_text_hygiene
+
+            def scan_then_add_file(scan_root, inventory, limits):
+                original_scan(scan_root, inventory, limits)
+                injected.write_text("not represented by checksum authority\n", encoding="utf-8")
+
+            with patch.object(
+                preflight,
+                "_scan_text_hygiene",
+                side_effect=scan_then_add_file,
+            ):
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "package inventory changed during validation",
+                ):
+                    _validate_tree(root)
+
+            self.assertTrue(injected.exists())
+
     def test_terminal_revalidation_rejects_checksum_authority_mutation(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "package"
