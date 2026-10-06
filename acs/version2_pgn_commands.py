@@ -294,10 +294,17 @@ class Version2PgnCommands:
                 )
             return workspace.previous_game() if action_id.endswith("previous_game") else workspace.next_game()
         if action_id in {"pgn.tag_edit", "pgn.tag_delete"}:
-            expected = {*_TARGET_FIELDS, "name"} | ({"value"} if action_id == "pgn.tag_edit" else set())
-            if set(payload) not in (expected, expected | {"expected_content_digest"}):
+            expected = set(_NAVIGATION_TARGET_FIELDS) | {"name"}
+            if action_id == "pgn.tag_edit":
+                expected.add("value")
+            if set(payload) != expected:
                 raise ValueError("invalid PGN tag payload")
-            _request, _cursor = self._target(payload, require_current=True, workspace=workspace)
+            _request, _cursor = self._target(
+                payload,
+                require_current=True,
+                workspace=workspace,
+                allow_root=True,
+            )
             name = payload.get("name")
             if type(name) is not str:
                 raise ValueError("invalid PGN tag name")
@@ -308,17 +315,27 @@ class Version2PgnCommands:
                 raise ValueError("invalid PGN tag value")
             return workspace.edit_tag(name, value)
         if action_id == "pgn.append_moves":
-            if set(payload) not in ({*_TARGET_FIELDS, "text"}, {*_TARGET_FIELDS, "expected_content_digest", "text"}):
+            if set(payload) != set(_NAVIGATION_TARGET_FIELDS) | {"text"}:
                 raise ValueError("invalid PGN continuation payload")
-            _request, _cursor = self._target(payload, require_current=True, workspace=workspace)
+            _request, _cursor = self._target(
+                payload,
+                require_current=True,
+                workspace=workspace,
+                allow_root=True,
+            )
             text = payload.get("text", "")
             origin_fen = self.current_fen()
             fragment = self._variation_from_text(text, origin_fen=origin_fen)
             return workspace.append_moves(fragment)
         if action_id == "pgn.search":
-            if set(payload) not in ({* _TARGET_FIELDS, "text"}, {* _TARGET_FIELDS, "expected_content_digest", "text"}):
+            if set(payload) != set(_NAVIGATION_TARGET_FIELDS) | {"text"}:
                 raise ValueError("invalid PGN search payload")
-            request, _cursor = self._target(payload, require_current=True, workspace=workspace)
+            _request, _cursor = self._target(
+                payload,
+                require_current=True,
+                workspace=workspace,
+                allow_root=True,
+            )
             text = payload.get("text", "")
             if type(text) is not str:
                 raise ValueError("invalid PGN search text")
