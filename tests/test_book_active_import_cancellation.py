@@ -338,6 +338,42 @@ class BookActiveImportCancellationTests(unittest.TestCase):
         self.assertIs(caught.exception, failure)
         parse.assert_not_called()
 
+    def test_html_explicit_pgn_preamble_scan_observes_control(self):
+        import acs.book_html_import as html
+
+        failure = SourceReadCancelledError("cancelled during explicit PGN preamble scan")
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise failure
+
+        raw = "{PGN 1}\n" + ("   \n" * 400) + '[Event "Study"]\n'
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            html._explicit_pgn_pre(raw, cancel)
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 2)
+
+    def test_html_pgn_blank_region_scan_observes_control(self):
+        import acs.book_html_import as html
+
+        failure = SourceReadCancelledError("cancelled during PGN blank-region scan")
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 4:
+                raise failure
+
+        visible = "{PGN 1}\n" + ("\n" * 400) + '[Event "Study"]\n'
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            html._pgn_candidates(visible, cancel)
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 4)
+
     def test_html_list_aggregation_observes_control(self):
         failure = SourceReadCancelledError('cancelled during HTML list aggregation')
         calls = 0
@@ -380,6 +416,297 @@ class BookActiveImportCancellationTests(unittest.TestCase):
         self.assertIs(caught.exception, failure)
         self.assertEqual(calls, 3)
 
+    def test_html_parser_events_observe_control_inside_single_feed_chunk(self):
+        failure = SourceReadCancelledError('cancelled inside HTMLParser.feed')
+        calls = 0
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise failure
+
+        parser = _SemanticHtmlParser(
+            available_assets=None,
+            control_checkpoint=cancel,
+        )
+        source = '<p>' * 400 + 'unreached'
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            parser.feed(source)
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 3)
+        self.assertLess(parser._node_count, 400)
+
+    def test_html_inline_style_scan_observes_control_inside_one_starttag(self):
+        failure = SourceReadCancelledError("cancelled during HTML inline style scan")
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise failure
+
+        parser = _SemanticHtmlParser(
+            available_assets=None,
+            control_checkpoint=cancel,
+        )
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            parser.handle_starttag("div", [("style", "x" * 10_000)])
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 2)
+        self.assertEqual(parser.blocks, [])
+
+    def test_html_starttag_attribute_normalization_observes_control(self):
+        failure = SourceReadCancelledError("cancelled during HTML attribute normalization")
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise failure
+
+        parser = _SemanticHtmlParser(
+            available_assets=None,
+            control_checkpoint=cancel,
+        )
+        attrs = [(f"data-test-{index}", "x") for index in range(400)]
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            parser.handle_starttag("div", attrs)
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 2)
+        self.assertEqual(parser.blocks, [])
+
+    def test_html_data_fanout_observes_control_inside_deep_capture_stack(self):
+        parser = _SemanticHtmlParser(available_assets=None)
+        parser.feed('<p>' * 400)
+        failure = SourceReadCancelledError('cancelled during HTML capture fanout')
+        calls = 0
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise failure
+
+        parser.control_checkpoint = cancel
+        parser._control_event_count = 0
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            parser.feed('payload')
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 2)
+        self.assertEqual(parser.visible_chars, 0)
+
+    def test_html_inline_projection_observes_control_with_many_semantic_events(self):
+        parser = _SemanticHtmlParser(available_assets=None)
+        parser.feed('<p>' + '<img alt="diagram">' * 300)
+        failure = SourceReadCancelledError('cancelled during inline semantic projection')
+        calls = 0
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise failure
+
+        parser.control_checkpoint = cancel
+        parser._control_event_count = 0
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            parser.handle_endtag('p')
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 2)
+
+    def test_html_endtag_deep_capture_search_observes_control_before_mutation(self):
+        parser = _SemanticHtmlParser(available_assets=None)
+        parser.feed("<p>" * 400)
+        failure = SourceReadCancelledError("cancelled during deep HTML end-tag search")
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise failure
+
+        parser.control_checkpoint = cancel
+        parser._control_event_count = 0
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            parser.handle_endtag("div")
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 2)
+        self.assertEqual(len(parser._captures), 400)
+
+    def test_html_css_ascii_lower_control_preserves_non_ascii_semantics(self):
+        import acs.book_html_import as html
+
+        sample = ("DISPLAY" * 1_000) + " ÄÖÜ Σ"
+        calls = []
+        controlled = html._css_ascii_lower(sample, lambda: calls.append(1))
+        self.assertEqual(controlled, html._css_ascii_lower(sample))
+        self.assertIn("ä", controlled.lower())
+        self.assertTrue(controlled.endswith(" ÄÖÜ Σ"))
+        self.assertGreater(len(calls), 2)
+
+    def test_html_css_ascii_lower_observes_control_inside_large_token(self):
+        import acs.book_html_import as html
+
+        failure = SourceReadCancelledError("cancelled during CSS ASCII folding")
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise failure
+
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            html._css_ascii_lower("DISPLAY" * 2_000, cancel)
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 2)
+
+    def test_html_asset_path_scan_observes_control_inside_large_segment_set(self):
+        import acs.book_html_import as html
+
+        failure = SourceReadCancelledError("cancelled during HTML asset path scan")
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 5:
+                raise failure
+
+        value = "/".join(f"segment{index}" for index in range(400))
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            html._asset_name(value, cancel)
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 5)
+
+    def test_html_controlled_compaction_matches_uncontrolled_whitespace_semantics(self):
+        import acs.book_html_import as html
+
+        sample = (
+            "  Alpha\tBeta\nGamma\xa0Delta\u2003Epsilon  "
+            + ("word\t" * 2_000)
+            + "tail"
+        )
+        calls = []
+        controlled = html._compact(sample, lambda: calls.append(1))
+        self.assertEqual(controlled, html._compact(sample))
+        self.assertGreater(len(calls), 2)
+
+    def test_html_large_capture_compaction_observes_control_before_block_publication(self):
+        parser = _SemanticHtmlParser(available_assets=None)
+        parser.feed("<p>" + ("Alpha\tBeta " * 2_000))
+        capture = parser._captures[-1]
+        failure = SourceReadCancelledError("cancelled during HTML text compaction")
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise failure
+
+        parser.control_checkpoint = cancel
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            parser._finish_capture(capture)
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 2)
+        self.assertEqual(parser.blocks, [])
+
+    def test_html_body_implicit_head_unwind_observes_control_before_capture_mutation(self):
+        parser = _SemanticHtmlParser(available_assets=None)
+        parser.feed("<head>" + "<title>" * 300)
+        before = tuple(parser._captures)
+        failure = SourceReadCancelledError("cancelled before implicit HEAD unwind")
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise failure
+
+        parser.control_checkpoint = cancel
+        parser._control_event_count = 1
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            parser.handle_starttag("body", [])
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 1)
+        self.assertEqual(tuple(parser._captures), before)
+
+    def test_html_ancestor_unwind_observes_control_before_capture_mutation(self):
+        parser = _SemanticHtmlParser(available_assets=None)
+        parser.feed("<p>" + "<blockquote>" * 300)
+        before = tuple(parser._captures)
+        failure = SourceReadCancelledError("cancelled before malformed ancestor unwind")
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                raise failure
+
+        parser.control_checkpoint = cancel
+        parser._control_event_count = 1
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            parser.handle_endtag("p")
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 3)
+        self.assertEqual(tuple(parser._captures), before)
+
+    def test_html_list_close_unwind_observes_control_before_capture_mutation(self):
+        parser = _SemanticHtmlParser(available_assets=None)
+        parser.feed("<ul><li>" + "<blockquote>" * 300)
+        before_captures = tuple(parser._captures)
+        before_lists = tuple(parser._lists)
+        failure = SourceReadCancelledError("cancelled before malformed list unwind")
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 5:
+                raise failure
+
+        parser.control_checkpoint = cancel
+        parser._control_event_count = 1
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            parser.handle_endtag("ul")
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 3)
+        self.assertEqual(tuple(parser._captures), before_captures)
+        self.assertEqual(tuple(parser._lists), before_lists)
+
+    def test_html_large_list_fallback_observes_control_before_publication(self):
+        import acs.book_html_import as html
+
+        failure = SourceReadCancelledError("cancelled during HTML list fallback")
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise failure
+
+        parser = _SemanticHtmlParser(
+            available_assets=None,
+            control_checkpoint=cancel,
+        )
+        captured = html._ListCapture(
+            tag="ol",
+            attrs={},
+            items=[f"item {index}" for index in range(400)],
+            unsupported=True,
+            structural_unsupported=True,
+        )
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            parser._emit_list(captured)
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 2)
+        self.assertEqual(parser.blocks, [])
+
     def test_html_close_recovery_control_failure_preserves_exact_exception(self):
         failure = SourceReadCancelledError('cancelled during malformed HTML recovery')
         calls = 0
@@ -409,6 +736,24 @@ class BookActiveImportCancellationTests(unittest.TestCase):
         with self.assertRaises(RuntimeError) as caught:
             import_html_book(HTML, source_name='study.html', control_checkpoint=fail)
         self.assertIs(caught.exception, failure)
+
+    def test_html_available_asset_normalization_observes_control(self):
+        import acs.book_html_import as html
+
+        failure = SourceReadCancelledError("cancelled during asset normalization")
+        calls = 0
+
+        def cancel():
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise failure
+
+        assets = [f"images/{index}.png" for index in range(400)]
+        with self.assertRaises(SourceReadCancelledError) as caught:
+            html._asset_set(assets, cancel)
+        self.assertIs(caught.exception, failure)
+        self.assertEqual(calls, 2)
 
     def test_non_callable_control_is_rejected(self):
         for importer, source, args in ((import_html_book, HTML, {}),
