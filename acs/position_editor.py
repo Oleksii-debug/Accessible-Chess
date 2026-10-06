@@ -5,7 +5,7 @@ from itertools import islice
 import re
 from typing import Iterable
 
-from .input_limits import MAX_FEN_CHARS
+from .input_limits import MAX_FEN_CHARS, MAX_SQUARE_TEXT_CHARS
 from .squares import FILES, parse_square
 
 VALID_PIECES = frozenset("PNBRQKpnbrqk")
@@ -13,6 +13,7 @@ VALID_CASTLING = frozenset("KQkq")
 MAX_COORDINATE_POSITION_TOKENS = 64 * 2
 MAX_COORDINATE_POSITION_CHARS = 4096
 _MAX_SQUARE_DIAGNOSTIC_CHARS = 16
+_MAX_CASTLING_TEXT_CHARS = 256
 _POSITION_SECTIONS_RE = re.compile(
     r"(?is)^\s*W\s*:\s*(?P<white>.*?)\s*\bB\s*:\s*(?P<black>.*?)\s*$"
 )
@@ -53,9 +54,13 @@ class PositionState:
             raise PositionValidationError("turn must be 'w' or 'b'")
         if type(self.castling) is not str:
             raise PositionValidationError("castling rights must be text")
+        if len(self.castling) > _MAX_CASTLING_TEXT_CHARS:
+            raise PositionValidationError("castling rights text is too long")
         _validate_castling(self.castling)
         if type(self.en_passant) is not str:
             raise PositionValidationError("en-passant square must be text")
+        if len(self.en_passant) > MAX_SQUARE_TEXT_CHARS:
+            raise PositionValidationError("en-passant square text is too long")
         _validate_en_passant(self.en_passant, self.turn)
         if type(self.halfmove) is not int:
             raise PositionValidationError("halfmove clock must be an integer")
@@ -85,8 +90,27 @@ class PositionState:
     def with_turn(self, turn: str) -> "PositionState":
         return replace(self, turn=turn, en_passant="-")
 
+    def with_en_passant(self, square: str) -> "PositionState":
+        if type(square) is not str:
+            raise PositionValidationError("en-passant square must be text")
+        if len(square) > MAX_SQUARE_TEXT_CHARS:
+            raise PositionValidationError("en-passant square text is too long")
+        normalized = square.strip().lower()
+        if normalized == "":
+            normalized = "-"
+        return replace(self, en_passant=normalized)
+
+    def with_counters(self, halfmove: int, fullmove: int) -> "PositionState":
+        if type(halfmove) is not int:
+            raise PositionValidationError("halfmove clock must be an integer")
+        if type(fullmove) is not int:
+            raise PositionValidationError("fullmove number must be an integer")
+        return replace(self, halfmove=halfmove, fullmove=fullmove)
+
     def with_castling(self, rights: Iterable[str] | str) -> "PositionState":
         if type(rights) is str:
+            if len(rights) > _MAX_CASTLING_TEXT_CHARS:
+                raise PositionValidationError("castling rights text is too long")
             normalized = _normalize_castling(rights)
         elif isinstance(rights, str):
             # A string subclass is scalar input, not a generic iterable. Reject it
@@ -335,6 +359,10 @@ def _square_index(square: str) -> int:
 
 
 def _normalize_castling(value: str) -> str:
+    if type(value) is not str:
+        raise PositionValidationError("castling rights must be text")
+    if len(value) > _MAX_CASTLING_TEXT_CHARS:
+        raise PositionValidationError("castling rights text is too long")
     text = value.strip()
     if text in {"", "-"}:
         return "-"

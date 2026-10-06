@@ -1,0 +1,177 @@
+name: FEN Editor Books Runtime Convergence
+
+on:
+  pull_request:
+    branches:
+      - converge/html-epub-runtime-final-20261006-sol56z9
+    paths:
+      - '.github/workflows/fen-editor-books-runtime-convergence.yml'
+      - 'acs/position_editor.py'
+      - 'acs/webapp.py'
+      - 'acs/webapp_keymap_core.py'
+      - 'acs/ui_analysis_adapter.py'
+      - 'acs/webapp_keymap.py'
+      - 'acs/stage1_release_ui_core.py'
+      - 'tests/test_fen_position_editor_complete_user_flow.py'
+      - 'tests/test_ui_analysis_webapp.py'
+      - 'tests/test_ui_analysis_adapter.py'
+      - 'tests/test_stage1_engine_play_ui.py'
+      - 'web/index.html'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fen-editor-books-runtime-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  POSITION_EDITOR_BLOB: 2a9b0e4ea6640c350ae1952176bb12771dfde7f8
+  WEBAPP_BLOB: 15c67c54018c739bdcfec7f285b284799ab5c665
+  FEN_FLOW_TEST_BLOB: d6bc39c2d820e83102ea4515fa9407ef4201c21e
+  KEYMAP_CORE_BLOB: f4bd6c9db6251a477cc9d678f36b9a17db64a5f7
+  ANALYSIS_ADAPTER_BLOB: e22d65ef3482e1e420a5252d36db9c1a5f5f8527
+  KEYMAP_FACADE_BLOB: 9ac8af3d9c7dc567edc87b29a2ab8be948294543
+  STAGE1_RELEASE_CORE_BLOB: b718e14ad03b2216b46e156584561523c4704cdb
+  ANALYSIS_WEBAPP_TEST_BLOB: ceefa54795f397d6a965b9028366596aac984830
+  ANALYSIS_ADAPTER_TEST_BLOB: ed002ed906ee5711e365cc2c70163a72d7359f00
+  STAGE1_ENGINE_PLAY_TEST_BLOB: b15066ea12c2180749b0870db0618d541db37e2c
+  WEB_INDEX_BLOB: 8253acf670da820a2adb189417fec32c61357af1
+
+jobs:
+  exact-head:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prove exact geometry and FEN blobs
+        shell: bash
+        env:
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          expected="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
+          test "$(git rev-parse HEAD)" = "$expected"
+          base_ref="${EVENT_BASE_REF:-converge/html-epub-runtime-final-20261006-sol56z9}"
+          git fetch --no-tags origin "+refs/heads/$base_ref:refs/remotes/origin/$base_ref"
+          live_base="$(git rev-parse "refs/remotes/origin/$base_ref")"
+          if [ -n "${EVENT_BASE_SHA:-}" ]; then
+            test "$EVENT_BASE_SHA" = "$live_base"
+          fi
+          test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+          git diff --check "$live_base"...HEAD
+          changed="$(git diff --name-only "$live_base"...HEAD | sort)"
+          expected_paths="$(printf '%s\n' \
+            '.github/workflows/fen-editor-books-runtime-convergence.yml' \
+            'acs/position_editor.py' \
+            'acs/webapp.py' \
+            'acs/webapp_keymap_core.py' \
+            'acs/ui_analysis_adapter.py' \
+            'acs/webapp_keymap.py' \
+            'acs/stage1_release_ui_core.py' \
+            'tests/test_fen_position_editor_complete_user_flow.py' \
+            'tests/test_ui_analysis_webapp.py' \
+            'tests/test_ui_analysis_adapter.py' \
+            'tests/test_stage1_engine_play_ui.py' \
+            'web/index.html' | sort)"
+          test "$changed" = "$expected_paths"
+          test "$(git rev-parse HEAD:acs/position_editor.py)" = "$POSITION_EDITOR_BLOB"
+          test "$(git rev-parse HEAD:acs/webapp.py)" = "$WEBAPP_BLOB"
+          test "$(git rev-parse HEAD:acs/webapp_keymap_core.py)" = "$KEYMAP_CORE_BLOB"
+          test "$(git rev-parse HEAD:acs/ui_analysis_adapter.py)" = "$ANALYSIS_ADAPTER_BLOB"
+          test "$(git rev-parse HEAD:acs/webapp_keymap.py)" = "$KEYMAP_FACADE_BLOB"
+          test "$(git rev-parse HEAD:acs/stage1_release_ui_core.py)" = "$STAGE1_RELEASE_CORE_BLOB"
+          test "$(git rev-parse HEAD:tests/test_fen_position_editor_complete_user_flow.py)" = "$FEN_FLOW_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_ui_analysis_webapp.py)" = "$ANALYSIS_WEBAPP_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_ui_analysis_adapter.py)" = "$ANALYSIS_ADAPTER_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_stage1_engine_play_ui.py)" = "$STAGE1_ENGINE_PLAY_TEST_BLOB"
+          test "$(git rev-parse HEAD:web/index.html)" = "$WEB_INDEX_BLOB"
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile FEN editor surfaces
+        run: >-
+          python -m py_compile
+          acs/position_editor.py
+          acs/webapp.py
+          acs/webapp_keymap_core.py
+          acs/ui_analysis_adapter.py
+          acs/webapp_keymap.py
+          acs/stage1_release_ui_core.py
+          tests/test_fen_position_editor_complete_user_flow.py
+          tests/test_ui_analysis_webapp.py
+          tests/test_ui_analysis_adapter.py
+          tests/test_stage1_engine_play_ui.py
+
+      - name: Validate WebView JavaScript syntax
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          html = Path("web/index.html").read_text(encoding="utf-8")
+          script = html.split("<script>", 1)[1].rsplit("</script>", 1)[0]
+          Path(".fen-editor-web.js").write_text(script, encoding="utf-8")
+          PY
+          node --check .fen-editor-web.js
+
+      - name: Execute complete FEN editor journey
+        run: >-
+          python -m unittest -v
+          tests.test_fen_position_editor_complete_user_flow
+          tests.test_ui_analysis_webapp
+          tests.test_ui_analysis_adapter
+          tests.test_analysis_webview_bridge
+          tests.test_position_editor
+          tests.test_position_text_authority
+          tests.test_dev2_fen_atomicity
+          tests.test_fen_input_budget_current
+          tests.test_pgn_document_new_game_position_integrity
+          tests.test_pgn_document_new_game_position_workflow
+          tests.test_stage1_fen_history_atomicity_current
+          tests.test_stage1_move_history_atomicity_current
+          tests.test_history_review_ui
+          tests.test_webapp_keymap_api
+          tests.test_v2_remapped_keyboard_routing
+          tests.test_v2_remapped_keyboard_native_editing
+          tests.test_stage1_board_action_integration
+          tests.test_stage1_engine_play_ui
+
+      - name: Preserve current accessible FEN action and composition contracts
+        run: >-
+          python -m unittest -v
+          tests.test_version2_application
+          tests.test_full_product_native_menu
+          tests.test_ui_keymap_adapter
+          tests.test_version2_release_ui
+          tests.test_dev1_full_product_webview_adapter
+          tests.test_version2_final_product_composition
+
+      - name: Re-run converged Books runtime contracts
+        run: >-
+          python -m unittest -v
+          tests.test_book_html_runtime_correctness
+          tests.test_book_epub_runtime_correctness
+          tests.test_book_active_import_cancellation
+          tests.test_v2_book_html_import
+          tests.test_v2_book_epub_import
+          tests.test_book_html_pgn_loss_accounting
+          tests.test_bookdocument
+          tests.test_bookreader
+
+      - name: Core selftest
+        run: python -m acs.selftest
