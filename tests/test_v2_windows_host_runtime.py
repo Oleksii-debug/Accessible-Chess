@@ -365,6 +365,48 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
                 owner.posted.pop(0)()
             self.assertTrue(runtime.shutdown())
 
+    def test_failed_pending_owner_callback_blocks_dispatch_until_same_callback_succeeds(self) -> None:
+        owner = _Owner()
+        fallback_calls: list[tuple[str, dict[str, object]]] = []
+        runtime = self._runtime(owner, fallback_calls=fallback_calls)
+        callback_calls: list[str] = []
+
+        class OwnerAbort(BaseException):
+            pass
+
+        def flaky_owner_callback() -> None:
+            callback_calls.append("call")
+            if len(callback_calls) == 1:
+                raise OwnerAbort()
+
+        runtime._pump.post_owner_callback(flaky_owner_callback)
+        self.assertTrue(runtime._pump.owner_callback_pending)
+
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "owner UI recovery is still pending",
+        ):
+            runtime("analysis.restart", {"source": "board"})
+
+        self.assertEqual(callback_calls, ["call"])
+        self.assertEqual(fallback_calls, [])
+        self.assertTrue(runtime._pump.owner_callback_pending)
+
+        result = runtime("analysis.restart", {"source": "board"})
+
+        self.assertEqual(result, ("fallback", "analysis.restart"))
+        self.assertEqual(callback_calls, ["call", "call"])
+        self.assertEqual(
+            fallback_calls,
+            [("analysis.restart", {"source": "board"})],
+        )
+        self.assertFalse(runtime._pump.owner_callback_pending)
+
+        while owner.posted:
+            owner.posted.pop(0)()
+        self.assertEqual(callback_calls, ["call", "call"])
+        self.assertTrue(runtime.shutdown())
+
     def test_pending_owner_recovery_cannot_dispatch_after_reentrant_close(self) -> None:
         owner = _Owner()
         fallback_calls: list[tuple[str, dict[str, object]]] = []
