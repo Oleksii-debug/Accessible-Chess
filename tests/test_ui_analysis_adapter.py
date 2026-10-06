@@ -455,6 +455,8 @@ class AnalysisPresentationAdapterTests(unittest.TestCase):
 
         adapter.begin_exploration(START_FEN)
         self.assertTrue(adapter.target_locked)
+        adapter.begin_exploration(START_FEN)
+        self.assertTrue(adapter.target_locked)
         adapter.return_from_exploration()
         self.assertFalse(adapter.target_locked)
         adapter.sync_position(after_e4.fen())
