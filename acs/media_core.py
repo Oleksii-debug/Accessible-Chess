@@ -936,14 +936,29 @@ class MediaPositionTimeline:
         "_timestamps",
         "_links_by_timestamp",
         "_confirmed_timestamps_by_ref",
+        "identity",
     )
 
     def __init__(
         self,
         source_id: str,
         links: Iterable[MediaChessLink] = (),
+        *,
+        identity: MediaTimelineIdentity | None = None,
     ) -> None:
         self.source_id = _require_text(source_id, "source_id")
+        if identity is not None:
+            if type(identity) is not MediaTimelineIdentity:
+                raise MediaContractError(
+                    "timeline identity must be MediaTimelineIdentity",
+                    code=MediaErrorCode.INVALID_CONTAINER,
+                )
+            if identity.source_id != self.source_id:
+                raise MediaContractError(
+                    "timeline identity source does not match timeline source",
+                    code=MediaErrorCode.SOURCE_MISMATCH,
+                )
+        self.identity = identity
         try:
             iterator = iter(links)
         except BaseException as exc:
@@ -1078,7 +1093,11 @@ class MediaPositionTimeline:
         return self._confirmed_timestamps_by_ref.get(ref, ())
 
     def with_link(self, link: MediaChessLink) -> "MediaPositionTimeline":
-        return MediaPositionTimeline(self.source_id, (*self._links, link))
+        return MediaPositionTimeline(
+            self.source_id,
+            (*self._links, link),
+            identity=self.identity,
+        )
 
     def confirm_candidate(
         self,
@@ -1147,11 +1166,16 @@ class MediaPositionTimeline:
                 reconciled.append(replace(link, status=MediaLinkStatus.CANDIDATE))
                 continue
             reconciled.append(link)
-        return MediaPositionTimeline(self.source_id, reconciled)
+        return MediaPositionTimeline(
+            self.source_id,
+            reconciled,
+            identity=self.identity,
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "source_id": self.source_id,
+            "identity": _timeline_identity_to_dict(self.identity),
             "links": [
                 {
                     "timestamp_ms": link.timestamp_ms,
@@ -1172,6 +1196,8 @@ class MediaPositionTimeline:
                 code=MediaErrorCode.INVALID_CONTAINER,
             )
         source_id = data.get("source_id")
+        raw_identity = data.get("identity")
+        identity = _timeline_identity_from_dict(raw_identity)
         raw_links = data.get("links")
         if type(raw_links) is not list:
             raise MediaContractError(
@@ -1200,7 +1226,7 @@ class MediaPositionTimeline:
                     evidence=raw_link.get("evidence"),
                 )
             )
-        return cls(source_id, links)
+        return cls(source_id, links, identity=identity)
 
 
 @dataclass(frozen=True, slots=True)

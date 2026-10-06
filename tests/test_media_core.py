@@ -703,6 +703,63 @@ class MediaCoreContractTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, MediaErrorCode.RECONCILIATION_FAILED)
 
 
+
+    def test_timeline_identity_is_bound_preserved_and_persisted(self):
+        identity = MediaTimelineIdentity(
+            source_id="lesson-1",
+            source_revision="source-v1",
+            recognizer_revision="vision-v1",
+            reconciliation_revision="reconcile-v1",
+            provider_revision="provider-v1",
+            cache_version=3,
+        )
+        timeline = MediaPositionTimeline(
+            "lesson-1",
+            (self.link(1000, "canonical:a"),),
+            identity=identity,
+        )
+        extended = timeline.with_link(self.link(2000, "canonical:b"))
+        self.assertEqual(extended.identity, identity)
+        confirmed = extended.confirm_candidate(2000, "canonical:b")
+        self.assertEqual(confirmed.identity, identity)
+
+        encoded = serialize_media_state(
+            self.source(),
+            confirmed,
+            MediaChessSession(MediaCursor("lesson-1", 2000), "canonical:analysis"),
+        )
+        _source, restored, _session = deserialize_media_state(encoded)
+        self.assertEqual(restored.identity, identity)
+        self.assertEqual(restored.links, confirmed.links)
+
+    def test_timeline_identity_rejects_cross_source_binding(self):
+        identity = MediaTimelineIdentity(
+            source_id="other-source",
+            source_revision="source-v1",
+            recognizer_revision="vision-v1",
+            reconciliation_revision="reconcile-v1",
+        )
+        with self.assertRaises(MediaContractError) as caught:
+            MediaPositionTimeline("lesson-1", (), identity=identity)
+        self.assertEqual(caught.exception.code, MediaErrorCode.SOURCE_MISMATCH)
+
+    def test_legacy_timeline_payload_without_identity_still_loads(self):
+        payload = {
+            "source_id": "lesson-1",
+            "links": [
+                {
+                    "timestamp_ms": 1000,
+                    "chess_ref": "canonical:a",
+                    "status": "confirmed",
+                    "confidence": 1.0,
+                    "evidence": None,
+                }
+            ],
+        }
+        timeline = MediaPositionTimeline.from_dict(payload)
+        self.assertIsNone(timeline.identity)
+        self.assertEqual(timeline.resolve_exact(1000).chess_ref, "canonical:a")
+
     def session_identity(self, *, provider_revision="provider-v1"):
         return MediaTimelineIdentity(
             source_id="lesson-1",
