@@ -556,6 +556,8 @@ def _inventory(root: Path, limits: PackageLimits) -> tuple[tuple[str, ...], int]
                 if folded in seen:
                     _fail("package paths collide under Windows case-folding")
                 seen.add(folded)
+                if len(seen) > limits.max_files * 2:
+                    _fail("package exceeds entry-count limit")
                 if PurePosixPath(relative).name.casefold() in _FORBIDDEN_COMPONENTS:
                     _fail(f"build/source component is forbidden: {relative}")
 
@@ -569,6 +571,8 @@ def _inventory(root: Path, limits: PackageLimits) -> tuple[tuple[str, ...], int]
                 if folded in seen:
                     _fail("package paths collide under Windows case-folding")
                 seen.add(folded)
+                if len(seen) > limits.max_files * 2:
+                    _fail("package exceeds entry-count limit")
                 info = _safe_lstat(path, label="package file")
                 if not stat.S_ISREG(info.st_mode):
                     _fail(f"package entry must be a regular file: {relative}")
