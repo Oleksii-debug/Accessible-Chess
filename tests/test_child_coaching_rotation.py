@@ -354,7 +354,7 @@ class ChildCoachingRotationTests(unittest.TestCase):
         round_record["activity"] = ActiveText(round_record["activity"])
         with self.assertRaisesRegex(
             ChildCoachingRotationError,
-            "invalid rotation activity",
+            "record is not canonical",
         ):
             RotationRound.from_record(round_record)
 
