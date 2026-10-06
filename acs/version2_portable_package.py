@@ -1077,10 +1077,12 @@ def write_portable_oneclick_zip(
             _fail("verified portable ZIP archive changed after readback")
 
         published_identity: os.stat_result | None = None
+        link_created = False
         publication_accepted = False
         try:
             try:
                 os.link(temporary, target)
+                link_created = True
             except OSError as exc:
                 _fail(f"portable ZIP could not be published without replacement: {type(exc).__name__}")
 
@@ -1139,10 +1141,15 @@ def write_portable_oneclick_zip(
                 checksum_sha256=checksum_file_digest,
             )
         finally:
-            if not publication_accepted and published_identity is not None:
+            if not publication_accepted and link_created:
+                cleanup_identity = (
+                    published_identity
+                    if published_identity is not None
+                    else verified_snapshot
+                )
                 try:
                     current = target.lstat()
-                    if _complete_file_identity(published_identity, current):
+                    if _complete_file_identity(cleanup_identity, current):
                         target.unlink()
                 except OSError:
                     # Never let cleanup obscure the fail-closed publication
