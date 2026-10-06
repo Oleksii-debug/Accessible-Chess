@@ -360,6 +360,8 @@ class Version2WindowsFileActionDelegate:
         self._terminal_pending: tuple[int, FileWorkflowEvent] | None = None
         self._pending_open_result: tuple[object, ...] | None = None
         self._pending_save_result: tuple[object, ...] | None = None
+        self._worker_return_focus = ""
+        self._recovery_open_cancel_focus: str | None = None
         self._generation = 0
         self._shutdown_requested = False
 
@@ -742,6 +744,7 @@ class Version2WindowsFileActionDelegate:
             self._worker = worker
             self._worker_started = False
             self._worker_kind = "pgn_open"
+            self._worker_return_focus = previous_focus
             self._cancel_event = cancel_event
             self._terminal_pending = None
             self._pending_open_result = None
@@ -835,17 +838,37 @@ class Version2WindowsFileActionDelegate:
                     and self._worker_kind == "pgn_open"
                     and not self._shutdown_requested
                 )
+                recovery_cancelled = (
+                    current
+                    and self._recovery_open_cancel_focus is not None
+                    and cancel_event.is_set()
+                    and error_code in {"", "pgn_open_cancelled"}
+                )
                 if current:
                     self._clear_worker_locked()
+                    self._recovery_open_cancel_focus = None
             if current:
-                self._emit(
-                    FileWorkflowEvent(
-                        FileWorkflowEventKind.FAILED,
-                        "pgn.open",
-                        focus_target=previous_focus,
-                        error_code="pgn_open_ui_post_failed",
+                if recovery_cancelled:
+                    self._emit(
+                        FileWorkflowEvent(
+                            FileWorkflowEventKind.PGN_OPEN_CANCELLED,
+                            "pgn.open",
+                            focus_target=previous_focus,
+                        )
                     )
-                )
+                else:
+                    self._emit(
+                        FileWorkflowEvent(
+                            FileWorkflowEventKind.FAILED,
+                            "pgn.open",
+                            focus_target=previous_focus,
+                            error_code=(
+                                error_code
+                                if error_code
+                                else "pgn_open_ui_post_failed"
+                            ),
+                        )
+                    )
 
     def _finish_pgn_open_on_owner(
         self,
@@ -1018,6 +1041,10 @@ class Version2WindowsFileActionDelegate:
             ):
                 return
             self._clear_worker_locked()
+            # A refused-close recovery marker represents this exact in-flight
+            # PGN Open. Once its real terminal is selected, that marker must not
+            # publish a second cancellation on a later recovery attempt.
+            self._recovery_open_cancel_focus = None
         if deliver_owner_async:
             return self._emit_owner_async(terminal)
         return terminal
@@ -1070,6 +1097,7 @@ class Version2WindowsFileActionDelegate:
         self._terminal_pending = None
         self._pending_open_result = None
         self._pending_save_result = None
+        self._worker_return_focus = ""
 
     def _session_or_failure(
         self, action_id: str
@@ -2261,7 +2289,14 @@ class Version2WindowsFileActionDelegate:
         that cancelled-draining generation so its truthful terminal can reach the
         owner/NVDA path and clear the slot. A reserved-but-unstarted worker remains
         fenced: allowing re-entrant recovery there could start work after shutdown.
+
+        PGN Open is special because its prepared session is published only by an
+        owner callback. Successful shutdown deliberately invalidates that callback.
+        If a later progress/database failure refuses the Form close, publish one
+        owner-thread PGN_OPEN_CANCELLED terminal so the visible accessibility state
+        cannot remain stuck at "opening" after the candidate was discarded.
         """
+        recovery_open_focus: str | None = None
         with self._lock:
             if not self._shutdown_requested:
                 return True
@@ -2274,34 +2309,48 @@ class Version2WindowsFileActionDelegate:
                 ):
                     return False
                 self._shutdown_requested = False
-                return True
-
-            if (
-                not self._worker_started
-                or self._cancel_event is None
-                or not self._cancel_event.is_set()
-                or self._worker_kind not in {"import", "pgn_open", "pgn_save"}
-                or self._terminal_pending is not None
-            ):
-                return False
-            if self._worker_kind == "pgn_open":
-                if self._pending_save_result is not None:
-                    return False
-                pending = self._pending_open_result
-            elif self._worker_kind == "pgn_save":
-                if self._pending_open_result is not None:
-                    return False
-                pending = self._pending_save_result
+                recovery_open_focus = self._recovery_open_cancel_focus
             else:
+                recovery_open_focus = None
+
+            if self._worker is not None:
                 if (
-                    self._pending_open_result is not None
-                    or self._pending_save_result is not None
+                    not self._worker_started
+                    or self._cancel_event is None
+                    or not self._cancel_event.is_set()
+                    or self._worker_kind not in {"import", "pgn_open", "pgn_save"}
+                    or self._terminal_pending is not None
                 ):
                     return False
-                pending = None
-            if pending is not None and pending[0] != self._generation:
-                return False
-            self._shutdown_requested = False
+                if self._worker_kind == "pgn_open":
+                    if self._pending_save_result is not None:
+                        return False
+                    pending = self._pending_open_result
+                elif self._worker_kind == "pgn_save":
+                    if self._pending_open_result is not None:
+                        return False
+                    pending = self._pending_save_result
+                else:
+                    if (
+                        self._pending_open_result is not None
+                        or self._pending_save_result is not None
+                    ):
+                        return False
+                    pending = None
+                if pending is not None and pending[0] != self._generation:
+                    return False
+                self._shutdown_requested = False
+
+        if recovery_open_focus is not None:
+            terminal = FileWorkflowEvent(
+                FileWorkflowEventKind.PGN_OPEN_CANCELLED,
+                "pgn.open",
+                focus_target=recovery_open_focus,
+            )
+            self._emit_owner_async(terminal)
+            with self._lock:
+                if self._recovery_open_cancel_focus == recovery_open_focus:
+                    self._recovery_open_cancel_focus = None
         return True
 
     def shutdown(self, timeout: float | None = None) -> bool:
@@ -2315,6 +2364,13 @@ class Version2WindowsFileActionDelegate:
             cancel_event = self._cancel_event
             if cancel_event is not None:
                 cancel_event.set()
+                if (
+                    worker is not None
+                    and worker_started
+                    and worker_kind == "pgn_open"
+                    and self._recovery_open_cancel_focus is None
+                ):
+                    self._recovery_open_cancel_focus = self._worker_return_focus
         if worker is None:
             return True
         if not worker_started:
