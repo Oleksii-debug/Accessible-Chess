@@ -402,17 +402,31 @@ class RecordedMediaAccessibilityBridge:
     ) -> dict[str, object]:
         try:
             position, duration, playback_state = _validate_clock(clock)
-            qualification = _qualification(playback, sync_snapshot, position)
+            if playback is not None and type(playback) is not RecordedPlaybackResolution:
+                raise RecordedMediaAccessibilityError(
+                    "invalid recorded playback resolution"
+                )
+            safe_sync = _validate_sync_snapshot(sync_snapshot)
+            if playback is not None and safe_sync is not None:
+                if playback.session.media_cursor.source_id != safe_sync.source.source_id:
+                    raise RecordedMediaAccessibilityError(
+                        "recorded playback and synchronization snapshots use different sources"
+                    )
+            qualification = _qualification(playback, safe_sync, position)
             preprocess_status, completed, total, cancel_enabled = _validate_progress(
                 preprocess
             )
+            if preprocess is not None and safe_sync is not None:
+                if (
+                    preprocess.source_id != safe_sync.source.source_id
+                    or preprocess.source_revision != safe_sync.source_revision
+                ):
+                    raise RecordedMediaAccessibilityError(
+                        "preprocess checkpoint belongs to a different recorded source revision"
+                    )
             labels = _LABELS[self._language]
             restored_event = _event_text(event)
             if playback is not None:
-                if type(playback) is not RecordedPlaybackResolution:
-                    raise RecordedMediaAccessibilityError(
-                        "invalid recorded playback resolution"
-                    )
                 event_text = _event_text(playback.event)
                 if restored_event and restored_event != event_text:
                     raise RecordedMediaAccessibilityError(
