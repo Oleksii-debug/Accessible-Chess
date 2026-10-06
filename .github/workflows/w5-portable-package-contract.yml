@@ -14,6 +14,7 @@ on:
       - tests/test_version2_package_pe_identity.py
       - tests/test_version2_package_preflight.py
       - tests/test_version2_release_payload.py
+      - tests/test_p0_semantic_document_copy.py
       - .github/workflows/w5-portable-package-contract.yml
 
 permissions:
@@ -143,6 +144,7 @@ jobs:
           tests/test_v2_package_required_resources.py
           tests/test_version2_package_pe_identity.py
           tests/test_version2_release_payload.py
+          tests/test_p0_semantic_document_copy.py
           tests/test_version2_portable_package.py
           tests/test_portable_launcher_contract.py
           tests/test_portable_launcher_window_readiness.py
