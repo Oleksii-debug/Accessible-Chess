@@ -363,19 +363,39 @@ _HEADING_RE = re.compile(r"^(#{1,6})[ \t]+(.+?)(?:[ \t]+#+)?[ \t]*$")
 _LEGACY_HEADING_ID_RE = re.compile(r"^(#{1,6})[ \t]+(.+?)\s*#*\s*$")
 _FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})([^`]*)$")
 _IMAGE_RE = re.compile(r"!\[([^\]]+)\]\([^\)]+\)")
+_IMAGE_OPEN_RE = re.compile(r"!\[([^\]]+)\]\(")
 _LIST_RE = re.compile(
     r"^(?P<indent>[ \t]*)(?:(?P<bullet>[-+*])|(?P<number>[0-9]{1,9})(?P<delimiter>[.)]))\s+(?P<text>.+)$"
 )
 _QUOTE_RE = re.compile(r"^\s*>\s?(.*)$")
 
 
-def _iter_semantic_images(line: str):
-    """Yield unescaped inline images outside conservative backtick literals.
+@dataclass(frozen=True, slots=True)
+class _SemanticImageMatch:
+    start_index: int
+    end_index: int
+    alt: str
 
-    This is deliberately a bounded, single-pass recognizer rather than a second
-    Markdown parser. Escaped punctuation and backtick-delimited text stay
-    readable source text. If a backtick run is never closed, the rest of the
-    line is conservatively treated as literal instead of inventing semantics.
+    def start(self) -> int:
+        return self.start_index
+
+    def end(self) -> int:
+        return self.end_index
+
+    def group(self, index: int) -> str:
+        if index != 1:
+            raise IndexError("semantic image match exposes only alt-text group 1")
+        return self.alt
+
+
+def _iter_semantic_images(line: str):
+    """Yield bounded inline images outside conservative backtick literals.
+
+    This remains a single-pass recognizer, not a second Markdown parser.
+    Escaped punctuation and backtick-delimited text stay readable source text.
+    Image destinations are consumed through their balanced closing parenthesis
+    so nested or escaped parentheses cannot leak URL fragments into semantic
+    BookDocument text. Unclosed destinations remain literal source text.
     """
 
     index = 0
@@ -402,11 +422,38 @@ def _iter_semantic_images(line: str):
         if char == "\\":
             index = min(length, index + 2)
             continue
-        match = _IMAGE_RE.match(line, index)
-        if match is not None:
-            yield match
-            index = match.end()
-            continue
+
+        opener = _IMAGE_OPEN_RE.match(line, index)
+        if opener is not None:
+            destination_start = opener.end()
+            cursor = destination_start
+            depth = 1
+            while cursor < length:
+                destination_char = line[cursor]
+                if destination_char == "\\":
+                    cursor = min(length, cursor + 2)
+                    continue
+                if destination_char == "(":
+                    depth += 1
+                    cursor += 1
+                    continue
+                if destination_char == ")":
+                    depth -= 1
+                    if depth == 0:
+                        if cursor > destination_start:
+                            yield _SemanticImageMatch(
+                                start_index=index,
+                                end_index=cursor + 1,
+                                alt=opener.group(1),
+                            )
+                            index = cursor + 1
+                        break
+                    cursor += 1
+                    continue
+                cursor += 1
+            if depth == 0 and index == cursor + 1:
+                continue
+
         index += 1
 
 
