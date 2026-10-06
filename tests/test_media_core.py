@@ -412,6 +412,43 @@ class MediaCoreContractTests(unittest.TestCase):
             MediaPositionTimeline("lesson-1", [derived])
         self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_CONTAINER)
 
+    def test_active_enum_like_inputs_fail_closed_without_repr_evaluation(self):
+        class ReprBomb:
+            def __repr__(self):
+                raise AssertionError("repr must not be evaluated")
+
+        with self.assertRaises(MediaContractError) as caught:
+            MediaClock(state=ReprBomb())
+        self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_CONTAINER)
+
+        with self.assertRaises(MediaContractError) as caught:
+            MediaSource(
+                source_id="lesson-1",
+                title="lesson",
+                kind=ReprBomb(),
+            )
+        self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_CONTAINER)
+
+        with self.assertRaises(MediaContractError) as caught:
+            MediaChessLink(
+                source_id="lesson-1",
+                timestamp_ms=0,
+                chess_ref="tree:a",
+                status=ReprBomb(),
+            )
+        self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_CONTAINER)
+
+    def test_serialize_rejects_timeline_subclasses_at_the_authority_boundary(self):
+        class DerivedMediaPositionTimeline(MediaPositionTimeline):
+            pass
+
+        source = self.source()
+        timeline = DerivedMediaPositionTimeline("lesson-1", [])
+        session = MediaChessSession(MediaCursor("lesson-1", 0))
+        with self.assertRaises(MediaContractError) as caught:
+            serialize_media_state(source, timeline, session)
+        self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_CONTAINER)
+
     def test_session_rejects_cursor_subclasses_at_dto_boundary(self):
         class DerivedMediaCursor(MediaCursor):
             pass
