@@ -116,6 +116,46 @@ class HistoryReviewCompleteUserFlowTests(unittest.TestCase):
         self.assertEqual(api.board.fen(), live_fen)
         self.assertFalse(api.get_state()["atHistoryEnd"])
 
+    def test_malformed_history_metadata_fails_closed_without_breaking_state(self) -> None:
+        cases = (
+            (["e4"], [], "length mismatch"),
+            ([None], ["w"], "non-text SAN"),
+            ([""], ["w"], "empty SAN"),
+            (["e4"], ["white"], "invalid side"),
+        )
+        for sans, sides, label in cases:
+            with self.subTest(case=label):
+                api = AccessibleChessAPI("en")
+                play(api, "e4")
+                api.sans = list(sans)
+                api.move_sides = list(sides)
+
+                state = api.get_state()
+                self.assertEqual(state["historyItems"], [])
+                self.assertEqual(state["moves"], "Could not read move history.")
+                self.assertEqual(state["lastMove"], "Could not read move history.")
+                self.assertFalse(state["canUndo"])
+                self.assertFalse(state["canRedo"])
+                self.assertFalse(state["canHistoryPrevious"])
+                self.assertFalse(state["canHistoryNext"])
+
+    def test_malformed_redo_metadata_never_advertises_redo(self) -> None:
+        api = AccessibleChessAPI("en")
+        play(api, "e4")
+        undone = api.undo()
+        self.assertTrue(undone["canRedo"])
+
+        for malformed in (
+            [("e4",)],
+            [("e4", "white")],
+            [("", "w")],
+            [["e4", "w"]],
+        ):
+            with self.subTest(malformed=malformed):
+                api.redo_meta = malformed
+                state = api.get_state()
+                self.assertFalse(state["canRedo"])
+
     def test_history_action_availability_follows_canonical_review_state(self) -> None:
         api = AccessibleChessAPI("en")
 

@@ -94,6 +94,7 @@ class AccessibleChessAPI:
             "language_change_failed": "Не вдалося змінити мову інтерфейсу.",
             "move_history_failed": "Не вдалося синхронізувати дошку та історію ходів.",
             "review_position_failed": "Не вдалося підготувати вибрану позицію історії.",
+            "history_metadata_invalid": "Не вдалося прочитати історію ходів.",
             "review_start": "Початкова позиція.",
             "review_end": "Кінець історії.",
             "review_before_move": "Спочатку поверніться в кінець історії, щоб зробити новий хід.",
@@ -120,6 +121,7 @@ class AccessibleChessAPI:
             "language_change_failed": "Could not change interface language.",
             "move_history_failed": "Could not synchronize the board and move history.",
             "review_position_failed": "Could not prepare the selected history position.",
+            "history_metadata_invalid": "Could not read move history.",
             "review_start": "Initial position.",
             "review_end": "End of history.",
             "review_before_move": "Return to the end of history before playing a new move.",
@@ -176,10 +178,39 @@ class AccessibleChessAPI:
                 lines.append(f"{names[typ]}: {', '.join(squares)}")
         return "; ".join(lines) if lines else ("фігур немає" if self.lang == "uk" else "no pieces")
 
+    def _history_metadata_valid(self) -> bool:
+        if type(self.sans) is not list or type(self.move_sides) is not list:
+            return False
+        if len(self.sans) != len(self.move_sides):
+            return False
+        for san, side in zip(self.sans, self.move_sides):
+            if type(san) is not str or not san.strip():
+                return False
+            if type(side) is not str or side not in {"w", "b"}:
+                return False
+        return True
+
+    def _redo_metadata_valid(self) -> bool:
+        if type(self.redo_meta) is not list:
+            return False
+        for item in self.redo_meta:
+            if type(item) is not tuple or len(item) != 2:
+                return False
+            san, side = item
+            if type(san) is not str or not san.strip():
+                return False
+            if type(side) is not str or side not in {"w", "b"}:
+                return False
+        return True
+
     def _visible_ply_count(self) -> int:
+        if not self._history_metadata_valid():
+            return 0
         return min(self.review_adapter.current().ply, len(self.sans))
 
     def _moves_text(self) -> str:
+        if not self._history_metadata_valid():
+            return self._t("history_metadata_invalid")
         count = self._visible_ply_count()
         if count == 0:
             return self._t("no_moves")
@@ -222,11 +253,7 @@ class AccessibleChessAPI:
             return []
         if current_node not in set(lineage):
             return []
-        if len(self.sans) != len(self.move_sides):
-            return []
-        if any(type(san) is not str for san in self.sans):
-            return []
-        if any(side not in {"w", "b"} for side in self.move_sides):
+        if not self._history_metadata_valid():
             return []
         items: list[dict[str, Any]] = [
             {
@@ -526,10 +553,16 @@ class AccessibleChessAPI:
     def get_state(self) -> dict[str, Any]:
         display_view = self._display_review()
         display_board = self._display_board()
+        history_metadata_valid = self._history_metadata_valid()
         visible = self._visible_ply_count()
         last = (
             format_accessible_compact_san(self.sans[visible - 1], self.lang)
-            if visible else self._t("no_last")
+            if history_metadata_valid and visible
+            else (
+                self._t("no_last")
+                if history_metadata_valid
+                else self._t("history_metadata_invalid")
+            )
         )
         status = self._game_status(display_board)
         engine_status = (
@@ -574,7 +607,10 @@ class AccessibleChessAPI:
             history_projection_valid and at_history_end and bool(self.sans)
         )
         can_redo = (
-            history_projection_valid and at_history_end and bool(self.redo_meta)
+            history_projection_valid
+            and at_history_end
+            and bool(self.redo_meta)
+            and self._redo_metadata_valid()
         )
 
         return {
