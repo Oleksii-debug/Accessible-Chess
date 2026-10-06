@@ -3222,5 +3222,79 @@ class Version2WindowsFileWorkflowRuntimeTests(unittest.TestCase):
         self.assertTrue(runtime.shutdown())
 
 
+    def test_refused_close_recovery_republishes_pending_export_terminal(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            database_path = root / "refused-close-library.acsdb"
+            database = AcsDatabase(database_path)
+            try:
+                report = database.import_pgn_text(
+                    _PGN,
+                    source_name="refused-close-library-export.pgn",
+                )
+                game_id = report.game_ids[0]
+            finally:
+                database.close()
+
+            destination = root / "refused-close-export.pgn"
+            _SaveDialog.selected_paths.append(str(destination))
+            owner = _Owner()
+            export_events: list[object] = []
+
+            def import_services_factory() -> Version2ImportWorkerServices:
+                worker_database = AcsDatabase(database_path)
+                return Version2ImportWorkerServices(
+                    _Library(),
+                    None,
+                    worker_database.close,
+                )
+
+            runtime = Version2WindowsFileWorkflowRuntime(
+                owner_control=owner,
+                get_pgn_session=lambda: None,
+                set_pgn_session=lambda session: None,
+                import_services_factory=import_services_factory,
+                export_selected=lambda request, path: None,
+                import_ui_ready=lambda mailbox: None,
+                pgn_export_event_sink=export_events.append,
+                next_delegate=lambda action_id, payload: (action_id, dict(payload)),
+                current_focus_provider=lambda: "library-search",
+                ui_delegate_factory=lambda callback: callback,
+                file_forms_loader=_forms_loader,
+                export_forms_loader=_forms_loader,
+            )
+            try:
+                started = runtime(
+                    "library.export",
+                    LibraryExportRequest.selected([game_id]).browser_payload(),
+                )
+                self.assertEqual(started.kind, LibraryExportHostEventKind.STARTED)
+                self.assertTrue(runtime.wait_for_export(5.0))
+                self.assertEqual(len(owner.posted), 1)
+                stale_finish = owner.posted.pop(0)
+                self.assertEqual([event.kind for event in export_events], [LibraryExportHostEventKind.STARTED])
+
+                self.assertTrue(runtime.shutdown())
+                self.assertTrue(runtime.closed)
+                self.assertTrue(runtime.resume_after_refused_shutdown())
+                self.assertFalse(runtime.closed)
+                self.assertEqual(
+                    [event.kind for event in export_events],
+                    [
+                        LibraryExportHostEventKind.STARTED,
+                        LibraryExportHostEventKind.EXPORTED,
+                    ],
+                )
+                self.assertEqual(export_events[-1].game_count, 1)
+                self.assertEqual(export_events[-1].focus_target, "library-search")
+
+                delivered = len(export_events)
+                stale_finish()
+                self.assertEqual(len(export_events), delivered)
+                self.assertFalse(runtime.export_running)
+            finally:
+                self.assertTrue(runtime.shutdown())
+
+
 if __name__ == "__main__":
     unittest.main()
