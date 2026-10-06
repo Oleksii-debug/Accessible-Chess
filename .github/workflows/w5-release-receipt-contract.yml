@@ -46,18 +46,20 @@ jobs:
           set -euo pipefail
           expected_head="${{ github.event.pull_request.head.sha || github.sha }}"
           test "$(git rev-parse HEAD)" = "$expected_head"
+          git fetch --no-tags origin "refs/heads/$BASE_REF"
+          live_base="$(git rev-parse FETCH_HEAD)"
+          test -n "$live_base"
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then
             test "${{ github.event.pull_request.base.ref }}" = "$BASE_REF"
-            base_sha="${{ github.event.pull_request.base.sha }}"
-          else
-            git fetch --no-tags origin "refs/heads/$BASE_REF"
-            base_sha="$(git rev-parse FETCH_HEAD)"
+            event_base="${{ github.event.pull_request.base.sha }}"
+            test -n "$event_base"
+            git cat-file -e "$event_base^{commit}"
+            git merge-base --is-ancestor "$event_base" "$live_base"
           fi
-          test -n "$base_sha"
-          git merge-base --is-ancestor "$base_sha" HEAD
-          test "$(git merge-base "$base_sha" HEAD)" = "$base_sha"
-          git diff --check "$base_sha"...HEAD
-          mapfile -t actual < <(git diff --name-only "$base_sha"...HEAD | sort)
+          git merge-base --is-ancestor "$live_base" HEAD
+          test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+          git diff --check "$live_base"...HEAD
+          mapfile -t actual < <(git diff --name-only "$live_base"...HEAD | sort)
           expected=(
             ".github/workflows/w5-release-receipt-contract.yml"
             "acs/version2_release_receipt.py"
