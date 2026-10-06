@@ -6,10 +6,10 @@ Live GitHub exact heads, checks and artifacts supersede older snapshots below. T
 
 - default `main` at audit read: `513b17ce4213af3cdf47d971a9311676adf50ecd` (documentation/policy-only delta relative to the executable lineage);
 - executable Product #1981: `d0e14b998bb57b5c3b53609ecef41ab646b213a3`;
-- canonical shipping/recovery convergence: PR #2184 at `d26b1bd96a48d05772ed5c32f2c9df581ab8064a`, draft + mergeable, clean descendant of Product (Product -> #2184 behind=0);
+- last exact audited shipping/recovery head: PR #2184 at `aabf8190ad36cceabafd68673de4fbe848565099`, draft + mergeable, clean descendant of Product (Product -> #2184 behind=0);
 - #2184 exact merge delta: 58 paths; Current Shipping Recovery Hardening declares 58 exact blob assertions and the final audit read found zero mismatches;
-- owner gameplay/accessibility #2195 is merged into #2184. The same lineage also contains the fail-closed move-feedback settings repair: missing/unreadable Settings can no longer report `ok=true`, and the regression is exact-pinned in the canonical shipping gate;
-- exact-head qualification on #2184 remained nonterminal at audit close: 43 queued and 4 pending PR-triggered runs. Current Shipping Recovery Hardening, Windows Composition, P0 Release Critical Triad, Owner Gameplay Feedback, One-Click Finalizer and Portable Final Candidate were not terminal GREEN.
+- owner gameplay/accessibility #2195 is merged into #2184. The same lineage contains fail-closed move-feedback and sound-settings authority: missing/unreadable persistence cannot publish a false-success settings state, write failures restore canonical sound state, and the regressions are exact-pinned in the canonical shipping gate;
+- exact-head qualification on that audited #2184 head remained nonterminal at audit close: 35 queued and 12 pending PR-triggered runs. Current Shipping Recovery Hardening, Windows Composition, P0 Release Critical Triad, Owner Gameplay Feedback, One-Click Finalizer and Portable Final Candidate were not terminal GREEN.
 
 Whole-project reconciliation:
 
