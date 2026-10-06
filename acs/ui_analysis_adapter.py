@@ -712,18 +712,22 @@ class AnalysisPresentationAdapter:
         return max(1, min(10, multipv)), max(1, min(40, depth))
 
     @staticmethod
-    def _normalize_movetime(movetime_ms: int | None) -> int | None:
+    def _normalize_movetime(
+        movetime_ms: int | None,
+        *,
+        code: EngineContractErrorCode = EngineContractErrorCode.INVALID_CONFIG,
+    ) -> int | None:
         if movetime_ms is None:
             return None
         if type(movetime_ms) is not int:
             raise EngineContractError(
                 "presentation movetime must be an integer or None",
-                code=EngineContractErrorCode.INVALID_CONFIG,
+                code=code,
             )
         if not ANALYSIS_MIN_MOVETIME_MS <= movetime_ms <= ANALYSIS_MAX_MOVETIME_MS:
             raise EngineContractError(
                 "presentation movetime is outside the supported range",
-                code=EngineContractErrorCode.INVALID_CONFIG,
+                code=code,
             )
         return movetime_ms
 
@@ -824,7 +828,10 @@ class AnalysisPresentationAdapter:
         multipv = state.multipv
         depth = state.depth
         movetime_ms = getattr(state, "movetime_ms", None)
-        movetime_ms = self._normalize_movetime(movetime_ms)
+        movetime_ms = self._normalize_movetime(
+            movetime_ms,
+            code=EngineContractErrorCode.INVALID_SESSION,
+        )
         if movetime_ms != self._movetime_ms:
             raise EngineContractError(
                 "analysis presentation movetime disagrees with service state",
