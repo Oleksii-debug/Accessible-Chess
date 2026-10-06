@@ -1840,5 +1840,57 @@ one; display:block">
         )
 
 
+    def test_post_parser_missing_asset_warnings_never_exceed_html_budget(self) -> None:
+        import acs.book_html_import as html
+
+        source = """<html><body>
+<img src="a.png">
+<img src="b.png">
+<img src="c.png">
+<img src="d.png">
+</body></html>"""
+        with patch.object(html, "MAX_HTML_WARNINGS", 3):
+            result = import_html_book(
+                source,
+                source_name="warning-budget.html",
+                available_assets=(),
+            )
+
+        self.assertEqual(len(result.warnings), 3)
+        self.assertEqual(
+            result.warnings[-1],
+            html._HTML_WARNING_SUPPRESSION_NOTICE,
+        )
+
+    def test_total_warning_helper_preserves_exact_boundary_until_real_overflow(self) -> None:
+        import acs.book_html_import as html
+
+        warnings = ["one", "two"]
+        with patch.object(html, "MAX_HTML_WARNINGS", 3):
+            self.assertTrue(
+                html._append_bounded_import_warning(warnings, "three")
+            )
+            self.assertEqual(warnings, ["one", "two", "three"])
+            self.assertFalse(
+                html._append_bounded_import_warning(warnings, "four")
+            )
+
+        self.assertEqual(
+            warnings,
+            ["one", "two", html._HTML_WARNING_SUPPRESSION_NOTICE],
+        )
+
+    def test_zero_html_warning_budget_publishes_no_post_parser_warning(self) -> None:
+        import acs.book_html_import as html
+
+        warnings = []
+        with patch.object(html, "MAX_HTML_WARNINGS", 0):
+            self.assertFalse(
+                html._append_bounded_import_warning(warnings, "ignored")
+            )
+
+        self.assertEqual(warnings, [])
+
+
 if __name__ == "__main__":
     unittest.main()

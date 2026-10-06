@@ -718,6 +718,22 @@ def _asset_name(
     return "/".join(segments)
 
 
+_HTML_WARNING_SUPPRESSION_NOTICE = "additional HTML import warnings were suppressed"
+
+
+def _append_bounded_import_warning(warnings: list[str], message: str) -> bool:
+    """Append one diagnostic without exceeding the HTML importer warning budget."""
+
+    if MAX_HTML_WARNINGS <= 0:
+        return False
+    if len(warnings) < MAX_HTML_WARNINGS:
+        warnings.append(message)
+        return True
+    warnings[MAX_HTML_WARNINGS - 1] = _HTML_WARNING_SUPPRESSION_NOTICE
+    del warnings[MAX_HTML_WARNINGS:]
+    return False
+
+
 def _explicit_pgn_pre(
     raw: str,
     control_checkpoint: Callable[[], None] | None = None,
@@ -817,7 +833,7 @@ class _SemanticHtmlParser(HTMLParser):
         # The configured maximum is a total-output bound, not a pre-marker
         # allowance. Only a real overflow sacrifices the final warning slot.
         if MAX_HTML_WARNINGS > 0:
-            self.warnings[-1] = "additional HTML import warnings were suppressed"
+            self.warnings[-1] = _HTML_WARNING_SUPPRESSION_NOTICE
         self._warnings_suppressed = True
 
     def _list_warning(self, message: str) -> None:
@@ -2138,7 +2154,10 @@ def import_html_book(
     visible_text = _controlled_join_strings(parser.visible_parts, "", control_checkpoint)
     warnings = list(parser.warnings)
     if legacy_windows_1251:
-        warnings.append("Legacy Windows-1251 HTML was decoded losslessly.")
+        _append_bounded_import_warning(
+            warnings,
+            "Legacy Windows-1251 HTML was decoded losslessly.",
+        )
     # The global visible-text scan preserves historical marker acceptance,
     # including markers outside a semantic capture. Exact marked <pre> captures
     # override the same marker offset with their bounded local candidate so text
@@ -2229,13 +2248,14 @@ def import_html_book(
 
     missing = tuple(sorted(parser.missing_assets))
     if missing:
-        room = max(0, MAX_HTML_WARNINGS - len(warnings))
-        for missing_index, name in enumerate(missing[:room], start=1):
+        for missing_index, name in enumerate(missing, start=1):
             if control_checkpoint is not None and missing_index % 128 == 1:
                 control_checkpoint()
-            warnings.append(f"referenced asset is unavailable: {name}")
-        if len(missing) > room and len(warnings) < MAX_HTML_WARNINGS + 1:
-            warnings.append("additional missing asset warnings were suppressed")
+            if not _append_bounded_import_warning(
+                warnings,
+                f"referenced asset is unavailable: {name}",
+            ):
+                break
 
     try:
         document = BookDocument(
