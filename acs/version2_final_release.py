@@ -18,6 +18,7 @@ from .agent_execution_host import AgentOwnerThreadCall, bind_agent_runtime
 from .full_product_ui_shell import UILanguage
 from .universal_chess_agent import UniversalChessAgentRuntime
 from .version2_final_product_application import Version2FinalProductApplication
+from .version2_windows_import_ui_pump import Version2WinFormsUiPoster
 from .version2_final_product_profile import (
     FINAL_PRODUCT_ACTION_IDS,
     FinalProductNativeMenuController,
@@ -109,7 +110,21 @@ def _bind_agent_execution(
 
     if factory is None:
         return
-    owner_call = AgentOwnerThreadCall(api._invoke_ui)
+    owner = getattr(api, "_ui_owner", None)
+    action_factory = getattr(api, "_ui_action", None)
+    owner_thread_id = getattr(api, "_ui_thread", None)
+    if owner is None or action_factory is None:
+        raise RuntimeError(
+            "Agent execution requires the bound native Windows UI owner"
+        )
+    poster = Version2WinFormsUiPoster(
+        owner,
+        delegate_factory=action_factory,
+    )
+    owner_call = AgentOwnerThreadCall(
+        poster,
+        owner_thread_id=owner_thread_id,
+    )
     runtime = factory(api, application, owner_call)
     if type(runtime) is not UniversalChessAgentRuntime:
         raise TypeError("agent_runtime_factory must return UniversalChessAgentRuntime")
