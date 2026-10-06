@@ -766,7 +766,7 @@
               return;
             }
             setPending(false);
-            if (result.kind === "delegated" && dialog.open) dialog.close();
+            if (result.kind === "delegated") closeAndRestore();
           },
           afterFailure: function () { recover(focusNode); }
         }
