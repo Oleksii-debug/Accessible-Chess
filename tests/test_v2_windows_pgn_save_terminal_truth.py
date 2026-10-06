@@ -336,12 +336,14 @@ class Version2WindowsPgnSaveTerminalTruthTests(unittest.TestCase):
             terminal = controller("pgn.cancel_save", {})
             self.assertEqual(terminal.kind, FileWorkflowEventKind.FAILED)
             self.assertEqual(terminal.error_code, "pgn_save_failed")
-            self.assertEqual(async_events, [terminal])
+            self.assertEqual(async_events, [])
             self.assertEqual(sync_events, [started])
             self.assertTrue(session.dirty)
             self.assertNotIn("private writer failure", repr(terminal))
             self.assertFalse(controller.pgn_save_running)
 
+            # The synchronously returned terminal is caller-owned and therefore
+            # is not also sent through the owner-async NVDA/status channel.
             # The worker's already-queued owner callback is now stale and must
             # not publish the same terminal a second time when the UI pump drains.
             self.assertTrue(poster.callbacks)
@@ -386,7 +388,7 @@ class Version2WindowsPgnSaveTerminalTruthTests(unittest.TestCase):
             terminal = controller("pgn.cancel_save", {})
             self.assertEqual(terminal.kind, FileWorkflowEventKind.FAILED)
             self.assertEqual(terminal.error_code, "pgn_save_conflict")
-            self.assertEqual(async_events, [terminal])
+            self.assertEqual(async_events, [])
             self.assertEqual(sync_events, [started])
             self.assertEqual(source.read_bytes(), original)
             self.assertEqual(session.source, old_source)
@@ -438,11 +440,13 @@ class Version2WindowsPgnSaveTerminalTruthTests(unittest.TestCase):
             self.assertEqual(terminal.kind, FileWorkflowEventKind.PGN_SAVED)
             self.assertEqual(terminal.action_id, "pgn.save")
             self.assertEqual(terminal.focus_target, "pgn-game-list")
-            self.assertEqual(async_events, [terminal])
+            self.assertEqual(async_events, [])
             self.assertEqual(sync_events, [started])
             self.assertFalse(session.dirty)
             self.assertFalse(controller.pgn_save_running)
 
+            # The synchronously returned terminal is caller-owned and therefore
+            # is not also sent through the owner-async NVDA/status channel.
             # The callback queued by the worker is stale after immediate owner
             # resolution and cannot publish a duplicate terminal later.
             self.assertTrue(poster.callbacks)
@@ -757,12 +761,14 @@ class Version2WindowsPgnSaveTerminalTruthTests(unittest.TestCase):
             self.assertEqual(terminal.kind, FileWorkflowEventKind.PGN_SAVED_AS)
             self.assertEqual(terminal.action_id, "pgn.save_as")
             self.assertEqual(terminal.focus_target, "pgn-game-list")
-            self.assertEqual(async_events, [terminal])
+            self.assertEqual(async_events, [])
             self.assertEqual(sync_events, [started])
             self.assertEqual(Path(session.source.path), destination)
             self.assertFalse(session.dirty)
             self.assertFalse(controller.pgn_save_running)
 
+            # The synchronously returned terminal is caller-owned and therefore
+            # is not also sent through the owner-async NVDA/status channel.
             # The worker callback queued before the late Cancel is stale after
             # immediate owner resolution, so success cannot be announced twice.
             self.assertTrue(poster.callbacks)
