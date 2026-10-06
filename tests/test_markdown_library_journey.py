@@ -8,7 +8,8 @@ from acs.acsdb import AcsDatabase
 from acs.book_library_import import open_book_library_source
 from acs.book_library_game_lookup import AcsdbBookGameLookup
 from acs.book_text_import import import_text_book, BookTextFormat, BookTextImportError
-from acs.bookdocument import Game, Heading, ListBlock, Position
+from acs.bookdocument import Game, Heading, ListBlock, Note, Paragraph, Position
+from acs.bookreader import BOOK_READER_SNAPSHOT_SCHEMA_VERSION, BookReader
 from acs.chesscore import Board
 from acs.gametree_legality import validate_game_legality
 from acs.library_import_service import LibraryImportService
@@ -75,6 +76,264 @@ class MarkdownLibraryJourneyTests(unittest.TestCase):
             source.write_text('```fen\ninvalid\n```\n\n```pgn\n1. e4 *\n```', encoding='utf-8')
             with self.assertRaises(BookTextImportError):
                 open_book_library_source(source)
+
+
+
+    def test_fence_opener_keeps_marker_specific_info_rules(self):
+        from acs.book_text_import import _match_fence_opener
+
+        self.assertEqual(
+            _match_fence_opener("~~~code`meta"),
+            ("~~~", "code`meta"),
+        )
+        self.assertIsNone(_match_fence_opener("```code`meta"))
+        self.assertIsNone(_match_fence_opener("    ~~~code"))
+
+    def test_valid_tilde_fence_with_backtick_info_stays_code_not_semantic_markdown(self):
+        source = (
+            "~~~code`meta\n"
+            "# not a heading\n"
+            "![not a semantic image](https://example.invalid/board.png)\n"
+            "```fen\n"
+            + Board.START
+            + "\n```\n"
+            "~~~\n\n"
+            "After fence."
+        )
+        book = import_text_book(
+            source,
+            source_name="tilde.md",
+            source_format=BookTextFormat.MARKDOWN,
+        )
+
+        self.assertFalse(any(type(block) is Heading for block in book.document.blocks))
+        self.assertFalse(any(type(block) is Position for block in book.document.blocks))
+        self.assertFalse(any(type(block) is Game for block in book.document.blocks))
+        notes = [block for block in book.document.blocks if type(block) is Note]
+        self.assertEqual(len(notes), 1)
+        self.assertEqual(notes[0].note_type, "code:code`meta")
+        self.assertIn("# not a heading", notes[0].text)
+        self.assertIn("![not a semantic image]", notes[0].text)
+        self.assertIn(Board.START, notes[0].text)
+        self.assertFalse(any("image reference" in warning for warning in book.warnings))
+
+    def test_fence_close_requires_same_marker_family_minimum_length_and_no_payload(self):
+        from acs.book_text_import import _is_fence_close
+
+        self.assertTrue(_is_fence_close("~~~", "~~~"))
+        self.assertTrue(_is_fence_close("  ~~~~~", "~~~~"))
+        self.assertFalse(_is_fence_close("~~~", "~~~~"))
+        self.assertFalse(_is_fence_close("```", "~~~"))
+        self.assertFalse(_is_fence_close("~~~~ trailing", "~~~"))
+        self.assertFalse(_is_fence_close("    ~~~~", "~~~"))
+
+    def test_blockquote_marker_requires_top_level_commonmark_indentation(self):
+        valid = import_text_book(
+            "   > quoted text",
+            source_name="valid-quote.md",
+            source_format=BookTextFormat.MARKDOWN,
+        )
+        valid_paragraphs = [
+            block for block in valid.document.blocks if type(block) is Paragraph
+        ]
+        self.assertEqual([block.text for block in valid_paragraphs], ["quoted text"])
+        self.assertTrue(any("block quote structure" in warning for warning in valid.warnings))
+
+        for source in ("    > not a top-level quote", "\t> not a top-level quote"):
+            with self.subTest(source=source):
+                book = import_text_book(
+                    source,
+                    source_name="indented-quote.md",
+                    source_format=BookTextFormat.MARKDOWN,
+                )
+                paragraphs = [
+                    block for block in book.document.blocks if type(block) is Paragraph
+                ]
+                self.assertEqual([block.text for block in paragraphs], ["> not a top-level quote"])
+                self.assertFalse(any("block quote structure" in warning for warning in book.warnings))
+
+    def test_blockquote_images_preserve_accessible_order_and_legacy_targets(self):
+        first = import_text_book(
+            '> Before  ![Board position](https://one.invalid/board.png "first title")  after.',
+            source_name="quote-one.md",
+            source_format=BookTextFormat.MARKDOWN,
+        )
+        second = import_text_book(
+            '> Before  ![Board position](https://two.invalid/changed.png "second title")  after.',
+            source_name="quote-two.md",
+            source_format=BookTextFormat.MARKDOWN,
+        )
+
+        first_paragraphs = [
+            block for block in first.document.blocks if type(block) is Paragraph
+        ]
+        second_paragraphs = [
+            block for block in second.document.blocks if type(block) is Paragraph
+        ]
+        first_images = [
+            block
+            for block in first.document.blocks
+            if type(block) is Note and block.note_type == "image"
+        ]
+        second_images = [
+            block
+            for block in second.document.blocks
+            if type(block) is Note and block.note_type == "image"
+        ]
+        self.assertEqual([block.text for block in first_paragraphs], ["Before", "after."])
+        self.assertEqual([block.text for block in second_paragraphs], ["Before", "after."])
+        self.assertEqual([block.text for block in first_images], ["Board position"])
+        self.assertEqual([block.text for block in second_images], ["Board position"])
+        self.assertNotIn("one.invalid", " ".join(block.text for block in first.document.blocks if hasattr(block, "text")))
+        self.assertNotIn("first title", " ".join(block.text for block in first.document.blocks if hasattr(block, "text")))
+
+        legacy_paragraph_text = "> Before    after."
+        first_paragraph_id = "markdown-" + sha256(
+            ("Paragraph\0" + legacy_paragraph_text).encode("utf-8")
+        ).hexdigest()[:20] + "-1"
+        image_id = "markdown-" + sha256(
+            ("Image\0Board position").encode("utf-8")
+        ).hexdigest()[:20] + "-1"
+        trailing_id = "markdown-" + sha256(
+            ("Paragraph\0after.").encode("utf-8")
+        ).hexdigest()[:20] + "-1"
+
+        self.assertEqual(first_paragraphs[0].block_id, first_paragraph_id)
+        self.assertEqual(second_paragraphs[0].block_id, first_paragraph_id)
+        self.assertEqual(first_images[0].block_id, image_id)
+        self.assertEqual(second_images[0].block_id, image_id)
+        self.assertEqual(first_paragraphs[1].block_id, trailing_id)
+        self.assertEqual(second_paragraphs[1].block_id, trailing_id)
+
+        for target in (first_paragraph_id, image_id, trailing_id):
+            with self.subTest(target=target):
+                restored = BookReader.restore_snapshot(
+                    first.document,
+                    {
+                        "schema_version": BOOK_READER_SNAPSHOT_SCHEMA_VERSION,
+                        "current_target": f"block:{target}",
+                        "return_points": {},
+                        "fallback_digests": {},
+                    },
+                )
+                self.assertEqual(restored.location().block_id, target)
+
+        self.assertTrue(
+            any("image destination was excluded" in warning for warning in first.warnings)
+        )
+        self.assertTrue(
+            any("block quote structure" in warning for warning in first.warnings)
+        )
+
+    def test_heading_images_use_alt_text_and_preserve_legacy_progress_identity(self):
+        first_identity = 'Before  ![Board position](https://one.invalid/board.png "first title")  after'
+        second_identity = 'Before  ![Board position](https://two.invalid/changed.png "second title")  after'
+        first = import_text_book(
+            f"# {first_identity} #",
+            source_name="heading-one.md",
+            source_format=BookTextFormat.MARKDOWN,
+        )
+        second = import_text_book(
+            f"# {second_identity} #",
+            source_name="heading-two.md",
+            source_format=BookTextFormat.MARKDOWN,
+        )
+
+        first_headings = [
+            block for block in first.document.blocks if type(block) is Heading
+        ]
+        second_headings = [
+            block for block in second.document.blocks if type(block) is Heading
+        ]
+        self.assertEqual(len(first_headings), 1)
+        self.assertEqual(len(second_headings), 1)
+        expected = "Before  Board position  after"
+        self.assertEqual(first_headings[0].text, expected)
+        self.assertEqual(second_headings[0].text, expected)
+        self.assertEqual(first.document.title, expected)
+        self.assertEqual(second.document.title, expected)
+        self.assertNotIn("one.invalid", first_headings[0].text)
+        self.assertNotIn("first title", first_headings[0].text)
+
+        def legacy_id(identity_text):
+            digest = sha256(
+                ("Heading\0" + "1\0" + identity_text).encode("utf-8")
+            ).hexdigest()[:20]
+            return f"markdown-{digest}-1"
+
+        first_legacy_id = legacy_id(first_identity)
+        second_legacy_id = legacy_id(second_identity)
+        self.assertEqual(first_headings[0].block_id, first_legacy_id)
+        self.assertEqual(second_headings[0].block_id, second_legacy_id)
+        self.assertNotEqual(first_legacy_id, second_legacy_id)
+
+        # An existing progress snapshot produced before the visible-text repair
+        # must still reopen the same semantic heading for unchanged source bytes.
+        restored = BookReader.restore_snapshot(
+            first.document,
+            {
+                "schema_version": BOOK_READER_SNAPSHOT_SCHEMA_VERSION,
+                "current_target": f"block:{first_legacy_id}",
+                "return_points": {},
+                "fallback_digests": {},
+            },
+        )
+        location = restored.location()
+        self.assertEqual(location.block_id, first_legacy_id)
+        self.assertEqual(first.document.blocks[location.index].text, expected)
+        self.assertTrue(
+            any(
+                "image destination was excluded" in warning
+                and "heading" in warning
+                for warning in first.warnings
+            )
+        )
+
+    def test_list_image_projection_keeps_flat_list_whitespace_normalization(self):
+        book = import_text_book(
+            "- Before  ![Board](https://example.invalid/board.png)   after\n- Plain   item",
+            source_name="list-spacing.md",
+            source_format=BookTextFormat.MARKDOWN,
+        )
+
+        lists = [
+            block for block in book.document.blocks if type(block) is ListBlock
+        ]
+        self.assertEqual(len(lists), 1)
+        self.assertEqual(lists[0].items, ["Before Board after", "Plain item"])
+
+    def test_invalid_tilde_closers_stay_opaque_until_matching_close(self):
+        source = (
+            "~~~~code`meta\n"
+            "~~~\n"
+            "```\n"
+            "~~~~ trailing\n"
+            "# still not a heading\n"
+            "![still not an image](https://example.invalid/board.png)\n"
+            "```fen\n"
+            + Board.START
+            + "\n```\n"
+            "~~~~\n\n"
+            "# Real heading"
+        )
+        book = import_text_book(
+            source,
+            source_name="tilde-close.md",
+            source_format=BookTextFormat.MARKDOWN,
+        )
+
+        headings = [block for block in book.document.blocks if type(block) is Heading]
+        self.assertEqual([block.text for block in headings], ["Real heading"])
+        self.assertFalse(any(type(block) is Position for block in book.document.blocks))
+        self.assertFalse(any(type(block) is Game for block in book.document.blocks))
+        notes = [block for block in book.document.blocks if type(block) is Note]
+        self.assertEqual(len(notes), 1)
+        self.assertIn("~~~", notes[0].text)
+        self.assertIn("```", notes[0].text)
+        self.assertIn("~~~~ trailing", notes[0].text)
+        self.assertIn("# still not a heading", notes[0].text)
+        self.assertIn(Board.START, notes[0].text)
+        self.assertFalse(any("image reference" in warning for warning in book.warnings))
 
     def test_native_import_action_accepts_markdown_on_worker_and_reopens_database(self):
         with tempfile.TemporaryDirectory() as directory:

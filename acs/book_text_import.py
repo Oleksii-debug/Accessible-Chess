@@ -361,11 +361,29 @@ class _Builder:
 
 _HEADING_RE = re.compile(r"^(#{1,6})[ \t]+(.+?)(?:[ \t]+#+)?[ \t]*$")
 _LEGACY_HEADING_ID_RE = re.compile(r"^(#{1,6})[ \t]+(.+?)\s*#*\s*$")
-_FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})([^`]*)$")
+_BACKTICK_FENCE_RE = re.compile(r"^ {0,3}(`{3,})([^`]*)$")
+_TILDE_FENCE_RE = re.compile(r"^ {0,3}(~{3,})(.*)$")
 _LIST_RE = re.compile(
     r"^(?P<indent>[ \t]*)(?:(?P<bullet>[-+*])|(?P<number>[0-9]{1,9})(?P<delimiter>[.)]))\s+(?P<text>.+)$"
 )
-_QUOTE_RE = re.compile(r"^\s*>\s?(.*)$")
+_QUOTE_RE = re.compile(r"^ {0,3}>[ \t]?(.*)$")
+
+
+def _match_fence_opener(line: str) -> tuple[str, str] | None:
+    """Return a bounded CommonMark fenced-code opener.
+
+    Backtick fence info strings may not contain a backtick. Tilde fence info
+    strings may contain backticks, so sharing the stricter backtick grammar
+    makes a valid tilde code block fall through into semantic Markdown parsing.
+    """
+
+    match = _BACKTICK_FENCE_RE.match(line)
+    if match is not None:
+        return match.group(1), match.group(2)
+    match = _TILDE_FENCE_RE.match(line)
+    if match is not None:
+        return match.group(1), match.group(2)
+    return None
 
 
 def _semantic_image_opener(line: str, index: int) -> tuple[int, str] | None:
@@ -570,13 +588,13 @@ def _semantic_image_stripped_text(text: str) -> str:
     return "".join(parts)
 
 
-def _accessible_list_item_text(text: str) -> tuple[str, bool]:
-    """Preserve inline image alt text inside a flat canonical list item.
+def _accessible_inline_text(text: str) -> tuple[str, bool]:
+    """Replace recognized inline images with readable alt text only.
 
-    BookDocument ListBlock has no nested image child kind.  A Markdown image in
-    a list item therefore stays in the list as selectable/readable alt text,
-    while the caller emits an explicit structural-loss warning.  Asset URLs are
-    never fetched or exposed as inferred chess semantics.
+    This projection is used when the canonical BookDocument cannot retain an
+    inline image child inside another structure. Destination URLs and titles
+    are deliberately excluded from readable text and deterministic block
+    identity; malformed or ambiguous image syntax remains literal source text.
     """
 
     matches = _iter_semantic_images(text)
@@ -595,7 +613,14 @@ def _accessible_list_item_text(text: str) -> tuple[str, bool]:
         cursor = match.end()
         match = next(matches, None)
     parts.append(text[cursor:])
-    return re.sub(r"[ \t]+", " ", "".join(parts)).strip(), True
+    return "".join(parts).strip(), True
+
+
+def _accessible_list_item_text(text: str) -> tuple[str, bool]:
+    """Preserve inline image alt text inside a flat canonical list item."""
+
+    projected, had_image = _accessible_inline_text(text)
+    return re.sub(r"[ \t]+", " ", projected).strip(), had_image
 
 
 def _readable_list_fallback(match: re.Match[str]) -> tuple[str, bool]:
@@ -678,11 +703,11 @@ def _parse_markdown(text: str, builder: _Builder, control_checkpoint: Callable[[
                 "Markdown book visible text exceeds the supported size",
                 code=BookTextImportErrorCode.RESOURCE_LIMIT,
             )
-        fence = _FENCE_RE.match(line)
-        if fence:
+        fence = _match_fence_opener(line)
+        if fence is not None:
             flush()
-            marker = fence.group(1)
-            language = fence.group(2).strip().lower().split(None, 1)[0] if fence.group(2).strip() else ""
+            marker, info = fence
+            language = info.strip().lower().split(None, 1)[0] if info.strip() else ""
             body_lines: list[str] = []
             fence_chars = 0
             index += 1
@@ -722,18 +747,35 @@ def _parse_markdown(text: str, builder: _Builder, control_checkpoint: Callable[[
         heading = _HEADING_RE.match(line)
         if heading:
             flush()
+            # A heading is itself the structural owner of the line. Project any
+            # recognized inline image through its accessible alt text before
+            # publication so destination URLs/titles never become heading text
+            # or document title. The source-derived identity below is retained
+            # deliberately for backward-compatible progress restoration.
+            heading_text, heading_had_image = _accessible_inline_text(
+                heading.group(2)
+            )
             legacy_heading = _LEGACY_HEADING_ID_RE.match(line)
-            identity_text = (
+            identity_source = (
                 legacy_heading.group(2)
                 if legacy_heading is not None
                 else heading.group(2)
             )
+            # Keep the historical source-derived target identity for the
+            # exact same book bytes. Existing BookReader snapshots may already
+            # reference that key; sanitizing visible text must not silently
+            # orphan persisted reading progress after an application upgrade.
+            identity_text = identity_source
             builder.heading(
-                heading.group(2),
+                heading_text,
                 len(heading.group(1)),
                 number,
                 identity_text=identity_text,
             )
+            if heading_had_image:
+                builder.warning(
+                    "Markdown image inside a heading was preserved as accessible heading text; no asset was fetched and the image destination was excluded from reading text"
+                )
             index += 1
             continue
 
@@ -742,9 +784,19 @@ def _parse_markdown(text: str, builder: _Builder, control_checkpoint: Callable[[
             index += 1
             continue
 
+        # Classify structural line owners before the generic inline-image
+        # projection. A block quote containing an image must remain on the
+        # blockquote fallback path so its marker is not exposed as prose and
+        # its image destination/title cannot escape into readable identity.
+        list_match = _LIST_RE.match(line)
+        quote_match = _QUOTE_RE.match(line)
         image_matches = _iter_semantic_images(line)
         first_image = next(image_matches, None)
-        if first_image is not None and _LIST_RE.match(line) is None:
+        if (
+            first_image is not None
+            and list_match is None
+            and quote_match is None
+        ):
             flush()
             # Keep the historical Paragraph identity for ordinary image
             # references, but derive it from the same bounded recognizer that
@@ -786,8 +838,6 @@ def _parse_markdown(text: str, builder: _Builder, control_checkpoint: Callable[[
             index += 1
             continue
 
-        list_match = _LIST_RE.match(line)
-        quote_match = _QUOTE_RE.match(line)
         if list_match:
             flush()
             indent = list_match.group("indent")
@@ -926,10 +976,54 @@ def _parse_markdown(text: str, builder: _Builder, control_checkpoint: Callable[[
             continue
         if quote_match:
             flush()
-            quote = quote_match.group(1).strip()
-            if quote:
-                builder.paragraph(quote, number)
-            builder.warning("Markdown block quote structure was preserved as reading text because the current BookDocument has no quote block kind")
+            quote_source = quote_match.group(1)
+            quote_images = _iter_semantic_images(quote_source)
+            first_quote_image = next(quote_images, None)
+            quote_had_image = first_quote_image is not None
+            if first_quote_image is None:
+                quote = quote_source.strip()
+                if quote:
+                    builder.paragraph(quote, number)
+            else:
+                # Before this quote-specific path existed, the generic inline
+                # image projection emitted Paragraph -> Image Note -> Paragraph
+                # and assigned the first paragraph the image-stripped full-line
+                # identity. Keep those meaningful durable targets intact while
+                # removing the quote marker from newly published reading text.
+                legacy_paragraph_identity = (
+                    _semantic_image_stripped_text(line).strip() or None
+                )
+                legacy_identity_available = legacy_paragraph_identity is not None
+                cursor = 0
+                match = first_quote_image
+                while match is not None:
+                    leading = quote_source[cursor:match.start()].strip()
+                    if leading:
+                        builder.paragraph(
+                            leading,
+                            number,
+                            identity_text=(
+                                legacy_paragraph_identity
+                                if legacy_identity_available
+                                else None
+                            ),
+                        )
+                        legacy_identity_available = False
+                    alt = match.group(1).strip()
+                    if alt:
+                        builder.image_note(alt, number)
+                    cursor = match.end()
+                    match = next(quote_images, None)
+                trailing = quote_source[cursor:].strip()
+                if trailing:
+                    builder.paragraph(trailing, number)
+            builder.warning(
+                "Markdown block quote structure was preserved as reading text because the current BookDocument has no quote block kind"
+            )
+            if quote_had_image:
+                builder.warning(
+                    "Markdown image inside an unrepresentable block quote was preserved in accessible reading order; no asset was fetched and the image destination was excluded from reading text"
+                )
             index += 1
             continue
 
