@@ -267,7 +267,8 @@ def _complete_file_identity(first: os.stat_result, second: os.stat_result) -> bo
         first_ino = getattr(first, "st_ino", None)
         second_dev = getattr(second, "st_dev", None)
         second_ino = getattr(second, "st_ino", None)
-        if None in {first_dev, first_ino, second_dev, second_ino}:
+        values = (first_dev, first_ino, second_dev, second_ino)
+        if not all(type(value) is int and value > 0 for value in values):
             return False
         return (first_dev, first_ino) == (second_dev, second_ino)
 
