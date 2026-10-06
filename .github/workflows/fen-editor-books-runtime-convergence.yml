@@ -1,0 +1,143 @@
+name: FEN Editor Books Runtime Convergence
+
+on:
+  pull_request:
+    branches:
+      - converge/html-epub-runtime-final-20261006-sol56z9
+    paths:
+      - '.github/workflows/fen-editor-books-runtime-convergence.yml'
+      - 'acs/position_editor.py'
+      - 'acs/webapp.py'
+      - 'acs/webapp_keymap_core.py'
+      - 'tests/test_fen_position_editor_complete_user_flow.py'
+      - 'tests/test_ui_analysis_webapp.py'
+      - 'web/index.html'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fen-editor-books-runtime-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  POSITION_EDITOR_BLOB: fd48b517c4489fe70e4ecb102e2615027be8f098
+  WEBAPP_BLOB: f2eba4bb40fc9390ac56c1888be8a0ef482c5c29
+  FEN_FLOW_TEST_BLOB: ce531c38feadda7082836df5bcca0e1d8200a79c
+  KEYMAP_CORE_BLOB: 39d008daed9b87b02495a720d0d57d1d97cf503b
+  ANALYSIS_WEBAPP_TEST_BLOB: cb4664071c18f59abcef4a45c49c543d4062cfd3
+  WEB_INDEX_BLOB: 10abb7e5d20b75e9569244148714f8db3d079c2a
+
+jobs:
+  exact-head:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prove exact geometry and FEN blobs
+        shell: bash
+        env:
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          expected="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
+          test "$(git rev-parse HEAD)" = "$expected"
+          base_ref="${EVENT_BASE_REF:-converge/html-epub-runtime-final-20261006-sol56z9}"
+          git fetch --no-tags origin "+refs/heads/$base_ref:refs/remotes/origin/$base_ref"
+          live_base="$(git rev-parse "refs/remotes/origin/$base_ref")"
+          if [ -n "${EVENT_BASE_SHA:-}" ]; then
+            test "$EVENT_BASE_SHA" = "$live_base"
+          fi
+          test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+          git diff --check "$live_base"...HEAD
+          changed="$(git diff --name-only "$live_base"...HEAD | sort)"
+          expected_paths="$(printf '%s\n' \
+            '.github/workflows/fen-editor-books-runtime-convergence.yml' \
+            'acs/position_editor.py' \
+            'acs/webapp.py' \
+            'acs/webapp_keymap_core.py' \
+            'tests/test_fen_position_editor_complete_user_flow.py' \
+            'tests/test_ui_analysis_webapp.py' \
+            'web/index.html' | sort)"
+          test "$changed" = "$expected_paths"
+          test "$(git rev-parse HEAD:acs/position_editor.py)" = "$POSITION_EDITOR_BLOB"
+          test "$(git rev-parse HEAD:acs/webapp.py)" = "$WEBAPP_BLOB"
+          test "$(git rev-parse HEAD:acs/webapp_keymap_core.py)" = "$KEYMAP_CORE_BLOB"
+          test "$(git rev-parse HEAD:tests/test_fen_position_editor_complete_user_flow.py)" = "$FEN_FLOW_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_ui_analysis_webapp.py)" = "$ANALYSIS_WEBAPP_TEST_BLOB"
+          test "$(git rev-parse HEAD:web/index.html)" = "$WEB_INDEX_BLOB"
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile FEN editor surfaces
+        run: >-
+          python -m py_compile
+          acs/position_editor.py
+          acs/webapp.py
+          acs/webapp_keymap_core.py
+          tests/test_fen_position_editor_complete_user_flow.py
+          tests/test_ui_analysis_webapp.py
+
+      - name: Validate WebView JavaScript syntax
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          html = Path("web/index.html").read_text(encoding="utf-8")
+          script = html.split("<script>", 1)[1].rsplit("</script>", 1)[0]
+          Path(".fen-editor-web.js").write_text(script, encoding="utf-8")
+          PY
+          node --check .fen-editor-web.js
+
+      - name: Execute complete FEN editor journey
+        run: >-
+          python -m unittest -v
+          tests.test_fen_position_editor_complete_user_flow
+          tests.test_ui_analysis_webapp
+          tests.test_analysis_webview_bridge
+          tests.test_position_editor
+          tests.test_position_text_authority
+          tests.test_dev2_fen_atomicity
+          tests.test_fen_input_budget_current
+          tests.test_pgn_document_new_game_position_integrity
+          tests.test_pgn_document_new_game_position_workflow
+
+      - name: Preserve current accessible FEN action and composition contracts
+        run: >-
+          python -m unittest -v
+          tests.test_version2_application
+          tests.test_full_product_native_menu
+          tests.test_ui_keymap_adapter
+          tests.test_version2_release_ui
+          tests.test_dev1_full_product_webview_adapter
+          tests.test_version2_final_product_composition
+
+      - name: Re-run converged Books runtime contracts
+        run: >-
+          python -m unittest -v
+          tests.test_book_html_runtime_correctness
+          tests.test_book_epub_runtime_correctness
+          tests.test_book_active_import_cancellation
+          tests.test_v2_book_html_import
+          tests.test_v2_book_epub_import
+          tests.test_book_html_pgn_loss_accounting
+          tests.test_bookdocument
+          tests.test_bookreader
+
+      - name: Core selftest
+        run: python -m acs.selftest

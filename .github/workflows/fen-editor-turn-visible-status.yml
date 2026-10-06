@@ -1,0 +1,115 @@
+name: FEN Editor Turn Semantics
+
+on:
+  pull_request:
+    branches:
+      - fix/html-css-declaration-partition-apex-20261006-hy6ez0h113
+    paths:
+      - '.github/workflows/fen-editor-turn-visible-status.yml'
+      - 'acs/webapp.py'
+      - 'tests/test_fen_editor_turn_and_visible_status.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fen-editor-turn-semantics-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  WEBAPP_BLOB: 51cc882511c3a874f7bce3dfa97eda01df1501c6
+  TURN_TEST_BLOB: 17c72639bcc7e6dc84e7c69b2b3b319c3ec744e2
+
+jobs:
+  exact-head:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prove live parent and exact child scope
+        shell: bash
+        env:
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          expected="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
+          test "$(git rev-parse HEAD)" = "$expected"
+          base_ref="${EVENT_BASE_REF:-fix/html-css-declaration-partition-apex-20261006-hy6ez0h113}"
+          git fetch --no-tags origin "+refs/heads/$base_ref:refs/remotes/origin/$base_ref"
+          live_base="$(git rev-parse "refs/remotes/origin/$base_ref")"
+          if [ -n "${EVENT_BASE_SHA:-}" ]; then
+            test "$EVENT_BASE_SHA" = "$live_base"
+          fi
+          test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+          git diff --check "$live_base"...HEAD
+          changed="$(git diff --name-only "$live_base"...HEAD | sort)"
+          expected_paths="$(printf '%s\n' \
+            '.github/workflows/fen-editor-turn-visible-status.yml' \
+            'acs/webapp.py' \
+            'tests/test_fen_editor_turn_and_visible_status.py' | sort)"
+          test "$changed" = "$expected_paths"
+          test "$(git rev-parse HEAD:acs/webapp.py)" = "$WEBAPP_BLOB"
+          test "$(git rev-parse HEAD:tests/test_fen_editor_turn_and_visible_status.py)" = "$TURN_TEST_BLOB"
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile changed and inherited FEN surfaces
+        run: >-
+          python -m py_compile
+          acs/position_editor.py
+          acs/webapp.py
+          acs/webapp_keymap_core.py
+          tests/test_fen_editor_turn_and_visible_status.py
+
+      - name: Validate converged WebView JavaScript syntax
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          html = Path("web/index.html").read_text(encoding="utf-8")
+          script = html.split("<script>", 1)[1].rsplit("</script>", 1)[0]
+          Path(".fen-turn-web.js").write_text(script, encoding="utf-8")
+          PY
+          node --check .fen-turn-web.js
+
+      - name: Execute turn semantics and FEN editor adjacency
+        run: >-
+          python -m unittest -v
+          tests.test_fen_editor_turn_and_visible_status
+          tests.test_fen_position_editor_complete_user_flow
+          tests.test_ui_analysis_webapp
+          tests.test_analysis_webview_bridge
+          tests.test_position_editor
+          tests.test_position_text_authority
+          tests.test_fen_input_budget_current
+
+      - name: Preserve application composition
+        run: >-
+          python -m unittest -v
+          tests.test_version2_application
+          tests.test_dev1_full_product_webview_adapter
+          tests.test_version2_final_product_composition
+
+      - name: Preserve converged Books cancellation repair
+        run: >-
+          python -m unittest -v
+          tests.test_book_active_import_cancellation
+          tests.test_book_html_runtime_correctness
+
+      - name: Core selftest
+        run: python -m acs.selftest

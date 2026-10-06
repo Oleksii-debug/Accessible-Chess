@@ -1630,5 +1630,267 @@ one; display:block">
         self.assertEqual(caught.exception.code, BookHtmlImportErrorCode.NO_READABLE_CONTENT)
 
 
+    def test_available_assets_rejects_collection_subclasses_without_invoking_hooks(self) -> None:
+        import acs.book_html_import as html
+
+        class HostileList(list):
+            def __len__(self):
+                raise AssertionError("provider __len__ hook must not execute")
+
+            def __iter__(self):
+                raise AssertionError("provider __iter__ hook must not execute")
+
+        with self.assertRaises(html.BookHtmlImportError) as caught:
+            import_html_book(
+                "<p>Readable</p>",
+                source_name="hostile-assets.html",
+                available_assets=HostileList(["images/board.png"]),
+            )
+
+        self.assertEqual(
+            caught.exception.code,
+            html.BookHtmlImportErrorCode.INVALID_ARGUMENT,
+        )
+
+    def test_available_assets_rejects_one_name_larger_than_source_envelope(self) -> None:
+        import acs.book_html_import as html
+
+        with patch.object(html, "MAX_HTML_SOURCE_BYTES", 64):
+            with self.assertRaises(html.BookHtmlImportError) as caught:
+                import_html_book(
+                    "<p>Readable</p>",
+                    source_name="asset-name-limit.html",
+                    available_assets=["a" * 65],
+                )
+
+        self.assertEqual(
+            caught.exception.code,
+            html.BookHtmlImportErrorCode.RESOURCE_LIMIT,
+        )
+        self.assertIn("asset-name size", str(caught.exception))
+
+    def test_available_assets_aggregate_name_budget_fails_before_unbounded_normalization(self) -> None:
+        import acs.book_html_import as html
+
+        with patch.object(html, "MAX_HTML_AVAILABLE_ASSET_TOTAL_CHARS", 8):
+            with self.assertRaises(html.BookHtmlImportError) as caught:
+                import_html_book(
+                    "<p>Readable</p>",
+                    source_name="asset-total-limit.html",
+                    available_assets=["abcd", "efghi"],
+                )
+
+        self.assertEqual(
+            caught.exception.code,
+            html.BookHtmlImportErrorCode.RESOURCE_LIMIT,
+        )
+        self.assertIn("aggregate name size", str(caught.exception))
+
+    def test_available_assets_aggregate_exact_boundary_remains_valid(self) -> None:
+        import acs.book_html_import as html
+
+        with patch.object(html, "MAX_HTML_AVAILABLE_ASSET_TOTAL_CHARS", 8):
+            result = import_html_book(
+                "<p>Readable</p>",
+                source_name="asset-total-boundary.html",
+                available_assets=["abcd", "efgh"],
+            )
+
+        self.assertTrue(
+            any(
+                isinstance(block, Paragraph) and block.text == "Readable"
+                for block in result.document.blocks
+            )
+        )
+
+
+    def test_inert_subtree_cannot_publish_accessible_or_chess_semantics(self) -> None:
+        source = f"""<html><body>
+<h1>Visible before</h1>
+<section inert>
+  <p>Inert reading text</p>
+  <div data-acs-fen="{Board.START}">Inert position</div>
+  <img src="images/inert.png" alt="Inert image" data-acs-fen="{Board.START}">
+  <pre>{{PGN 1}}
+{PGN}</pre>
+</section>
+<p>Visible after</p>
+</body></html>"""
+        result = import_html_book(
+            source,
+            source_name="inert-subtree.html",
+            available_assets={"images/inert.png"},
+        )
+
+        self.assertEqual(result.pgn_games, 0)
+        self.assertEqual(result.image_references, ())
+        self.assertFalse(
+            any(
+                isinstance(block, (Game, Diagram, Position, Note))
+                for block in result.document.blocks
+            )
+        )
+        rendered = "\n".join(
+            getattr(block, "text", "")
+            for block in result.document.blocks
+        )
+        self.assertIn("Visible before", rendered)
+        self.assertIn("Visible after", rendered)
+        self.assertNotIn("Inert reading text", rendered)
+
+    def test_inert_boolean_attribute_value_false_is_still_inert(self) -> None:
+        source = f"""<html><body>
+<section inert="false">
+  <div data-acs-fen="{Board.START}">Must remain inaccessible</div>
+  <p>Must remain inaccessible prose</p>
+</section>
+<p>Accessible tail</p>
+</body></html>"""
+        result = import_html_book(
+            source,
+            source_name="inert-false-is-present.html",
+        )
+
+        self.assertFalse(
+            any(isinstance(block, Position) for block in result.document.blocks)
+        )
+        rendered = "\n".join(
+            getattr(block, "text", "")
+            for block in result.document.blocks
+        )
+        self.assertEqual(rendered.strip(), "Accessible tail")
+
+    def test_inert_void_element_does_not_hide_following_content(self) -> None:
+        source = f"""<html><body>
+<img inert src="images/inert.png" alt="Inert image" data-acs-fen="{Board.START}">
+<p>Visible after inert image</p>
+</body></html>"""
+        result = import_html_book(
+            source,
+            source_name="inert-void.html",
+            available_assets={"images/inert.png"},
+        )
+
+        self.assertEqual(result.image_references, ())
+        self.assertFalse(
+            any(isinstance(block, (Diagram, Position, Note)) for block in result.document.blocks)
+        )
+        self.assertTrue(
+            any(
+                isinstance(block, Paragraph)
+                and block.text == "Visible after inert image"
+                for block in result.document.blocks
+            )
+        )
+
+
+    def test_html_published_source_anchor_overflow_is_stable_resource_limit(self) -> None:
+        import acs.book_html_import as html
+
+        with patch.object(html, "MAX_BOOK_SOURCE_ANCHOR_CHARS", 8):
+            with self.assertRaises(html.BookHtmlImportError) as caught:
+                import_html_book(
+                    '<p id="123456789">Readable</p>',
+                    source_name="anchor-overflow.html",
+                )
+
+        self.assertEqual(
+            caught.exception.code,
+            html.BookHtmlImportErrorCode.RESOURCE_LIMIT,
+        )
+        self.assertIn("source anchor", str(caught.exception))
+
+    def test_html_published_source_anchor_exact_boundary_is_preserved(self) -> None:
+        import acs.book_html_import as html
+
+        with patch.object(html, "MAX_BOOK_SOURCE_ANCHOR_CHARS", 8):
+            result = import_html_book(
+                '<p id="12345678">Readable</p>',
+                source_name="anchor-boundary.html",
+            )
+
+        paragraph = next(
+            block
+            for block in result.document.blocks
+            if isinstance(block, Paragraph) and block.text == "Readable"
+        )
+        self.assertEqual(paragraph.source_anchor, "12345678")
+
+    def test_hidden_oversized_anchor_is_not_published_or_rejected(self) -> None:
+        import acs.book_html_import as html
+
+        source = '<section hidden id="123456789"><p>Hidden</p></section><p>Visible</p>'
+        with patch.object(html, "MAX_BOOK_SOURCE_ANCHOR_CHARS", 8):
+            result = import_html_book(
+                source,
+                source_name="hidden-anchor.html",
+            )
+
+        self.assertTrue(
+            any(
+                isinstance(block, Paragraph) and block.text == "Visible"
+                for block in result.document.blocks
+            )
+        )
+        self.assertFalse(
+            any(
+                isinstance(block, Paragraph) and block.text == "Hidden"
+                for block in result.document.blocks
+            )
+        )
+
+
+    def test_post_parser_missing_asset_warnings_never_exceed_html_budget(self) -> None:
+        import acs.book_html_import as html
+
+        source = """<html><body>
+<img src="a.png">
+<img src="b.png">
+<img src="c.png">
+<img src="d.png">
+</body></html>"""
+        with patch.object(html, "MAX_HTML_WARNINGS", 3):
+            result = import_html_book(
+                source,
+                source_name="warning-budget.html",
+                available_assets=(),
+            )
+
+        self.assertEqual(len(result.warnings), 3)
+        self.assertEqual(
+            result.warnings[-1],
+            html._HTML_WARNING_SUPPRESSION_NOTICE,
+        )
+
+    def test_total_warning_helper_preserves_exact_boundary_until_real_overflow(self) -> None:
+        import acs.book_html_import as html
+
+        warnings = ["one", "two"]
+        with patch.object(html, "MAX_HTML_WARNINGS", 3):
+            self.assertTrue(
+                html._append_bounded_import_warning(warnings, "three")
+            )
+            self.assertEqual(warnings, ["one", "two", "three"])
+            self.assertFalse(
+                html._append_bounded_import_warning(warnings, "four")
+            )
+
+        self.assertEqual(
+            warnings,
+            ["one", "two", html._HTML_WARNING_SUPPRESSION_NOTICE],
+        )
+
+    def test_zero_html_warning_budget_publishes_no_post_parser_warning(self) -> None:
+        import acs.book_html_import as html
+
+        warnings = []
+        with patch.object(html, "MAX_HTML_WARNINGS", 0):
+            self.assertFalse(
+                html._append_bounded_import_warning(warnings, "ignored")
+            )
+
+        self.assertEqual(warnings, [])
+
+
 if __name__ == "__main__":
     unittest.main()

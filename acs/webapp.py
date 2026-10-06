@@ -16,7 +16,7 @@ from typing import Any
 
 from .chesscore import Board, parse_sq, sq_name, color_of
 from .history import HistoryError, ReviewHistory
-from .input_limits import MAX_FEN_CHARS
+from .input_limits import MAX_FEN_CHARS, MAX_SQUARE_TEXT_CHARS
 from .move_entry import MAX_MOVE_ENTRY_CHARS
 from .notation import format_accessible_compact_san, format_san
 from .position_editor import PositionState, PositionValidationError
@@ -143,6 +143,18 @@ class AccessibleChessAPI:
         b = board or self._display_board()
         return b.board.count("K") == 1 and b.board.count("k") == 1
 
+    def _position_playable(self, board: Board | None = None) -> bool:
+        """Ask the canonical Board FEN authority whether gameplay may start."""
+
+        b = board or self._display_board()
+        if not self._position_complete(b):
+            return False
+        try:
+            Board(b.fen())
+        except Exception:
+            return False
+        return True
+
     def square_label(self, square: int | str, board: Board | None = None) -> str:
         b = board or self._display_board()
         # Use the canonical exact-int/exact-text square boundary for both forms.
@@ -199,6 +211,8 @@ class AccessibleChessAPI:
         turn_text = self._t("white_turn") if b.turn == "w" else self._t("black_turn")
         if not self._position_complete(b):
             return f"{self._t('setup_incomplete')} {turn_text}"
+        if not self._position_playable(b):
+            return f"{self._t('position_invalid')} {turn_text}"
         legal = b.legal_moves()
         if legal:
             if b.in_check(b.turn):
@@ -469,7 +483,7 @@ class AccessibleChessAPI:
                 if self.selected_source is not None and self._at_history_end() else None
             ),
             "engineEnabled": self.engine_enabled, "engineStatus": engine_status,
-            "positionComplete": self._position_complete(display_board),
+            "positionComplete": self._position_playable(display_board),
             "reviewCursor": display_view.ply, "historyLength": len(self.sans),
             "reviewStatus": display_view.status, "atHistoryEnd": self._at_history_end(),
         }
@@ -518,6 +532,8 @@ class AccessibleChessAPI:
         if not self._at_history_end():
             return self._error(self._t("review_before_move"))
         try:
+            if len(state.to_fen()) > MAX_FEN_CHARS:
+                return self._error(self._t("fen_text_too_long"))
             candidate_board = copy.deepcopy(self.board)
             candidate_board.board = list(state.pieces)
             candidate_board.turn = state.turn
@@ -536,6 +552,8 @@ class AccessibleChessAPI:
 
     def edit_position_piece(self, square: str, piece: str) -> dict[str, Any]:
         if type(square) is not str or type(piece) is not str:
+            return self._error("Неправильне поле або фігура." if self.lang == "uk" else "Invalid square or piece.")
+        if len(square) > MAX_SQUARE_TEXT_CHARS or len(piece) > 1:
             return self._error("Неправильне поле або фігура." if self.lang == "uk" else "Invalid square or piece.")
         square = square.strip().lower()
         if not re.fullmatch(r"[a-h][1-8]", square):
@@ -561,6 +579,14 @@ class AccessibleChessAPI:
     ) -> dict[str, Any]:
         values = (turn, castling, en_passant, halfmove_text, fullmove_text)
         if any(type(value) is not str for value in values):
+            return self._error("Неправильні параметри позиції." if self.lang == "uk" else "Invalid position metadata.")
+        if (
+            len(turn) > 1
+            or len(castling) > MAX_FEN_CHARS
+            or len(en_passant) > MAX_SQUARE_TEXT_CHARS
+            or len(halfmove_text) > MAX_FEN_CHARS
+            or len(fullmove_text) > MAX_FEN_CHARS
+        ):
             return self._error("Неправильні параметри позиції." if self.lang == "uk" else "Invalid position metadata.")
         if turn not in {"w", "b"}:
             return self._error("Неправильний колір." if self.lang == "uk" else "Invalid color.")
@@ -672,6 +698,8 @@ class AccessibleChessAPI:
             return self._error(self._t("review_before_move"))
         if not self._position_complete(self.board):
             return self._error(self._t("setup_incomplete"))
+        if not self._position_playable(self.board):
+            return self._error(self._t("position_invalid"))
         side = self.board.turn
         try:
             candidate_board = copy.deepcopy(self.board)
@@ -739,6 +767,8 @@ class AccessibleChessAPI:
             return self._error(self._t("square_invalid"))
         if not self._position_complete(self.board):
             return self._error(self._t("setup_incomplete"))
+        if not self._position_playable(self.board):
+            return self._error(self._t("position_invalid"))
         p = self.board.board[target]
         if self.selected_source is None:
             if not p:
@@ -919,15 +949,18 @@ class AccessibleChessAPI:
         if type(color) is not str or color not in ("w", "b"):
             return self._error("Неправильний колір." if self.lang == "uk" else "Invalid color.")
         try:
-            candidate_board = copy.deepcopy(self.board)
-            candidate_board.turn = color
-            prepared = self._prepare_root_state(candidate_board)
-        except Exception:
-            return self._error(self._t("editor_history_failed"))
-        # Changing side-to-move is an editor operation, so the edited position
-        # becomes a new live root rather than rewriting an immutable history node.
-        self._publish_root_state(candidate_board, prepared)
-        return self._ok(self._t("white_turn") if color == "w" else self._t("black_turn"))
+            # Route manual side-to-move edits through the canonical editable
+            # position transition.  A manually changed turn has no trustworthy
+            # preceding double-pawn move, so stale en-passant state must not
+            # survive the edit.
+            state = self._position_state_from_live_board().with_turn(color)
+        except (PositionValidationError, ValueError):
+            return self._error(self._t("position_invalid"))
+        return self._commit_position_editor_state(
+            state,
+            self._t("white_turn") if color == "w" else self._t("black_turn"),
+            self._t("white_turn") if color == "w" else self._t("black_turn"),
+        )
 
     def set_fen(self, fen: str) -> dict[str, Any]:
         if type(fen) is not str:

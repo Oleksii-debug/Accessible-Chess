@@ -35,6 +35,32 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Prove exact current PGN convergence scope
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$PR_BASE" HEAD
+          git diff --check "$PR_BASE"...HEAD
+          changed="$(git diff --name-only "$PR_BASE"...HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/d01-pgn-workspace-webview.yml' \
+            '.github/workflows/pgn-complete-editing-current.yml' \
+            'acs/full_product_actions.py' \
+            'acs/full_product_presenters.py' \
+            'acs/pgn_webview_bridge.py' \
+            'acs/pgn_webview_projection.py' \
+            'acs/pgn_workspace.py' \
+            'acs/pgn_workspace_webview_adapter.py' \
+            'acs/version2_pgn_commands.py' \
+            'tests/test_dev1_pgn_webview_projection.py' \
+            'tests/test_dev1_pgn_workspace_webview_adapter.py' \
+            'tests/test_pgn_complete_editing_user_flow.py' \
+            'web/full_product_pgn.js' | sort)"
+          test "$changed" = "$expected"
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'

@@ -7,6 +7,7 @@ import unittest
 from unittest.mock import patch
 import warnings
 import zipfile
+import xml.etree.ElementTree as ET
 
 from acs.book_epub_import import (
     BookEpubImportError,
@@ -15,6 +16,7 @@ from acs.book_epub_import import (
     SUPPORTED_EPUB_BOOK_CAPABILITY,
     import_epub_book,
     _Warnings,
+    _metadata_values,
     _xml_root,
 )
 from acs.bookdocument import (
@@ -4378,6 +4380,40 @@ class BookEpubImportTests(unittest.TestCase):
             SUPPORTED_EPUB_BOOK_CAPABILITY["does_not_claim"],
         )
         self.assertIn("ordered/unordered lists", SUPPORTED_EPUB_BOOK_CAPABILITY["preserves"])
+
+
+    def test_dublin_core_metadata_deduplicates_in_source_order(self) -> None:
+        metadata = ET.Element(
+            "{http://www.idpf.org/2007/opf}metadata"
+        )
+        for value in ("Alpha", "Beta", "Alpha", "Gamma", "Beta"):
+            node = ET.SubElement(
+                metadata,
+                "{http://purl.org/dc/elements/1.1/}creator",
+            )
+            node.text = value
+
+        self.assertEqual(
+            _metadata_values(metadata, "creator"),
+            ["Alpha", "Beta", "Gamma"],
+        )
+
+    def test_dublin_core_metadata_keeps_large_distinct_ordered_collection(self) -> None:
+        metadata = ET.Element(
+            "{http://www.idpf.org/2007/opf}metadata"
+        )
+        expected = [f"Creator {index:04d}" for index in range(2_000)]
+        for value in expected:
+            node = ET.SubElement(
+                metadata,
+                "{http://purl.org/dc/elements/1.1/}creator",
+            )
+            node.text = value
+
+        self.assertEqual(
+            _metadata_values(metadata, "creator", lambda: None),
+            expected,
+        )
 
 
 if __name__ == "__main__":

@@ -231,6 +231,12 @@ class UIAnalysisWebAppTests(unittest.TestCase):
         self.assertTrue(explored["ok"])
         self.assertTrue(explored["analysisViewingTemporaryPosition"])
         self.assertNotEqual(explored["fen"], origin_fen)
+        temporary_board = Board(explored["fen"])
+        self.assertFalse(explored["positionEditor"]["editable"])
+        self.assertEqual(explored["positionEditor"]["turn"], temporary_board.turn)
+        self.assertEqual(explored["positionEditor"]["castling"], temporary_board.castling or "-")
+        self.assertEqual(explored["positionEditor"]["halfmove"], temporary_board.halfmove)
+        self.assertEqual(explored["positionEditor"]["fullmove"], temporary_board.fullmove)
         self.assertEqual(api.board.fen(), origin_fen)
         self.assertEqual(api.review_history.cursor_node_id, origin_node)
         advanced = api.step_analysis_exploration(1)
@@ -256,6 +262,9 @@ class UIAnalysisWebAppTests(unittest.TestCase):
             api.new_game,
             lambda: api.set_fen(origin_fen),
             lambda: api.activate_square("e2"),
+            lambda: api.edit_position_piece("a3", "N"),
+            lambda: api.edit_position_metadata("w", "-", "-", "0", "1"),
+            api.validate_position_editor,
         ):
             with self.subTest(operation=operation):
                 result = operation()
