@@ -3,7 +3,7 @@ name: Current D06 Strict Cancellation Convergence
 on:
   pull_request:
     branches:
-      - fix/d06-current-safety-convergence-20261006-zftrkmo119
+      - converge/d06-strict-write-current-20261006-sol56z3
     paths:
       - '.github/workflows/current-d06-strict-cancellation-convergence.yml'
       - '.github/workflows/w1-d06-bounded-model-materialization-convergence.yml'
@@ -19,8 +19,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  D06_SOURCE_BLOB: 4098053291b4611f4aa9152ceb65b432554b3d5f
-  D06_TEST_BLOB: c898e3b5ea4c514ebf86008339118e6fb124d9b3
+  D06_SOURCE_BLOB: ee2e8f38ce3f7681d7660353f352e3ea3dacb7ac
+  D06_TEST_BLOB: f23f0714090da7a80f67d65760bd4a22ea4c8925
 
 jobs:
   exact-head:
