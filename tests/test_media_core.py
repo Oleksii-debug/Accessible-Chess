@@ -679,6 +679,154 @@ class MediaCoreContractTests(unittest.TestCase):
             )
         self.assertEqual(caught.exception.code, MediaErrorCode.RECONCILIATION_FAILED)
 
+
+    def test_reconciler_batch_preserves_typed_evidence_bundle(self):
+        evidence = (
+            MediaEvidence(
+                evidence_id="board-1",
+                source_id="lesson-1",
+                kind=MediaEvidenceKind.BOARD_OBSERVATION,
+                start_ms=1000,
+                end_ms=1000,
+                source_revision="source-v1",
+                confidence=0.9,
+            ),
+            MediaEvidence(
+                evidence_id="speech-1",
+                source_id="lesson-1",
+                kind=MediaEvidenceKind.SPEECH_CONTEXT,
+                start_ms=900,
+                end_ms=1100,
+                source_revision="source-v1",
+                confidence=0.8,
+            ),
+        )
+
+        class BatchPort:
+            def reconcile_media_evidence_batch(self, *, current_chess_ref, evidence):
+                self.seen = (current_chess_ref, evidence)
+                return MediaReconciliationResult(
+                    source_id="lesson-1",
+                    state=MediaReconciliationState.INFERRED,
+                    evidence_ids=("speech-1", "board-1"),
+                    chess_ref="canonical:node:17",
+                    confidence=0.87,
+                    reason="canonical application reconciled board and speech",
+                )
+
+        port = BatchPort()
+        result = ChessStateReconciler(port).reconcile_many(
+            evidence,
+            current_chess_ref="canonical:node:16",
+        )
+        self.assertEqual(port.seen, ("canonical:node:16", evidence))
+        self.assertEqual(result.chess_ref, "canonical:node:17")
+        self.assertEqual(result.state, MediaReconciliationState.INFERRED)
+
+    def test_reconciler_batch_rejects_cross_source_or_revision_evidence(self):
+        board = MediaEvidence(
+            evidence_id="board-1",
+            source_id="lesson-1",
+            kind=MediaEvidenceKind.BOARD_OBSERVATION,
+            start_ms=1000,
+            end_ms=1000,
+            source_revision="source-v1",
+        )
+        cross_source = MediaEvidence(
+            evidence_id="speech-1",
+            source_id="lesson-2",
+            kind=MediaEvidenceKind.SPEECH_CONTEXT,
+            start_ms=900,
+            end_ms=1100,
+            source_revision="source-v1",
+        )
+        stale = MediaEvidence(
+            evidence_id="speech-2",
+            source_id="lesson-1",
+            kind=MediaEvidenceKind.SPEECH_CONTEXT,
+            start_ms=900,
+            end_ms=1100,
+            source_revision="source-v0",
+        )
+
+        class NeverPort:
+            def reconcile_media_evidence_batch(self, **_kwargs):
+                raise AssertionError("invalid bundle must fail before canonical call")
+
+        reconciler = ChessStateReconciler(NeverPort())
+        with self.assertRaises(MediaContractError) as caught:
+            reconciler.reconcile_many((board, cross_source))
+        self.assertEqual(caught.exception.code, MediaErrorCode.SOURCE_MISMATCH)
+        with self.assertRaises(MediaContractError) as caught:
+            reconciler.reconcile_many((board, stale))
+        self.assertEqual(caught.exception.code, MediaErrorCode.RECONCILIATION_FAILED)
+
+    def test_reconciler_batch_rejects_duplicate_ids_and_partial_result_binding(self):
+        first = MediaEvidence(
+            evidence_id="ev-1",
+            source_id="lesson-1",
+            kind=MediaEvidenceKind.BOARD_OBSERVATION,
+            start_ms=0,
+            end_ms=0,
+        )
+        duplicate = MediaEvidence(
+            evidence_id="ev-1",
+            source_id="lesson-1",
+            kind=MediaEvidenceKind.SPEECH_CONTEXT,
+            start_ms=0,
+            end_ms=0,
+        )
+
+        class PartialPort:
+            def reconcile_media_evidence_batch(self, *, current_chess_ref, evidence):
+                return MediaReconciliationResult(
+                    source_id="lesson-1",
+                    state=MediaReconciliationState.NO_CHANGE,
+                    evidence_ids=("ev-1",),
+                    confidence=1.0,
+                    reason="partial binding",
+                )
+
+        reconciler = ChessStateReconciler(PartialPort())
+        with self.assertRaises(MediaContractError) as caught:
+            reconciler.reconcile_many((first, duplicate))
+        self.assertEqual(caught.exception.code, MediaErrorCode.INVALID_CONTAINER)
+
+        second = MediaEvidence(
+            evidence_id="ev-2",
+            source_id="lesson-1",
+            kind=MediaEvidenceKind.SPEECH_CONTEXT,
+            start_ms=0,
+            end_ms=0,
+        )
+        with self.assertRaises(MediaContractError) as caught:
+            reconciler.reconcile_many((first, second))
+        self.assertEqual(caught.exception.code, MediaErrorCode.RECONCILIATION_FAILED)
+
+    def test_reconciler_batch_requires_batch_capability(self):
+        evidence = (
+            MediaEvidence(
+                evidence_id="ev-1",
+                source_id="lesson-1",
+                kind=MediaEvidenceKind.BOARD_OBSERVATION,
+                start_ms=0,
+                end_ms=0,
+            ),
+        )
+
+        class SinglePort:
+            def reconcile_media_evidence(self, *, current_chess_ref, evidence):
+                return MediaReconciliationResult(
+                    source_id=evidence.source_id,
+                    state=MediaReconciliationState.NO_CHANGE,
+                    evidence_ids=(evidence.evidence_id,),
+                    reason="single only",
+                )
+
+        with self.assertRaises(MediaContractError) as caught:
+            ChessStateReconciler(SinglePort()).reconcile_many(evidence)
+        self.assertEqual(caught.exception.code, MediaErrorCode.RECONCILIATION_FAILED)
+
     def test_reconciler_delegates_to_canonical_port_without_chess_semantics(self):
         evidence = MediaEvidence(
             evidence_id="ev-1",

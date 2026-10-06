@@ -1073,6 +1073,14 @@ class CanonicalChessReconciliationPort(Protocol):
     ) -> MediaReconciliationResult:
         ...
 
+    def reconcile_media_evidence_batch(
+        self,
+        *,
+        current_chess_ref: str | None,
+        evidence: tuple[MediaEvidence, ...],
+    ) -> MediaReconciliationResult:
+        ...
+
 
 class ChessStateReconciler:
     """Fail-closed boundary around canonical chess application authority."""
@@ -1080,13 +1088,50 @@ class ChessStateReconciler:
     __slots__ = ("_port",)
 
     def __init__(self, port: CanonicalChessReconciliationPort) -> None:
-        method = getattr(port, "reconcile_media_evidence", None)
-        if not callable(method):
+        single = getattr(port, "reconcile_media_evidence", None)
+        batch = getattr(port, "reconcile_media_evidence_batch", None)
+        if not callable(single) and not callable(batch):
             raise MediaContractError(
                 "canonical reconciliation port is unavailable",
                 code=MediaErrorCode.RECONCILIATION_FAILED,
             )
         self._port = port
+
+    @staticmethod
+    def _current_ref(current_chess_ref: str | None) -> str | None:
+        return (
+            None
+            if current_chess_ref is None
+            else _require_bounded_text(
+                current_chess_ref,
+                "current_chess_ref",
+                max_chars=2048,
+            )
+        )
+
+    @staticmethod
+    def _validate_result(
+        result: object,
+        *,
+        source_id: str,
+        evidence_ids: tuple[str, ...],
+    ) -> MediaReconciliationResult:
+        if type(result) is not MediaReconciliationResult:
+            raise MediaContractError(
+                "canonical reconciliation returned an invalid result",
+                code=MediaErrorCode.RECONCILIATION_FAILED,
+            )
+        if result.source_id != source_id:
+            raise MediaContractError(
+                "reconciliation result source does not match evidence source",
+                code=MediaErrorCode.RECONCILIATION_FAILED,
+            )
+        if set(result.evidence_ids) != set(evidence_ids):
+            raise MediaContractError(
+                "reconciliation result is not bound exactly to supplied evidence",
+                code=MediaErrorCode.RECONCILIATION_FAILED,
+            )
+        return result
 
     def reconcile(
         self,
@@ -1099,17 +1144,15 @@ class ChessStateReconciler:
                 "evidence must be an exact MediaEvidence value",
                 code=MediaErrorCode.INVALID_CONTAINER,
             )
-        current = (
-            None
-            if current_chess_ref is None
-            else _require_bounded_text(
-                current_chess_ref,
-                "current_chess_ref",
-                max_chars=2048,
+        current = self._current_ref(current_chess_ref)
+        method = getattr(self._port, "reconcile_media_evidence", None)
+        if not callable(method):
+            raise MediaContractError(
+                "canonical single-evidence reconciliation is unavailable",
+                code=MediaErrorCode.RECONCILIATION_FAILED,
             )
-        )
         try:
-            result = self._port.reconcile_media_evidence(
+            result = method(
                 current_chess_ref=current,
                 evidence=evidence,
             )
@@ -1118,22 +1161,89 @@ class ChessStateReconciler:
                 "canonical chess reconciliation failed closed",
                 code=MediaErrorCode.RECONCILIATION_FAILED,
             ) from exc
-        if type(result) is not MediaReconciliationResult:
+        return self._validate_result(
+            result,
+            source_id=evidence.source_id,
+            evidence_ids=(evidence.evidence_id,),
+        )
+
+    def reconcile_many(
+        self,
+        evidence: tuple[MediaEvidence, ...],
+        *,
+        current_chess_ref: str | None = None,
+    ) -> MediaReconciliationResult:
+        """Reconcile one bounded same-source evidence bundle atomically."""
+
+        if type(evidence) is not tuple:
             raise MediaContractError(
-                "canonical reconciliation returned an invalid result",
+                "evidence bundle must be an immutable tuple",
+                code=MediaErrorCode.INVALID_CONTAINER,
+            )
+        if not evidence or len(evidence) > MAX_MEDIA_RECONCILIATION_REFS:
+            raise MediaContractError(
+                "evidence bundle is empty or exceeds the safety limit",
+                code=MediaErrorCode.INVALID_CONTAINER,
+            )
+        source_id: str | None = None
+        source_revisions: set[str] = set()
+        evidence_ids: list[str] = []
+        seen_ids: set[str] = set()
+        for item in evidence:
+            if type(item) is not MediaEvidence:
+                raise MediaContractError(
+                    "evidence bundle must contain exact MediaEvidence values",
+                    code=MediaErrorCode.INVALID_CONTAINER,
+                )
+            if source_id is None:
+                source_id = item.source_id
+            elif item.source_id != source_id:
+                raise MediaContractError(
+                    "evidence bundle crosses media sources",
+                    code=MediaErrorCode.SOURCE_MISMATCH,
+                )
+            if item.source_revision is not None:
+                source_revisions.add(item.source_revision)
+            if item.evidence_id in seen_ids:
+                raise MediaContractError(
+                    "evidence bundle contains duplicate evidence IDs",
+                    code=MediaErrorCode.INVALID_CONTAINER,
+                )
+            seen_ids.add(item.evidence_id)
+            evidence_ids.append(item.evidence_id)
+        if len(source_revisions) > 1:
+            raise MediaContractError(
+                "evidence bundle crosses source revisions",
                 code=MediaErrorCode.RECONCILIATION_FAILED,
             )
-        if result.source_id != evidence.source_id:
+        if source_id is None:
             raise MediaContractError(
-                "reconciliation result source does not match evidence source",
+                "evidence bundle has no source",
+                code=MediaErrorCode.INVALID_CONTAINER,
+            )
+
+        current = self._current_ref(current_chess_ref)
+        method = getattr(self._port, "reconcile_media_evidence_batch", None)
+        if not callable(method):
+            raise MediaContractError(
+                "canonical batch reconciliation is unavailable",
                 code=MediaErrorCode.RECONCILIATION_FAILED,
             )
-        if evidence.evidence_id not in result.evidence_ids:
-            raise MediaContractError(
-                "reconciliation result is not bound to the supplied evidence",
-                code=MediaErrorCode.RECONCILIATION_FAILED,
+        try:
+            result = method(
+                current_chess_ref=current,
+                evidence=evidence,
             )
-        return result
+        except Exception as exc:
+            raise MediaContractError(
+                "canonical chess batch reconciliation failed closed",
+                code=MediaErrorCode.RECONCILIATION_FAILED,
+            ) from exc
+        return self._validate_result(
+            result,
+            source_id=source_id,
+            evidence_ids=tuple(evidence_ids),
+        )
 
 
 class MediaPositionTimeline:
