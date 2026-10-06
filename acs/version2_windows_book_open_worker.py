@@ -162,10 +162,13 @@ class Version2BookOpenWorker:
             self._post_to_ui(finish)
         except BaseException:
             # Owner shutdown can invalidate BeginInvoke after preparation ends.
-            # Never commit from the worker as a fallback. Clear only this exact
-            # generation so shutdown/join and later diagnostics remain truthful.
+            # Never commit from the worker as a fallback. A refused close may
+            # already have advanced the generation fence and re-opened control
+            # while this cancelled thread drains; clear only the exact retained
+            # cancel/thread ownership so the visible application cannot remain
+            # permanently busy after the stale generation exits.
             with self._lock:
-                if generation == self._generation:
+                if self._cancel is cancel and self._thread is threading.current_thread():
                     self._cancel = None
                     self._thread = None
 
@@ -177,14 +180,28 @@ class Version2BookOpenWorker:
         outcome: tuple[str, object],
     ) -> None:
         self._assert_ui_thread()
+        stale_reopened = False
         with self._lock:
             if generation != self._generation:
-                return
-            if self._closed:
+                # A bounded shutdown can fence this generation but still refuse
+                # the native close while its cancelled thread drains. If recovery
+                # has re-opened the worker, consume only this exact stale owner
+                # and publish one cancelled terminal; this returns keyboard/NVDA
+                # state to idle without allowing the prepared result to commit.
+                if self._cancel is cancel:
+                    self._cancel = None
+                    self._thread = None
+                    stale_reopened = not self._closed
+                else:
+                    return
+            elif self._closed:
                 self._cancel = None
                 self._thread = None
                 return
             current_cancel = self._cancel
+        if stale_reopened:
+            self._emit(BookOpenWorkerEventKind.CANCELLED, focus_target)
+            return
         if current_cancel is not cancel:
             return
 
@@ -208,17 +225,28 @@ class Version2BookOpenWorker:
         self._emit(terminal, focus_target)
 
     def resume_after_refused_shutdown(self) -> bool:
-        """Re-open an idle worker after the native close was refused.
+        """Re-open control after the native close was refused.
 
-        Shutdown raises the generation fence before joining, so callbacks queued
-        by the retired generation remain stale. Reopening is permitted only after
-        that exact worker ownership has been fully cleared.
+        A fully retired worker can reopen immediately. A bounded shutdown may
+        instead have fenced and cancelled a generation whose thread is still
+        draining. That generation can no longer commit because shutdown()
+        advanced the generation fence, so it is safe to re-open control while
+        retaining its exact busy lease until the stale terminal callback (or
+        post-failure cleanup) clears it. New Book Open work remains blocked by
+        _cancel until that cleanup completes.
         """
         self._assert_ui_thread()
         with self._lock:
             if not self._closed:
                 return True
-            if self._thread is not None or self._cancel is not None:
+            if self._thread is None and self._cancel is None:
+                self._closed = False
+                return True
+            if (
+                self._thread is None
+                or self._cancel is None
+                or not self._cancel.is_set()
+            ):
                 return False
             self._closed = False
         return True
