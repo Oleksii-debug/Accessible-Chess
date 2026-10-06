@@ -75,6 +75,7 @@ FULL_PRODUCT_ACTIONS: tuple[ActionDefinition, ...] = (
     _action("library.cancel_import", BindingContext.DATABASE, "Cancel library import"),
     _action("library.export", BindingContext.DATABASE, "Export from library"),
     _action("book.open", BindingContext.BOOK_READER, "Open book"),
+    _action("book.cancel_open", BindingContext.BOOK_READER, "Cancel book open"),
     _action("book.board_next_move", BindingContext.BOOK_READER, "Next move in book game"),
     _action("book.board_previous_move", BindingContext.BOOK_READER, "Previous move in book game"),
     _action("book.board_enter_variation", BindingContext.BOOK_READER, "Enter book game variation"),
@@ -235,6 +236,7 @@ class FullProductActionRouter:
         current_focus_id: str = "",
     ) -> ActionDispatchResult:
         self._registry.definition(action_id)
+        self._shell._assert_action_dispatch_ready()
         route_id = _ROUTE_BY_ACTION.get(action_id)
         if route_id is not None:
             focus_target = self._shell.open_route(
@@ -248,7 +250,7 @@ class FullProductActionRouter:
                 focus_target=focus_target,
             )
         if current_focus_id:
-            self._shell.record_focus(current_focus_id)
+            self._shell.record_observed_focus(current_focus_id)
         value = self._delegate(action_id, dict(payload or {}))
         return ActionDispatchResult(
             action_id=action_id,
