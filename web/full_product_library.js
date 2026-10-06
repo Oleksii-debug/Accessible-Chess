@@ -4,6 +4,11 @@
   const renderTokens = new WeakMap();
   const importTokens = new WeakMap();
   const commandFlights = new WeakMap();
+  const commandTails = new WeakMap();
+  const listboxKeyFlights = new WeakMap();
+  const activeLibrarySurfaces = new WeakMap();
+  const librarySurfaceEpochs = new WeakMap();
+  const commandRenderRoots = new WeakMap();
 
   function requireFunction(value, name) {
     if (typeof value !== "function") throw new TypeError(name + " must be a function");
@@ -155,6 +160,15 @@
     "library.export_filtered",
     "library.clear_export_selection"
   ];
+  const LIBRARY_ACTION_DOM_IDS = new Map([
+    ["library.previous_page", "library-previous-page"],
+    ["library.next_page", "library-next-page"],
+    ["library.open_game", "library-open-game"],
+    ["library.reset_filters", "library-reset-filters"],
+    ["library.export_selected", "library-export-selected"],
+    ["library.export_filtered", "library-export-filtered"],
+    ["library.clear_export_selection", "library-clear-export-selection"]
+  ]);
   const GAME_DOM_PATTERN = /^library-game-[0-9a-f]{20}$/;
 
   function requireSafePositiveInteger(value, name) {
@@ -281,6 +295,10 @@
     snapshot.rows.forEach(function (row) {
       allowed.add(row.dom_id);
       if (row.export_dom_id) allowed.add(row.export_dom_id);
+    });
+    snapshot.actions.forEach(function (action) {
+      const domId = LIBRARY_ACTION_DOM_IDS.get(action.action);
+      if (domId) allowed.add(domId);
     });
     if (!allowed.has(target)) throw new TypeError("Library focus target is invalid");
     return target;
@@ -452,20 +470,79 @@
   }
 
   function focusRequestedOption(root, focusTarget) {
-    if (!focusTarget) return;
+    if (!focusTarget) return false;
+    const importTarget = focusTarget === "library-import-file" ||
+      focusTarget === "library-import-cancel";
+    const actionTarget = Array.from(LIBRARY_ACTION_DOM_IDS.values()).indexOf(focusTarget) >= 0;
     if (LIBRARY_FILTERS.some(function (filter) { return focusTarget === "library-search-" + filter[0]; }) ||
-        focusTarget === "library-import-file" ||
-        focusTarget === "library-import-cancel" ||
+        importTarget ||
+        actionTarget ||
         (focusTarget.indexOf("library-game-") === 0 && focusTarget.endsWith("-export"))) {
       const control = root.querySelector("#" + focusTarget);
-      if (control && typeof control.focus === "function") control.focus({ preventScroll: true });
-      return;
+      if (control && !control.disabled && typeof control.focus === "function") {
+        control.focus({ preventScroll: true });
+        return true;
+      }
+      // Import/export operation and toolbar state can replace or disable the
+      // previously focused control. A real browser rejects focus on disabled
+      // controls, so keep keyboard/NVDA focus on the stable Library search field.
+      if (importTarget || actionTarget) {
+        const search = root.querySelector("#library-search-player");
+        if (search && !search.disabled && typeof search.focus === "function") {
+          search.focus({ preventScroll: true });
+          return true;
+        }
+      }
+      return false;
     }
     const options = root.querySelectorAll('[role="option"]');
     for (let index = 0; index < options.length; index += 1) {
       if (options[index].id === focusTarget && typeof options[index].focus === "function") {
         options[index].focus({ preventScroll: true });
-        return;
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function reconcileOperationActions(snapshot, importSnapshot) {
+    const busy = importSnapshot.actions[0].enabled === false;
+    const count = Number(snapshot.export_selection_count) || 0;
+    const hasRows = Array.isArray(snapshot.rows) && snapshot.rows.length > 0;
+    const actions = (Array.isArray(snapshot.actions) ? snapshot.actions : []).map(function (action) {
+      if (!action || typeof action.action !== "string") return action;
+      let enabled = action.enabled;
+      if (action.action === "library.export_selected" ||
+          action.action === "library.clear_export_selection") {
+        enabled = count > 0 && !busy;
+      } else if (action.action === "library.export_filtered") {
+        enabled = hasRows && !busy;
+      }
+      return enabled === action.enabled
+        ? action
+        : Object.assign({}, action, { enabled: enabled });
+    });
+    return Object.assign({}, snapshot, {
+      import: importSnapshot,
+      actions: actions
+    });
+  }
+
+  function syncOperationActionButtons(root, snapshot) {
+    if (!root || typeof root.querySelectorAll !== "function") return;
+    const enabledByAction = {};
+    (Array.isArray(snapshot.actions) ? snapshot.actions : []).forEach(function (action) {
+      if (action && typeof action.action === "string" &&
+          LIBRARY_EXPORT_ACTIONS.indexOf(action.action) >= 0) {
+        enabledByAction[action.action] = action.enabled === true;
+      }
+    });
+    const buttons = root.querySelectorAll('button[data-action]');
+    for (let index = 0; index < buttons.length; index += 1) {
+      const button = buttons[index];
+      const actionId = button && button.dataset ? button.dataset.action : "";
+      if (Object.prototype.hasOwnProperty.call(enabledByAction, actionId)) {
+        button.disabled = !enabledByAction[actionId];
       }
     }
   }
@@ -489,7 +566,7 @@
       const importPayload = requireImportEvent(result);
       const current = root.__accessibleChessLibrarySnapshot;
       if (current && typeof current === "object") {
-        const updated = Object.assign({}, current, { import: importPayload.import });
+        const updated = reconcileOperationActions(current, importPayload.import);
         const region = root.querySelector("#library-import-region");
         const active = document.activeElement;
         const restore = region && active && region.contains(active) &&
@@ -498,6 +575,7 @@
         if (region && replacement && typeof region.replaceWith === "function") {
           region.replaceWith(replacement);
           root.__accessibleChessLibrarySnapshot = updated;
+          syncOperationActionButtons(root, updated);
           importTokens.set(root, {});
           focusRequestedOption(root, importPayload.focus_target || restore);
         } else {
@@ -514,7 +592,13 @@
       return;
     }
     if (result.kind === "delegated") {
-      requireLibraryDelegatedEvent(result);
+      const delegated = requireLibraryDelegatedEvent(result);
+      if (delegated.action === "library.open_game") {
+        // A successful Open Game has already committed the PGN route through
+        // the outer publication protocol. Retire this Library surface before
+        // any command queued from its old DOM can enter the canonical host.
+        activeLibrarySurfaces.set(root, false);
+      }
       return;
     }
     if (result.kind === "error") {
@@ -526,49 +610,103 @@
   }
 
   function invokeCommand(root, invoke, announce, snapshot, command, payload) {
-    const flight = {
-      renderToken: renderTokens.get(root), importToken: importTokens.get(root)
-    };
-    commandFlights.set(root, flight);
-    function isCurrent() {
-      return commandFlights.get(root) === flight &&
-        renderTokens.get(root) === flight.renderToken;
-    }
     const generic = snapshot && typeof snapshot.transport_error_message === "string"
       ? snapshot.transport_error_message
       : "";
-    return Promise.resolve().then(function () {
-      // Commands from the same live surface still reach the canonical host in
-      // order (including independent export selection toggles). A detached old
-      // surface cannot start a delayed command after host replacement.
-      if (renderTokens.get(root) !== flight.renderToken) return null;
-      return invoke(command, payload || {});
-    }).then(function (result) {
-      if (!isCurrent()) return null;
-      if (importTokens.get(root) !== flight.importToken && plainObject(result)) {
-        if (result.kind === "render-import") {
-          requireImportEvent(result);
-          return null;
-        }
-        if (result.kind === "render") {
-          const payload = requireLibraryRenderEvent(result);
-          // Background import feedback is an independent host authority. Keep
-          // newer validated progress while still applying this current search.
-          result = { kind: "render", payload: Object.assign({}, payload, {
-            snapshot: Object.assign({}, payload.snapshot, {
-              import: root.__accessibleChessLibrarySnapshot.import
-            })
-          }) };
-        }
+    const queuedEpoch = librarySurfaceEpochs.get(root);
+    const queuedImportToken = importTokens.get(root);
+    const importRegionCommand =
+      command === "library.import" || command === "library.cancel_import";
+    const priorTail = commandTails.get(root);
+    const gate = priorTail && typeof priorTail.then === "function"
+      ? priorTail
+      : Promise.resolve();
+
+    const current = gate.then(function () {
+      // Serialize canonical Library mutations. A second key/search/export/import
+      // command must not enter the host until the prior command and its returned
+      // presentation have settled. Route deactivation/re-entry changes the
+      // surface epoch; partial Import/Cancel replacement changes its own token.
+      // Intent queued by either detached presentation is discarded before invoke.
+      if (activeLibrarySurfaces.get(root) !== true ||
+          librarySurfaceEpochs.get(root) !== queuedEpoch ||
+          (importRegionCommand && importTokens.get(root) !== queuedImportToken)) {
+        return null;
       }
-      applyEvent(root, result, invoke, announce);
-      return result;
-    }).catch(function () {
-      if (isCurrent() && generic) announce(generic);
-      return null;
-    }).then(function (result) {
-      if (commandFlights.get(root) === flight) commandFlights.delete(root);
-      return result;
+
+      const flight = {
+        renderToken: renderTokens.get(root), importToken: importTokens.get(root)
+      };
+      commandFlights.set(root, flight);
+      function isCurrent() {
+        return commandFlights.get(root) === flight &&
+          renderTokens.get(root) === flight.renderToken &&
+          activeLibrarySurfaces.get(root) === true &&
+          librarySurfaceEpochs.get(root) === queuedEpoch;
+      }
+
+      return Promise.resolve().then(function () {
+        if (!isCurrent()) return null;
+        return invoke(command, payload || {});
+      }).then(function (result) {
+        if (!isCurrent()) return null;
+        if (importTokens.get(root) !== flight.importToken && plainObject(result)) {
+          if (result.kind === "render-import") {
+            requireImportEvent(result);
+            return null;
+          }
+          if (result.kind === "render") {
+            const payload = requireLibraryRenderEvent(result);
+            // Background import feedback is an independent host authority. Keep
+            // newer validated progress while still applying this current search.
+            result = { kind: "render", payload: Object.assign({}, payload, {
+              snapshot: Object.assign({}, payload.snapshot, {
+                import: root.__accessibleChessLibrarySnapshot.import
+              })
+            }) };
+          }
+        }
+        commandRenderRoots.set(root, true);
+        try {
+          applyEvent(root, result, invoke, announce);
+        } finally {
+          commandRenderRoots.delete(root);
+        }
+        return result;
+      }).catch(function () {
+        if (isCurrent() && generic) announce(generic);
+        return null;
+      }).then(function (result) {
+        if (commandFlights.get(root) === flight) commandFlights.delete(root);
+        return result;
+      });
+    });
+
+    const settled = current.then(
+      function () { return null; },
+      function () { return null; }
+    );
+    commandTails.set(root, settled);
+    settled.then(function () {
+      if (commandTails.get(root) === settled) commandTails.delete(root);
+    });
+    return current;
+  }
+
+  function invokeListboxKeyCommand(root, invoke, announce, snapshot, command, payload) {
+    // A selected option remains alive until its canonical command settles.
+    // Ignore repeated/mixed Arrow/Enter events from that stale DOM node instead
+    // of queueing intent whose local selection belonged to the prior render.
+    if (listboxKeyFlights.get(root)) return null;
+    const current = invokeCommand(root, invoke, announce, snapshot, command, payload);
+    listboxKeyFlights.set(root, current);
+    const release = function (value) {
+      if (listboxKeyFlights.get(root) === current) listboxKeyFlights.delete(root);
+      return value;
+    };
+    return current.then(release, function (error) {
+      if (listboxKeyFlights.get(root) === current) listboxKeyFlights.delete(root);
+      throw error;
     });
   }
 
@@ -674,7 +812,7 @@
     const list = node("ul");
     list.setAttribute("role", "listbox");
     list.setAttribute("aria-label", snapshot.results_heading || "");
-    rows.forEach(function (row) {
+    rows.forEach(function (row, index) {
       const option = node("li");
       option.id = String(row.dom_id || "");
       option.setAttribute("role", "option");
@@ -707,24 +845,44 @@
         ) {
           if (event.key === "ArrowUp") actionId = "library.previous_result";
           else if (event.key === "ArrowDown") actionId = "library.next_result";
+          else if (event.key === "Home") actionId = "library.first_result";
+          else if (event.key === "End") actionId = "library.last_result";
           else if (event.key === "Enter") actionId = "library.open_game";
         }
 
         let command = "";
         let payload = {};
+        let handled = true;
         if (actionId === "library.previous_result") {
-          command = "library.move";
-          payload = { delta: -1 };
+          if (index > 0) {
+            command = "library.move";
+            payload = { delta: -1 };
+          }
         } else if (actionId === "library.next_result") {
-          command = "library.move";
-          payload = { delta: 1 };
+          if (index + 1 < rows.length) {
+            command = "library.move";
+            payload = { delta: 1 };
+          }
+        } else if (actionId === "library.first_result") {
+          if (index > 0 && rows.length) {
+            command = "library.select";
+            payload = { game_id: rows[0].game_id };
+          }
+        } else if (actionId === "library.last_result") {
+          if (index + 1 < rows.length) {
+            command = "library.select";
+            payload = { game_id: rows[rows.length - 1].game_id };
+          }
         } else if (actionId === "library.open_game") {
           command = "library.open_game";
+        } else {
+          handled = false;
         }
-        if (!command) return;
+        if (!handled) return;
         event.preventDefault();
         if (typeof event.stopPropagation === "function") event.stopPropagation();
-        invokeCommand(root, invoke, announce, snapshot, command, payload);
+        if (!command) return;
+        invokeListboxKeyCommand(root, invoke, announce, snapshot, command, payload);
       });
       list.appendChild(option);
     });
@@ -765,6 +923,7 @@
     (Array.isArray(snapshot.actions) ? snapshot.actions : []).forEach(function (action) {
       const button = node("button", action.label || action.action || "");
       button.type = "button";
+      button.id = LIBRARY_ACTION_DOM_IDS.get(action.action) || "";
       button.disabled = !action.enabled;
       button.dataset.action = String(action.action || "");
       button.addEventListener("click", function () {
@@ -804,8 +963,38 @@
     renderTokens.set(root, {});
     importTokens.set(root, {});
     commandFlights.delete(root);
+    activeLibrarySurfaces.set(root, true);
+    // A render returned by the currently serialized Library command is the
+    // authoritative settlement that queued user intent is waiting for, so keep
+    // that queue's epoch. Any independent/native/full refresh replaces the DOM
+    // outside that command transaction and must invalidate intent already queued
+    // from the now-detached presentation.
+    if (!commandRenderRoots.get(root) || !librarySurfaceEpochs.has(root)) {
+      librarySurfaceEpochs.set(root, {});
+      // This snapshot did not come from the serialized command currently at the
+      // head of the queue. Treat it as a new presentation incarnation: old
+      // transport completions remain fenced by their captured epoch, while
+      // controls in this freshly rendered DOM must not wait behind them.
+      commandTails.delete(root);
+      listboxKeyFlights.delete(root);
+    }
     root.__accessibleChessLibrarySnapshot = snapshot;
     focusRequestedOption(root, requestedFocus || "");
+  }
+
+  function deactivateLibrarySurface(root) {
+    if (!root || typeof root !== "object") return;
+    activeLibrarySurfaces.set(root, false);
+    librarySurfaceEpochs.set(root, {});
+    // Any unresolved result belongs to DOM that is no longer authoritative.
+    renderTokens.set(root, {});
+    importTokens.set(root, {});
+    commandFlights.delete(root);
+    // Detach unresolved work from any future Library incarnation. Its own
+    // completion still observes the old epoch and cannot publish; identity
+    // checks in the settled callbacks prevent it from deleting newer queues.
+    commandTails.delete(root);
+    listboxKeyFlights.delete(root);
   }
 
   function applyLibraryEvent(root, result, invoke, announce) {
@@ -819,6 +1008,7 @@
 
   global.AccessibleChessLibrarySurface = Object.freeze({
     render: renderLibrarySurface,
-    apply: applyLibraryEvent
+    apply: applyLibraryEvent,
+    deactivate: deactivateLibrarySurface
   });
 })(window);
