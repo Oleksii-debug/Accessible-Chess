@@ -47,6 +47,9 @@ _WINFORMS_ACCESSIBILITY_SWITCHES = (
 )
 _MAX_APPCONFIG_BYTES = 64 * 1024
 _MAX_RELEASE_MANIFEST_BYTES = 64 * 1024
+# SHA256SUMS is a small release authority, not an arbitrary package member.
+# Keep its whole stable snapshot bounded before materializing it into memory.
+_MAX_CHECKSUMS_BYTES = 32 * 1024 * 1024
 _RELEASE_MANIFEST_MAX_OBJECT_MEMBERS = 64
 _RELEASE_MANIFEST_MAX_KEY_CHARS = 128
 
@@ -1867,9 +1870,12 @@ def _checksums(
         payload = _read_stable_bytes_file(
             path,
             label="checksum inventory",
-            max_bytes=limits.max_member_bytes,
+            max_bytes=min(limits.max_member_bytes, _MAX_CHECKSUMS_BYTES),
         )
         lines = payload.decode("utf-8-sig", errors="strict").splitlines()
+        expected_line_count = len(inventory) - 1
+        if len(lines) > expected_line_count:
+            _fail("checksum inventory contains too many entries")
     except Version2PackagePreflightError:
         raise
     except (OSError, UnicodeError) as exc:
