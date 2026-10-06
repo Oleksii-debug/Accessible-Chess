@@ -309,6 +309,20 @@ class BookActiveImportCancellationTests(unittest.TestCase):
 
         self.assertEqual(imported.document.source_name, '12345678')
 
+    def test_epub_final_bookdocument_aggregate_overflow_maps_to_resource_limit(self):
+        import acs.book_epub_import as epub
+
+        raw = _simple_epub(b'<html><body><p>Readable semantic text</p></body></html>')
+        with patch('acs.bookdocument.MAX_BOOK_DOCUMENT_TOTAL_TEXT_CHARS', 10):
+            with self.assertRaises(epub.BookEpubImportError) as caught:
+                import_epub_book(raw, source_name='book.epub')
+
+        self.assertEqual(
+            caught.exception.code,
+            epub.BookEpubImportErrorCode.RESOURCE_LIMIT,
+        )
+        self.assertIn('canonical BookDocument limits', str(caught.exception))
+
     def test_epub_rebased_source_anchor_fails_with_stable_resource_limit(self):
         import acs.book_epub_import as epub
 
