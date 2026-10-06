@@ -1955,5 +1955,57 @@ class BookActiveImportCancellationTests(unittest.TestCase):
         self.assertGreaterEqual(len(calls), 2)
 
 
+    def test_html_capture_source_anchor_uses_canonical_capture_attrs(self):
+        imported = import_html_book(
+            '<html><body><p id="p1">Readable</p></body></html>',
+            source_name='capture-anchor.html',
+        )
+
+        self.assertEqual(len(imported.document.blocks), 1)
+        self.assertEqual(imported.document.blocks[0].source_anchor, 'p1')
+
+    def test_html_rich_list_fallback_uses_list_attrs_without_runtime_hook(self):
+        imported = import_html_book(
+            '<html><body><ul id="list"><li>First</li>'
+            '<li id="rich">Before <img alt="Diagram note"> After</li>'
+            '</ul></body></html>',
+            source_name='rich-list.html',
+        )
+
+        self.assertGreaterEqual(len(imported.document.blocks), 3)
+        self.assertTrue(
+            any(
+                getattr(block, 'source_anchor', None) == 'list'
+                for block in imported.document.blocks
+            )
+        )
+
+    def test_html_pgn_candidate_scan_uses_each_candidate_line(self):
+        import acs.book_html_import as html
+
+        candidates = html._pgn_candidates(
+            '{PGN 1}\n[Event "Study"]\n[Result "*"]\n\n1. e4 *\n'
+            'End of PGN Supplement\nAfter'
+        )
+
+        self.assertEqual(len(candidates), 1)
+        self.assertIn('[Event "Study"]', candidates[0].text)
+        self.assertNotIn('After', candidates[0].text)
+
+    def test_html_aria_hidden_true_is_excluded_from_accessible_document(self):
+        imported = import_html_book(
+            '<html><body><section aria-hidden=" true ">'
+            '<p>Secret text</p></section><p>Visible text</p></body></html>',
+            source_name='aria-hidden.html',
+        )
+
+        readable = '\n'.join(
+            getattr(block, 'text', '')
+            for block in imported.document.blocks
+        )
+        self.assertNotIn('Secret text', readable)
+        self.assertIn('Visible text', readable)
+
+
 if __name__ == '__main__':
     unittest.main()
