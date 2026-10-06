@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 from acs.book_webview_bridge import BookWebViewBridge
 from acs.book_webview_projection import BookWebViewProjection
@@ -8,6 +9,7 @@ from acs.bookdocument import BookDocument, Paragraph
 from acs.bookreader import BookReader
 from acs.full_product_presenters import BookReaderPresenter
 from acs.full_product_ui_shell import UILanguage
+from acs.version2_book_workspace import Version2BookWebViewProjection
 
 
 class BookPresenterPassiveIngressTests(unittest.TestCase):
@@ -170,45 +172,58 @@ class BookPresenterPassiveIngressTests(unittest.TestCase):
         self.assertEqual(failed.kind, "error")
         self.assertEqual(touched, [])
 
-    def test_projection_subclass_class_dispatch_survives_instance_shadow(self) -> None:
-        class CanonicalExtension(BookWebViewProjection):
-            class_calls = 0
+    def test_bridge_rejects_unowned_projection_subclass_before_hooks(self) -> None:
+        class HostileProjection(BookWebViewProjection):
+            touched = False
 
             def next(self):
-                type(self).class_calls += 1
-                return super().next()
+                type(self).touched = True
+                raise AssertionError("unowned projection subclass hook must not execute")
 
-        presenter = BookReaderPresenter(
-            BookReader(
-                BookDocument(
-                    "Subclass projection",
-                    blocks=[
-                        Paragraph(text="First", block_id="p1"),
-                        Paragraph(text="Second", block_id="p2"),
-                    ],
-                )
-            ),
-            language=UILanguage.EN,
-        )
-        projection = CanonicalExtension(
-            presenter,
-            lambda command, payload: None,
-            language=UILanguage.EN,
+        hostile = HostileProjection.__new__(HostileProjection)
+
+        with self.assertRaisesRegex(
+            TypeError,
+            "^projection must be a canonical BookWebViewProjection$",
+        ):
+            BookWebViewBridge(hostile)
+
+        self.assertFalse(HostileProjection.touched)
+
+    def test_version2_projection_class_dispatch_survives_instance_shadow(self) -> None:
+        projection = Version2BookWebViewProjection.__new__(
+            Version2BookWebViewProjection
         )
         touched: list[str] = []
+        class_calls: list[str] = []
 
         def hostile(*_args, **_kwargs):
             touched.append("hostile")
-            raise AssertionError("projection instance shadow must not execute")
+            raise AssertionError("V2 projection instance shadow must not execute")
+
+        def canonical(_self):
+            class_calls.append("next")
+            return type("EventHolder", (), {})()
 
         projection.next = hostile  # type: ignore[method-assign]
-        projection._navigate = hostile  # type: ignore[method-assign]
+        bridge = BookWebViewBridge(projection)
 
-        event = BookWebViewBridge(projection).dispatch("book.next")
+        from acs.book_webview_projection import BookWebViewEvent
+
+        def canonical_event(_self):
+            class_calls.append("next")
+            return BookWebViewEvent("render", {"source": "v2-class"})
+
+        with patch.object(
+            Version2BookWebViewProjection,
+            "next",
+            new=canonical_event,
+        ):
+            event = bridge.dispatch("book.next")
 
         self.assertEqual(event.kind, "render")
-        self.assertEqual(event.payload["snapshot"]["block"]["text"], "Second")
-        self.assertEqual(CanonicalExtension.class_calls, 1)
+        self.assertEqual(event.payload["source"], "v2-class")
+        self.assertEqual(class_calls, ["next"])
         self.assertEqual(touched, [])
 
     def test_exact_reader_presenter_projection_chain_still_renders(self) -> None:
