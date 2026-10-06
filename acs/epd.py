@@ -17,6 +17,7 @@ from .position_editor import PositionState, PositionValidationError
 MAX_EPD_CHARS = MAX_FEN_CHARS
 MAX_EPD_OPERATIONS = 256
 MAX_EPD_OPCODE_CHARS = 15
+MAX_EPD_OPERAND_CHARS = MAX_EPD_CHARS
 
 _OPCODE_RE = re.compile(r"^(?:[a-z][a-z0-9_]{1,14}|[A-Z][A-Za-z0-9_]{0,14})$")
 
@@ -45,6 +46,39 @@ class EpdOperation:
             _validate_operand(self.operand)
 
 
+def _serialized_epd_size(
+    position: PositionState,
+    operations: tuple[EpdOperation, ...],
+) -> int:
+    fields = position.to_fen().split()
+    if len(fields) != 6:
+        raise EpdParseError("canonical position did not produce six FEN fields")
+
+    total = sum(len(field) for field in fields[:4]) + 3
+    seen_hmvc = False
+    seen_fmvn = False
+    for operation in operations:
+        operand = operation.operand
+        if operation.opcode == "hmvc":
+            seen_hmvc = True
+            operand = str(position.halfmove)
+        elif operation.opcode == "fmvn":
+            seen_fmvn = True
+            operand = str(position.fullmove)
+        operation_size = len(operation.opcode) + 1
+        if operand is not None:
+            operation_size += 1 + len(operand)
+        total += 1 + operation_size
+        if total > MAX_EPD_CHARS:
+            return total
+
+    if position.halfmove != 0 and not seen_hmvc:
+        total += len(" hmvc ;") + len(str(position.halfmove))
+    if position.fullmove != 1 and not seen_fmvn:
+        total += len(" fmvn ;") + len(str(position.fullmove))
+    return total
+
+
 @dataclass(frozen=True, slots=True)
 class EpdRecord:
     position: PositionState
@@ -59,6 +93,29 @@ class EpdRecord:
             raise TypeError("EPD operations must contain EpdOperation values")
         if len(self.operations) > MAX_EPD_OPERATIONS:
             raise EpdParseError("EPD contains too many operations")
+
+        seen: set[str] = set()
+        for operation in self.operations:
+            if operation.opcode in seen:
+                raise EpdParseError(f"duplicate EPD {operation.opcode} operation")
+            seen.add(operation.opcode)
+            if operation.opcode not in {"hmvc", "fmvn"}:
+                continue
+            value = _parse_counter(operation)
+            if operation.opcode == "fmvn" and value < 1:
+                raise EpdParseError("EPD fmvn must be at least 1")
+            expected = (
+                self.position.halfmove
+                if operation.opcode == "hmvc"
+                else self.position.fullmove
+            )
+            if value != expected:
+                raise EpdParseError(
+                    f"EPD {operation.opcode} operation disagrees with canonical position"
+                )
+
+        if _serialized_epd_size(self.position, self.operations) > MAX_EPD_CHARS:
+            raise EpdParseError("serialized EPD is too long")
 
     def to_epd(self) -> str:
         return serialize_epd(self)
@@ -140,6 +197,8 @@ def serialize_epd(record: EpdRecord) -> str:
     fields = record.position.to_fen().split()
     if len(fields) != 6:
         raise EpdParseError("canonical position did not produce six FEN fields")
+    if _serialized_epd_size(record.position, record.operations) > MAX_EPD_CHARS:
+        raise EpdParseError("serialized EPD is too long")
 
     rendered: list[str] = []
     seen_hmvc = False
@@ -236,6 +295,8 @@ def _parse_counter(operation: EpdOperation) -> int:
 
 
 def _validate_operand(operand: str) -> None:
+    if len(operand) > MAX_EPD_OPERAND_CHARS:
+        raise EpdParseError("EPD operand is too long")
     if not operand.isascii():
         raise EpdParseError("EPD operands must use ASCII text")
 
