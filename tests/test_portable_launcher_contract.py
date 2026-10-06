@@ -45,6 +45,34 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
         self.assertIn("CHILD_EXIT_REASON", self.source)
         self.assertIn("USER_NVDA_PROVEN: NO", self.source)
 
+    def test_startup_timeout_retires_child_before_fallible_report_writes(self):
+        start = self.source.index("static void ac_fail_startup_timeout(HANDLE report)")
+        end = self.source.index("void WINAPI wWinMainCRTStartup(void)", start)
+        timeout = self.source[start:end]
+
+        self.assertIn("#define AC_TIMEOUT_CLEANUP_WAIT_MS 5000", self.source)
+        self.assertIn(
+            "TerminateProcess(g_process.hProcess, ERROR_TIMEOUT)",
+            timeout,
+        )
+        self.assertIn(
+            "WaitForSingleObject(g_process.hProcess, AC_TIMEOUT_CLEANUP_WAIT_MS)",
+            timeout,
+        )
+        self.assertIn('L"TIMEOUT_CHILD_CLEANUP: PASS"', timeout)
+        self.assertIn('L"TIMEOUT_CHILD_CLEANUP: FAILED"', timeout)
+        self.assertIn('L"CHILD_LEFT_RUNNING: NO"', timeout)
+        self.assertIn('L"CHILD_LEFT_RUNNING: YES"', timeout)
+        self.assertLess(
+            timeout.index("TerminateProcess(g_process.hProcess, ERROR_TIMEOUT)"),
+            timeout.index('ac_write_line(report, L"STATUS: FAILED_STARTUP_TIMEOUT")'),
+        )
+
+        self.assertIn("'TIMEOUT_CHILD_CLEANUP: PASS'", self.workflow)
+        self.assertIn("'CHILD_LEFT_RUNNING: NO'", self.workflow)
+        self.assertIn(".accessible-chess-instance.lock", self.workflow)
+        self.assertIn("[IO.File]::Open(", self.workflow)
+
     def test_packaged_bootstrap_exit_reasons_are_stable_and_synchronized(self):
         contracts = (
             (

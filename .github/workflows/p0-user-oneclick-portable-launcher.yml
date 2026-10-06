@@ -462,6 +462,7 @@ jobs:
           $launcher = Join-Path $root 'AccessibleChess.exe'
           $child = Join-Path $app 'AccessibleChess.exe'
           $report = Join-Path $root 'launch-report.txt'
+          $lock = Join-Path $root '.accessible-chess-instance.lock'
           New-Item -ItemType Directory -Force $app | Out-Null
           Copy-Item build/AccessibleChess.exe $launcher
           Copy-Item build/SmokeChild.exe $child
@@ -492,10 +493,34 @@ jobs:
               'STATUS: FAILED_STARTUP_TIMEOUT',
               'USER_WINDOW_PROVEN: NO',
               'USER_NVDA_PROVEN: NO',
-              'CHILD_LEFT_RUNNING: YES'
+              'TIMEOUT_CHILD_CLEANUP: PASS',
+              'CHILD_LEFT_RUNNING: NO'
             )) {
               if (-not $text.Contains($required)) { throw "Hung-window report missing: $required" }
             }
+
+            $childDeadline = [DateTime]::UtcNow.AddSeconds(5)
+            do {
+              $ownedChildren = @(
+                Get-Process -ErrorAction SilentlyContinue | Where-Object {
+                  try { $_.Path -eq $child } catch { $false }
+                }
+              )
+              if ($ownedChildren.Count -eq 0) { break }
+              Start-Sleep -Milliseconds 100
+            } while ([DateTime]::UtcNow -lt $childDeadline)
+            if ($ownedChildren.Count -ne 0) {
+              throw "Hung-window timeout left $($ownedChildren.Count) package-local child process(es) running"
+            }
+
+            $exclusiveLock = [IO.File]::Open(
+              $lock,
+              [IO.FileMode]::Open,
+              [IO.FileAccess]::ReadWrite,
+              [IO.FileShare]::None
+            )
+            $exclusiveLock.Dispose()
+
             if (-not $process.HasExited) { $process.Kill(); $process.WaitForExit() }
           }
           finally {
@@ -514,6 +539,7 @@ jobs:
           $launcher = Join-Path $root 'AccessibleChess.exe'
           $child = Join-Path $app 'AccessibleChess.exe'
           $report = Join-Path $root 'launch-report.txt'
+          $lock = Join-Path $root '.accessible-chess-instance.lock'
           New-Item -ItemType Directory -Force $app | Out-Null
           Copy-Item build/AccessibleChess.exe $launcher
           Copy-Item build/SmokeChild.exe $child
@@ -540,18 +566,41 @@ jobs:
               'STATUS: FAILED_STARTUP_TIMEOUT',
               'USER_WINDOW_PROVEN: NO',
               'USER_NVDA_PROVEN: NO',
-              'CHILD_LEFT_RUNNING: YES'
+              'TIMEOUT_CHILD_CLEANUP: PASS',
+              'CHILD_LEFT_RUNNING: NO'
             )) {
               if (-not $text.Contains($required)) { throw "No-window report missing: $required" }
             }
-            if (-not $process.HasExited) { $process.Kill(); $process.WaitForExit() }
 
-            Get-Process -ErrorAction SilentlyContinue | Where-Object {
-              try { $_.Path -eq $child } catch { $false }
-            } | Stop-Process -Force -ErrorAction SilentlyContinue
+            $childDeadline = [DateTime]::UtcNow.AddSeconds(5)
+            do {
+              $ownedChildren = @(
+                Get-Process -ErrorAction SilentlyContinue | Where-Object {
+                  try { $_.Path -eq $child } catch { $false }
+                }
+              )
+              if ($ownedChildren.Count -eq 0) { break }
+              Start-Sleep -Milliseconds 100
+            } while ([DateTime]::UtcNow -lt $childDeadline)
+            if ($ownedChildren.Count -ne 0) {
+              throw "No-window timeout left $($ownedChildren.Count) package-local child process(es) running"
+            }
+
+            $exclusiveLock = [IO.File]::Open(
+              $lock,
+              [IO.FileMode]::Open,
+              [IO.FileAccess]::ReadWrite,
+              [IO.FileShare]::None
+            )
+            $exclusiveLock.Dispose()
+
+            if (-not $process.HasExited) { $process.Kill(); $process.WaitForExit() }
           }
           finally {
             Remove-Item Env:ACS_SMOKE_NO_WINDOW -ErrorAction SilentlyContinue
+            Get-Process -ErrorAction SilentlyContinue | Where-Object {
+              try { $_.Path -eq $child } catch { $false }
+            } | Stop-Process -Force -ErrorAction SilentlyContinue
           }
 
       - name: Diff and source hygiene
@@ -588,6 +637,11 @@ jobs:
           assert 'DuplicateHandle(' in source
           assert 'DUPLICATE_SAME_ACCESS' in source
           assert 'PACKAGE_DATA_OWNER: SINGLE_INSTANCE_GUARD_ACTIVE' in source
+          assert '#define AC_TIMEOUT_CLEANUP_WAIT_MS 5000' in source
+          assert 'TerminateProcess(g_process.hProcess, ERROR_TIMEOUT)' in source
+          assert 'WaitForSingleObject(g_process.hProcess, AC_TIMEOUT_CLEANUP_WAIT_MS)' in source
+          assert 'TIMEOUT_CHILD_CLEANUP: PASS' in source
+          assert 'CHILD_LEFT_RUNNING: NO' in source
           assert 'STARTF_USESTDHANDLES' not in source
           assert 'bInheritHandle = TRUE' not in source
           print('PORTABLE_ONECLICK_SOURCE_HYGIENE=PASS')

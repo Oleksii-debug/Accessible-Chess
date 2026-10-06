@@ -24,9 +24,10 @@ permissions:
   contents: read
 
 env:
-  PRODUCT_BASE: f726f9a82073f10e47dc095a2a10c974be0c1873
-  LAUNCHER_BLOB: 6f0ec228a8ae1ef1f4a831f45f3d89eff3713f0f
-  CONTRACT_TEST_BLOB: 4e8d23f24794d1167042a83f2983957a537a244f
+  PRODUCT_BASE: 34197e963e9d5091c79b3d2fc396cdecfa229b77
+  LAUNCHER_BLOB: 9ffc6677e33637d89d8834ebb6c135ab6d26f3bb
+  CONTRACT_TEST_BLOB: 4ae48babd7ada71d38148dfb537982b74140da6b
+  WINDOW_READINESS_TEST_BLOB: ee81983f4a94f6bec5e246c2ebac638b4eff5d10
   CORE_GUARD_TEST_BLOB: 410fddf296caf40e273c9916c078cc22a193876f
 
 concurrency:
@@ -58,13 +59,16 @@ jobs:
           test "$(git merge-base "$PRODUCT_BASE" HEAD)" = "$PRODUCT_BASE"
           test "$(git hash-object packaging/portable_launcher.c)" = "$LAUNCHER_BLOB"
           test "$(git hash-object tests/test_portable_launcher_contract.py)" = "$CONTRACT_TEST_BLOB"
+          test "$(git hash-object tests/test_portable_launcher_window_readiness.py)" = "$WINDOW_READINESS_TEST_BLOB"
           test "$(git hash-object tests/test_portable_launcher_core_guard.py)" = "$CORE_GUARD_TEST_BLOB"
           actual="$(git diff --name-only "$PRODUCT_BASE" HEAD | LC_ALL=C sort)"
           expected="$(printf '%s\n' \
+            '.github/workflows/current-launcher-report-data-identity.yml' \
+            '.github/workflows/p0-user-oneclick-portable-launcher.yml' \
             '.github/workflows/portable-launch-report-reparse-safety.yml' \
             'packaging/portable_launcher.c' \
             'tests/test_portable_launcher_contract.py' \
-            'tests/test_portable_launcher_core_guard.py' | LC_ALL=C sort)"
+            'tests/test_portable_launcher_window_readiness.py' | LC_ALL=C sort)"
           test "$actual" = "$expected"
           git diff --check "$PRODUCT_BASE" HEAD
       - name: Setup exact Python
@@ -76,6 +80,7 @@ jobs:
           python -m unittest
           tests.test_portable_launcher_contract
           tests.test_portable_launcher_core_guard
+          tests.test_portable_launcher_window_readiness
           -v
 
   windows-native-build:
@@ -98,13 +103,16 @@ jobs:
           test "$(git merge-base "$PRODUCT_BASE" HEAD)" = "$PRODUCT_BASE"
           test "$(git hash-object packaging/portable_launcher.c)" = "$LAUNCHER_BLOB"
           test "$(git hash-object tests/test_portable_launcher_contract.py)" = "$CONTRACT_TEST_BLOB"
+          test "$(git hash-object tests/test_portable_launcher_window_readiness.py)" = "$WINDOW_READINESS_TEST_BLOB"
           test "$(git hash-object tests/test_portable_launcher_core_guard.py)" = "$CORE_GUARD_TEST_BLOB"
           actual="$(git diff --name-only "$PRODUCT_BASE" HEAD | LC_ALL=C sort)"
           expected="$(printf '%s\n' \
+            '.github/workflows/current-launcher-report-data-identity.yml' \
+            '.github/workflows/p0-user-oneclick-portable-launcher.yml' \
             '.github/workflows/portable-launch-report-reparse-safety.yml' \
             'packaging/portable_launcher.c' \
             'tests/test_portable_launcher_contract.py' \
-            'tests/test_portable_launcher_core_guard.py' | LC_ALL=C sort)"
+            'tests/test_portable_launcher_window_readiness.py' | LC_ALL=C sort)"
           test "$actual" = "$expected"
           git diff --check "$PRODUCT_BASE" HEAD
       - name: Build native x64 launcher with warnings as errors
