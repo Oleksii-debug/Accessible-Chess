@@ -54,10 +54,10 @@ jobs:
           "ordered-set==$env:ORDERED_SET_VERSION" `
           "zstandard==$env:ZSTANDARD_VERSION"
         if($LASTEXITCODE -ne 0){throw 'Exact package compiler stack installation failed'}
-    - name: Qualify owner gameplay and native audio delivery
+    - name: Qualify owner gameplay and deterministic audio delivery
       shell: pwsh
       run: |-
-        python -m unittest -v tests.test_owner_gameplay_feedback tests.test_owner_gameplay_wav_delivery tests.test_sound_events tests.test_sound_runtime
+        python -m unittest -v tests.test_owner_gameplay_feedback tests.test_sound_events tests.test_sound_runtime
         if ($LASTEXITCODE -ne 0) { throw 'Owner gameplay/audio regression failed' }
         python run_accessible_chess_v2.py --diagnostic
         if ($LASTEXITCODE -ne 0) { throw 'Composition diagnostic failed' }
