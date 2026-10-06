@@ -1,0 +1,97 @@
+name: Current PGN Surrogate Safety
+
+on:
+  pull_request:
+    branches:
+      - converge/current-pgn-fen-tag-bounds-20261006-hy6ez0h113
+    paths:
+      - '.github/workflows/current-pgn-surrogate-safety.yml'
+      - 'acs/pgn_workspace.py'
+      - 'acs/pgn_webview_projection.py'
+      - 'acs/pgn_webview_bridge.py'
+      - 'acs/pgn_workspace_webview_adapter.py'
+      - 'tests/test_pgn_complete_editing_user_flow.py'
+      - 'tests/test_dev1_pgn_workspace_webview_adapter.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-pgn-surrogate-safety-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  BASE_SHA: 3081ac91685647f5d246403279168ea01e92c3ab
+  WORKSPACE_BLOB: f988640b268164b75266a2f201b03d9eec60e9ae
+  PROJECTION_BLOB: 5bf0870dbdaa057ac82e1d7d263e56c1e6c4826a
+  BRIDGE_BLOB: a68ff123dc20bd84a5609122f127808b711d8ba2
+  ADAPTER_BLOB: 5caf712050dc763b4c2e52a2919ddcff45eb7e2e
+  FLOW_TEST_BLOB: e6d99cb1274a22231bec124770ea6668380f4f6e
+  ADAPTER_TEST_BLOB: a28b3669342172ee4ce4c4a1d324fbeab737e119
+
+jobs:
+  exact-head:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove exact child geometry and blobs
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="${{ github.event.pull_request.base.sha }}"
+          test "$base" = "$BASE_SHA"
+          test "$(git merge-base "$base" HEAD)" = "$base"
+          git diff --check "$base" HEAD
+          changed="$(git diff --name-only "$base"...HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/current-pgn-surrogate-safety.yml' \
+            'acs/pgn_webview_bridge.py' \
+            'acs/pgn_webview_projection.py' \
+            'acs/pgn_workspace.py' \
+            'acs/pgn_workspace_webview_adapter.py' \
+            'tests/test_dev1_pgn_workspace_webview_adapter.py' \
+            'tests/test_pgn_complete_editing_user_flow.py' | sort)"
+          test "$changed" = "$expected"
+          test "$(git rev-parse HEAD:acs/pgn_workspace.py)" = "$WORKSPACE_BLOB"
+          test "$(git rev-parse HEAD:acs/pgn_webview_projection.py)" = "$PROJECTION_BLOB"
+          test "$(git rev-parse HEAD:acs/pgn_webview_bridge.py)" = "$BRIDGE_BLOB"
+          test "$(git rev-parse HEAD:acs/pgn_workspace_webview_adapter.py)" = "$ADAPTER_BLOB"
+          test "$(git rev-parse HEAD:tests/test_pgn_complete_editing_user_flow.py)" = "$FLOW_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_dev1_pgn_workspace_webview_adapter.py)" = "$ADAPTER_TEST_BLOB"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Compile hardened PGN surfaces
+        run: >-
+          python -m py_compile
+          acs/pgn_workspace.py
+          acs/pgn_webview_projection.py
+          acs/pgn_webview_bridge.py
+          acs/pgn_workspace_webview_adapter.py
+          tests/test_pgn_complete_editing_user_flow.py
+          tests/test_dev1_pgn_workspace_webview_adapter.py
+
+      - name: PGN malformed-text and atomicity regressions
+        run: >-
+          python -m unittest -v
+          tests.test_pgn_complete_editing_user_flow
+          tests.test_dev1_pgn_workspace_webview_adapter
+          tests.test_dev1_pgn_webview_projection
+          tests.test_pgn_workspace
+          tests.test_version2_pgn_commands
+
+      - name: Core chess selftest
+        run: python -m acs.selftest
