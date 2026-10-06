@@ -298,11 +298,7 @@ jobs:
           once(helper_needle, helper_replacement, 'Book persistence helper insertion')
 
           key_helper_needle = """            public static void Alt(byte vk) {
-              keybd_event(0x12, 0, 0, UIntPtr.Zero);
-              keybd_event(vk, 0, 0, UIntPtr.Zero);
-              keybd_event(vk, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
-              keybd_event(0x12, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
-            }"""
+"""
           key_helper_replacement = """            public static void Alt(byte vk) {
               keybd_event(0x12, 0, 0, UIntPtr.Zero);
               keybd_event(vk, 0, 0, UIntPtr.Zero);
@@ -331,8 +327,8 @@ jobs:
                 $pattern=$document.GetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern)
                 if($null -eq $pattern){continue}
                 $text=[string]$pattern.DocumentRange.GetText(-1)
-                $attempt=[regex]::Match($text,'(?is)(?:Спроби|Attempts)\s*([0-9]+)')
-                $mistake=[regex]::Match($text,'(?is)(?:Помилки|Mistakes)\s*([0-9]+)')
+                $attempt=[regex]::Match($text,'(?is)(?:Спроби|Attempts)\\s*([0-9]+)')
+                $mistake=[regex]::Match($text,'(?is)(?:Помилки|Mistakes)\\s*([0-9]+)')
                 if($attempt.Success -and $mistake.Success){
                   return [pscustomobject]@{
                     attempts=[int]$attempt.Groups[1].Value
