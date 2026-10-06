@@ -93,14 +93,16 @@ class D04ChessBaseBackendImmutabilityTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, ChessBaseDecodeCode.BACKEND_INVALID)
         self.assertNotIn(str(self.backend.parent), str(caught.exception))
 
-    def test_control_checkpoint_is_forwarded_without_weakening_backend_identity(self) -> None:
+    def test_control_checkpoint_is_forwarded_and_polled_around_backend_hashing(self) -> None:
         checkpoints = []
+        count_at_decode = []
 
         def checkpoint():
             checkpoints.append("checked")
 
         def decoded_with_control(_path, _config, *, control_checkpoint=None):
             self.assertIs(control_checkpoint, checkpoint)
+            count_at_decode.append(len(checkpoints))
             control_checkpoint()
             return self._decoded()
 
@@ -114,7 +116,51 @@ class D04ChessBaseBackendImmutabilityTests(unittest.TestCase):
             )
 
         self.assertEqual(result.source, self.snapshot)
-        self.assertEqual(checkpoints, ["checked"])
+        self.assertGreater(count_at_decode[0], 0)
+        self.assertGreater(len(checkpoints), count_at_decode[0] + 1)
+
+    def test_cancellation_during_backend_fingerprint_prevents_decoder_start(self) -> None:
+        class Cancelled(RuntimeError):
+            pass
+
+        def checkpoint():
+            raise Cancelled("cancel before decoder")
+
+        with mock.patch(
+            "acs.chessbase_library_import.decode_chessbase_external",
+        ) as decoder:
+            with self.assertRaisesRegex(Cancelled, "cancel before decoder"):
+                self.service._decode_with_immutable_backend(
+                    self.source,
+                    control_checkpoint=checkpoint,
+                )
+
+        decoder.assert_not_called()
+
+    def test_cancellation_after_decode_discards_output_during_backend_recheck(self) -> None:
+        class Cancelled(RuntimeError):
+            pass
+
+        state = {"decoded": False}
+
+        def checkpoint():
+            if state["decoded"]:
+                raise Cancelled("cancel after decoder")
+
+        def decoded_with_control(_path, _config, *, control_checkpoint=None):
+            self.assertIs(control_checkpoint, checkpoint)
+            state["decoded"] = True
+            return self._decoded()
+
+        with mock.patch(
+            "acs.chessbase_library_import.decode_chessbase_external",
+            side_effect=decoded_with_control,
+        ):
+            with self.assertRaisesRegex(Cancelled, "cancel after decoder"):
+                self.service._decode_with_immutable_backend(
+                    self.source,
+                    control_checkpoint=checkpoint,
+                )
 
     def test_backend_disappearance_discards_decoder_output(self) -> None:
         def remove_backend(*_args, **_kwargs):
