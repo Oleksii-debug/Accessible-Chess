@@ -1784,5 +1784,61 @@ one; display:block">
         )
 
 
+    def test_html_published_source_anchor_overflow_is_stable_resource_limit(self) -> None:
+        import acs.book_html_import as html
+
+        with patch.object(html, "MAX_BOOK_SOURCE_ANCHOR_CHARS", 8):
+            with self.assertRaises(html.BookHtmlImportError) as caught:
+                import_html_book(
+                    '<p id="123456789">Readable</p>',
+                    source_name="anchor-overflow.html",
+                )
+
+        self.assertEqual(
+            caught.exception.code,
+            html.BookHtmlImportErrorCode.RESOURCE_LIMIT,
+        )
+        self.assertIn("source anchor", str(caught.exception))
+
+    def test_html_published_source_anchor_exact_boundary_is_preserved(self) -> None:
+        import acs.book_html_import as html
+
+        with patch.object(html, "MAX_BOOK_SOURCE_ANCHOR_CHARS", 8):
+            result = import_html_book(
+                '<p id="12345678">Readable</p>',
+                source_name="anchor-boundary.html",
+            )
+
+        paragraph = next(
+            block
+            for block in result.document.blocks
+            if isinstance(block, Paragraph) and block.text == "Readable"
+        )
+        self.assertEqual(paragraph.source_anchor, "12345678")
+
+    def test_hidden_oversized_anchor_is_not_published_or_rejected(self) -> None:
+        import acs.book_html_import as html
+
+        source = '<section hidden id="123456789"><p>Hidden</p></section><p>Visible</p>'
+        with patch.object(html, "MAX_BOOK_SOURCE_ANCHOR_CHARS", 8):
+            result = import_html_book(
+                source,
+                source_name="hidden-anchor.html",
+            )
+
+        self.assertTrue(
+            any(
+                isinstance(block, Paragraph) and block.text == "Visible"
+                for block in result.document.blocks
+            )
+        )
+        self.assertFalse(
+            any(
+                isinstance(block, Paragraph) and block.text == "Hidden"
+                for block in result.document.blocks
+            )
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
