@@ -924,7 +924,38 @@ class Version2FinalProductApplication(Version2Application):
             "announcement": announcement,
         }
 
+    def _probe_rotation_durable_generation_for_status(self) -> None:
+        """Detect durable drift before reporting rotation state to the user."""
+
+        if self._rotation_load_error:
+            return
+        plan = self._rotation_plan
+        state = self._rotation_state
+        if plan is None or state is None:
+            return
+        store = self._rotation_store
+        expected_revision = self._rotation_store_revision
+        if store is None or expected_revision is None:
+            self._rotation_load_error = True
+            return
+        try:
+            loaded = store.load()
+        except Exception:
+            self._rotation_load_error = True
+            return
+        if (
+            loaded is None
+            or loaded.revision != expected_revision
+            or loaded.plan != plan
+            or loaded.state != state
+        ):
+            # Status is diagnostic and must never adopt a foreign/newer durable
+            # owner implicitly. Fence mutation and direct the user through the
+            # explicit Start/Resume recovery path instead.
+            self._rotation_load_error = True
+
     def _rotation_keyboard_result(self) -> dict[str, object]:
+        self._probe_rotation_durable_generation_for_status()
         if self._rotation_load_error:
             announcement = self._teacher_keyboard_announcement(
                 "Групова ротація потребує відновлення. Відновіть ротацію, щоб перечитати збережений стан.",

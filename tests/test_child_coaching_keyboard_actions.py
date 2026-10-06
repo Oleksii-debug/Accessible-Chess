@@ -330,6 +330,51 @@ class ChildCoachingKeyboardActionTests(unittest.TestCase):
             self.app.shell.restore_focus_target(),
         )
 
+    def test_keyboard_status_detects_external_durable_advance_without_adopting_it(self) -> None:
+        started = self._dispatch_chord("Ctrl+Alt+R").value
+        store = self.app._rotation_store
+        self.assertIsNotNone(store)
+        assert store is not None
+        loaded = store.load()
+        self.assertIsNotNone(loaded)
+        assert loaded is not None
+
+        external_state = advance_rotation(
+            loaded.plan,
+            loaded.state,
+            expected_revision=loaded.state.revision,
+        )
+        store.save(
+            loaded.plan,
+            external_state,
+            expected_revision=loaded.revision,
+        )
+
+        status = self._dispatch_chord("Ctrl+Alt+S").value
+
+        self.assertTrue(status["recovery_required"])
+        spoken = status["announcement"].casefold()
+        self.assertTrue("віднов" in spoken or "recovery" in spoken)
+        self.assertEqual(started["revision"], self.app._rotation_state.revision)
+        durable = store.load()
+        self.assertIsNotNone(durable)
+        assert durable is not None
+        self.assertEqual(external_state, durable.state)
+
+    def test_keyboard_status_detects_corruption_after_rotation_started(self) -> None:
+        started = self._dispatch_chord("Ctrl+Alt+R").value
+        store = self.app._rotation_store
+        self.assertIsNotNone(store)
+        assert store is not None
+        store.path.write_bytes(b"{not-valid-json")
+
+        status = self._dispatch_chord("Ctrl+Alt+S").value
+
+        self.assertTrue(status["recovery_required"])
+        spoken = status["announcement"].casefold()
+        self.assertTrue("віднов" in spoken or "recovery" in spoken)
+        self.assertEqual(started["revision"], self.app._rotation_state.revision)
+
     def test_keyboard_status_speaks_recovery_when_durable_rotation_is_corrupt(self) -> None:
         store = self.app._rotation_store
         self.assertIsNotNone(store)
