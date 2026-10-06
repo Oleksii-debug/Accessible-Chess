@@ -479,10 +479,11 @@ class Version2GroupRotationBindingTests(unittest.TestCase):
                 ),
             ),
         )
-        self.app.replace_education_workspace(
-            EducationWorkspace.empty(replacement),
-            expected_revision=self.app.education_revision,
-        )
+        # The trusted replacement seam now rejects this transition before CAS.
+        # Simulate a buggy/untrusted host swapping live authority behind the
+        # application so the defensive mutation/status fence remains covered.
+        education_revision_before = self.app.education_revision
+        self.app._education_workspace = EducationWorkspace.empty(replacement)
 
         with self.assertRaisesRegex(RuntimeError, "requires recovery"):
             self.app.advance_group_rotation(
@@ -491,6 +492,7 @@ class Version2GroupRotationBindingTests(unittest.TestCase):
         self.assertTrue(
             self.app.snapshot()["product_status"]["group_rotation_recovery_required"]
         )
+        self.assertEqual(education_revision_before, self.app.education_revision)
         self.assertEqual(durable_before, self.store.path.read_bytes())
         self.assertEqual(state, self.app._rotation_state)
 
