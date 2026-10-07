@@ -1,0 +1,132 @@
+name: Section 17 Recorded Media YouTube Whole Contract
+
+on:
+  push:
+    branches:
+      - section17/recorded-media-youtube-closure-20261007-sol56
+      - converge/section17-recorded-media-youtube-20261007-sol56
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: section17-whole-${{ github.ref }}-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout exact Section 17 candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+
+      - name: Prove accepted Section 16 dependency and clean tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.sha }}"
+          git merge-base --is-ancestor 7bf0a28dc65d5ceef45f78af0a5f023503b79a28 HEAD
+          git diff --check 7bf0a28dc65d5ceef45f78af0a5f023503b79a28...HEAD
+          test -z "$(git grep -nE '^(<<<<<<<|=======|>>>>>>>)' --             acs/media_preprocess.py             acs/media_preprocess_executor.py             acs/recorded_media_sync.py             acs/recorded_media_application.py             acs/recorded_media_accessibility.py             web/recorded_media_accessible_player.js             web/youtube_iframe_playback_adapter.js             web/youtube_provider_metadata.js             tests/test_media_preprocess.py             tests/test_media_preprocess_executor.py             tests/test_recorded_media_sync.py             tests/test_recorded_media_application.py             tests/test_recorded_media_accessibility.py             tests/js/recorded_media_accessible_player_dom_test.js             tests/js/youtube_iframe_playback_adapter_test.js             tests/js/youtube_provider_metadata_adapter_test.js || true)"
+
+      - name: Run recorded-media Python contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest             tests.test_media_core             tests.test_media_preprocess             tests.test_media_preprocess_executor             tests.test_recorded_media_sync             tests.test_recorded_media_application             tests.test_recorded_media_accessibility
+
+      - name: Run browser and provider contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check web/recorded_media_accessible_player.js
+          node --check web/youtube_iframe_playback_adapter.js
+          node --check web/youtube_provider_metadata.js
+          node --check tests/js/recorded_media_accessible_player_dom_test.js
+          node --check tests/js/youtube_iframe_playback_adapter_test.js
+          node --check tests/js/youtube_provider_metadata_adapter_test.js
+          node tests/js/recorded_media_accessible_player_dom_test.js
+          node tests/js/youtube_iframe_playback_adapter_test.js
+          node tests/js/youtube_provider_metadata_adapter_test.js
+
+      - name: Enforce documented-provider and no-stream-extraction boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import re
+          from pathlib import Path
+
+          playback = Path("web/youtube_iframe_playback_adapter.js").read_text(encoding="utf-8")
+          metadata = Path("web/youtube_provider_metadata.js").read_text(encoding="utf-8")
+
+          forbidden = (
+              r"googlevideo",
+              r"videoplayback",
+              r"get_video_info",
+              r"player_response",
+              r"\.m3u8",
+              r"\.mpd",
+              r"yt-dlp",
+              r"youtube-dl",
+              r"XMLHttpRequest",
+              r"WebSocket",
+          )
+          for pattern in forbidden:
+              if re.search(pattern, playback, flags=re.IGNORECASE):
+                  raise SystemExit(f"forbidden playback surface: {pattern}")
+              if re.search(pattern, metadata, flags=re.IGNORECASE):
+                  raise SystemExit(f"forbidden metadata surface: {pattern}")
+
+          if "fetch(" in playback or "fetch (" in playback:
+              raise SystemExit("IFrame playback adapter must not fetch provider resources")
+          if 'https://www.googleapis.com/youtube/v3/videos' not in metadata:
+              raise SystemExit("documented videos.list endpoint is not pinned")
+          if 'cache: "no-store"' not in metadata:
+              raise SystemExit("metadata response caching is not disabled")
+          if 'redirect: "error"' not in metadata:
+              raise SystemExit("metadata redirect escape is not fail-closed")
+          PY
+
+      - name: Verify persisted recorded timeline coverage
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          sync = Path("acs/recorded_media_sync.py").read_text(encoding="utf-8")
+          tests = Path("tests/test_recorded_media_sync.py").read_text(encoding="utf-8")
+          required_source = (
+              "serialize_recorded_sync_state",
+              "deserialize_recorded_sync_state",
+              "seek_recorded_media",
+          )
+          for symbol in required_source:
+              if symbol not in sync:
+                  raise SystemExit(f"missing persisted timeline symbol: {symbol}")
+          required_tests = (
+              "test_stable_frame_uses_canonical_port_and_replay_is_idempotent",
+              "test_recorded_state_roundtrip_reuses_media_core_and_binds_revision",
+              "test_saved_state_rejects_duplicate_outer_keys_and_media_state_tamper",
+          )
+          for name in required_tests:
+              if name not in tests:
+                  raise SystemExit(f"missing persisted timeline regression: {name}")
+          PY
