@@ -50,10 +50,10 @@ class PortableLauncherWindowReadinessTests(unittest.TestCase):
             "file_info.nNumberOfLinks != 1",
             "g_instance_lock = ac_open_instance_lock();",
             "ERROR_SHARING_VIOLATION",
-            "CREATE_UNICODE_ENVIRONMENT | CREATE_SUSPENDED",
-            "DuplicateHandle(",
-            "g_process.hProcess",
-            "DUPLICATE_SAME_ACCESS",
+            "CREATE_UNICODE_ENVIRONMENT | CREATE_SUSPENDED | EXTENDED_STARTUPINFO_PRESENT",
+            "PROC_THREAD_ATTRIBUTE_HANDLE_LIST",
+            "inherited_handles[0] = g_instance_lock;",
+            "UpdateProcThreadAttribute(",
             "ResumeThread(g_process.hThread)",
             "CloseHandle(g_instance_lock)",
             "PACKAGE_DATA_OWNER: SINGLE_INSTANCE_GUARD_ACTIVE",
@@ -63,14 +63,16 @@ class PortableLauncherWindowReadinessTests(unittest.TestCase):
 
         lock = self.source.index("g_instance_lock = ac_open_instance_lock();")
         report = self.source.index("report = ac_open_report();")
-        create = self.source.index("if (!CreateProcessW(")
-        transfer = self.source.index("if (!DuplicateHandle(")
+        allowlist = self.source.index("inherited_handles[0] = g_instance_lock;")
+        attribute = self.source.index("if (!UpdateProcThreadAttribute(", allowlist)
+        create = self.source.index("if (!CreateProcessW(", attribute)
         resume = self.source.index("resume_result = ResumeThread(g_process.hThread);")
         release_parent = self.source.index("CloseHandle(g_instance_lock);", resume)
         self.assertLess(lock, report)
-        self.assertLess(report, create)
-        self.assertLess(create, transfer)
-        self.assertLess(transfer, resume)
+        self.assertLess(report, allowlist)
+        self.assertLess(allowlist, attribute)
+        self.assertLess(attribute, create)
+        self.assertLess(create, resume)
         self.assertLess(resume, release_parent)
 
     def test_duplicate_launch_coalesces_without_touching_shared_report(self):
