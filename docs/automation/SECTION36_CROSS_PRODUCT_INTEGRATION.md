@@ -41,7 +41,7 @@ Terminal receipt:
 - integrated authority: `bd4b26b6712bf956afd23ee4410a989b22e22661`;
 - closure-control issue: #2446, closed completed and locked resolved;
 - post-merge candidate -> merge: ahead=1, behind=0, exact candidate merge-base, **zero file delta**;
-- exact Section-36 runs `37680247268` / `37680239320` remained queued/unstarted and are recorded as hosted-runner unavailability, **not GREEN**; no executed Section-36 RED is known.
+- exact Section-36 runs `37680247268` / `37680239320` subsequently completed **SUCCESS** on both Ubuntu 22.04 and Windows 2025; all dedicated Section-36 qualification jobs passed.
 
 Sections 36.1–36.5 are therefore **DONE — TERMINAL** under Simplified Section Closure Protocol v3.
 
