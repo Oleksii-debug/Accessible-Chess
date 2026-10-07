@@ -9,6 +9,8 @@ on:
       - tests/js/recorded_media_accessible_player_dom_test.js
       - .github/workflows/recorded-media-accessible-player.yml
   pull_request:
+    branches:
+      - feat/recorded-media-accessible-player-20261006-sol56
     paths:
       - acs/recorded_media_accessibility.py
       - web/recorded_media_accessible_player.js
