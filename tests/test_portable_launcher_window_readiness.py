@@ -51,12 +51,11 @@ class PortableLauncherWindowReadinessTests(unittest.TestCase):
             "g_instance_lock = ac_open_instance_lock();",
             "ERROR_SHARING_VIOLATION",
             "CREATE_UNICODE_ENVIRONMENT | CREATE_SUSPENDED",
-            "DuplicateHandle(",
-            "g_process.hProcess",
-            "DUPLICATE_SAME_ACCESS",
             "ResumeThread(g_process.hThread)",
+            "WaitForSingleObject(g_process.hProcess, INFINITE)",
             "CloseHandle(g_instance_lock)",
             "PACKAGE_DATA_OWNER: SINGLE_INSTANCE_GUARD_ACTIVE",
+            "LAUNCHER_SUPERVISOR: ACTIVE_UNTIL_CHILD_EXIT",
         ):
             with self.subTest(token=token):
                 self.assertIn(token, self.source)
@@ -64,14 +63,16 @@ class PortableLauncherWindowReadinessTests(unittest.TestCase):
         lock = self.source.index("g_instance_lock = ac_open_instance_lock();")
         report = self.source.index("report = ac_open_report();")
         create = self.source.index("if (!CreateProcessW(")
-        transfer = self.source.index("if (!DuplicateHandle(")
         resume = self.source.index("resume_result = ResumeThread(g_process.hThread);")
-        release_parent = self.source.index("CloseHandle(g_instance_lock);", resume)
+        ready = self.source.index('ac_write_line(report, L"STATUS: STARTUP_WINDOW_READY")')
+        supervise = self.source.index("WaitForSingleObject(g_process.hProcess, INFINITE)", ready)
+        release_parent = self.source.index("CloseHandle(g_instance_lock);", supervise)
         self.assertLess(lock, report)
         self.assertLess(report, create)
-        self.assertLess(create, transfer)
-        self.assertLess(transfer, resume)
-        self.assertLess(resume, release_parent)
+        self.assertLess(create, resume)
+        self.assertLess(resume, ready)
+        self.assertLess(ready, supervise)
+        self.assertLess(supervise, release_parent)
 
     def test_duplicate_launch_coalesces_without_touching_shared_report(self):
         lock = self.source.index("g_instance_lock = ac_open_instance_lock();")
@@ -87,9 +88,11 @@ class PortableLauncherWindowReadinessTests(unittest.TestCase):
             "            FALSE,\n            CREATE_UNICODE_ENVIRONMENT | CREATE_SUSPENDED,",
             self.source,
         )
-        self.assertIn("DuplicateHandle(", self.source)
-        self.assertIn("DUPLICATE_SAME_ACCESS", self.source)
+        self.assertNotIn("DuplicateHandle(", self.source)
+        self.assertNotIn("STARTF_USESTDHANDLES", self.source)
         self.assertNotIn("bInheritHandle = TRUE", self.source)
+        self.assertIn("WaitForSingleObject(g_process.hProcess, INFINITE)", self.source)
+        self.assertIn("LAUNCHER_SUPERVISOR: ACTIVE_UNTIL_CHILD_EXIT", self.source)
 
     def test_transient_window_must_remain_stable_before_success(self):
         for token in (

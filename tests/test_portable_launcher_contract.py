@@ -80,7 +80,7 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
                 self.assertIn(token, early)
 
     def test_startup_timeout_retires_child_before_fallible_report_writes(self):
-        start = self.source.index("static void ac_fail_startup_timeout(HANDLE report)")
+        start = self.source.index("static void ac_fail_startup_timeout(")
         end = self.source.index("void WINAPI wWinMainCRTStartup(void)", start)
         timeout = self.source[start:end]
 
@@ -97,9 +97,32 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
         self.assertIn('L"TIMEOUT_CHILD_CLEANUP: FAILED"', timeout)
         self.assertIn('L"CHILD_LEFT_RUNNING: NO"', timeout)
         self.assertIn('L"CHILD_LEFT_RUNNING: YES"', timeout)
+        for token in (
+            "ac_close_child_process_handle();",
+            "CloseHandle(g_instance_lock);",
+            "g_instance_lock = INVALID_HANDLE_VALUE;",
+            "CloseHandle(root_guard);",
+            "CloseHandle(app_guard);",
+            "CloseHandle(data_guard);",
+            "CloseHandle(report);",
+            "report = INVALID_HANDLE_VALUE;",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, timeout)
+        cleanup = timeout.index("if (child_stopped) {", timeout.index("cleanup_error"))
+        status = timeout.index('ac_write_line(report, L"STATUS: FAILED_STARTUP_TIMEOUT")')
+        popup = timeout.index("MessageBoxW(")
+        report_close = timeout.index("CloseHandle(report);", status)
+        self.assertLess(cleanup, status)
+        self.assertLess(status, report_close)
+        self.assertLess(report_close, popup)
         self.assertLess(
             timeout.index("TerminateProcess(g_process.hProcess, ERROR_TIMEOUT)"),
             timeout.index('ac_write_line(report, L"STATUS: FAILED_STARTUP_TIMEOUT")'),
+        )
+        self.assertIn(
+            "ac_fail_startup_timeout(report, root_guard, app_guard, data_guard);",
+            self.source,
         )
 
         self.assertIn("'TIMEOUT_CHILD_CLEANUP: PASS'", self.workflow)
@@ -164,24 +187,10 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
             generic_failure.index("ac_write_line(report"),
         )
         self.assertIn("ac_close_child_process_handle();", generic_failure)
-        self.assertLess(
-            generic_failure.index("ac_write_line(report"),
-            generic_failure.index("ac_close_child_process_handle();"),
-        )
-        self.assertLess(
-            generic_failure.index("ac_close_child_process_handle();"),
-            generic_failure.index("MessageBoxW("),
-        )
 
         main = self.source[self.source.index("void WINAPI wWinMainCRTStartup(void)") :]
         self.assertNotIn("CloseHandle(g_process.hProcess);", main)
-        # Every post-create fatal stage routes through the one retirement-aware
-        # ac_fail() authority. Disjoint earlier-success/early-exit branches may
-        # legitimately close a handle, so a fixed character-prefix oracle is
-        # not a valid ownership test.
         for stage in (
-            'L"package-local data ownership transfer"',
-            'L"package-local data directory guard transfer"',
             'L"core process resume"',
             'L"child process identity report"',
             'L"early child exit-code read"',
@@ -377,12 +386,12 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
     def test_report_handle_is_launcher_local_and_root_is_validated_first(self):
         self.assertNotIn("STARTF_USESTDHANDLES", self.source)
         self.assertNotIn("bInheritHandle = TRUE", self.source)
+        self.assertNotIn("DuplicateHandle(", self.source)
         self.assertIn(
             "            FALSE,\n            CREATE_UNICODE_ENVIRONMENT | CREATE_SUSPENDED,",
             self.source,
         )
-        self.assertIn("DuplicateHandle(", self.source)
-        self.assertIn("DUPLICATE_SAME_ACCESS", self.source)
+        self.assertIn("LAUNCHER_SUPERVISOR: ACTIVE_UNTIL_CHILD_EXIT", self.source)
         root_check = self.source.index("if (!ac_direct_directory(g_root))")
         report_open = self.source.index("report = ac_open_report();")
         self.assertLess(root_check, report_open)
@@ -467,13 +476,16 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
             "$first = Start-Process -FilePath $launcher",
             "Start-Sleep -Milliseconds 100",
             "$second = Start-Process -FilePath $launcher",
-            "$first.WaitForExit(10000)",
             "$second.WaitForExit(10000)",
             "Overlapping second portable launcher smoke failed",
-            "Launch report missing after overlapping launchers",
+            "Primary launcher did not publish startup readiness",
+            "Primary launcher supervisor exited while child was still running",
             "PACKAGE_DATA_OWNER: SINGLE_INSTANCE_GUARD_ACTIVE",
+            "LAUNCHER_SUPERVISOR: ACTIVE_UNTIL_CHILD_EXIT",
+            "$third = Start-Process -FilePath $launcher",
+            "Post-readiness duplicate launcher did not coalesce",
             "$ownedChildren.Count -ne 1",
-            "Expected exactly one package-local child after overlapping launchers",
+            "Expected exactly one package-local child while supervisor is active",
             "Single package-local child PID mismatch",
             "AccessibleChessDirectoryDeleteProbe",
             "DeleteAccess = 0x00010000",
@@ -482,20 +494,33 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
             "OpenReparsePoint = 0x00200000",
             "foreach ($guardedDirectory in @($root, $app, $data))",
             "$probeError -ne 32",
-            "Transferred directory guard missing",
-            "$reportedChild.Kill()",
-            "$reportedChild.WaitForExit()",
+            "Supervisor directory guard missing",
+            "AccessibleChessProcessExitProbe",
+            "OpenProcess(",
+            "WaitForSingleObject(",
+            "GetExitCodeProcess(",
+            "WaitForExitCode(",
+            "$smokeExitCode",
+            "Smoke child exit observation failed",
+            "$first.WaitForExit(10000)",
             "$probeError -ne 0",
-            "Directory guard leaked after child exit",
-            "Start-Sleep -Seconds 7",
+            "Directory guard leaked after supervisor exit",
         ):
             with self.subTest(token=token):
                 self.assertIn(token, self.workflow)
         first_launch = self.workflow.index("$first = Start-Process -FilePath $launcher")
         second_launch = self.workflow.index("$second = Start-Process -FilePath $launcher")
+        second_wait = self.workflow.index("$second.WaitForExit(10000)")
+        readiness = self.workflow.index("Primary launcher did not publish startup readiness")
+        third_launch = self.workflow.index("$third = Start-Process -FilePath $launcher")
+        child_wait = self.workflow.index("[AccessibleChessProcessExitProbe]::WaitForExitCode(")
         first_wait = self.workflow.index("$first.WaitForExit(10000)")
         self.assertLess(first_launch, second_launch)
-        self.assertLess(second_launch, first_wait)
+        self.assertLess(second_launch, second_wait)
+        self.assertLess(second_wait, readiness)
+        self.assertLess(readiness, third_launch)
+        self.assertLess(third_launch, child_wait)
+        self.assertLess(child_wait, first_wait)
 
     def test_windows_workflow_executes_native_early_exit_reason_mapping(self):
         for token in (
@@ -537,7 +562,7 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
         guard = self.source[start:end]
         for token in (
             "CreateFileW(",
-            "FILE_READ_ATTRIBUTES",
+            "FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES",
             "FILE_SHARE_READ | FILE_SHARE_WRITE",
             "OPEN_EXISTING",
             "FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT",
@@ -551,100 +576,112 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
                 self.assertIn(token, guard)
         self.assertNotIn("FILE_SHARE_DELETE", guard)
 
+        verify_start = self.source.index(
+            "static BOOL ac_directory_guard_blocks_delete(const WCHAR *path)"
+        )
+        verify_end = self.source.index(
+            "static HANDLE ac_open_direct_directory_guard(const WCHAR *path)",
+            verify_start,
+        )
+        verifier = self.source[verify_start:verify_end]
+        for token in (
+            "DELETE",
+            "FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE",
+            "ERROR_SHARING_VIOLATION",
+            "SetLastError(ERROR_SUCCESS)",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, verifier)
+
     def test_data_directory_guard_precedes_environment_and_child_start(self):
         main = self.source[self.source.index("void WINAPI wWinMainCRTStartup(void)") :]
         directory_check = main.index("if (!ac_direct_directory(g_data))")
         guard_open = main.index("data_guard = ac_open_direct_directory_guard(g_data)")
+        guard_verify = main.index("if (!ac_directory_guard_blocks_delete(g_data))", guard_open)
+        proof = main.index('L"PACKAGE_DATA_GUARD: DELETE_SHARING_BLOCK_PROVEN"', guard_verify)
         environment = main.index('SetEnvironmentVariableW(L"LOCALAPPDATA", g_data)')
         create_process = main.index("if (!CreateProcessW(")
-        transfer = main.index("            data_guard,", create_process)
         resume = main.index("resume_result = ResumeThread(g_process.hThread)")
-        local_close = main.index("CloseHandle(data_guard)", resume)
+        ready = main.index('ac_write_line(report, L"STATUS: STARTUP_WINDOW_READY")', resume)
+        supervise = main.index("WaitForSingleObject(g_process.hProcess, INFINITE)", ready)
+        local_close = main.index("CloseHandle(data_guard)", supervise)
 
         self.assertLess(directory_check, guard_open)
-        self.assertLess(guard_open, environment)
+        self.assertLess(guard_open, guard_verify)
+        self.assertLess(guard_verify, proof)
+        self.assertLess(proof, environment)
         self.assertLess(environment, create_process)
-        self.assertLess(create_process, transfer)
-        self.assertLess(transfer, resume)
-        self.assertLess(resume, local_close)
+        self.assertLess(create_process, resume)
+        self.assertLess(resume, ready)
+        self.assertLess(ready, supervise)
+        self.assertLess(supervise, local_close)
 
     def test_package_root_and_app_directory_guards_are_transferred_to_child(self):
         main = self.source[self.source.index("void WINAPI wWinMainCRTStartup(void)") :]
         for token in (
             "HANDLE root_guard = INVALID_HANDLE_VALUE;",
             "HANDLE app_guard = INVALID_HANDLE_VALUE;",
-            "HANDLE child_root_guard = NULL;",
-            "HANDLE child_app_guard = NULL;",
             "root_guard = ac_open_direct_directory_guard(g_root);",
             "app_guard = ac_open_direct_directory_guard(g_app_dir);",
-            "DuplicateHandle(\n            GetCurrentProcess(),\n            root_guard,\n            g_process.hProcess,\n            &child_root_guard,",
-            "DuplicateHandle(\n            GetCurrentProcess(),\n            app_guard,\n            g_process.hProcess,\n            &child_app_guard,",
             'ac_fail(\n            INVALID_HANDLE_VALUE,\n            L"package-root directory guard",',
             'ac_fail(\n            report,\n            L"App runtime directory guard",',
-            'ac_fail(report, L"package-root directory guard transfer", error)',
-            'ac_fail(report, L"App runtime directory guard transfer", error)',
             'L"PACKAGE_ROOT_GUARD: DIRECT_DIRECTORY_HANDLE_READY"',
+            'L"PACKAGE_ROOT_GUARD: DELETE_SHARING_BLOCK_PROVEN"',
             'L"APP_RUNTIME_GUARD: DIRECT_DIRECTORY_HANDLE_READY"',
-            'L"PACKAGE_ROOT_GUARD: TRANSFERRED_TO_CHILD"',
-            'L"APP_RUNTIME_GUARD: TRANSFERRED_TO_CHILD"',
+            'L"APP_RUNTIME_GUARD: DELETE_SHARING_BLOCK_PROVEN"',
+            'L"PACKAGE_ROOT_GUARD: RETAINED_BY_LAUNCHER_SUPERVISOR"',
+            'L"APP_RUNTIME_GUARD: RETAINED_BY_LAUNCHER_SUPERVISOR"',
+            "WaitForSingleObject(g_process.hProcess, INFINITE)",
         ):
             with self.subTest(token=token):
                 self.assertIn(token, main)
 
         root_check = main.index("if (!ac_direct_directory(g_root))")
         root_open = main.index("root_guard = ac_open_direct_directory_guard(g_root)")
-        instance_lock = main.index("g_instance_lock = ac_open_instance_lock()")
         app_check = main.index("if (!ac_direct_directory(g_app_dir))")
         app_open = main.index("app_guard = ac_open_direct_directory_guard(g_app_dir)")
-        core_open = main.index("core_guard = ac_open_direct_private_file(g_core)")
         create_process = main.index("if (!CreateProcessW(")
-        root_transfer = main.index("            root_guard,", create_process)
-        app_transfer = main.index("            app_guard,", root_transfer)
-        data_transfer = main.index("            data_guard,", app_transfer)
         resume = main.index("resume_result = ResumeThread(g_process.hThread)")
-        root_close = main.index("CloseHandle(root_guard)", resume)
+        ready = main.index('ac_write_line(report, L"STATUS: STARTUP_WINDOW_READY")')
+        supervise = main.index("WaitForSingleObject(g_process.hProcess, INFINITE)", ready)
+        root_close = main.index("CloseHandle(root_guard)", supervise)
         app_close = main.index("CloseHandle(app_guard)", root_close)
 
         self.assertLess(root_check, root_open)
-        self.assertLess(root_open, instance_lock)
         self.assertLess(app_check, app_open)
-        self.assertLess(app_open, core_open)
-        self.assertLess(core_open, create_process)
-        self.assertLess(create_process, root_transfer)
-        self.assertLess(root_transfer, app_transfer)
-        self.assertLess(app_transfer, data_transfer)
-        self.assertLess(data_transfer, resume)
-        self.assertLess(resume, root_close)
+        self.assertLess(app_open, create_process)
+        self.assertLess(create_process, resume)
+        self.assertLess(resume, ready)
+        self.assertLess(ready, supervise)
+        self.assertLess(supervise, root_close)
         self.assertLess(root_close, app_close)
+        self.assertNotIn("DuplicateHandle(", main)
 
     def test_data_directory_guard_is_retained_by_suspended_child(self):
         main = self.source[self.source.index("void WINAPI wWinMainCRTStartup(void)") :]
         for token in (
             "CREATE_UNICODE_ENVIRONMENT | CREATE_SUSPENDED",
             "HANDLE data_guard = INVALID_HANDLE_VALUE;",
-            "HANDLE child_data_guard = NULL;",
-            "DuplicateHandle(\n            GetCurrentProcess(),\n            data_guard,\n            g_process.hProcess,\n            &child_data_guard,",
-            'ac_fail(report, L"package-local data directory guard transfer", error)',
             'L"PACKAGE_DATA_GUARD: DIRECT_DIRECTORY_HANDLE_READY"',
-            'L"PACKAGE_DATA_GUARD: TRANSFERRED_TO_CHILD"',
+            'L"PACKAGE_DATA_GUARD: DELETE_SHARING_BLOCK_PROVEN"',
+            'L"PACKAGE_DATA_GUARD: RETAINED_BY_LAUNCHER_SUPERVISOR"',
+            "WaitForSingleObject(g_process.hProcess, INFINITE)",
+            "CloseHandle(data_guard)",
         ):
             with self.subTest(token=token):
                 self.assertIn(token, main)
 
-        transfer_start = main.index(
-            "if (!DuplicateHandle(\n            GetCurrentProcess(),\n            data_guard,"
-        )
-        transfer_end = main.index(
-            "resume_result = ResumeThread(g_process.hThread)", transfer_start
-        )
-        transfer = main[transfer_start:transfer_end]
-        self.assertNotIn("TerminateProcess(g_process.hProcess", transfer)
-        self.assertIn("CloseHandle(g_process.hThread)", transfer)
-        self.assertNotIn("ac_close_child_process_handle()", transfer)
-        self.assertIn(
-            'ac_fail(report, L"package-local data directory guard transfer", error)',
-            transfer,
-        )
+        guard_open = main.index("data_guard = ac_open_direct_directory_guard(g_data)")
+        create = main.index("if (!CreateProcessW(", guard_open)
+        resume = main.index("resume_result = ResumeThread(g_process.hThread)", create)
+        ready = main.index('ac_write_line(report, L"STATUS: STARTUP_WINDOW_READY")', resume)
+        supervise = main.index("WaitForSingleObject(g_process.hProcess, INFINITE)", ready)
+        local_close = main.index("CloseHandle(data_guard)", supervise)
+        self.assertLess(guard_open, create)
+        self.assertLess(create, resume)
+        self.assertLess(resume, ready)
+        self.assertLess(ready, supervise)
+        self.assertLess(supervise, local_close)
 
 
 if __name__ == "__main__":
