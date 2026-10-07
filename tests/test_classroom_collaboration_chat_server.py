@@ -1361,7 +1361,8 @@ class ClassroomChatServerTests(unittest.TestCase):
                     body TEXT NOT NULL,
                     retention TEXT NOT NULL,
                     hidden INTEGER NOT NULL DEFAULT 0 CHECK(hidden IN (0,1)),
-                    sent_at_unix_ms INTEGER NOT NULL CHECK(sent_at_unix_ms >= 0)
+                    sent_at_unix_ms INTEGER NOT NULL CHECK(sent_at_unix_ms >= 0),
+                    redacted INTEGER NOT NULL DEFAULT 0 CHECK(redacted IN (0,1))
                 )
                 """
             )
