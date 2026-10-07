@@ -78,12 +78,80 @@ class ImportContractTests(unittest.TestCase):
             self.assertEqual(report.counts, {'full': 1, 'partial': 1, 'damaged': 1, 'warning': 1})
             self.assertTrue(report.has_damage)
 
+    def test_non_full_records_require_explicit_loss_or_warning_evidence(self):
+        for quality in (
+            ImportQuality.PARTIAL,
+            ImportQuality.DAMAGED,
+            ImportQuality.WARNING,
+        ):
+            with self.subTest(quality=quality):
+                with self.assertRaisesRegex(ValueError, 'must explain'):
+                    ImportedRecord('record-1', quality)
+
+        partial = ImportedRecord(
+            'record-2',
+            ImportQuality.PARTIAL,
+            warnings=('one unsupported annotation was not imported',),
+        )
+        damaged = ImportedRecord(
+            'record-3',
+            ImportQuality.DAMAGED,
+            message='move stream is malformed',
+        )
+        self.assertEqual(partial.quality, ImportQuality.PARTIAL)
+        self.assertEqual(damaged.quality, ImportQuality.DAMAGED)
+
+    def test_imported_record_rejects_active_or_ambiguous_scalar_shapes(self):
+        with self.assertRaises(ValueError):
+            ImportedRecord('', ImportQuality.FULL)
+        with self.assertRaises(TypeError):
+            ImportedRecord('1', 'full')  # type: ignore[arg-type]
+        with self.assertRaises(ValueError):
+            ImportedRecord('1', ImportQuality.FULL, game_id=True)
+        with self.assertRaises(TypeError):
+            ImportedRecord(
+                '1',
+                ImportQuality.WARNING,
+                warnings=['warning'],  # type: ignore[arg-type]
+            )
+        with self.assertRaises(ValueError):
+            ImportedRecord('1', ImportQuality.WARNING, warnings=('   ',))
+
+    def test_report_revalidates_mutable_collections_before_observation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / 'mutated-report.pgn'
+            source.write_text('x', encoding='utf-8')
+            report = ImportReport(fingerprint(source), 'test')
+            report.records.append(object())  # type: ignore[arg-type]
+            with self.assertRaisesRegex(TypeError, 'exact ImportedRecord'):
+                _ = report.counts
+
+            clean = ImportReport(fingerprint(source), 'test')
+            clean.global_warnings.append(' ')
+            with self.assertRaisesRegex(ValueError, 'global_warnings'):
+                clean.validate()
+
     def test_summary_keeps_categories_separate(self):
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / 'x.pgn'
             source.write_text('x', encoding='utf-8')
             a = ImportReport(fingerprint(source), 'a', [ImportedRecord('1', ImportQuality.FULL)])
-            b = ImportReport(fingerprint(source), 'b', [ImportedRecord('2', ImportQuality.PARTIAL), ImportedRecord('3', ImportQuality.WARNING)])
+            b = ImportReport(
+                fingerprint(source),
+                'b',
+                [
+                    ImportedRecord(
+                        '2',
+                        ImportQuality.PARTIAL,
+                        warnings=('variation could not be represented',),
+                    ),
+                    ImportedRecord(
+                        '3',
+                        ImportQuality.WARNING,
+                        message='metadata uncertain',
+                    ),
+                ],
+            )
             self.assertEqual(summarize_reports([a, b]), {'full': 1, 'partial': 1, 'damaged': 0, 'warning': 1})
 
 
