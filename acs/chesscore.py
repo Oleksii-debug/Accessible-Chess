@@ -122,6 +122,8 @@ class Board:
             moved_pawn='p' if turn=='w' else 'P'
             if bd[moved_sq]!=moved_pawn or bd[origin_sq] is not None:
                 raise ValueError('FEN: en passant не відповідає попередньому подвійому ходу пішака')
+            if halfmove != 0:
+                raise ValueError('FEN: halfmove має дорівнювати 0 після подвійного ходу пішака')
 
         # Commit only after every syntactic and structural check has passed.
         self.board=bd; self.turn=turn; self.castling=castling; self.ep=ep
