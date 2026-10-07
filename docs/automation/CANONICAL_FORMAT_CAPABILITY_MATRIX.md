@@ -6,6 +6,12 @@ Do not edit this table independently; change the typed authority and regenerate.
 Status vocabulary: `SUPPORTED`, `PARTIAL`, `UNSUPPORTED`, `BLOCKED`.
 `PARTIAL` and `BLOCKED` are product truth, not temporary aliases for support.
 
+Operation meanings:
+- **Read**: parse/import/adopt source semantics into a canonical product model.
+- **Edit**: modify canonical semantic state through a supported product editing workflow; not source writeback.
+- **Write**: serialize/export canonical semantic state to this interchange format; textual position formats may produce canonical text rather than a dedicated file-save command.
+- **Round-trip**: read then write/reopen with the semantics stated by the boundary preserved.
+
 | Format | Extensions | Read | Edit | Write | Round-trip | Availability | Boundary |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | FEN position | .fen | SUPPORTED | PARTIAL | SUPPORTED | PARTIAL | built_in | Read/write are built in and validated by the canonical chess core; current full-editor/corpus closure is still converging, so edit/round-trip remain PARTIAL. |
@@ -20,6 +26,7 @@ Status vocabulary: `SUPPORTED`, `PARTIAL`, `UNSUPPORTED`, `BLOCKED`.
 | ChessBase CBV archive | .cbv | PARTIAL | UNSUPPORTED | UNSUPPORTED | UNSUPPORTED | optional_external_backend | Read is conditional on both qualified external backends and the inherited CBH semantic boundary; no writeback. |
 | Legacy ChessBase CBF/CBI pair | .cbf, .cbi | BLOCKED | UNSUPPORTED | UNSUPPORTED | UNSUPPORTED | blocked_external_evidence | Blocked pending a lawful authentic same-stem fixture corpus, independent semantic oracle and qualified bounded decoder. |
 | ChessBase 2CBH | .2cbh | BLOCKED | UNSUPPORTED | UNSUPPORTED | UNSUPPORTED | blocked_external_evidence | No fixture-backed semantic decoder is qualified. |
+| ChessBase 2CBV archive | .2cbv | BLOCKED | UNSUPPORTED | UNSUPPORTED | UNSUPPORTED | blocked_external_evidence | Official archive-family identity and real paired-source evidence exist, but no qualified semantic decoder/publication path is integrated into the current product apex. |
 | ChessBase CBONE | .cbone | BLOCKED | UNSUPPORTED | UNSUPPORTED | UNSUPPORTED | blocked_external_evidence | No fixture-backed semantic decoder is qualified. |
 | ChessBase CBZ encrypted archive | .cbz | BLOCKED | UNSUPPORTED | UNSUPPORTED | UNSUPPORTED | blocked_external_evidence | Password/decryption lifecycle is not implemented; no silent password handling is allowed. |
 
