@@ -855,7 +855,7 @@ def commit_pgn_save_publication(
 
     if binding.mode is PgnSaveMode.SAVE:
         source = source_before
-        if source is None or Path(saved.path).absolute() != Path(source.path).absolute():
+        if source is None or not _same_direct_path(saved.path, source.path):
             raise _stale("Save publication does not match the captured source")
     elif binding.mode is not PgnSaveMode.SAVE_AS:
         raise TypeError("PGN save mode is invalid")
