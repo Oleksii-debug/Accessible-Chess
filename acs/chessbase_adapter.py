@@ -221,7 +221,10 @@ def probe_chessbase_source(path: str | Path) -> ChessBaseSourceProbe:
         except ChessBaseProbeIOError as exc:
             components = ()
             topology_error = str(exc)
-    elif extension in {".2cbh", ".cbone"}:
+    elif extension == ".2cbh":
+        source_kind = "multi_file_database_unqualified_topology"
+        components = ()
+    elif extension == ".cbone":
         source_kind = "single_file_database"
         components = ()
     elif extension == ".cbf":
@@ -286,6 +289,17 @@ def probe_chessbase_source(path: str | Path) -> ChessBaseSourceProbe:
                         "No classic CBH companion files were detected beside the header; "
                         "database may be incomplete or unavailable."
                     )
+        elif extension == ".2cbh":
+            warnings.append(
+                "2CBH is a multi-file database family, but its complete companion map "
+                "is not evidence-qualified in this adapter; family integrity and import "
+                "must fail closed rather than treating the .2cbh primary as a whole database."
+            )
+        elif extension == ".cbone":
+            warnings.append(
+                "CBONE is a single-file database topology; filename recognition alone does "
+                "not establish semantic decoder support."
+            )
         elif extension == ".cbf":
             if topology_error:
                 warnings.append(

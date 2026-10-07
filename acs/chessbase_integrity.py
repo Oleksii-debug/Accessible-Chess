@@ -94,6 +94,15 @@ def _evidence_paths(
         yield component.path, component.extension, component.role
 
 
+def _require_qualified_family_topology(probe: ChessBaseSourceProbe) -> None:
+    """Reject snapshots that would falsely represent a partial family as complete."""
+    if probe.extension == ".2cbh":
+        raise ChessBaseIntegrityIOError(
+            "2CBH is a multi-file database family whose complete companion topology is not "
+            "evidence-qualified; refusing a false single-file integrity snapshot"
+        )
+
+
 def _require_complete_legacy_cbf_pair(probe: ChessBaseSourceProbe) -> None:
     """Fail closed before any future CBF decoder sees an incomplete family."""
     if probe.extension != ".cbf":
@@ -121,6 +130,7 @@ def capture_integrity_snapshot(
         )
     if not probe.path.exists() or not probe.path.is_file():
         raise FileNotFoundError(probe.path)
+    _require_qualified_family_topology(probe)
     _require_complete_legacy_cbf_pair(probe)
 
     files = tuple(
