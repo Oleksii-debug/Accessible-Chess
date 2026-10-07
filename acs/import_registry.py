@@ -93,6 +93,8 @@ class ImportRegistry:
         return value if value.startswith(".") else "." + value
 
     def register(self, importer: ReadOnlyImporter, *, replace: bool = False) -> ImporterRegistration:
+        if type(importer.format_name) is not str or not importer.format_name.strip():
+            raise ImportRegistryError("Importer format_name must be non-empty exact text")
         suffixes = tuple(self._normalize_suffix(item) for item in importer.suffixes)
         if not suffixes:
             raise ImportRegistryError("Importer must declare at least one suffix")
@@ -141,6 +143,10 @@ class ImportRegistry:
             raise ImportRegistryError(
                 "Read-only importer returned an invalid ImportReport"
             ) from exc
+        if report.format_name != importer.format_name:
+            raise ImportRegistryError(
+                "Read-only importer report format identity does not match registered importer"
+            )
         if not _same_source(before, report.source):
             raise SourceProvenanceError(
                 f"Importer report provenance does not match inspected source: {source}"
