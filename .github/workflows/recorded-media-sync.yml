@@ -13,6 +13,8 @@ on:
       - tests/test_recorded_media_sync.py
       - .github/workflows/recorded-media-sync.yml
   pull_request:
+    branches:
+      - work/accessible-chess-20261005-media-core-sol56n4q8
     paths:
       - acs/media_preprocess.py
       - acs/media_preprocess_executor.py
