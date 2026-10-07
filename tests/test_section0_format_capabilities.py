@@ -145,6 +145,7 @@ class CanonicalFormatCapabilityContractTests(unittest.TestCase):
             "chessbase-cbf-cbi",
             "chessbase-2cbh",
             "chessbase-2cbv",
+            "chessbase-2cbz",
             "chessbase-cbone",
             "chessbase-cbz",
         ):
@@ -190,6 +191,11 @@ class CanonicalFormatCapabilityContractTests(unittest.TestCase):
         self.assertEqual(two_cbv.extensions, (".2cbv",))
         self.assertIs(two_cbv.read, CapabilityStatus.BLOCKED)
         self.assertIn("no qualified semantic decoder", two_cbv.boundary)
+
+        two_cbz = capability_by_id("chessbase-2cbz")
+        self.assertEqual(two_cbz.extensions, (".2cbz",))
+        self.assertIs(two_cbz.read, CapabilityStatus.BLOCKED)
+        self.assertIn("no qualified decryption", two_cbz.boundary)
 
         with self.assertRaises(KeyError):
             capability_by_id("invented-format")

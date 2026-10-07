@@ -27,6 +27,7 @@ Operation meanings:
 | Legacy ChessBase CBF/CBI pair | .cbf, .cbi | BLOCKED | UNSUPPORTED | UNSUPPORTED | UNSUPPORTED | blocked_external_evidence | Blocked pending a lawful authentic same-stem fixture corpus, independent semantic oracle and qualified bounded decoder. |
 | ChessBase 2CBH | .2cbh | BLOCKED | UNSUPPORTED | UNSUPPORTED | UNSUPPORTED | blocked_external_evidence | No fixture-backed semantic decoder is qualified. |
 | ChessBase 2CBV archive | .2cbv | BLOCKED | UNSUPPORTED | UNSUPPORTED | UNSUPPORTED | blocked_external_evidence | Official archive-family identity and real paired-source evidence exist, but no qualified semantic decoder/publication path is integrated into the current product apex. |
+| ChessBase 2CBZ encrypted archive | .2cbz | BLOCKED | UNSUPPORTED | UNSUPPORTED | UNSUPPORTED | blocked_external_evidence | Encrypted/archive-family recognition evidence exists, but no qualified decryption/semantic decoder/publication path is integrated; no silent password handling. |
 | ChessBase CBONE | .cbone | BLOCKED | UNSUPPORTED | UNSUPPORTED | UNSUPPORTED | blocked_external_evidence | No fixture-backed semantic decoder is qualified. |
 | ChessBase CBZ encrypted archive | .cbz | BLOCKED | UNSUPPORTED | UNSUPPORTED | UNSUPPORTED | blocked_external_evidence | Password/decryption lifecycle is not implemented; no silent password handling is allowed. |
 
