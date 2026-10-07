@@ -376,13 +376,15 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
 
     def test_report_handle_is_launcher_local_and_root_is_validated_first(self):
         self.assertNotIn("STARTF_USESTDHANDLES", self.source)
-        self.assertNotIn("bInheritHandle = TRUE", self.source)
+        self.assertNotIn("DuplicateHandle(", self.source)
+        self.assertIn("static STARTUPINFOEXW g_startup;", self.source)
+        self.assertIn("PROC_THREAD_ATTRIBUTE_HANDLE_LIST", self.source)
+        self.assertIn("SetHandleInformation(", self.source)
+        self.assertIn("EXTENDED_STARTUPINFO_PRESENT", self.source)
         self.assertIn(
-            "            FALSE,\n            CREATE_UNICODE_ENVIRONMENT | CREATE_SUSPENDED,",
+            "            TRUE,\n            CREATE_UNICODE_ENVIRONMENT | CREATE_SUSPENDED | EXTENDED_STARTUPINFO_PRESENT,",
             self.source,
         )
-        self.assertIn("DuplicateHandle(", self.source)
-        self.assertIn("DUPLICATE_SAME_ACCESS", self.source)
         root_check = self.source.index("if (!ac_direct_directory(g_root))")
         report_open = self.source.index("report = ac_open_report();")
         self.assertLess(root_check, report_open)
