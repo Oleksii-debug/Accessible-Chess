@@ -696,3 +696,34 @@ This remains the same exact six-path canonical PR #2346 lineage. No parser,
 decoder, ImportReport schema, format capability or chess authority is added.
 
 `SECTION_0_DONE=NO_PENDING_TERMINAL_CI_AND_LIVE_REVALIDATION`
+
+
+### Retained EPD printable-ASCII oracle convergence
+
+Exact-head Whole V3 qualification exposed a retained test-oracle conflict after
+the Section-0.1 through 0.5 executable contract had passed. The failing case
+feeds Arabic-Indic `١` to `hmvc` but expected the later counter-specific
+`non-negative ASCII integer` diagnostic. Canonical `parse_epd()`
+intentionally enforces one-line printable ASCII before operation/counter
+parsing, so the non-ASCII glyph is correctly rejected at the earlier ingress
+boundary.
+
+The retained oracle now expects the canonical `printable ASCII` rejection for
+that one non-ASCII case. Signed and zero-padded ASCII counters remain accepted
+and the ASCII negative counter remains counter-specifically rejected. No EPD
+parser or chess behavior changed.
+
+The exact Section-0 successor geometry expands from six to seven paths so this
+retained regression is itself bound by both canonical qualification gates.
+The focused gate now exact-pins, compiles, and executes `tests/test_epd.py`;
+Whole V3 continues to run the retained EPD suite and now pins the same test
+blob.
+
+Exact successor blobs:
+- `tests/test_epd.py`: `e170377a57f0680bd73f275012d40843509b92a2`;
+- focused workflow: `949998bedd409390744b58c4c496d43db0241b54`.
+
+This is test/evidence convergence only. It introduces no alternate EPD/FEN,
+PositionState, parser, format-capability, ImportReport or chess authority.
+
+`SECTION_0_DONE=NO_PENDING_TERMINAL_CI_AND_LIVE_REVALIDATION`

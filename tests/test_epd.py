@@ -75,7 +75,10 @@ class EpdFormatTests(unittest.TestCase):
     def test_invalid_and_duplicate_counter_operations_fail_closed(self):
         with self.assertRaisesRegex(EpdParseError, "duplicate EPD hmvc"):
             parse_epd(START_EPD + " hmvc 1; hmvc 2;")
-        with self.assertRaisesRegex(EpdParseError, "non-negative ASCII integer"):
+        # Non-ASCII counter glyphs are rejected by the canonical EPD
+        # ingress fence before counter-specific parsing. Keep that precedence
+        # explicit so the retained oracle cannot demand a weaker parser path.
+        with self.assertRaisesRegex(EpdParseError, "printable ASCII"):
             parse_epd(START_EPD + " hmvc ١;")
         with self.assertRaisesRegex(EpdParseError, "fmvn must be at least 1"):
             parse_epd(START_EPD + " fmvn 0;")
