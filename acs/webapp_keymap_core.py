@@ -656,6 +656,15 @@ class KeymapAwareAccessibleChessAPI(AccessibleChessAPI):
         pv_actions = {f"analysis.pv{i}": i for i in range(1, 6)}
         if action_id in pv_actions:
             return self.read_analysis_pv(pv_actions[action_id])
+        game_actions = {
+            "game.offer_draw": self.offer_draw,
+            "game.accept_draw": self.accept_draw,
+            "game.decline_draw": self.decline_draw,
+            "game.resign": self.resign,
+        }
+        game_handler = game_actions.get(action_id)
+        if game_handler is not None:
+            return game_handler()
         if action_id == "file.new":
             return self.new_game()
         analysis_actions = {

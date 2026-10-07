@@ -1,3 +1,5 @@
+from pathlib import Path
+import tempfile
 import unittest
 
 from acs.game_lifecycle import (
@@ -9,6 +11,10 @@ from acs.game_lifecycle import (
     LifecycleErrorCode,
     LifecycleSnapshot,
 )
+from acs.keybindings import ActionRegistry
+from acs.stage1_release_ui import Stage1ReleaseAccessibleChessAPI
+from acs.webapp import AccessibleChessAPI
+from acs.webapp_keymap import KeymapAwareAccessibleChessAPI
 
 
 class GameLifecycleTests(unittest.TestCase):
@@ -270,6 +276,91 @@ class GameLifecycleTests(unittest.TestCase):
 
         self.assertEqual(caught.exception.code, LifecycleErrorCode.INVALID_STATE)
         self.assertEqual(game.snapshot(), before)
+
+    def test_section12_local_draw_resign_and_new_game_transitions(self):
+        api = AccessibleChessAPI("en")
+
+        offered = api.offer_draw()
+        self.assertTrue(offered["ok"])
+        self.assertEqual(offered["localGame"]["drawOfferedBy"], "w")
+
+        drawn = api.accept_draw()
+        self.assertTrue(drawn["ok"])
+        self.assertEqual(drawn["localGame"]["status"], "finished")
+        self.assertEqual(drawn["localGame"]["result"], "1/2-1/2")
+        self.assertEqual(drawn["localGame"]["reason"], "draw_agreement")
+        self.assertFalse(api.make_move("e4")["ok"])
+
+        reset = api.new_game()
+        self.assertTrue(reset["ok"])
+        self.assertEqual(reset["localGame"]["status"], "active")
+        self.assertIsNone(reset["localGame"]["result"])
+
+        resigned = api.resign()
+        self.assertTrue(resigned["ok"])
+        self.assertEqual(resigned["localGame"]["result"], "0-1")
+        self.assertEqual(resigned["localGame"]["winner"], "b")
+        self.assertEqual(resigned["localGame"]["reason"], "resignation")
+
+    def test_section12_draw_offer_expires_on_committed_local_move(self):
+        api = AccessibleChessAPI("en")
+        self.assertTrue(api.offer_draw()["ok"])
+
+        moved = api.make_move("e4")
+
+        self.assertTrue(moved["ok"])
+        self.assertEqual(moved["localGame"]["status"], "active")
+        self.assertIsNone(moved["localGame"]["drawOfferedBy"])
+
+    def test_section12_checkmate_result_blocks_play_and_undo_reopens(self):
+        api = AccessibleChessAPI("en")
+        for move in ("f3", "e5", "g4", "Qh4#"):
+            result = api.make_move(move)
+            self.assertTrue(result["ok"], move)
+
+        terminal = api.get_state()
+        self.assertEqual(terminal["localGame"]["status"], "finished")
+        self.assertEqual(terminal["localGame"]["result"], "0-1")
+        self.assertEqual(terminal["localGame"]["reason"], "checkmate")
+        self.assertFalse(api.make_move("e4")["ok"])
+
+        undone = api.undo()
+        self.assertTrue(undone["ok"])
+        self.assertEqual(undone["localGame"]["status"], "active")
+        self.assertIsNone(undone["localGame"]["result"])
+
+    def test_section12_commands_are_in_one_registry_and_keymap_dispatch(self):
+        registry = ActionRegistry()
+        action_ids = {item.action_id for item in registry.definitions()}
+        self.assertTrue({
+            "game.offer_draw",
+            "game.accept_draw",
+            "game.decline_draw",
+            "game.resign",
+        }.issubset(action_ids))
+
+        with tempfile.TemporaryDirectory() as temp:
+            api = KeymapAwareAccessibleChessAPI(
+                "en",
+                keymap_path=Path(temp) / "keymap.json",
+            )
+            self.assertTrue(api.dispatch_action("game.offer_draw")["ok"])
+            accepted = api.dispatch_action("game.accept_draw")
+            self.assertTrue(accepted["ok"])
+            self.assertEqual(accepted["localGame"]["result"], "1/2-1/2")
+
+    def test_section12_release_dispatch_uses_local_game_when_engine_does_not_own_board(self):
+        with tempfile.TemporaryDirectory() as temp:
+            api = Stage1ReleaseAccessibleChessAPI(
+                "en",
+                keymap_path=Path(temp) / "keymap.json",
+            )
+            result = api.dispatch_action("game.resign")
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["localGame"]["status"], "finished")
+        self.assertEqual(result["localGame"]["result"], "0-1")
+        self.assertEqual(result["localGame"]["reason"], "resignation")
 
 
 if __name__ == "__main__":
