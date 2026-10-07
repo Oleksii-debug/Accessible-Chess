@@ -3,7 +3,7 @@ name: Section 13 Stockfish Analysis Engine Closure
 on:
   pull_request:
     branches:
-      - prepare/section1-on-section0-20261007-sol56
+      - converge/section13-stockfish-analysis-engine-20261007-sol56
   workflow_dispatch:
 
 permissions:
@@ -30,7 +30,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          parent=cc379e0de20512303e6dbcbd9c6d135cf59d4363
+          parent=e9b9fce4b83c7c7868cbc2b2653b2b799b965be8
           git cat-file -e "$parent^{commit}"
           test "$(git merge-base "$parent" HEAD)" = "$parent"
           mapfile -t paths < <(git diff --name-only "$parent"...HEAD | sort)

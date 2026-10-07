@@ -60,7 +60,7 @@ class CurrentProductEngineStatusUserCopyTests(unittest.TestCase):
 
         self.assertTrue(enabled["ok"])
         self.assertTrue(enabled["engineEnabled"])
-        self.assertEqual(enabled["engineStatus"], "Stockfish увімкнено.")
+        self.assertEqual(enabled["engineStatus"], "Stockfish аналізує позицію.")
         self.assertEqual(enabled["announcement"], "Аналіз Stockfish увімкнено.")
         self._assert_no_developer_migration_copy(enabled)
 
@@ -78,7 +78,7 @@ class CurrentProductEngineStatusUserCopyTests(unittest.TestCase):
 
         self.assertTrue(enabled["ok"])
         self.assertTrue(enabled["engineEnabled"])
-        self.assertEqual(enabled["engineStatus"], "Stockfish enabled.")
+        self.assertEqual(enabled["engineStatus"], "Stockfish is analysing the position.")
         self.assertEqual(enabled["announcement"], "Stockfish analysis enabled.")
         self._assert_no_developer_migration_copy(enabled)
 
