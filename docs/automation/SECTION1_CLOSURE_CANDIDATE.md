@@ -1102,3 +1102,35 @@ fresh exact-head lawful-corpus plus Ubuntu/Windows qualification is mandatory.
 
 `NVDA_VERIFIED=NO`
 
+### CURRENT LIVE AUTHORITY — reconvergence after Section-0 process-control CI repair
+
+Canonical Section 0 PR #2346 advanced to
+`baca63a724e0330174e63144a63da3e06f069a6f` on the same six-path lineage.
+The exact current predecessor contains both the passive exact-`OSError`
+filename-payload repair and the independently discovered process-control-plus-
+source-mutation precedence repair. Its current acceptance blobs include:
+- `acs/import_registry.py=76be5deb299db67caaa4a3ed999936980b17eeb8`;
+- `tests/test_import_registry.py=ed0c9515977847700e19ce9ea298795a3c21512c`;
+- focused gate `4dcafa3b0ef03da5b3d3e79812f58f6449242a5c`;
+- Whole V3 gate `a8d2254c74519aa643d03d4f38e8f7fbeec1ed50`;
+- converged receipt `3d3bbfb99e1e24b818a11dd1a1abbbbc4a82db87`.
+
+Prepared Section 1 remains canonical PR #2356. Exact merge
+`360e29168dc367860aac3b3d15493f0e8c9093d2` history-preservingly records
+the current Section-0 predecessor as first parent and prior prepared Section-1
+head `8fdf726d8e0b3ba21f31cccd624618530e9dc037` as second parent. No
+Section-1 FEN/SAN/Position runtime source was rebased, squashed, replayed or
+dropped.
+
+The predecessor-aware source/corpus and whole gates are repinned to
+`baca63a724e0330174e63144a63da3e06f069a6f`. The effective Section-1
+delta remains required to be exactly 45 paths. Fresh exact-head lawful-corpus,
+Ubuntu and Windows terminal qualification remains mandatory.
+
+`SECTION0_ACCEPTED=NO_PENDING_TERMINAL_CI`
+
+`SECTION_1_DONE=NO_PENDING_SECTION0_ACCEPTANCE_AND_EXACT_HEAD_QUALIFICATION`
+
+`HUMAN_TESTED=NO`
+
+`NVDA_VERIFIED=NO`
