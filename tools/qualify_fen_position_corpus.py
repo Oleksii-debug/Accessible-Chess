@@ -10,12 +10,12 @@ editable PositionState representation.
 
 import argparse
 from dataclasses import asdict, dataclass
-import hashlib
 import json
 from pathlib import Path
 
 from acs.chesscore import Board
 from acs.gametree_legality import validate_game_legality
+from acs.import_contract import read_source_snapshot
 from acs.pgn_roundtrip import MAX_PGN_SOURCE_BYTES, PgnRoundTripError, parse_pgn_text
 from acs.position_editor import PositionState, PositionValidationError
 

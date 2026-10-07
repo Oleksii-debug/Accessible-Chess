@@ -2,6 +2,7 @@ import hashlib
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 from tools.qualify_fen_position_corpus import (
     FenCorpusQualificationError,
@@ -64,6 +65,28 @@ class FenPositionCorpusQualifierTests(unittest.TestCase):
                 min_positions=5,
                 require_edge_coverage=True,
             )
+
+    def test_file_qualification_delegates_to_canonical_source_snapshot(self):
+        text = _pgn("1. d4 d5 2. c4 e6 1-0")
+        payload = text.encode("utf-8")
+        source = mock.Mock()
+        source.sha256 = "canonical-source-digest"
+        path = Path("must-not-be-opened-directly.pgn")
+
+        with mock.patch(
+            "tools.qualify_fen_position_corpus.read_source_snapshot",
+            return_value=(source, payload),
+        ) as reader:
+            report = qualify_pgn_position_corpus_file(
+                path,
+                min_games=1,
+                min_positions=5,
+            )
+
+        reader.assert_called_once_with(path, max_bytes=16 * 1024 * 1024)
+        self.assertEqual(report.source_sha256, "canonical-source-digest")
+        self.assertEqual(report.game_count, 1)
+        self.assertEqual(report.position_count, 5)
 
     def test_file_qualification_binds_report_to_exact_source_bytes(self):
         text = _pgn("1. d4 d5 2. c4 e6 1-0")
