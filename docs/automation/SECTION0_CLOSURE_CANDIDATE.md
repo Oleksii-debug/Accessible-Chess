@@ -352,3 +352,27 @@ number (or ref for manual dispatch). Exact-head checkout, geometry, blob pins,
 tests and matrix semantics are unchanged. A later head can now cancel the older
 run for the same canonical PR instead of growing an obsolete exact-head backlog.
 This is CI/release control only; runtime/import semantics are unchanged.
+
+### Atomic route-selection snapshot
+
+A final Section-0.5 TOCTOU audit found that inspection previously read the
+selected importer from the live suffix map before capturing the registration
+snapshot used to bind format identity and token. A concurrent `replace=True`
+in that narrow interval could therefore leave the old importer selected while
+the later snapshot represented the replacement. If the stale importer returned
+the replacement's format label, the mismatch could be hidden and its report
+accepted under the replacement registration.
+
+Inspection now captures one host-owned registration snapshot first and derives
+the importer, format identity and registration token from that same snapshot.
+A replacement that linearizes before the snapshot is the importer that runs; a
+replacement after it is caught by the existing registration-drift checks.
+
+The deterministic regression injects a replacement exactly at the former
+selection/snapshot boundary and proves the stale importer is never invoked,
+the replacement is the accepted route, and source bytes remain unchanged.
+Existing re-entrant route replacement tests continue to cover mutations after
+the snapshot.
+
+This remains the exact five-path #2346 Section-0.5 lineage and introduces no
+new parser, format, report or chess authority.

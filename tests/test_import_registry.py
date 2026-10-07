@@ -691,6 +691,79 @@ class ImportRegistryTests(unittest.TestCase):
         with self.assertRaisesRegex(ImportRegistryError, 'format_name'):
             registry.register(InvalidFormatNameImporter())
 
+    def test_route_selection_is_linearized_before_registration_snapshot_race(self):
+        class ReplacementImporter:
+            format_name = "Replacement race identity"
+            suffixes = (".snapshot-race",)
+
+            def __init__(self):
+                self.calls = 0
+
+            def inspect(self, path: Path) -> ImportReport:
+                self.calls += 1
+                return ImportReport(
+                    source=fingerprint(path),
+                    format_name=self.format_name,
+                )
+
+        replacement = ReplacementImporter()
+
+        class SnapshotRaceRegistry(ImportRegistry):
+            def __init__(self):
+                super().__init__()
+                self.arm_race = False
+                self.snapshot_calls = 0
+                self.replacement = replacement
+
+            def _registration_snapshot(self):
+                self.snapshot_calls += 1
+                # During inspect(), call 1 belongs to source-path coercion. On
+                # call 2 simulate a concurrent route replacement at the exact
+                # historical window between route selection and its snapshot.
+                if self.arm_race and self.snapshot_calls == 2:
+                    suffix = ".snapshot-race"
+                    self._by_suffix[suffix] = self.replacement
+                    self._format_name_by_suffix[suffix] = self.replacement.format_name
+                    self._registration_token_by_suffix[suffix] = object()
+                return super()._registration_snapshot()
+
+        registry = SnapshotRaceRegistry()
+
+        class OriginalImporter:
+            format_name = "Original race identity"
+            suffixes = (".snapshot-race",)
+
+            def __init__(self):
+                self.calls = 0
+
+            def inspect(self, path: Path) -> ImportReport:
+                self.calls += 1
+                # This deliberately mimics the replacement identity. The old
+                # selection-before-snapshot order could accept this report.
+                return ImportReport(
+                    source=fingerprint(path),
+                    format_name=replacement.format_name,
+                )
+
+        original = OriginalImporter()
+        registry.register(original)
+
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "source.snapshot-race"
+            path.write_bytes(b"stable")
+
+            registry.snapshot_calls = 0
+            registry.arm_race = True
+            report = registry.inspect(path)
+
+            # The replacement happened before the authoritative selection
+            # snapshot, so the replacement—not the stale original—must inspect.
+            self.assertEqual(report.format_name, replacement.format_name)
+            self.assertEqual(replacement.calls, 1)
+            self.assertEqual(original.calls, 0)
+            self.assertIs(registry.importer_for(path), replacement)
+            self.assertEqual(path.read_bytes(), b"stable")
+
     def test_registry_rejects_reentrant_route_replacement_during_inspection(self):
         registry = ImportRegistry()
 

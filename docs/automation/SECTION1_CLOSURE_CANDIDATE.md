@@ -817,3 +817,31 @@ The whole gate now executes `tests.test_version2_release_ui`, `tests.test_versio
 `HUMAN_TESTED=NO`
 
 `NVDA_VERIFIED=NO`
+
+### Re-convergence after atomic Section-0 route selection
+
+Section 0 advanced on canonical #2346 to
+`e3efb598c2315bee7f92be1664ea025702c50d86` after closing a route-selection TOCTOU: importer, format identity
+and registration token are now derived from one host-owned snapshot instead of
+selecting an importer before the snapshot. A deterministic regression proves a
+replacement at the former race boundary cannot cause the stale importer to run
+under the replacement identity.
+
+Prepared Section 1 is history-preservingly reconverged onto that exact
+predecessor with a two-parent merge. No Section-1 runtime or FEN product-action
+acceptance commit is rebased, replayed, squashed or dropped. Relative to the new
+predecessor the effective Section-1 delta remains required to be exactly 45
+paths.
+
+The source/corpus and whole gates are repinned to the exact predecessor and
+retain PR-stable concurrency so superseded queued runs can be cancelled by the
+new canonical head. Fresh lawful/Ubuntu/Windows terminal qualification remains
+required.
+
+`SECTION_0_DONE=NO_PENDING_TERMINAL_CI`
+
+`SECTION_1_DONE=NO_PENDING_SECTION0_ACCEPTANCE_AND_EXACT_HEAD_QUALIFICATION`
+
+`HUMAN_TESTED=NO`
+
+`NVDA_VERIFIED=NO`
