@@ -77,3 +77,5 @@ regression, invalid closure evidence, materially changed acceptance contract,
 or later integration that demonstrably breaks Section 8.
 
 Qualification base binding: the identical Section-8 workflow is present on the dedicated integration base before this candidate synchronize event, so pull-request qualification executes the candidate rather than relying on PR metadata alone.
+
+Default-branch CI registration is now present; this candidate update intentionally triggers exact-head pull-request qualification.
