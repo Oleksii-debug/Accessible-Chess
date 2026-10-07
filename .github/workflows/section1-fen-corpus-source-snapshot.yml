@@ -35,6 +35,7 @@ on:
       - 'tests/test_epd.py'
       - 'tests/test_fen_edge_corpus.py'
       - 'tests/test_fen_position_editor_complete_user_flow.py'
+      - 'tests/test_p0f_lawful_starter_bundle.py'
       - 'tests/test_qualify_fen_position_corpus.py'
       - 'tests/test_section1_fen_castling_order.py'
       - 'tests/test_section1_fen_en_passant_fullmove.py'
@@ -48,6 +49,7 @@ on:
       - 'tests/test_stage1_engine_play_ui.py'
       - 'tests/test_ui_analysis_adapter.py'
       - 'tests/test_ui_analysis_webapp.py'
+      - 'tools/p0f_lawful_starter_bundle.py'
       - 'tools/qualify_fen_position_corpus.py'
       - 'web/index.html'
   workflow_dispatch:
@@ -70,7 +72,8 @@ env:
   TEST_BLOB: ff9b303ab9db4f61a707a6f3d53aa3b21596857d
   IMPORT_CONTRACT_BLOB: d9855d173f8c73440e190482a107299be28949c5
   P0F_PROVENANCE_BLOB: 3298aed00ca000d27f607cd861abbba9483ff358
-  P0F_BUILDER_BLOB: b7b96a661652a17cb16e8ca4cabba3b8b373e483
+  P0F_BUILDER_BLOB: 1137eac8804bbef600921853c37a69a77588f03c
+  P0F_BUILDER_TEST_BLOB: b564cc35d7c336559370ed43b05d58d9b1a4e8b0
   PINNED_CORPUS_SHA256: aa40b3671fa3cf1072eb182892cd90b0e1e003a4a5943492f64b77e7f3fd1635
 
 jobs:
@@ -143,6 +146,7 @@ jobs:
           tests/test_epd.py
           tests/test_fen_edge_corpus.py
           tests/test_fen_position_editor_complete_user_flow.py
+          tests/test_p0f_lawful_starter_bundle.py
           tests/test_qualify_fen_position_corpus.py
           tests/test_section1_fen_castling_order.py
           tests/test_section1_fen_en_passant_fullmove.py
@@ -156,6 +160,7 @@ jobs:
           tests/test_stage1_engine_play_ui.py
           tests/test_ui_analysis_adapter.py
           tests/test_ui_analysis_webapp.py
+          tools/p0f_lawful_starter_bundle.py
           tools/qualify_fen_position_corpus.py
           web/index.html
           EOF
@@ -169,6 +174,8 @@ jobs:
           test "$(git rev-parse HEAD:tools/qualify_fen_position_corpus.py)" = "$TOOL_BLOB"
           test "$(git rev-parse HEAD:tests/test_qualify_fen_position_corpus.py)" = "$TEST_BLOB"
           test "$(git rev-parse HEAD:acs/import_contract.py)" = "$IMPORT_CONTRACT_BLOB"
+          test "$(git rev-parse HEAD:tools/p0f_lawful_starter_bundle.py)" = "$P0F_BUILDER_BLOB"
+          test "$(git rev-parse HEAD:tests/test_p0f_lawful_starter_bundle.py)" = "$P0F_BUILDER_TEST_BLOB"
           python - <<'PY'
           from tools import qualify_fen_position_corpus as q
           from acs.import_contract import read_source_snapshot
@@ -182,6 +189,8 @@ jobs:
           tools/qualify_fen_position_corpus.py
           tests/test_qualify_fen_position_corpus.py
           acs/import_contract.py
+          tools/p0f_lawful_starter_bundle.py
+          tests/test_p0f_lawful_starter_bundle.py
 
       - name: Run focused source and FEN regressions
         run: >-
@@ -192,6 +201,18 @@ jobs:
           tests.test_pgn_open_direct_source
           tests.test_fen_position_editor_complete_user_flow
           tests.test_position_text_authority
+
+      - name: Run lawful-corpus canonical-legality regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from tests.test_p0f_lawful_starter_bundle import (
+              test_quality_evidence_rejects_strictly_parsed_but_canonically_illegal_game,
+          )
+          test_quality_evidence_rejects_strictly_parsed_but_canonically_illegal_game()
+          print("SECTION1_LAWFUL_CORPUS_CANONICAL_LEGALITY_REGRESSION=PASS")
+          PY
 
       - name: Core chess selftest
         run: python -m acs.selftest
@@ -216,6 +237,7 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD:docs/P0F_STARTER_CONTENT_PROVENANCE.md)" = "$P0F_PROVENANCE_BLOB"
           test "$(git rev-parse HEAD:tools/p0f_lawful_starter_bundle.py)" = "$P0F_BUILDER_BLOB"
+          test "$(git rev-parse HEAD:tests/test_p0f_lawful_starter_bundle.py)" = "$P0F_BUILDER_TEST_BLOB"
           test "$(git rev-parse HEAD:tools/qualify_fen_position_corpus.py)" = "$TOOL_BLOB"
           test "$(git rev-parse HEAD:tests/test_qualify_fen_position_corpus.py)" = "$TEST_BLOB"
           test "$(git rev-parse HEAD:acs/import_contract.py)" = "$IMPORT_CONTRACT_BLOB"
