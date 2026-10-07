@@ -9,7 +9,9 @@ from acs.gametree import Comment, MoveNode, VariationLine
 from acs.gametree_annotations import (
     AnnotationEditCode,
     AnnotationEditError,
+    LineAnnotationPatch,
     MoveAnnotationPatch,
+    line_annotation_target,
     move_annotation_target,
 )
 from acs.gametree_editing import variation_edit_target
@@ -100,6 +102,33 @@ class ProfessionalPgnWorkspaceTests(unittest.TestCase):
             self.workspace.edit_move_annotations(
                 target,
                 MoveAnnotationPatch(comments_after=(Comment("\ud800"),)),
+            )
+
+        self.assertEqual(PgnWorkspaceErrorCode.INVALID_DOCUMENT, raised.exception.code)
+        self.assertEqual(
+            before,
+            (
+                self.workspace.to_text(),
+                self.workspace.content_digest,
+                self.workspace.content_revision,
+                self.workspace.dirty,
+            ),
+        )
+
+    def test_non_scalar_line_annotation_fails_closed_without_workspace_mutation(self):
+        before = (
+            self.workspace.to_text(),
+            self.workspace.content_digest,
+            self.workspace.content_revision,
+            self.workspace.dirty,
+        )
+        game = self.workspace.current_game()
+        target = line_annotation_target(game, ())
+
+        with self.assertRaises(PgnWorkspaceError) as raised:
+            self.workspace.edit_line_annotations(
+                target,
+                LineAnnotationPatch(leading_comments=(Comment("\ud800"),)),
             )
 
         self.assertEqual(PgnWorkspaceErrorCode.INVALID_DOCUMENT, raised.exception.code)
