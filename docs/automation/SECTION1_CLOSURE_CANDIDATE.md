@@ -97,9 +97,9 @@ The repair is test/evidence-only; `acs/chesscore.py` is unchanged. The regressio
 
 Exact repaired evidence:
 - `tests/test_section1_king_capture_boundary.py = 5041554b7e3a94ecaae7ba7841b3eda6c7252df3`
-- `.github/workflows/section1-king-capture-boundary.yml = 73502af0231b8cf6daa0fa1624f8c5a4e8c06852`
+- historical focused child gate `.github/workflows/section1-king-capture-boundary.yml = 62c0cfb1e180b296538aae23b2c944976776c2c1` remains byte-for-byte scoped to its original child branch; the repaired fixture is exact-bound and executed by the canonical Whole gate instead of rewriting historical child-gate authority
 
-This changes no product code, chess rule, FEN grammar, SAN grammar, or predecessor-relative path geometry.
+This changes no product code, chess rule, FEN grammar, SAN grammar, or predecessor-relative path geometry. The historical focused child workflow is not promoted into a second current-apex closure authority.
 
 ## Exact predecessor-relative geometry
 
