@@ -11,12 +11,13 @@ This file is durable convergence evidence for the numerically earliest live plan
 - 0.5 shared ImportReport lane: #2330 current owner, plus #2331 passive-record revalidation successor;
 - 0.3 canonical capability matrix lane: #2328 @ `6f8ae8547dfe7c0f15ed124bc0f44a6c660c0056`.
 
-The current convergence branch is history-preservingly reconverged on both live owner heads:
+The current convergence branch is history-preservingly reconverged on both live owner heads and the parallel convergence candidate:
 - #2331 @ `c80772e40d783694d3931768e66d246236f61aad`;
 - #2328 @ `6f8ae8547dfe7c0f15ed124bc0f44a6c660c0056`;
-- previous convergence candidate `b1df7ad557d9adf0e1d73f173d05735f0ab8e050` remains in ancestry.
+- previous convergence candidate `b1df7ad557d9adf0e1d73f173d05735f0ab8e050` remains in ancestry;
+- parallel candidate #2333 @ `8a39f849950020e59f815b9315b2640dc394ca31` is also preserved in ancestry, including its conservative Markdown/DOCX/PDF/2CBZ capability corrections.
 
-The convergence gate requires both current owner heads and the previous convergence candidate to remain ancestors while the effective delta against #2331 stays exactly six paths. No force-push, parser rewrite, chess-rules fork, GameTree fork, Library fork, provenance fork or second report model is introduced.
+The convergence gate requires both current owner heads, the previous convergence candidate, and #2333 to remain ancestors while the effective delta against #2331 stays exactly five paths. The stale component capability workflow is intentionally absent; the whole-Section gate is the composed qualification authority. No force-push, parser rewrite, chess-rules fork, GameTree fork, Library fork, provenance fork or second report model is introduced.
 
 ## Section contract mapping
 

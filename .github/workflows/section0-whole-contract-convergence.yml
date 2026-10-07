@@ -5,7 +5,6 @@ on:
     branches:
       - 'section0/import-report-passive-revalidation-20261007-sol56'
     paths:
-      - '.github/workflows/section0-format-capability-contract.yml'
       - '.github/workflows/section0-whole-contract-convergence.yml'
       - 'acs/format_capabilities.py'
       - 'docs/automation/CANONICAL_FORMAT_CAPABILITY_MATRIX.md'
@@ -24,6 +23,7 @@ env:
   IMPORT_PARENT_SHA: c80772e40d783694d3931768e66d246236f61aad
   CAPABILITY_PARENT_SHA: 6f8ae8547dfe7c0f15ed124bc0f44a6c660c0056
   PREVIOUS_CONVERGENCE_SHA: b1df7ad557d9adf0e1d73f173d05735f0ab8e050
+  DUPLICATE_CONVERGENCE_SHA: 8a39f849950020e59f815b9315b2640dc394ca31
 
   AUTHORITY_DOC_BLOB: a1f7680f120c1a397e323dc9e633018a59adc711
   AUTHORITY_TEST_BLOB: ca8cc57fa0ca5c6888004239100390f136d43ac8
@@ -31,9 +31,9 @@ env:
   IMPORT_REGISTRY_BLOB: c8c1e403bc0d46ac520fefb3d403bd66a4a714c2
   IMPORT_CONTRACT_TEST_BLOB: 69439b421e7957caa7262704510b3211110b4e40
   IMPORT_REGISTRY_TEST_BLOB: 75affff3489f05ce3157bfa6a5d7ea18f395b9fb
-  CAPABILITY_BLOB: 12c06149f85cf78cebfc8c88f3c9c60475d5b84e
-  CAPABILITY_DOC_BLOB: cba9cc6b69073003263e4f0d3a3d517f43ecf569
-  CAPABILITY_TEST_BLOB: 413af349e0ca77ece6b3cd9c61eed9e71ecb8599
+  CAPABILITY_BLOB: c3fb75120d71b7cf26b71f22961e9caa82a55b3c
+  CAPABILITY_DOC_BLOB: 965eff8a7f9d24094318b7e14680d42ff9098cb7
+  CAPABILITY_TEST_BLOB: 852aba2d3d8ba62064289f7dc76bc6430ac2e5b8
 
   CHESSCORE_BLOB: e04982c2de52394c2c9f5e5725d6267cbc55ce3d
   POSITION_EDITOR_BLOB: fd48b517c4489fe70e4ecb102e2615027be8f098
@@ -80,11 +80,11 @@ jobs:
           git merge-base --is-ancestor "$CAPABILITY_PARENT_SHA" HEAD
 
           git merge-base --is-ancestor "$PREVIOUS_CONVERGENCE_SHA" HEAD
+          git merge-base --is-ancestor "$DUPLICATE_CONVERGENCE_SHA" HEAD
 
           git diff --check "$IMPORT_PARENT_SHA"...HEAD
           changed="$(git diff --name-only "$IMPORT_PARENT_SHA"...HEAD | sort)"
           expected="$(printf '%s\n' \
-            '.github/workflows/section0-format-capability-contract.yml' \
             '.github/workflows/section0-whole-contract-convergence.yml' \
             'acs/format_capabilities.py' \
             'docs/automation/CANONICAL_FORMAT_CAPABILITY_MATRIX.md' \
