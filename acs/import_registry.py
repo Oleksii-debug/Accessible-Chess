@@ -72,6 +72,14 @@ class _AdapterInspectionFailure(Exception):
         self.error = error
 
 
+class _SourcePathCoercionFailure(Exception):
+    """Batch-only envelope for provider-owned ordinary PathLike conversion failure."""
+
+    def __init__(self, error: Exception) -> None:
+        super().__init__()
+        self.error = error
+
+
 @dataclass(frozen=True)
 class ImporterRegistration:
     importer: ReadOnlyImporter
@@ -256,7 +264,9 @@ class ImportRegistry:
         self._format_name_by_suffix = dict(format_names)
         self._registration_token_by_suffix = dict(tokens)
 
-    def _coerce_source_path(self, path: str | Path) -> Path:
+    def _coerce_source_path(
+        self, path: str | Path, *, batch_context: bool = False
+    ) -> Path:
         """Coerce one source path without letting PathLike code seize routing authority."""
 
         registration_snapshot = self._registration_snapshot()
@@ -270,6 +280,11 @@ class ImportRegistry:
                 raise ImportRegistryError(
                     "Importer registration changed while reading source path"
                 ) from exc
+            if batch_context and isinstance(exc, Exception):
+                # Provider-owned conversion exceptions are never host evidence,
+                # even when the provider deliberately raises ImportRegistryError
+                # or a subclass with active __str__ behavior.
+                raise _SourcePathCoercionFailure(exc) from exc
             raise
 
         if not self._registration_matches(registration_snapshot):
@@ -559,7 +574,15 @@ class ImportRegistry:
         items: list[BatchInspectionItem] = []
         for raw_path in self._iter_batch_paths(paths):
             try:
-                source = self._coerce_source_path(raw_path)
+                source = self._coerce_source_path(raw_path, batch_context=True)
+            except _SourcePathCoercionFailure:
+                items.append(
+                    BatchInspectionItem(
+                        path=Path("<invalid-source>"),
+                        error="Invalid source path",
+                    )
+                )
+                continue
             except ImportRegistryError as exc:
                 # A PathLike that re-enters the registry is an authority
                 # violation, not a new routing baseline. The helper restores

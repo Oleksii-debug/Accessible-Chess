@@ -912,3 +912,21 @@ exact-head qualification.
 `SECTION0_ACCEPTED=NO_PENDING_TERMINAL_CI`
 
 `SECTION_1_DONE=NO_PENDING_SECTION0_ACCEPTANCE_AND_EXACT_HEAD_QUALIFICATION`
+
+
+### Reconvergence on PathLike provider-error sanitization predecessor
+
+Canonical Section 0 PR #2346 advanced to `98208cce4bf01575e84a8f58736ae75e4395875b` on the same six-path
+lineage to distinguish host-owned source-path authority errors from
+provider-owned ordinary PathLike conversion exceptions. Batch preflight now
+sanitizes provider-raised ImportRegistryError values and never executes active
+provider `__str__` hooks; strict single-source fail-fast behavior is preserved.
+
+Prepared Section 1 remains on PR #2356 and is history-preservingly reconverged
+onto that exact predecessor. No Section-1 runtime/FEN/SAN source is replayed or
+rewritten. The predecessor-aware source/corpus and whole gates are repinned and
+must qualify the exact descendant before any acceptance claim.
+
+`SECTION0_ACCEPTED=NO_PENDING_TERMINAL_CI`
+
+`SECTION_1_DONE=NO_PENDING_SECTION0_ACCEPTANCE_AND_EXACT_HEAD_QUALIFICATION`
