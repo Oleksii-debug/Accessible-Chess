@@ -128,6 +128,22 @@ class ConstructionTypeErrorImporter:
         )
 
 
+class KeyErrorImporter:
+    format_name = 'Unexpected key failure'
+    suffixes = ('.key-error',)
+
+    def inspect(self, path: Path) -> ImportReport:
+        raise KeyError()
+
+
+class IndexErrorImporter:
+    format_name = 'Unexpected index failure'
+    suffixes = ('.index-error',)
+
+    def inspect(self, path: Path) -> ImportReport:
+        raise IndexError('decoder record index out of range')
+
+
 class LowLevelMutatedRecordImporter:
     format_name = 'Low-level mutated exact report'
     suffixes = ('.mutated-record',)
@@ -367,6 +383,40 @@ class ImportRegistryTests(unittest.TestCase):
             self.assertEqual(batch.items[1].report.counts['full'], 1)
             self.assertEqual(malformed.read_bytes(), b'malformed-report-source')
             self.assertEqual(valid.read_bytes(), b'valid-source')
+
+    def test_batch_isolates_ordinary_importer_exceptions_and_continues(self):
+        registry = ImportRegistry()
+        registry.register(KeyErrorImporter())
+        registry.register(IndexErrorImporter())
+        registry.register(FakeImporter())
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            key_failure = root / 'bad.key-error'
+            index_failure = root / 'bad.index-error'
+            valid = root / 'good.foo'
+            key_failure.write_bytes(b'key-error-source')
+            index_failure.write_bytes(b'index-error-source')
+            valid.write_bytes(b'valid-source')
+
+            batch = registry.inspect_batch([key_failure, index_failure, valid])
+
+            self.assertEqual([item.ok for item in batch.items], [False, False, True])
+            self.assertEqual(batch.items[0].error, 'KeyError')
+            self.assertIn('decoder record index out of range', batch.items[1].error)
+            self.assertIsNone(batch.items[0].report)
+            self.assertIsNone(batch.items[1].report)
+            self.assertIsNotNone(batch.items[2].report)
+            self.assertEqual(len(batch.reports), 1)
+            self.assertEqual(len(batch.errors), 2)
+            self.assertEqual(key_failure.read_bytes(), b'key-error-source')
+            self.assertEqual(index_failure.read_bytes(), b'index-error-source')
+            self.assertEqual(valid.read_bytes(), b'valid-source')
+
+            # The strict single-source API remains strict and still exposes
+            # the adapter failure to callers that explicitly chose it.
+            with self.assertRaises(KeyError):
+                registry.inspect(key_failure)
 
     def test_registry_rejects_low_level_mutated_exact_record(self):
         registry = ImportRegistry()

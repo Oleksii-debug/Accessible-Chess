@@ -180,8 +180,13 @@ class ImportRegistry:
             source = Path(raw_path)
             try:
                 report = self.inspect(source)
-            except (ImportRegistryError, OSError, TypeError, ValueError, RuntimeError) as exc:
-                items.append(BatchInspectionItem(path=source, error=str(exc)))
+            except Exception as exc:
+                # Batch preflight is deliberately non-aborting for ordinary
+                # adapter/parser failures. Process-control exceptions such as
+                # KeyboardInterrupt/SystemExit inherit BaseException and are
+                # intentionally not swallowed here.
+                message = str(exc).strip() or type(exc).__name__
+                items.append(BatchInspectionItem(path=source, error=message))
             else:
                 items.append(BatchInspectionItem(path=source, report=report))
         return BatchInspection(items=tuple(items))
