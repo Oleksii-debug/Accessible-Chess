@@ -84,6 +84,32 @@ class CorruptReportImporter:
         return report
 
 
+class LowLevelMutatedRecordImporter:
+    format_name = 'Low-level mutated exact report'
+    suffixes = ('.mutated-record',)
+
+    def inspect(self, path: Path) -> ImportReport:
+        record = ImportedRecord('record-1', ImportQuality.FULL)
+        report = ImportReport(
+            source=fingerprint(path),
+            format_name=self.format_name,
+            records=[record],
+        )
+        object.__setattr__(record, 'quality', 'warning')
+        return report
+
+
+class LowLevelMutatedSourceImporter:
+    format_name = 'Low-level mutated exact source'
+    suffixes = ('.mutated-source',)
+
+    def inspect(self, path: Path) -> ImportReport:
+        source = fingerprint(path)
+        report = ImportReport(source=source, format_name=self.format_name)
+        object.__setattr__(source, 'sha256', 'bad')
+        return report
+
+
 class ImportRegistryTests(unittest.TestCase):
     def test_registration_routes_case_insensitive_suffixes_without_ui_or_database_knowledge(self):
         registry = ImportRegistry()
@@ -188,6 +214,26 @@ class ImportRegistryTests(unittest.TestCase):
         registry.register(CorruptReportImporter())
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / 'source.corrupt-report'
+            path.write_bytes(b'unchanged')
+            with self.assertRaisesRegex(ImportRegistryError, 'invalid ImportReport'):
+                registry.inspect(path)
+            self.assertEqual(path.read_bytes(), b'unchanged')
+
+    def test_registry_rejects_low_level_mutated_exact_record(self):
+        registry = ImportRegistry()
+        registry.register(LowLevelMutatedRecordImporter())
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / 'source.mutated-record'
+            path.write_bytes(b'unchanged')
+            with self.assertRaisesRegex(ImportRegistryError, 'invalid ImportReport'):
+                registry.inspect(path)
+            self.assertEqual(path.read_bytes(), b'unchanged')
+
+    def test_registry_rejects_low_level_mutated_exact_source(self):
+        registry = ImportRegistry()
+        registry.register(LowLevelMutatedSourceImporter())
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / 'source.mutated-source'
             path.write_bytes(b'unchanged')
             with self.assertRaisesRegex(ImportRegistryError, 'invalid ImportReport'):
                 registry.inspect(path)
