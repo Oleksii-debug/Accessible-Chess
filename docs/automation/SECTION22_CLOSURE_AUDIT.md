@@ -36,9 +36,16 @@ Tactile Agent access is intentionally narrower than Section 36: only `tactile.st
 
 ## Dependency treatment
 
-Durably accepted dependencies at finisher construction include Sections 3–10, 12–13 and 16–19 plus Section 21. Section 11 had a frozen complete candidate and was being terminally converged after Sections 8–10 closed; Section 20 had a bounded current Media user-workflow candidate.
+The live durable registry was refreshed immediately before terminal qualification. Every canonical hard dependency is now evidence-backed `DONE — TERMINAL`:
 
-The repository owner explicitly directed one-run terminal closure of Sections 21 and 22 on 2026-10-07. Consistent with the existing owner-directed out-of-order closure precedent, Section 22 is accepted only against the exact immutable interfaces it consumes. It consumes no Section-11 tactile-input/profile mutation API and no Section-20-only model authority. A later accepted Section-11/20 integration may reopen Section 22 only if it demonstrably breaks one of these pinned tool contracts.
+- Sections 3–11 are terminally closed, including Section 10 tactile synchronization and Section 11 tactile input/device profiles;
+- Sections 12–13 are terminally closed;
+- Sections 16–20 are terminally closed, including Section 20 Media user workflow;
+- Section 21 is terminally closed and is the exact Agent parent of this finisher.
+
+Relevant late dependency integrations are Section 11 merge `4ad8976d534fb90b90e2062e2d392db27ed3db8f` and Section 20 merge `94b885c72a172ceefcfa5e82f334496c313de350`.
+
+Section 22 therefore closes without an out-of-order dependency exception. Its tactile gateway intentionally stays on the Section-10 status/refresh boundary and does not consume Section-11 input mutation authority; its Media/Speech tools remain provider-safe and do not create Media chess truth.
 
 ## Safety / authority invariants
 
