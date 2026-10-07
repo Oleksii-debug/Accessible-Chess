@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .protection_boundary import ProtectionDecision, ProtectionRuntimeClient
+from .webapp_keymap import _asset_root
 
 
 class ProtectionLockedAPI:
@@ -72,7 +73,7 @@ def run_locked_security_window(
     webview_module: Any | None = None,
 ) -> bool:
     api = ProtectionLockedAPI(client, decision)
-    html = Path(__file__).resolve().parents[1] / "web" / "protection_locked.html"
+    html = _asset_root() / "web" / "protection_locked.html"
     if not html.is_file():
         raise RuntimeError("Accessible protection locked-shell resource is missing")
     if webview_module is None:
