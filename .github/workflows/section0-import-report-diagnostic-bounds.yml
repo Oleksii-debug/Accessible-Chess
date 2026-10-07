@@ -1,0 +1,78 @@
+name: Section 0 ImportReport Diagnostic Bounds
+
+on:
+  pull_request:
+    branches:
+      - 'section0/import-batch-runtime-isolation-20261007-sol56'
+    paths:
+      - '.github/workflows/section0-import-report-diagnostic-bounds.yml'
+      - 'acs/import_contract.py'
+      - 'tests/test_import_contract.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: section0-import-report-diagnostic-bounds-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  IMPORT_CONTRACT_BLOB: e973aa3da9ed8a3509c0ea4537cc912c04372956
+  IMPORT_CONTRACT_TEST_BLOB: 6a4474f5d3b0be7d5707a0c66336d5b1d50b3d1d
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Prove exact child geometry
+        shell: bash
+        env:
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          if [ -n "${EVENT_BASE_SHA:-}" ]; then
+            test "$(git merge-base "$EVENT_BASE_SHA" HEAD)" = "$EVENT_BASE_SHA"
+            changed="$(git diff --name-only "$EVENT_BASE_SHA"...HEAD | sort)"
+            expected="$(printf '%s\n' \
+              '.github/workflows/section0-import-report-diagnostic-bounds.yml' \
+              'acs/import_contract.py' \
+              'tests/test_import_contract.py' | sort)"
+            test "$changed" = "$expected"
+            git diff --check "$EVENT_BASE_SHA"...HEAD
+          fi
+
+      - name: Bind exact report boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:acs/import_contract.py)" = "$IMPORT_CONTRACT_BLOB"
+          test "$(git rev-parse HEAD:tests/test_import_contract.py)" = "$IMPORT_CONTRACT_TEST_BLOB"
+
+      - name: Compile
+        run: python -m py_compile acs/import_contract.py tests/test_import_contract.py
+
+      - name: Execute report and authority regressions
+        run: >-
+          python -m unittest -v
+          tests.test_import_contract
+          tests.test_section0_format_authority_contract
+          tests.test_section0_format_capabilities
+
+      - name: Core chess selftest
+        run: python -m acs.selftest
