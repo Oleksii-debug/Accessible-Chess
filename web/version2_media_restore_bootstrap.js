@@ -1,5 +1,6 @@
 (function (global) {
   "use strict";
+  if (global.__accessibleChessSection20MediaWorkflowInstalled) return;
   if (global.__accessibleChessProductMediaRestoreInstalled) return;
   global.__accessibleChessProductMediaRestoreInstalled = true;
 
