@@ -129,3 +129,43 @@ as Section-2 acceptance.
 `PRODUCT_MUTATION=NONE`
 `HUMAN_TESTED=NO`
 `NVDA_VERIFIED=NO`
+
+
+## Prepared closure gate — dependency-safe while Section 1 qualifies
+
+A single evidence-only Section-2 gate now exists at
+`.github/workflows/section2-pgn-gametree-closure.yml`.
+
+Prepared predecessor binding:
+- Section-1 candidate: `1619063b905bc64bb47347f9179f1852d9ce9a45`
+- Section-2 preparation commit introducing the gate:
+  `0801f3aa31bc4086edcf2e4475dbcb6253212223`
+
+The gate is intentionally `workflow_dispatch`-only during Section-1 terminal
+qualification so Section 2 does not consume runners needed by FRONT-1. It must
+be repinned/reconverged onto the actually accepted Section-1 predecessor before
+it becomes closure authority.
+
+The prepared gate:
+- exact-binds current `pgn_roundtrip`, `GameTree`, legality, workspace,
+  document, streaming import/export and WebView adapter blobs;
+- exact-binds semantic-fidelity, strict/recovery, complete-editing,
+  accessible-GameTree, streaming import/export and DOM regressions;
+- runs the contract on Ubuntu 22.04 and Windows 2025;
+- materializes only two QA scripts from pinned historical evidence commit
+  `f2993ef7d79369ef5e7161ba1d75273e7c9a24d3`, with their exact blob
+  identities verified before execution;
+- verifies 2,000 records from each of two lawful hash-pinned sources
+  (Lichess Standard Rated 2013-01 CC0 and Lichess Broadcast 2026-02
+  CC BY-SA 4.0), 4,000 sampled records total;
+- separately derives a 1,000-game CC0 sample from the already hash-verified
+  archive and sends it through the current Product Library
+  import -> close/reopen -> paged search -> filtered PGN export -> semantic
+  identity -> SQLite integrity qualification;
+- intentionally excludes the unrelated drifting evaluation-database prefix
+  oracle from Section-2 acceptance rather than weakening any source hash.
+
+No Product PGN/GameTree source was modified by this preparation.
+
+`SECTION_2_DONE=NO_PENDING_SECTION1_ACCEPTANCE_REPIN_AND_TERMINAL_GATE`
+`PRODUCT_MUTATION=NONE`
