@@ -415,3 +415,39 @@ Section-2 whole/corpus gate after Section 1 is accepted.
 `SECTION2_EXACT_BLOB_READBACK=47/47_MATCH`
 `SECTION2_FOCUSED_PGN_DUAL_OS=SUCCESS`
 `SECTION_2_DONE=NO_PENDING_SECTION1_ACCEPTANCE_AND_TERMINAL_GATE`
+
+
+## Dedicated exact-head gate repair — 2026-10-07
+
+The Section-2 closure workflow was made pull-request-triggerable and executed on the
+canonical finisher. Exact-head run `37676253073` produced useful terminal evidence:
+the lawful multi-source corpus job completed **SUCCESS**, while both whole-contract
+platform jobs exposed acceptance failures instead of infrastructure-only noise.
+
+The failures were not waived. One real Product regression was repaired in
+`acs/pgn_save_snapshot.py`: ordinary canonical document edits replace
+`PgnWorkspace` and advance the document revision, so a background save of an older
+snapshot must be allowed to finalize the durable generation, advance source
+provenance, and leave the newer live generation dirty. A workspace replacement that
+does not advance the document revision remains stale and fail-closed.
+
+The same gate also exposed adversarial fixtures that had become impossible after
+the accepted Section-0/1 DTO hardening. Those tests now forge post-construction
+corruption only through deliberate low-level mutation, so they continue to exercise
+the session/publication boundary without requiring `SourceFingerprint` or
+`PositionState` constructors to accept invalid values.
+
+A concurrent gate edit temporarily removed several failing PGN save/passive-ingress
+modules. That narrowing is explicitly superseded. The terminal gate must continue to
+execute:
+- `tests.test_pgn_save_snapshot`;
+- `tests.test_pgn_save_snapshot_cancel`;
+- `tests.test_dev4_pgn_export_failure_recovery`;
+- `tests.test_pgn_document_new_game_position_integrity`;
+- `tests.test_pgn_document_passive_ingress`.
+
+Section 2 is not DONE until the repaired exact head passes the restored whole-contract
+gate on Ubuntu and Windows and the lawful-corpus job remains successful, followed by
+canonical integration/readback.
+
+`SECTION_2_DONE=NO_REPAIR_QUALIFICATION_REQUIRED`
