@@ -175,13 +175,10 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
 
         main = self.source[self.source.index("void WINAPI wWinMainCRTStartup(void)") :]
         self.assertNotIn("CloseHandle(g_process.hProcess);", main)
-        # Every post-create fatal stage routes through the one retirement-aware
-        # ac_fail() authority. Disjoint earlier-success/early-exit branches may
-        # legitimately close a handle, so a fixed character-prefix oracle is
-        # not a valid ownership test.
+        # Fatal stages that can execute after a child has actually been created
+        # must route through the retirement-aware ac_fail() authority.
         for stage in (
-            'L"package-local data ownership transfer"',
-            'L"package-local data directory guard transfer"',
+            'L"selective guard inheritance cleanup"',
             'L"core process resume"',
             'L"child process identity report"',
             'L"early child exit-code read"',
@@ -558,16 +555,18 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
         directory_check = main.index("if (!ac_direct_directory(g_data))")
         guard_open = main.index("data_guard = ac_open_direct_directory_guard(g_data)")
         environment = main.index('SetEnvironmentVariableW(L"LOCALAPPDATA", g_data)')
-        create_process = main.index("if (!CreateProcessW(")
-        transfer = main.index("            data_guard,", create_process)
+        allowlist = main.index("inherited_handles[3] = data_guard;")
+        attribute = main.index("if (!UpdateProcThreadAttribute(", allowlist)
+        create_process = main.index("if (!CreateProcessW(", attribute)
         resume = main.index("resume_result = ResumeThread(g_process.hThread)")
         local_close = main.index("CloseHandle(data_guard)", resume)
 
         self.assertLess(directory_check, guard_open)
         self.assertLess(guard_open, environment)
-        self.assertLess(environment, create_process)
-        self.assertLess(create_process, transfer)
-        self.assertLess(transfer, resume)
+        self.assertLess(environment, allowlist)
+        self.assertLess(allowlist, attribute)
+        self.assertLess(attribute, create_process)
+        self.assertLess(create_process, resume)
         self.assertLess(resume, local_close)
 
     def test_package_root_and_app_directory_guards_are_transferred_to_child(self):
