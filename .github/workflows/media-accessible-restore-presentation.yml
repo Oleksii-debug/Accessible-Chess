@@ -1,0 +1,92 @@
+name: Media Accessible Restore Presentation
+
+on:
+  pull_request:
+    branches:
+      - work/media-application-restore-position-20261005-sol56
+    paths:
+      - acs/media_accessibility.py
+      - web/media_accessible_restore.js
+      - tests/test_media_accessibility.py
+      - tests/js/media_accessible_restore_dom_test.js
+      - .github/workflows/media-accessible-restore-presentation.yml
+  push:
+    branches:
+      - work/media-accessible-restore-presentation-20261005-sol56h8n4
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: media-accessible-restore-${{ github.event.pull_request.number || github.ref }}-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact presentation candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prove exact live Media Application parent and bounded scope
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          MEDIA_APPLICATION_PARENT: 919c6988d504266481136337fbb75639bd1110e4
+          MEDIA_APPLICATION_BRANCH: work/media-application-restore-position-20261005-sol56
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          git fetch --no-tags origin "+refs/heads/$MEDIA_APPLICATION_BRANCH:refs/remotes/origin/media-application-parent"
+          live_parent="$(git rev-parse refs/remotes/origin/media-application-parent)"
+          test "$live_parent" = "$MEDIA_APPLICATION_PARENT" || {
+            printf 'MEDIA_APPLICATION_PARENT_MOVED expected=%s live=%s\n' "$MEDIA_APPLICATION_PARENT" "$live_parent" >&2
+            exit 1
+          }
+          test "$(git merge-base "$MEDIA_APPLICATION_PARENT" HEAD)" = "$MEDIA_APPLICATION_PARENT"
+          git merge-base --is-ancestor "$MEDIA_APPLICATION_PARENT" HEAD
+          git diff --check "$MEDIA_APPLICATION_PARENT"...HEAD
+          changed="$(git diff --name-only "$MEDIA_APPLICATION_PARENT"...HEAD | LC_ALL=C sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/media-accessible-restore-presentation.yml' \
+            'acs/media_accessibility.py' \
+            'tests/js/media_accessible_restore_dom_test.js' \
+            'tests/test_media_accessibility.py' \
+            'web/media_accessible_restore.js' | LC_ALL=C sort)"
+          test "$changed" = "$expected" || {
+            printf 'UNEXPECTED_MEDIA_ACCESSIBILITY_SCOPE\n%s\n' "$changed" >&2
+            exit 1
+          }
+          test "$(git rev-parse HEAD:acs/media_application.py)" = '1518064a092e6773d4e1ceeef293059421678b9c'
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile presentation boundary
+        run: >-
+          python -m py_compile
+          acs/media_core.py
+          acs/media_application.py
+          acs/media_accessibility.py
+          tests/test_media_application.py
+          tests/test_media_accessibility.py
+
+      - name: Run Media application and accessibility regressions
+        run: >-
+          python -m unittest -v
+          tests.test_media_application
+          tests.test_media_accessibility
+
+      - name: Run keyboard and screen-reader DOM contract
+        run: node tests/js/media_accessible_restore_dom_test.js
