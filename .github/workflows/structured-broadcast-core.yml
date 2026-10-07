@@ -1,0 +1,109 @@
+name: Structured Broadcast Canonical Boundary
+
+on:
+  push:
+    branches:
+      - work/accessible-chess-20261005-live-broadcast-sol56t3q8
+    paths:
+      - acs/structured_broadcast.py
+      - acs/structured_broadcast_application.py
+      - acs/structured_broadcast_live.py
+      - tests/test_structured_broadcast.py
+      - tests/test_structured_broadcast_application.py
+      - tests/test_structured_broadcast_live.py
+      - .github/workflows/structured-broadcast-core.yml
+  pull_request:
+    paths:
+      - acs/structured_broadcast.py
+      - acs/structured_broadcast_application.py
+      - acs/structured_broadcast_live.py
+      - tests/test_structured_broadcast.py
+      - tests/test_structured_broadcast_application.py
+      - tests/test_structured_broadcast_live.py
+      - .github/workflows/structured-broadcast-core.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: structured-broadcast-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  canonical-boundary:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Verify exact Media Core parent and bounded scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_parent='7bf0a28dc65d5ceef45f78af0a5f023503b79a28'
+          parent_ref='refs/heads/work/accessible-chess-20261005-media-core-sol56n4q8'
+          live_parent="$(git ls-remote origin "$parent_ref" | awk '{print $1}')"
+          if [ "$live_parent" != "$expected_parent" ]; then
+            echo "MEDIA_CORE_PARENT_MOVED expected=$expected_parent live=$live_parent" >&2
+            exit 1
+          fi
+          merge_base="$(git merge-base "$expected_parent" HEAD)"
+          if [ "$merge_base" != "$expected_parent" ]; then
+            echo "STRUCTURED_BROADCAST_NOT_DESCENDANT expected=$expected_parent merge_base=$merge_base" >&2
+            exit 1
+          fi
+          mapfile -t changed < <(git diff --name-only "$expected_parent" HEAD | sort)
+          printf '%s\n' "${changed[@]}"
+          expected=(
+            '.github/workflows/structured-broadcast-core.yml'
+            'acs/structured_broadcast.py'
+            'acs/structured_broadcast_application.py'
+            'acs/structured_broadcast_live.py'
+            'tests/test_structured_broadcast.py'
+            'tests/test_structured_broadcast_application.py'
+            'tests/test_structured_broadcast_live.py'
+          )
+          if [ "${#changed[@]}" -ne "${#expected[@]}" ]; then
+            echo "STRUCTURED_BROADCAST_SCOPE_DRIFT" >&2
+            exit 1
+          fi
+          for i in "${!expected[@]}"; do
+            if [ "${changed[$i]}" != "${expected[$i]}" ]; then
+              echo "STRUCTURED_BROADCAST_SCOPE_DRIFT expected=${expected[$i]} actual=${changed[$i]}" >&2
+              exit 1
+            fi
+          done
+
+      - name: Compile bounded media surfaces
+        run: >-
+          python -m py_compile
+          acs/media_core.py
+          acs/structured_broadcast.py
+          acs/structured_broadcast_application.py
+          acs/structured_broadcast_live.py
+          tests/test_media_core.py
+          tests/test_structured_broadcast.py
+          tests/test_structured_broadcast_application.py
+          tests/test_structured_broadcast_live.py
+
+      - name: Run Media Core and structured broadcast regressions
+        run: >-
+          python -m unittest -v
+          tests.test_media_core
+          tests.test_structured_broadcast
+          tests.test_structured_broadcast_application
+          tests.test_structured_broadcast_live
+          tests.test_d06_pgn_roundtrip
+          tests.test_gametree
