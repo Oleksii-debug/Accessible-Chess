@@ -15,6 +15,23 @@ from acs.import_contract import (
 )
 
 
+class ActivePathCarrier:
+    def __init__(self):
+        self.called = False
+
+    def __fspath__(self):
+        self.called = True
+        raise AssertionError('SourceFingerprint must reject path carrier before __fspath__')
+
+
+class ActiveSuffix(str):
+    lower_called = False
+
+    def lower(self):
+        type(self).lower_called = True
+        raise AssertionError('SourceFingerprint must reject str subclass before lower')
+
+
 class ImportContractTests(unittest.TestCase):
     def test_fingerprint_and_unchanged_verification(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -79,13 +96,36 @@ class ImportContractTests(unittest.TestCase):
                 with self.assertRaises((TypeError, ValueError)):
                     SourceFingerprint(**fields)
 
+        carrier = ActivePathCarrier()
         with self.assertRaises((TypeError, ValueError)):
             SourceFingerprint(
-                path=object(),  # type: ignore[arg-type]
+                path=carrier,  # type: ignore[arg-type]
                 size=0,
                 sha256='0' * 64,
                 suffix='.pgn',
             )
+        self.assertFalse(carrier.called)
+
+        ActiveSuffix.lower_called = False
+        with self.assertRaises((TypeError, ValueError)):
+            SourceFingerprint(
+                path='source.pgn',
+                size=0,
+                sha256='0' * 64,
+                suffix=ActiveSuffix('.pgn'),
+            )
+        self.assertFalse(ActiveSuffix.lower_called)
+
+    def test_canonical_fingerprint_remains_valid_passive_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'source.PGN'
+            path.write_bytes(b'canonical')
+            source = fingerprint(path)
+            source.validate()
+            self.assertIs(type(source.path), str)
+            self.assertIs(type(source.size), int)
+            self.assertEqual(source.suffix, '.pgn')
+            self.assertEqual(len(source.sha256), 64)
 
     def test_report_revalidates_source_fingerprint_before_observation(self):
         with tempfile.TemporaryDirectory() as tmp:
