@@ -47,6 +47,38 @@ class Section1FenCastlingOrderTests(unittest.TestCase):
                 ):
                     PositionState.from_fen(fen)
 
+    def test_fen_en_passant_square_requires_canonical_lowercase_text(self) -> None:
+        canonical = "4k3/8/8/4p3/8/8/8/4K3 w - e6 0 2"
+        self.assertEqual(Board(canonical).fen(), canonical)
+        state = PositionState.from_fen(canonical)
+        self.assertEqual(state.to_fen(), canonical)
+
+        uppercase = canonical.replace(" e6 ", " E6 ")
+        with self.assertRaisesRegex(ValueError, "канонічним нижнім регістром"):
+            Board(uppercase)
+        with self.assertRaisesRegex(
+            PositionValidationError,
+            "canonical lowercase text",
+        ):
+            PositionState.from_fen(uppercase)
+
+        with self.assertRaisesRegex(
+            PositionValidationError,
+            "canonical lowercase text",
+        ):
+            PositionState(
+                state.pieces,
+                turn=state.turn,
+                castling=state.castling,
+                en_passant="E6",
+                halfmove=state.halfmove,
+                fullmove=state.fullmove,
+            )
+
+        normalized = state.with_en_passant(" E6 ")
+        self.assertEqual(normalized.en_passant, "e6")
+        self.assertEqual(normalized.to_fen(), canonical)
+
     def test_board_san_castling_matches_canonical_notation_glyph_policy(self) -> None:
         fen = f"{_BASE_BOARD} w KQkq - 0 1"
         canonical = Board(fen)
