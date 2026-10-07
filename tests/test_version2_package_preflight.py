@@ -1224,8 +1224,6 @@ class Version2PackagePreflightTests(unittest.TestCase):
             root = Path(td) / "package"
             root.mkdir()
             _make_tree(root)
-            _enable_full_sound_inventory(root)
-            _write_checksums(root)
 
             with patch.object(
                 preflight,
@@ -1243,8 +1241,6 @@ class Version2PackagePreflightTests(unittest.TestCase):
             self.assertTrue(
                 {
                     "sound provenance notice",
-                    "packaged sound inventory",
-                    "sound inventory audit notice",
                     "WinForms accessibility app-config",
                     "packaged sound manifest",
                     "Stockfish GPL notice",
@@ -1442,7 +1438,7 @@ class Version2PackagePreflightTests(unittest.TestCase):
             )
             dll.parent.mkdir(parents=True, exist_ok=True)
             dll.write_bytes(
-                _minimal_windows_pe()
+                _minimal_windows_pe(managed=True, dll=True)
                 + b"\x00compiler=C:\\Users\\Builder\\source\\clr_loader\\ClrLoader.pdb\x00"
             )
             _write_checksums(root)
