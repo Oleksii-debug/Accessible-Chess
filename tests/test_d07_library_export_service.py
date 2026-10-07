@@ -182,7 +182,7 @@ class LibraryExportServiceTests(unittest.TestCase):
             for _ in range(5001):
                 yield sample
 
-        def consume_stream(destination, games, *, overwrite=False, expected_sha256=None):
+        def consume_stream(destination, games, *, overwrite=False, expected_sha256=None, pre_publish_check=None):
             self.assertEqual(sum(1 for _ in games), 5001)
             self.assertFalse(overwrite)
             self.assertIsNone(expected_sha256)
@@ -207,7 +207,7 @@ class LibraryExportServiceTests(unittest.TestCase):
             loaded_ids.append(game_id)
             return real_load_game(game_id)
 
-        def consume_stream(destination, games, *, overwrite=False, expected_sha256=None):
+        def consume_stream(destination, games, *, overwrite=False, expected_sha256=None, pre_publish_check=None):
             self.assertTrue(
                 self.db.conn.in_transaction,
                 "the stable Library read snapshot must remain active while D06 consumes the stream",
@@ -253,7 +253,7 @@ class LibraryExportServiceTests(unittest.TestCase):
                 fingerprint = object()
 
                 with AcsDatabase(database_path) as writer_db:
-                    def consume_stream(destination, games, *, overwrite=False, expected_sha256=None):
+                    def consume_stream(destination, games, *, overwrite=False, expected_sha256=None, pre_publish_check=None):
                         self.assertTrue(reader_db.conn.in_transaction)
                         iterator = iter(games)
                         consumed = [next(iterator)]
@@ -339,7 +339,7 @@ class LibraryExportServiceTests(unittest.TestCase):
                     )
                 return real_replace(src, dst)
 
-            with patch("acs.pgn_service.os.replace", side_effect=racing_replace):
+            with patch("acs.pgn_service._replace_published_path", side_effect=racing_replace):
                 with self.assertRaises(PgnConcurrentWriteError):
                     self.service.export_to(
                         destination,
