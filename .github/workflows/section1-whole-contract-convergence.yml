@@ -1,0 +1,436 @@
+name: Section 1 Whole Contract Convergence
+
+on:
+  pull_request:
+    branches:
+      - 'section0/import-batch-runtime-isolation-20261007-sol56'
+    paths:
+      - '.github/workflows/current-fen-history-section1-convergence.yml'
+      - '.github/workflows/section1-epd-serialization-revalidation.yml'
+      - '.github/workflows/section1-fen-castling-order.yml'
+      - '.github/workflows/section1-fen-corpus-source-snapshot.yml'
+      - '.github/workflows/section1-fen-edge-corpus.yml'
+      - '.github/workflows/section1-fen-en-passant-fullmove.yml'
+      - '.github/workflows/section1-fen-en-passant-halfmove.yml'
+      - '.github/workflows/section1-fen-field-count.yml'
+      - '.github/workflows/section1-king-capture-boundary.yml'
+      - '.github/workflows/section1-positionstate-counter-boundary.yml'
+      - '.github/workflows/section1-positionstate-serialization-boundary.yml'
+      - '.github/workflows/section1-san-internal-whitespace.yml'
+      - '.github/workflows/section1-san-transition-contract.yml'
+      - '.github/workflows/section1-whole-contract-convergence.yml'
+      - 'acs/chesscore.py'
+      - 'acs/epd.py'
+      - 'acs/input_limits.py'
+      - 'acs/notation.py'
+      - 'acs/position_editor.py'
+      - 'acs/stage1_release_ui_core.py'
+      - 'acs/ui_analysis_adapter.py'
+      - 'acs/webapp.py'
+      - 'acs/webapp_keymap.py'
+      - 'acs/webapp_keymap_core.py'
+      - 'docs/automation/SECTION1_CLOSURE_CANDIDATE.md'
+      - 'tests/data/fen_edge_corpus_v1.json'
+      - 'tests/test_dev2_fen_atomicity.py'
+      - 'tests/test_epd.py'
+      - 'tests/test_fen_edge_corpus.py'
+      - 'tests/test_fen_position_editor_complete_user_flow.py'
+      - 'tests/test_qualify_fen_position_corpus.py'
+      - 'tests/test_section1_fen_castling_order.py'
+      - 'tests/test_section1_fen_en_passant_fullmove.py'
+      - 'tests/test_section1_fen_en_passant_halfmove.py'
+      - 'tests/test_section1_fen_field_count.py'
+      - 'tests/test_section1_king_capture_boundary.py'
+      - 'tests/test_section1_positionstate_counter_boundary.py'
+      - 'tests/test_section1_positionstate_serialization_boundary.py'
+      - 'tests/test_section1_san_internal_whitespace.py'
+      - 'tests/test_section1_san_transition_contract.py'
+      - 'tests/test_stage1_engine_play_ui.py'
+      - 'tests/test_ui_analysis_adapter.py'
+      - 'tests/test_ui_analysis_webapp.py'
+      - 'tools/qualify_fen_position_corpus.py'
+      - 'web/index.html'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: section1-whole-contract-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  SECTION0_PREDECESSOR_SHA: ada59caab1365b1fc90cdc99071cd36acdd780d8
+  SECTION1_SUCCESSOR_SHA: dffbacbbb2ca52812774a20aa58341caad407898
+  SECTION1_SERIALIZATION_SHA: a76a3cf1cca4b339e847cb333918ffd125692da2
+  SECTION1_EPD_SHA: 4df2d1870f74dd279218f054e97c6ae781e92808
+  SECTION1_PARENT_SHA: 5d22793c9908831b144b3c62394424f8231738fe
+  SAN_OWNER_SHA: ff7798bdec33393cdd6ad79c1e30e0dba12d7b94
+  RECEIPT_OWNER_SHA: f6a2c6df5705eadcca1070564c517e6d8c13a248
+  EDGE_OWNER_SHA: 3825a153c3f2a79d1164a0b3001afc2c740cf23d
+  POSITION_OWNER_SHA: 9209f6cd06ac0cbc8a4ee9ff040797df76ec1ae1
+  CONVERGENCE_ANCHOR_SHA: 7fc28a6cbe3224c843372e06b9b110be8ad94c94
+  FEN_SAN_CASTLING_HEAD: a9822c819eaa2e5b53d178908c28f20b1ff987c9
+
+  INPUT_LIMITS_BLOB: 11972e4b4a949b9e6a8075b62656a9fa6d299ea6
+  NOTATION_BLOB: eed13c31993fa9979b6a2cbd608cce63c1ce74df
+  CHESSCORE_BLOB: 7c0b41d29a54a6608f15551a4b7fd27bd2bcb094
+  WEBAPP_BLOB: ff382335de37dee2e88754dda14a948f826504c4
+  POSITION_EDITOR_BLOB: 8f1a41df8142bf7e7689f4c5f5cf335d8523a4a9
+  EPD_BLOB: c1454f2af145729874283fa3b2c9cc29ecac6250
+  IMPORT_CONTRACT_BLOB: d9855d173f8c73440e190482a107299be28949c5
+
+  QUALIFIER_BLOB: 6a230daff4c511339669c330fb4aabc988c7f86f
+  QUALIFIER_TEST_BLOB: ff9b303ab9db4f61a707a6f3d53aa3b21596857d
+  SAN_TEST_BLOB: 22e493307ac650d14f7fa7300d80cffcd100f36b
+  FEN_CASTLING_TEST_BLOB: 490983ee6ac32ec896c5f05059d9ace77d21f15b
+  POSITION_TEST_BLOB: ad6b0c0dbbe0e5d3cf47bb534a29d4d6a2925061
+  EDGE_CORPUS_BLOB: 11126036c582a37a3e0b7bb9a279889eaf96f6d3
+  EDGE_TEST_BLOB: d4beb33a0131cb4b748e8495f4cacb89ffefc9a5
+  FIELD_COUNT_TEST_BLOB: 9d9917a46fd4cbf99f4d966e8e44b8602caf9222
+  DEV2_FEN_ATOMICITY_TEST_BLOB: ed1a4d17b4d5cb3655d03716ec293c2d94989b64
+  KING_CAPTURE_TEST_BLOB: 4c0facef788c2ace18cbed0fcaeee9195113ec9f
+  SAN_WHITESPACE_TEST_BLOB: dd910faeaee287c8944f36cf3c5d7cff88c7bc79
+  EP_HALFMOVE_TEST_BLOB: 26564b2613fa4becd7780e96e1c4e258e212123a
+  EP_FULLMOVE_TEST_BLOB: 6b6889191f2faee9384275dadfe3405ba6beaf93
+  POSITION_SERIALIZATION_TEST_BLOB: a566cf563934037f523e7f25cd59ef83b0e910af
+  EPD_TEST_BLOB: 10fa838c7c44497da9b106b823851535471086cf
+  UI_WEBAPP_TEST_BLOB: c529587bfc65fff315b3ca96c8f5a581ca7cab44
+
+  RECEIPT_WORKFLOW_BLOB: b8991a98b6c13118736907b7dce9e297b2b07ea2
+  SOURCE_WORKFLOW_BLOB: f181ec5270437ae2a79d4f91a822ec1a0b6a4abb
+  EDGE_WORKFLOW_BLOB: 6f28d4f2fdf5b2fb1d5a4d4f25a0bee4fa45f750
+  FEN_CASTLING_WORKFLOW_BLOB: 1c623c5accf762ab210023ccab67ab65f1b594d4
+  POSITION_WORKFLOW_BLOB: f0ac7cefcc5db28430680361b36a026c7d526dd2
+  FIELD_COUNT_WORKFLOW_BLOB: 2fb9a562375a58ce5cc12211e2b7c9744b2a2a16
+  KING_CAPTURE_WORKFLOW_BLOB: 62c0cfb1e180b296538aae23b2c944976776c2c1
+  SAN_WHITESPACE_WORKFLOW_BLOB: fd315537c7ae8698ec02fa6071e2d1b020972cf9
+  SAN_TRANSITION_WORKFLOW_BLOB: c88a6a8809b80121d91ad4527983a3da2f1200cf
+  EP_HALFMOVE_WORKFLOW_BLOB: cd3c9ff92331483aea208e4678e586edbbfeb74f
+  EP_FULLMOVE_WORKFLOW_BLOB: fe3f379c88bf2c86d487af16d78b561014cb557d
+  POSITION_SERIALIZATION_WORKFLOW_BLOB: 8194108042e2f9fde5d25fcb8b1f679a90a4e893
+  EPD_WORKFLOW_BLOB: 88c9880aed687330dfb3cac5ac07c92813af289d
+  CLOSURE_DOC_BLOB: 2da413e1f2c2ba94cea0a9e4a4435712b5e0871f
+
+  P0F_PROVENANCE_BLOB: 3298aed00ca000d27f607cd861abbba9483ff358
+  P0F_BUILDER_BLOB: b7b96a661652a17cb16e8ca4cabba3b8b373e483
+  PINNED_CORPUS_SHA256: aa40b3671fa3cf1072eb182892cd90b0e1e003a4a5943492f64b77e7f3fd1635
+
+jobs:
+  whole-section:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Prove exact predecessor-aware whole-Section geometry
+        shell: bash
+        env:
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          expected_head="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
+          test "$(git rev-parse HEAD)" = "$expected_head"
+          if [ -n "${EVENT_BASE_REF:-}" ]; then
+            test "$EVENT_BASE_REF" = "section0/import-batch-runtime-isolation-20261007-sol56"
+            test "$EVENT_BASE_SHA" = "$SECTION0_PREDECESSOR_SHA"
+          fi
+          test "$(git merge-base "$SECTION0_PREDECESSOR_SHA" HEAD)" = "$SECTION0_PREDECESSOR_SHA"
+          for ancestor in "$SECTION1_SUCCESSOR_SHA" "$SECTION1_SERIALIZATION_SHA" "$SECTION1_EPD_SHA" "$SECTION1_PARENT_SHA" "$SAN_OWNER_SHA" "$RECEIPT_OWNER_SHA" "$EDGE_OWNER_SHA" "$POSITION_OWNER_SHA" "$CONVERGENCE_ANCHOR_SHA" "$FEN_SAN_CASTLING_HEAD"; do
+            git merge-base --is-ancestor "$ancestor" HEAD
+          done
+          git diff --check "$SECTION0_PREDECESSOR_SHA"...HEAD
+          changed="$(git diff --name-only "$SECTION0_PREDECESSOR_SHA"...HEAD | sort)"
+          expected="$(cat <<'EOF' | sort
+          .github/workflows/current-fen-history-section1-convergence.yml
+          .github/workflows/section1-epd-serialization-revalidation.yml
+          .github/workflows/section1-fen-castling-order.yml
+          .github/workflows/section1-fen-corpus-source-snapshot.yml
+          .github/workflows/section1-fen-edge-corpus.yml
+          .github/workflows/section1-fen-en-passant-fullmove.yml
+          .github/workflows/section1-fen-en-passant-halfmove.yml
+          .github/workflows/section1-fen-field-count.yml
+          .github/workflows/section1-king-capture-boundary.yml
+          .github/workflows/section1-positionstate-counter-boundary.yml
+          .github/workflows/section1-positionstate-serialization-boundary.yml
+          .github/workflows/section1-san-internal-whitespace.yml
+          .github/workflows/section1-san-transition-contract.yml
+          .github/workflows/section1-whole-contract-convergence.yml
+          acs/chesscore.py
+          acs/epd.py
+          acs/input_limits.py
+          acs/notation.py
+          acs/position_editor.py
+          acs/stage1_release_ui_core.py
+          acs/ui_analysis_adapter.py
+          acs/webapp.py
+          acs/webapp_keymap.py
+          acs/webapp_keymap_core.py
+          docs/automation/SECTION1_CLOSURE_CANDIDATE.md
+          tests/data/fen_edge_corpus_v1.json
+          tests/test_dev2_fen_atomicity.py
+          tests/test_epd.py
+          tests/test_fen_edge_corpus.py
+          tests/test_fen_position_editor_complete_user_flow.py
+          tests/test_qualify_fen_position_corpus.py
+          tests/test_section1_fen_castling_order.py
+          tests/test_section1_fen_en_passant_fullmove.py
+          tests/test_section1_fen_en_passant_halfmove.py
+          tests/test_section1_fen_field_count.py
+          tests/test_section1_king_capture_boundary.py
+          tests/test_section1_positionstate_counter_boundary.py
+          tests/test_section1_positionstate_serialization_boundary.py
+          tests/test_section1_san_internal_whitespace.py
+          tests/test_section1_san_transition_contract.py
+          tests/test_stage1_engine_play_ui.py
+          tests/test_ui_analysis_adapter.py
+          tests/test_ui_analysis_webapp.py
+          tools/qualify_fen_position_corpus.py
+          web/index.html
+          EOF
+          )"
+          test "$changed" = "$expected"
+
+      - name: Bind exact current authorities and all consumed residuals
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:acs/input_limits.py)" = "$INPUT_LIMITS_BLOB"
+          test "$(git rev-parse HEAD:acs/notation.py)" = "$NOTATION_BLOB"
+          test "$(git rev-parse HEAD:acs/chesscore.py)" = "$CHESSCORE_BLOB"
+          test "$(git rev-parse HEAD:acs/webapp.py)" = "$WEBAPP_BLOB"
+          test "$(git rev-parse HEAD:acs/position_editor.py)" = "$POSITION_EDITOR_BLOB"
+          test "$(git rev-parse HEAD:acs/epd.py)" = "$EPD_BLOB"
+          test "$(git rev-parse HEAD:acs/import_contract.py)" = "$IMPORT_CONTRACT_BLOB"
+          test "$(git rev-parse HEAD:tools/qualify_fen_position_corpus.py)" = "$QUALIFIER_BLOB"
+          test "$(git rev-parse HEAD:tests/test_qualify_fen_position_corpus.py)" = "$QUALIFIER_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_section1_san_transition_contract.py)" = "$SAN_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_section1_fen_castling_order.py)" = "$FEN_CASTLING_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_section1_positionstate_counter_boundary.py)" = "$POSITION_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/data/fen_edge_corpus_v1.json)" = "$EDGE_CORPUS_BLOB"
+          test "$(git rev-parse HEAD:tests/test_fen_edge_corpus.py)" = "$EDGE_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_section1_fen_field_count.py)" = "$FIELD_COUNT_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_dev2_fen_atomicity.py)" = "$DEV2_FEN_ATOMICITY_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_section1_king_capture_boundary.py)" = "$KING_CAPTURE_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_section1_san_internal_whitespace.py)" = "$SAN_WHITESPACE_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_section1_fen_en_passant_halfmove.py)" = "$EP_HALFMOVE_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_section1_fen_en_passant_fullmove.py)" = "$EP_FULLMOVE_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_section1_positionstate_serialization_boundary.py)" = "$POSITION_SERIALIZATION_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_epd.py)" = "$EPD_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_ui_analysis_webapp.py)" = "$UI_WEBAPP_TEST_BLOB"
+
+          test "$(git rev-parse HEAD:.github/workflows/current-fen-history-section1-convergence.yml)" = "$RECEIPT_WORKFLOW_BLOB"
+          test "$(git rev-parse HEAD:.github/workflows/section1-fen-corpus-source-snapshot.yml)" = "$SOURCE_WORKFLOW_BLOB"
+          test "$(git rev-parse HEAD:.github/workflows/section1-fen-edge-corpus.yml)" = "$EDGE_WORKFLOW_BLOB"
+          test "$(git rev-parse HEAD:.github/workflows/section1-fen-castling-order.yml)" = "$FEN_CASTLING_WORKFLOW_BLOB"
+          test "$(git rev-parse HEAD:.github/workflows/section1-positionstate-counter-boundary.yml)" = "$POSITION_WORKFLOW_BLOB"
+          test "$(git rev-parse HEAD:.github/workflows/section1-fen-field-count.yml)" = "$FIELD_COUNT_WORKFLOW_BLOB"
+          test "$(git rev-parse HEAD:.github/workflows/section1-king-capture-boundary.yml)" = "$KING_CAPTURE_WORKFLOW_BLOB"
+          test "$(git rev-parse HEAD:.github/workflows/section1-san-internal-whitespace.yml)" = "$SAN_WHITESPACE_WORKFLOW_BLOB"
+          test "$(git rev-parse HEAD:.github/workflows/section1-san-transition-contract.yml)" = "$SAN_TRANSITION_WORKFLOW_BLOB"
+          test "$(git rev-parse HEAD:.github/workflows/section1-fen-en-passant-halfmove.yml)" = "$EP_HALFMOVE_WORKFLOW_BLOB"
+          test "$(git rev-parse HEAD:.github/workflows/section1-fen-en-passant-fullmove.yml)" = "$EP_FULLMOVE_WORKFLOW_BLOB"
+          test "$(git rev-parse HEAD:.github/workflows/section1-positionstate-serialization-boundary.yml)" = "$POSITION_SERIALIZATION_WORKFLOW_BLOB"
+          test "$(git rev-parse HEAD:.github/workflows/section1-epd-serialization-revalidation.yml)" = "$EPD_WORKFLOW_BLOB"
+          test "$(git rev-parse HEAD:docs/automation/SECTION1_CLOSURE_CANDIDATE.md)" = "$CLOSURE_DOC_BLOB"
+
+          python - <<'PY'
+          from tools import qualify_fen_position_corpus as qualifier
+          from acs.import_contract import read_source_snapshot
+          assert qualifier.read_source_snapshot is read_source_snapshot
+          print("SECTION1_PREDECESSOR_AWARE_SOURCE_AUTHORITY=PASS")
+          PY
+
+      - name: Compile Section 1 contract surface
+        run: >-
+          python -m py_compile
+          acs/input_limits.py
+          acs/notation.py
+          acs/chesscore.py
+          acs/position_editor.py
+          acs/epd.py
+          acs/import_contract.py
+          tools/qualify_fen_position_corpus.py
+          tests/test_section1_san_transition_contract.py
+          tests/test_section1_fen_castling_order.py
+          tests/test_section1_fen_field_count.py
+          tests/test_section1_king_capture_boundary.py
+          tests/test_section1_san_internal_whitespace.py
+          tests/test_section1_fen_en_passant_halfmove.py
+          tests/test_section1_fen_en_passant_fullmove.py
+          tests/test_section1_positionstate_counter_boundary.py
+          tests/test_section1_positionstate_serialization_boundary.py
+          tests/test_fen_edge_corpus.py
+          tests/test_qualify_fen_position_corpus.py
+
+      - name: Execute FEN SAN Position whole contract
+        run: >-
+          python -m unittest -v
+          tests.test_section1_san_transition_contract
+          tests.test_section1_fen_castling_order
+          tests.test_section1_fen_field_count
+          tests.test_section1_king_capture_boundary
+          tests.test_section1_san_internal_whitespace
+          tests.test_section1_fen_en_passant_halfmove
+          tests.test_section1_fen_en_passant_fullmove
+          tests.test_d02_canonical_move_scalar_fail_closed
+          tests.test_dev2_fen_atomicity
+          tests.test_notation
+          tests.test_fen_input_budget_current
+          tests.test_fen_position_editor_complete_user_flow
+          tests.test_version2_release_ui
+          tests.test_version2_application
+          tests.test_full_product_native_menu
+          tests.test_ui_keymap_adapter
+          tests.test_position_editor
+          tests.test_position_editor_passive_boundary
+          tests.test_position_text_authority
+          tests.test_section1_positionstate_counter_boundary
+          tests.test_section1_positionstate_serialization_boundary
+          tests.test_epd
+          tests.test_fen_edge_corpus
+          tests.test_qualify_fen_position_corpus
+          tests.test_import_contract
+          tests.test_import_registry
+          tests.test_stage1_fen_history_atomicity_current
+          tests.test_stage1_move_history_atomicity_current
+          tests.test_stage1_engine_play_ui
+          tests.test_ui_analysis_adapter
+          tests.test_ui_analysis_webapp
+          tests.test_release_stockfish_composition
+
+      - name: Execute retained History EPD GameTree PGN adjacency
+        run: >-
+          python -m unittest -v
+          tests.test_history_review_complete_user_flow
+          tests.test_epd
+          tests.test_gametree
+          tests.test_gametree_accessible_completion
+          tests.test_pgn_workspace
+          tests.test_version2_pgn_commands
+
+      - name: Retained PGN browser DOM
+        run: node tests/js/pgn_surface_dom_test.js
+
+      - name: Core chess selftest
+        run: python -m acs.selftest
+
+  lawful-fen-corpus:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 35
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Bind lawful corpus authorities
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:docs/P0F_STARTER_CONTENT_PROVENANCE.md)" = "$P0F_PROVENANCE_BLOB"
+          test "$(git rev-parse HEAD:tools/p0f_lawful_starter_bundle.py)" = "$P0F_BUILDER_BLOB"
+          test "$(git rev-parse HEAD:tools/qualify_fen_position_corpus.py)" = "$QUALIFIER_BLOB"
+          test "$(git rev-parse HEAD:tests/test_qualify_fen_position_corpus.py)" = "$QUALIFIER_TEST_BLOB"
+          test "$(git rev-parse HEAD:acs/import_contract.py)" = "$IMPORT_CONTRACT_BLOB"
+
+      - name: Install qualified corpus decompressor
+        run: python -m pip install -q zstandard==0.23.0
+
+      - name: Build pinned CC0 real-game sample
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH="$PWD" python tools/p0f_lawful_starter_bundle.py .fen-lawful
+
+      - name: Bind produced sample to CC0 provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          root = Path(".fen-lawful")
+          manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+          source = manifest["starter_source"]
+          starter = root / "starter_uk.pgn"
+          entry = manifest["files"]["starter_uk.pgn"]
+          digest = hashlib.sha256(starter.read_bytes()).hexdigest()
+          assert source["compressed_sha256"] == os.environ["PINNED_CORPUS_SHA256"]
+          assert source["license_id"] == "CC0-1.0"
+          assert int(source["selected_games"]) >= 200
+          assert entry["license_id"] == "CC0-1.0"
+          assert entry["sha256"] == digest
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env:
+              env.write(f"LAWFUL_FEN_STARTER_SHA256={digest}\n")
+          print("LAWFUL_FEN_CORPUS_PROVENANCE=PASS")
+          PY
+
+      - name: Qualify real FEN Position corpus
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH="$PWD" python tools/qualify_fen_position_corpus.py \
+            .fen-lawful/starter_uk.pgn \
+            --min-games 200 \
+            --min-positions 5000 \
+            --require-edge-coverage \
+            --json-out .fen-lawful/fen_position_qualification.json
+
+      - name: Bind report to the same lawful source bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          root = Path(".fen-lawful")
+          starter = root / "starter_uk.pgn"
+          manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+          report = json.loads((root / "fen_position_qualification.json").read_text(encoding="utf-8"))
+          entry = manifest["files"]["starter_uk.pgn"]
+          expected = os.environ["LAWFUL_FEN_STARTER_SHA256"]
+          current_digest = hashlib.sha256(starter.read_bytes()).hexdigest()
+          assert len(expected) == 64
+          assert entry["sha256"] == expected
+          assert current_digest == expected
+          assert report["source_sha256"] == expected
+          assert int(report["game_count"]) >= 200
+          assert int(report["position_count"]) >= 5000
+          for key in (
+              "white_to_move_count",
+              "black_to_move_count",
+              "castling_rights_count",
+              "no_castling_rights_count",
+              "en_passant_count",
+              "halfmove_nonzero_count",
+              "fullmove_gt_one_count",
+          ):
+              assert int(report[key]) >= 1, key
+          print("SECTION1_LAWFUL_FEN_REPORT_BINDING=PASS")
+          PY
