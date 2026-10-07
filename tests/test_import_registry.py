@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from threading import Event, Thread
 
 from acs.import_contract import (
     ImportQuality,
@@ -2135,6 +2136,89 @@ class ImportRegistryTests(unittest.TestCase):
         self.assertEqual(len(registrations), 1)
         self.assertIs(registrations[0].importer, importer)
         self.assertEqual(registrations[0].suffixes, ('.bar', '.foo'))
+
+
+    def test_concurrent_registration_is_serialized_with_active_inspection(self):
+        registry = ImportRegistry()
+        inspection_entered = Event()
+        release_inspection = Event()
+        registration_started = Event()
+        registration_finished = Event()
+        inspection_reports: list[ImportReport] = []
+        worker_errors: list[BaseException] = []
+
+        class BlockingImporter:
+            format_name = "Blocking inspection format"
+            suffixes = (".blocking",)
+
+            def inspect(self, path: Path) -> ImportReport:
+                inspection_entered.set()
+                if not release_inspection.wait(timeout=5):
+                    raise RuntimeError("test inspection release timed out")
+                return ImportReport(
+                    source=fingerprint(path),
+                    format_name=self.format_name,
+                )
+
+        class ConcurrentImporter:
+            format_name = "Concurrent registered format"
+            suffixes = (".concurrent",)
+
+            def inspect(self, path: Path) -> ImportReport:
+                return ImportReport(
+                    source=fingerprint(path),
+                    format_name=self.format_name,
+                )
+
+        blocking = BlockingImporter()
+        concurrent = ConcurrentImporter()
+        registry.register(blocking)
+
+        def run_inspection() -> None:
+            try:
+                with tempfile.TemporaryDirectory() as td:
+                    path = Path(td) / "source.blocking"
+                    path.write_bytes(b"stable-source")
+                    inspection_reports.append(registry.inspect(path))
+            except BaseException as exc:  # pragma: no cover - surfaced below
+                worker_errors.append(exc)
+
+        def run_registration() -> None:
+            registration_started.set()
+            try:
+                registry.register(concurrent)
+            except BaseException as exc:  # pragma: no cover - surfaced below
+                worker_errors.append(exc)
+            finally:
+                registration_finished.set()
+
+        inspector = Thread(target=run_inspection, name="section0-registry-inspector")
+        registrar = Thread(target=run_registration, name="section0-registry-registrar")
+        inspector.start()
+        self.assertTrue(inspection_entered.wait(timeout=5))
+
+        registrar.start()
+        self.assertTrue(registration_started.wait(timeout=5))
+        self.assertFalse(
+            registration_finished.wait(timeout=0.2),
+            "concurrent register() must not publish while inspection owns routing authority",
+        )
+
+        release_inspection.set()
+        inspector.join(timeout=5)
+        registrar.join(timeout=5)
+
+        self.assertFalse(inspector.is_alive())
+        self.assertFalse(registrar.is_alive())
+        self.assertEqual(worker_errors, [])
+        self.assertEqual(len(inspection_reports), 1)
+        self.assertEqual(inspection_reports[0].format_name, blocking.format_name)
+        self.assertIs(registry.importer_for("next.blocking"), blocking)
+        self.assertIs(registry.importer_for("next.concurrent"), concurrent)
+        self.assertEqual(
+            registry.registered_suffixes,
+            (".blocking", ".concurrent"),
+        )
 
 
 if __name__ == '__main__':
