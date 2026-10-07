@@ -597,3 +597,42 @@ lineage and introduces no second legality, FEN, SAN, or history authority.
 `HUMAN_TESTED=NO`
 
 `NVDA_VERIFIED=NO`
+
+### Passive recovery-pair container fence
+
+A follow-up recovery audit proved that passive scalar validation alone was not
+enough at the canonical Board boundary. `undo()` / `redo()` previously indexed
+and unpacked the stored recovery entry before validating the pair container.
+Consequently, a two-item list could be silently consumed as canonical recovery
+metadata, while a tuple/list subclass could execute an overridden iteration,
+length or indexing hook before the passive-value checks.
+
+The Board recovery boundary now validates container identity before observation:
+- the selected undo/redo stack must be an exact built-in `list`;
+- an empty exact list remains the only no-op recovery state;
+- a stored recovery entry must be an exact built-in two-item `tuple`;
+- only after those checks are the exact passive FEN/SAN scalars passed to the
+  existing canonical transition proof.
+
+Negative regressions prove a list-shaped pair is rejected without mutation,
+hostile tuple-subclass hooks are never invoked, hostile stack-subclass hooks are
+never invoked for undo or redo, and the live FEN / `last_move` remain unchanged
+on rejection. Canonical tuple/list recovery behavior remains covered by the
+existing ordinary and null-move undo/redo tests.
+
+Exact successor blobs:
+- `acs/chesscore.py=fac7b89a4eb31976578ace4eb94f2d8f8ac079d1`;
+- `tests/test_dev2_fen_atomicity.py=c5ce543be86b6a23850ba16a1042c34ffbdcc3ce`.
+
+This is the same #2356 Section-1 lineage and the same 45-path delta relative to
+Section-0 predecessor `7b172de1ace250e62cb9a077029c056f71d6f833`.
+No second history, FEN, SAN or legality authority is introduced.
+
+`SECTION_0_DONE=NO_PENDING_TERMINAL_CI`
+
+`SECTION_1_DONE=NO_PENDING_SECTION0_ACCEPTANCE_AND_EXACT_HEAD_QUALIFICATION`
+
+`HUMAN_TESTED=NO`
+
+`NVDA_VERIFIED=NO`
+
