@@ -571,3 +571,38 @@ Exact updated test blob:
 This remains the same six-path PR #2346 lineage.
 
 `SECTION_0_DONE=NO_PENDING_TERMINAL_CI_AND_LIVE_REVALIDATION`
+
+### Passive payloads inside exact built-in OSError diagnostics
+
+A final diagnostic-boundary audit found that checking the exception object's
+exact type was not sufficient to make all of its attributes passive. Python's
+exact built-in `OSError` accepts an arbitrary third constructor argument and
+stores it as `filename` without coercion. An adapter could therefore raise an
+ordinary exact `OSError` whose filename object implements active
+`__fspath__` / `__str__` hooks. The batch renderer then passed that object
+to `report_safe_name()`, manufacturing provider code execution during error
+reporting; a provider-raised `KeyboardInterrupt` there could escape ordinary
+per-source isolation even though the adapter itself raised only `OSError`.
+
+The canonical registry now treats `filename` / `filename2` as reportable
+only when each payload is an exact passive `str` or `bytes`. Any other
+payload is ignored and the already host-owned source safe-name is used instead.
+Exact built-in errno evidence remains available. No provider path/string hook is
+executed merely to construct diagnostics.
+
+A deterministic regression raises exact built-in `OSError(5, ..., payload)`
+with a payload whose `__fspath__` and `__str__` both raise
+`KeyboardInterrupt`. Batch preflight must execute zero payload hooks, publish
+bounded source-scoped filesystem evidence, and continue to a later valid source.
+
+Exact successor blobs:
+- `acs/import_registry.py`: `300ffdcec826983e181590961150728ed79f315e`;
+- `tests/test_import_registry.py`: `380e30f28bc691df9eb76fee129e2e9d1fd5846c`;
+- focused qualification workflow:
+  `5a2bea96cf96b0b0db217d962410fc67c1d17a0e`.
+
+This remains the same exact six-path canonical PR #2346 lineage and introduces
+no parser, decoder, ImportReport, format capability or chess authority.
+
+`SECTION_0_DONE=NO_PENDING_TERMINAL_CI_AND_LIVE_REVALIDATION`
+
