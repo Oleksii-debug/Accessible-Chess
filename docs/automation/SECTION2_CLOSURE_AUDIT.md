@@ -321,3 +321,23 @@ Section-2 DONE.
 
 `SECTION2_STATIC_BINDINGS=36/36_MATCH`
 `SECTION_2_DONE=NO_PREPARATION_ONLY`
+
+
+### Complete exact binding of the executed Python contract
+
+The current Section-2 gate executes 28 Python regression modules. Four of those
+already-executed modules were still consumed without an explicit current-tree blob
+pin. They are now exact-bound without adding tests or widening Product scope:
+
+- `tests/test_dev4_pgn_resource_security.py = 6f4d34d2c42a6bd5c5692ae131b1286d23e8d78d`;
+- `tests/test_pgn_document.py = 765634330f481d6cc72eb8715bc4222aea2f90c5`;
+- `tests/test_pgn_document_context_atomicity.py = 38031b5d3ceb0e50baf6ed7f0d259c2751255cec`;
+- `tests/test_pgn_open_source_binding.py = e829a1b262ce4be8e2d7601381b442505ec4e6ad`.
+
+All Python modules currently executed by the gate and all four executed PGN DOM/
+keyboard JavaScript regressions are now explicit exact-tree inputs. The bounded
+Product delta remains only the previously recorded `PgnWorkspace` invalid-Unicode
+failure-boundary repair.
+
+`SECTION2_EXECUTED_PYTHON_TEST_PINS=28/28`
+`SECTION_2_DONE=NO_PENDING_SECTION1_ACCEPTANCE_AND_TERMINAL_GATE`
