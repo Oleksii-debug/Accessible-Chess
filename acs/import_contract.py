@@ -33,6 +33,33 @@ class SourceFingerprint:
     sha256: str
     suffix: str
 
+    def __post_init__(self) -> None:
+        self.validate()
+
+    def validate(self) -> None:
+        """Revalidate passive provenance after any low-level mutation attempt."""
+        if type(self) is not SourceFingerprint:
+            raise TypeError("source fingerprint must be an exact SourceFingerprint")
+        if type(self.path) is not str or not self.path:
+            raise ValueError("source fingerprint path must be non-empty exact text")
+        if type(self.size) is not int or self.size < 0:
+            raise ValueError("source fingerprint size must be a non-negative exact integer")
+        if (
+            type(self.sha256) is not str
+            or len(self.sha256) != 64
+            or self.sha256 != self.sha256.lower()
+            or any(ch not in "0123456789abcdef" for ch in self.sha256)
+        ):
+            raise ValueError("source fingerprint sha256 must be canonical lowercase hex")
+        if type(self.suffix) is not str:
+            raise TypeError("source fingerprint suffix must be exact text")
+        if self.suffix and (
+            not self.suffix.startswith(".")
+            or self.suffix != self.suffix.lower()
+            or self.suffix != self.suffix.strip()
+        ):
+            raise ValueError("source fingerprint suffix must be canonical lowercase text")
+
 
 @dataclass(frozen=True)
 class ImportedRecord:
@@ -43,6 +70,12 @@ class ImportedRecord:
     warnings: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
+        self.validate()
+
+    def validate(self) -> None:
+        """Revalidate one passive record before report observation/publication."""
+        if type(self) is not ImportedRecord:
+            raise TypeError("imported record must be an exact ImportedRecord")
         if type(self.source_record_id) is not str or not self.source_record_id.strip():
             raise ValueError("source_record_id must be non-empty exact text")
         if type(self.quality) is not ImportQuality:
@@ -83,12 +116,15 @@ class ImportReport:
             raise TypeError("import report must be an exact passive ImportReport")
         if type(self.source) is not SourceFingerprint:
             raise TypeError("import report source must be an exact SourceFingerprint")
+        self.source.validate()
         if type(self.format_name) is not str or not self.format_name.strip():
             raise ValueError("format_name must be non-empty exact text")
         if type(self.records) is not list:
             raise TypeError("import report records must be an exact list")
         if any(type(record) is not ImportedRecord for record in self.records):
             raise TypeError("import report records must contain exact ImportedRecord values")
+        for record in tuple(self.records):
+            record.validate()
         if type(self.global_warnings) is not list:
             raise TypeError("global_warnings must be an exact list")
         if any(
@@ -100,6 +136,7 @@ class ImportReport:
     def add(self, record: ImportedRecord) -> None:
         if type(record) is not ImportedRecord:
             raise TypeError("record must be an exact ImportedRecord")
+        record.validate()
         self.records.append(record)
 
     @property
