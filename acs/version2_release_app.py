@@ -41,6 +41,10 @@ from .version2_gametree_resume import Version2GameTreeResumeCoordinator
 from .version2_local_profile_api import Version2ProfileAccessibleChessAPI
 from .version2_release_ui import Version2ReleaseAccessibleChessAPI, run_version2_release_window
 from .version2_upgrade import UserDataLayout, Version2UpgradeCoordinator
+from .version2_user_data_archive import (
+    Version2UserDataHost,
+    begin_pending_user_data_transaction,
+)
 from .version2_windows_host_runtime import Version2WindowsFileWorkflowRuntime
 from .version2_windows_import_ui_pump import Version2WinFormsUiPoster
 from .version2_windows_book_open_worker import Version2BookOpenWorker
@@ -57,6 +61,48 @@ class _Version2OwnedBookDialogs(Version2OwnedWindowsFileDialogs):
         try:
             dialog.Title = self.dialog_text("open_book_title")
             dialog.Filter = self.dialog_text("book_filter")
+            dialog.CheckFileExists = True
+            dialog.CheckPathExists = True
+            dialog.Multiselect = False
+            return self._selected(dialog, dialog.ShowDialog(), DialogResult.OK)
+        finally:
+            dialog.Dispose()
+
+    def save_user_data_archive(self, kind: str) -> Path | None:
+        if kind not in {"backup", "portable"}:
+            raise ValueError("user-data archive kind is invalid")
+        DialogResult, _, SaveFileDialog = self._load_forms()
+        dialog = SaveFileDialog()
+        try:
+            if kind == "backup":
+                dialog.Title = self.dialog_text("backup_user_data_title")
+                dialog.Filter = "Accessible Chess backup (*.acsbackup)|*.acsbackup"
+                dialog.DefaultExt = "acsbackup"
+                dialog.FileName = "accessible-chess-backup.acsbackup"
+            else:
+                dialog.Title = self.dialog_text("export_user_data_title")
+                dialog.Filter = "Accessible Chess user data (*.acsdata)|*.acsdata"
+                dialog.DefaultExt = "acsdata"
+                dialog.FileName = "accessible-chess-user-data.acsdata"
+            dialog.AddExtension = True
+            dialog.OverwritePrompt = True
+            dialog.CheckPathExists = True
+            return self._selected(dialog, dialog.ShowDialog(), DialogResult.OK)
+        finally:
+            dialog.Dispose()
+
+    def open_user_data_archive(self, kind: str) -> Path | None:
+        if kind not in {"backup", "portable"}:
+            raise ValueError("user-data archive kind is invalid")
+        DialogResult, OpenFileDialog, _ = self._load_forms()
+        dialog = OpenFileDialog()
+        try:
+            if kind == "backup":
+                dialog.Title = self.dialog_text("restore_user_data_title")
+                dialog.Filter = "Accessible Chess backup (*.acsbackup)|*.acsbackup"
+            else:
+                dialog.Title = self.dialog_text("import_user_data_title")
+                dialog.Filter = "Accessible Chess user data (*.acsdata)|*.acsdata"
             dialog.CheckFileExists = True
             dialog.CheckPathExists = True
             dialog.Multiselect = False
@@ -379,11 +425,22 @@ def _prepare_version2_user_data(
                 raise TypeError("V1 runtime bridge coordinator must expose run()")
             bridge_run()
 
+    pending = begin_pending_user_data_transaction(layout)
     coordinator = coordinator_factory(layout)
     run = getattr(coordinator, "run", None)
     if not callable(run):
+        if pending is not None:
+            pending.rollback()
         raise TypeError("Version 2 upgrade coordinator must expose run()")
-    run()
+    try:
+        run()
+    except BaseException:
+        if pending is not None:
+            pending.rollback()
+        raise
+    else:
+        if pending is not None:
+            pending.commit()
     return layout
 
 
@@ -615,6 +672,13 @@ def create_version2_release_application(
         # Publish every owner-bound application callback only after the native
         # runtime and FormClosing guard are both live. Failed startup must leave
         # no callback pointing at a retired/unowned Form.
+        user_data_host = Version2UserDataHost(
+            layout,
+            application.database,
+            book_dialogs,
+            language_provider=dialog_language_provider,
+        )
+        application.bind_user_data_portability(user_data_host)
         application.open_book_dialog = book_dialogs.open_book
         application.confirm_book_progress_recovery = book_dialogs.confirm_recover_book_progress
         application.confirm_document_replace = file_runtime.file_dialogs.confirm_discard_unsaved_pgn
