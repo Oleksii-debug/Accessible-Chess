@@ -331,6 +331,30 @@ static BOOL ac_direct_directory(const WCHAR *path) {
     return TRUE;
 }
 
+static BOOL ac_directory_guard_blocks_delete(const WCHAR *path) {
+    HANDLE probe;
+    DWORD error;
+
+    probe = CreateFileW(
+        path,
+        DELETE,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        NULL,
+        OPEN_EXISTING,
+        FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+        NULL
+    );
+    if (probe != INVALID_HANDLE_VALUE) {
+        CloseHandle(probe);
+        SetLastError(ERROR_SUCCESS);
+        return FALSE;
+    }
+
+    error = GetLastError();
+    SetLastError(error);
+    return error == ERROR_SHARING_VIOLATION;
+}
+
 static HANDLE ac_open_direct_directory_guard(const WCHAR *path) {
     HANDLE handle;
     FILE_ATTRIBUTE_TAG_INFO tag_info;
@@ -338,7 +362,7 @@ static HANDLE ac_open_direct_directory_guard(const WCHAR *path) {
 
     handle = CreateFileW(
         path,
-        FILE_READ_ATTRIBUTES,
+        FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES,
         FILE_SHARE_READ | FILE_SHARE_WRITE,
         NULL,
         OPEN_EXISTING,
@@ -687,6 +711,16 @@ void WINAPI wWinMainCRTStartup(void) {
             error == ERROR_SUCCESS ? ERROR_CANT_ACCESS_FILE : error
         );
     }
+    if (!ac_directory_guard_blocks_delete(g_root)) {
+        error = GetLastError();
+        CloseHandle(root_guard);
+        root_guard = INVALID_HANDLE_VALUE;
+        ac_fail(
+            INVALID_HANDLE_VALUE,
+            L"package-root delete-sharing guard verification",
+            error == ERROR_SUCCESS ? ERROR_INVALID_DATA : error
+        );
+    }
 
     g_instance_lock = ac_open_instance_lock();
     if (g_instance_lock == INVALID_HANDLE_VALUE) {
@@ -710,6 +744,7 @@ void WINAPI wWinMainCRTStartup(void) {
     ac_write_line(report, L"NVDA_VERIFIED: NO");
     ac_write_line(report, L"PACKAGE_DATA_OWNER: SINGLE_INSTANCE_GUARD_ACTIVE");
     ac_write_line(report, L"PACKAGE_ROOT_GUARD: DIRECT_DIRECTORY_HANDLE_READY");
+    ac_write_line(report, L"PACKAGE_ROOT_GUARD: DELETE_SHARING_BLOCK_PROVEN");
     ac_write_utf8(report, L"PACKAGE_ROOT: ");
     ac_write_line(report, g_root);
     ac_write_utf8(report, L"CORE: ");
@@ -727,7 +762,18 @@ void WINAPI wWinMainCRTStartup(void) {
             error == ERROR_SUCCESS ? ERROR_CANT_ACCESS_FILE : error
         );
     }
+    if (!ac_directory_guard_blocks_delete(g_app_dir)) {
+        error = GetLastError();
+        CloseHandle(app_guard);
+        app_guard = INVALID_HANDLE_VALUE;
+        ac_fail(
+            report,
+            L"App runtime delete-sharing guard verification",
+            error == ERROR_SUCCESS ? ERROR_INVALID_DATA : error
+        );
+    }
     ac_write_line(report, L"APP_RUNTIME_GUARD: DIRECT_DIRECTORY_HANDLE_READY");
+    ac_write_line(report, L"APP_RUNTIME_GUARD: DELETE_SHARING_BLOCK_PROVEN");
     core_guard = ac_open_direct_private_file(g_core);
     if (core_guard == INVALID_HANDLE_VALUE) {
         error = GetLastError();
@@ -744,7 +790,18 @@ void WINAPI wWinMainCRTStartup(void) {
         error = GetLastError();
         ac_fail(report, L"package-local data directory guard", error == ERROR_SUCCESS ? ERROR_CANT_ACCESS_FILE : error);
     }
+    if (!ac_directory_guard_blocks_delete(g_data)) {
+        error = GetLastError();
+        CloseHandle(data_guard);
+        data_guard = INVALID_HANDLE_VALUE;
+        ac_fail(
+            report,
+            L"package-local data delete-sharing guard verification",
+            error == ERROR_SUCCESS ? ERROR_INVALID_DATA : error
+        );
+    }
     ac_write_line(report, L"PACKAGE_DATA_GUARD: DIRECT_DIRECTORY_HANDLE_READY");
+    ac_write_line(report, L"PACKAGE_DATA_GUARD: DELETE_SHARING_BLOCK_PROVEN");
 
     if (!SetEnvironmentVariableW(L"LOCALAPPDATA", g_data)) {
         ac_fail(report, L"package-local LOCALAPPDATA binding", GetLastError());
