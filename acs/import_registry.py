@@ -275,12 +275,16 @@ class ImportRegistry:
                 raise SourceMutationError(
                     f"Read-only importer modified source bytes during inspection: {safe_source}"
                 ) from exc
+            if isinstance(exc, SourceReadCancelledError):
+                # Cooperative Cancel remains control flow after source integrity
+                # has been proven. Registration authority was restored above,
+                # so route drift must not downgrade Cancel into batch evidence
+                # and allow later sources to continue.
+                raise
             if registration_changed:
                 raise ImportRegistryError(
                     "Read-only importer registration changed during inspection"
                 ) from exc
-            if isinstance(exc, SourceReadCancelledError):
-                raise
             if batch_context:
                 raise _AdapterInspectionFailure(exc) from exc
             raise
