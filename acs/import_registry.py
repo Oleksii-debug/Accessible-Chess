@@ -84,9 +84,12 @@ def _same_source(left: SourceFingerprint, right: SourceFingerprint) -> bool:
 class ImportRegistry:
     def __init__(self) -> None:
         self._by_suffix: dict[str, ReadOnlyImporter] = {}
+        self._format_name_by_suffix: dict[str, str] = {}
 
     @staticmethod
     def _normalize_suffix(suffix: str) -> str:
+        if type(suffix) is not str:
+            raise ImportRegistryError("Importer suffix must be exact text")
         value = suffix.strip().lower()
         if not value:
             raise ImportRegistryError("Importer suffix must not be empty")
@@ -109,11 +112,13 @@ class ImportRegistry:
             )
         for suffix in suffixes:
             self._by_suffix[suffix] = importer
+            self._format_name_by_suffix[suffix] = format_name
         return ImporterRegistration(importer=importer, suffixes=suffixes)
 
     def unregister(self, importer: ReadOnlyImporter) -> None:
         for suffix in [key for key, value in self._by_suffix.items() if value is importer]:
             del self._by_suffix[suffix]
+            del self._format_name_by_suffix[suffix]
 
     def importer_for(self, path: str | Path) -> ReadOnlyImporter | None:
         return self._by_suffix.get(Path(path).suffix.lower())
@@ -144,7 +149,8 @@ class ImportRegistry:
             raise ImportRegistryError(
                 "Read-only importer returned an invalid ImportReport"
             ) from exc
-        if report.format_name != importer.format_name:
+        registered_format_name = self._format_name_by_suffix[source.suffix.lower()]
+        if report.format_name != registered_format_name:
             raise ImportRegistryError(
                 "Read-only importer report format identity does not match registered importer"
             )
