@@ -20,6 +20,14 @@ from .teacher_presentation import (
     TeacherPresentationState,
 )
 from .teaching_session import TeachingSessionState
+from .visual_board_contract import (
+    BoardOrientation as VisualBoardOrientation,
+    BoardSurface,
+    CoordinateMode,
+    VisualBoardCell,
+    VisualBoardPreferences,
+    VisualBoardSnapshot,
+)
 
 _ALLOWED_PERMISSIONS = frozenset({"locked", "select_only", "move_allowed"})
 _ALLOWED_ENGINE_VISIBILITY = frozenset(
@@ -305,6 +313,41 @@ class TeacherWebViewProjection:
         highlight_items = tuple(highlights)
         arrow_items = tuple(arrows)
         piece_items = self._piece_items(language=lang, fen=fen)
+        pieces_by_square = {
+            str(item["square"]): item for item in piece_items
+        }
+        visual_board = VisualBoardSnapshot(
+            surface=BoardSurface.TEACHER,
+            preferences=VisualBoardPreferences(
+                orientation=VisualBoardOrientation(self._teacher.orientation.value),
+                coordinate_mode=(
+                    CoordinateMode.EDGES
+                    if coordinates_visible
+                    else CoordinateMode.OFF
+                ),
+            ),
+            cells=tuple(
+                VisualBoardCell(
+                    square=file_name + rank,
+                    piece=str(
+                        pieces_by_square.get(file_name + rank, {}).get("symbol", "")
+                    ),
+                    accessible_label=(
+                        f"{file_name}{rank}, "
+                        f"{pieces_by_square[file_name + rank]['name']}"
+                        if file_name + rank in pieces_by_square
+                        else file_name + rank
+                    ),
+                )
+                for rank in "12345678"
+                for file_name in "abcdefgh"
+            ),
+            selected_square=(
+                str(pointer_item["square"])
+                if pointer_item is not None
+                else None
+            ),
+        )
         return {
             "language": lang,
             "board": {
@@ -314,6 +357,7 @@ class TeacherWebViewProjection:
                 "engine_visibility": engine_visibility,
             },
             "pieces": piece_items,
+            "visualBoard": visual_board.as_dict(),
             "pointer": pointer_item,
             "highlights": highlight_items,
             "arrows": arrow_items,
