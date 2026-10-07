@@ -1,0 +1,65 @@
+name: Section 14 Windows Application Terminal Gate
+
+on:
+  pull_request:
+    paths:
+      - 'acs/**'
+      - 'packaging/**'
+      - 'tests/**'
+      - 'docs/automation/SECTION14_CLOSURE_AUDIT.md'
+      - '.github/workflows/section14-windows-application.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: section14-windows-application-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  section14-contract:
+    name: Section 14 contract (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile Section 14 Python authorities
+        run: >
+          python -m compileall -q
+          acs/keybindings.py
+          acs/full_product_native_menu.py
+          acs/version2_release_ui.py
+          acs/settings.py
+          acs/sound_events.py
+          acs/sound_runtime.py
+          acs/clock_service.py
+          acs/version2_portable_package.py
+          acs/version2_package_preflight.py
+      - name: Run Section 14 acceptance regressions
+        run: >
+          python -m unittest -v
+          tests.test_keybindings
+          tests.test_keybindings_persistence_boundary
+          tests.test_full_product_native_menu
+          tests.test_w6_v2_language_owner_current
+          tests.test_stage1_localized_validation_current
+          tests.test_sound_runtime
+          tests.test_user_sound_pack_builder
+          tests.test_clock_service
+          tests.test_clock_engine_serial_acceptance
+          tests.test_stage1_release_composition_ui
+          tests.test_stage1_engine_play_ui
+          tests.test_stage1_complete_user_flow
+          tests.test_version2_release_accessibility_contract
+          tests.test_portable_launcher_contract
+          tests.test_portable_launcher_window_readiness
+          tests.test_version2_portable_package
+          tests.test_version2_package_preflight
+          tests.test_v2_package_required_resources
