@@ -158,6 +158,13 @@ def _batch_error_text(exc: Exception, source: Path) -> str:
                 candidate = None
             if candidate is None:
                 continue
+            # Exact built-in OSError instances can still carry arbitrary
+            # provider-owned objects in filename/filename2. Do not call
+            # os.fspath()/str() through report_safe_name() for those payloads:
+            # diagnostic rendering must never manufacture process-control or
+            # execute provider hooks after an ordinary adapter failure.
+            if type(candidate) not in (str, bytes):
+                continue
             try:
                 safe = report_safe_name(candidate)
             except Exception:
