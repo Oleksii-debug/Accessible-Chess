@@ -1,0 +1,123 @@
+name: Release Compliance Evidence
+
+on:
+  pull_request:
+    branches:
+      - work/full-product-teacher-education-reachability-20260911
+    paths:
+      - 'tools/generate_release_compliance.py'
+      - 'tests/test_release_compliance.py'
+      - 'docs/RELEASE_COMPLIANCE_EVIDENCE.md'
+      - '.github/workflows/release-compliance-evidence.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CURRENT_PRODUCT_BASE: 1612cc5788d553b7ebafa37decfab214e75cd1b6
+
+concurrency:
+  group: release-compliance-evidence-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deterministic-evidence:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Set up exact Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Prove exact checkout and bounded PR scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected='${{ github.event.pull_request.head.sha || github.sha }}'
+          test "$(git rev-parse HEAD)" = "$expected"
+
+          if [[ '${{ github.event_name }}' == 'pull_request' ]]; then
+            test '${{ github.event.pull_request.base.ref }}' = 'work/full-product-teacher-education-reachability-20260911'
+            base="$CURRENT_PRODUCT_BASE"
+            git cat-file -e "$base^{commit}"
+            test "$(git merge-base "$base" HEAD)" = "$base"
+            git diff --check "$base...HEAD"
+            mapfile -t actual < <(git diff --name-only "$base...HEAD" | LC_ALL=C sort)
+            expected_paths=(
+              '.github/workflows/release-compliance-evidence.yml'
+              'docs/RELEASE_COMPLIANCE_EVIDENCE.md'
+              'tests/test_release_compliance.py'
+              'tools/generate_release_compliance.py'
+            )
+            if [[ "${actual[*]}" != "${expected_paths[*]}" ]]; then
+              printf 'Unexpected release-compliance scope.\nExpected:\n' >&2
+              printf '  %s\n' "${expected_paths[@]}" >&2
+              printf 'Actual:\n' >&2
+              printf '  %s\n' "${actual[@]}" >&2
+              exit 1
+            fi
+          else
+            git diff --check HEAD^
+          fi
+
+      - name: Compile and run focused regressions
+        run: >-
+          python -m py_compile
+          tools/generate_release_compliance.py
+          tests/test_release_compliance.py
+      - run: python -m unittest -v tests.test_release_compliance
+
+      - name: Generate twice, compare exact bytes, and verify
+        shell: bash
+        run: |
+          set -euo pipefail
+          commit="$(git rev-parse HEAD)"
+          created="$(git show -s --format=%cI HEAD)"
+          first="$RUNNER_TEMP/release-evidence-a"
+          second="$RUNNER_TEMP/release-evidence-b"
+          rm -rf "$first" "$second"
+
+          python tools/generate_release_compliance.py generate             --root .             --source-commit "$commit"             --created "$created"             --output-dir "$first"
+          python tools/generate_release_compliance.py generate             --root .             --source-commit "$commit"             --created "$created"             --output-dir "$second"
+
+          python - "$first" "$second" <<'PY'
+          from pathlib import Path
+          import hashlib
+          import sys
+
+          left = Path(sys.argv[1])
+          right = Path(sys.argv[2])
+          names = (
+              "accessible-chess.spdx.json",
+              "accessible-chess.provenance.json",
+              "accessible-chess.evidence.sha256",
+          )
+          for name in names:
+              a = (left / name).read_bytes()
+              b = (right / name).read_bytes()
+              if a != b:
+                  raise SystemExit(f"nondeterministic evidence: {name}")
+              print(f"{name} sha256={hashlib.sha256(a).hexdigest()}")
+          print("RELEASE_COMPLIANCE_DETERMINISM=PASS")
+          PY
+
+          python tools/generate_release_compliance.py verify             --root .             --source-commit "$commit"             --created "$created"             --evidence-dir "$first"
+
+      - name: Prove generator leaves source tree clean
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -z "$(git status --porcelain)"
+          echo 'RELEASE_COMPLIANCE_SOURCE_CLEAN=PASS'
