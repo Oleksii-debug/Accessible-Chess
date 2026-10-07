@@ -8,6 +8,7 @@ from acs.stage1_release_ui import (
     Stage1ReleaseAccessibleChessAPI,
     complete_user_flow_diagnostic,
 )
+from acs.settings import Settings
 
 
 class Stage1CompleteUserFlowTests(unittest.TestCase):
@@ -15,7 +16,8 @@ class Stage1CompleteUserFlowTests(unittest.TestCase):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         return Stage1ReleaseAccessibleChessAPI(
-            keymap_path=Path(temp.name) / "keymap.json"
+            keymap_path=Path(temp.name) / "keymap.json",
+            settings=Settings(Path(temp.name) / "settings.json"),
         )
 
     def test_complete_stage1_sequence_is_coherent(self):
