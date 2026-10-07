@@ -299,6 +299,24 @@ class ProcessControlImporter:
         raise KeyboardInterrupt()
 
 
+class MutatingProcessControlImporter:
+    format_name = 'Mutating process control'
+    suffixes = ('.interrupt-mutate',)
+
+    def inspect(self, path: Path) -> ImportReport:
+        path.write_bytes(path.read_bytes() + b' changed-before-interrupt')
+        raise KeyboardInterrupt()
+
+
+class DeletingProcessControlImporter:
+    format_name = 'Deleting process control'
+    suffixes = ('.interrupt-delete',)
+
+    def inspect(self, path: Path) -> ImportReport:
+        path.unlink()
+        raise SystemExit(2)
+
+
 class LowLevelMutatedRecordImporter:
     format_name = 'Low-level mutated exact report'
     suffixes = ('.mutated-record',)
@@ -1094,6 +1112,33 @@ class ImportRegistryTests(unittest.TestCase):
             source.write_bytes(b'interrupt-source')
             with self.assertRaises(KeyboardInterrupt):
                 registry.inspect_batch([source])
+            self.assertEqual(source.read_bytes(), b'interrupt-source')
+
+    def test_process_control_cannot_hide_source_mutation(self):
+        registry = ImportRegistry()
+        registry.register(MutatingProcessControlImporter())
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / 'stop.interrupt-mutate'
+            source.write_bytes(b'original')
+
+            with self.assertRaises(SourceMutationError) as ctx:
+                registry.inspect_batch([source])
+
+            self.assertIn('modified source bytes', str(ctx.exception))
+            self.assertEqual(source.read_bytes(), b'original changed-before-interrupt')
+
+    def test_process_control_cannot_hide_deleted_source(self):
+        registry = ImportRegistry()
+        registry.register(DeletingProcessControlImporter())
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / 'stop.interrupt-delete'
+            source.write_bytes(b'original')
+
+            with self.assertRaises(SourceMutationError) as ctx:
+                registry.inspect(source)
+
+            self.assertIn('unverifiable', str(ctx.exception))
+            self.assertFalse(source.exists())
 
     def test_process_control_restores_cross_suffix_route_before_propagation(self):
         registry = ImportRegistry()
