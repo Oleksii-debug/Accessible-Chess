@@ -56,6 +56,12 @@ class CanonicalFormatCapabilityContractTests(unittest.TestCase):
 
     def test_early_format_contracts_do_not_overclaim_round_trip(self) -> None:
         fen = capability_by_id("fen")
+        self.assertIn("acs.position_editor.PositionState", fen.authority)
+        self.assertNotIn("position_text.PositionState", fen.authority)
+        self.assertIn(
+            "acs.position_editor.PositionState",
+            capability_by_id("epd").authority,
+        )
         self.assertEqual(
             (fen.read, fen.edit, fen.write, fen.round_trip),
             (
