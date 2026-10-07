@@ -75,7 +75,7 @@ class EpdFormatTests(unittest.TestCase):
     def test_invalid_and_duplicate_counter_operations_fail_closed(self):
         with self.assertRaisesRegex(EpdParseError, "duplicate EPD hmvc"):
             parse_epd(START_EPD + " hmvc 1; hmvc 2;")
-        with self.assertRaisesRegex(EpdParseError, "non-negative ASCII integer"):
+        with self.assertRaisesRegex(EpdParseError, "one line of printable ASCII text"):
             parse_epd(START_EPD + " hmvc ١;")
         with self.assertRaisesRegex(EpdParseError, "fmvn must be at least 1"):
             parse_epd(START_EPD + " fmvn 0;")
