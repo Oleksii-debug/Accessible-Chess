@@ -94,6 +94,8 @@ class Board:
         canonical_castling=''.join(ch for ch in 'KQkq' if ch in castling)
         if castling != canonical_castling: raise ValueError('FEN: права рокіровки мають порядок KQkq')
         ep=None if parts[3]=='-' else parse_sq(parts[3])
+        if ep is not None and sq_name(ep) != parts[3]:
+            raise ValueError('FEN: поле en passant має бути канонічним нижнім регістром')
         if any(not text.isascii() or not text.isdecimal() for text in parts[4:6]):
             raise ValueError('FEN: лічильники мають бути невід’ємними десятковими числами')
         try:
