@@ -933,18 +933,16 @@ class PortableTreeTests(unittest.TestCase):
             _portable_fixture(root)
             manifest_path = root / MANIFEST_NAME
             original_payload = manifest_path.read_bytes()
-            replacement_value = json.loads(original_payload.decode("utf-8"))
-            replacement_value["integration_sha"] = "b" * 40
-            replacement_payload = (
-                json.dumps(
-                    replacement_value,
-                    ensure_ascii=False,
-                    indent=2,
-                    sort_keys=True,
-                )
-                + "\n"
-            ).encode("utf-8")
+            original_marker = f'"integration_sha": "{_SHA}"'.encode("utf-8")
+            replacement_marker = b'"integration_sha": "' + (b"b" * 40) + b'"'
+            self.assertIn(original_marker, original_payload)
+            replacement_payload = original_payload.replace(
+                original_marker,
+                replacement_marker,
+                1,
+            )
             self.assertEqual(len(original_payload), len(replacement_payload))
+            self.assertNotEqual(original_payload, replacement_payload)
 
             replacement_digest = hashlib.sha256(replacement_payload).hexdigest()
             checksum_path = root / CHECKSUMS_NAME
@@ -1568,7 +1566,7 @@ class PortableTreeTests(unittest.TestCase):
             readback_mtime_ns = None
             injected = False
 
-            def safe_info_with_mutation(path, *, label, directory):
+            def safe_info_with_mutation(path, *, label, directory=None):
                 nonlocal readback_mtime_ns, injected
                 if label == "portable ZIP archive readback":
                     if readback_mtime_ns is None:

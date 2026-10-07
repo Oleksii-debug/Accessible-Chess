@@ -5,7 +5,7 @@ import unittest
 from unittest.mock import patch
 
 from acs.input_limits import MAX_FEN_CHARS
-from acs.webapp import AccessibleChessAPI
+from acs.webapp import AccessibleChessAPI, parse_sq as canonical_parse_sq
 
 
 CYRILLIC = re.compile(r"[А-Яа-яІіЇїЄє]")
@@ -22,7 +22,7 @@ class Stage1LocalizedValidationCurrentTests(unittest.TestCase):
         result = api.make_move("definitely-not-a-chess-move")
 
         self.assertFalse(result["ok"])
-        self.assertEqual(result["announcement"], "Move is unrecognized or illegal.")
+        self.assertEqual(result["announcement"], api._t("move_invalid"))
         self.assertEnglishOnly(result["announcement"])
         self.assertEqual(api.get_state()["fen"], before["fen"])
         self.assertEqual(api.sans, [])
@@ -86,7 +86,7 @@ class Stage1LocalizedValidationCurrentTests(unittest.TestCase):
     def test_unexpected_internal_exceptions_do_not_enter_live_region_text(self) -> None:
         api = AccessibleChessAPI(lang="en")
 
-        with patch("acs.webapp.Board", side_effect=RuntimeError("private FEN implementation detail")):
+        with patch("acs.webapp.Board.__init__", side_effect=RuntimeError("private FEN implementation detail")):
             fen_result = api.set_fen("8/8/8/8/8/8/8/K6k w - - 0 1")
         self.assertFalse(fen_result["ok"])
         self.assertEqual(fen_result["announcement"], "Invalid FEN.")
@@ -101,7 +101,16 @@ class Stage1LocalizedValidationCurrentTests(unittest.TestCase):
         )
         self.assertNotIn("private", move_result["announcement"])
 
-        with patch("acs.webapp.parse_sq", side_effect=RuntimeError("private square implementation detail")):
+        parse_calls = 0
+
+        def fail_first_parse(value):
+            nonlocal parse_calls
+            parse_calls += 1
+            if parse_calls == 1:
+                raise RuntimeError("private square implementation detail")
+            return canonical_parse_sq(value)
+
+        with patch("acs.webapp.parse_sq", side_effect=fail_first_parse):
             square_result = api.activate_square("e2")
         self.assertFalse(square_result["ok"])
         self.assertEqual(square_result["announcement"], "Invalid square.")

@@ -514,6 +514,9 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
                 started = api.start_engine_game("white", 5, 1, 0)
                 self.assertTrue(started["ok"], started)
 
+                # Startup sound intentionally suppresses the immediate tick.
+                # This assertion targets steady-state tick policy.
+                api._clock_sound_not_before = 0.0
                 first = api.clock_sound_pulse()
                 self.assertTrue(first["ok"], first)
                 self.assertTrue(first["played"], first)
@@ -617,8 +620,8 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
         self.assertIn("clockSoundPulseInFlight", text)
         self.assertIn("sound-low-time-policy", text)
         self.assertIn("sound-low-time-seconds", text)
-        self.assertIn("a.set_low_time_policy", text)
-        self.assertIn("a.set_low_time_seconds", text)
+        self.assertIn("'set_low_time_policy'", text)
+        self.assertIn("'set_low_time_seconds'", text)
 
     def test_engine_resignation_emits_one_game_end_sound(self) -> None:
         playback = _Playback()
@@ -651,7 +654,11 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
         self.assertNotIn("row.replaceWith", text)
         self.assertIn("el('move-submit').addEventListener('click',submitMove)", self.html)
         self.assertIn("el('move-input').addEventListener('keydown'", self.html)
-        self.assertNotIn("document.addEventListener('keydown'", text)
+        # Chromium Ctrl+N is guarded once at document scope before async
+        # keymap resolution; editable controls explicitly keep native input.
+        self.assertIn("document.addEventListener('keydown'", text)
+        self.assertIn("key === 'n'", text)
+        self.assertIn("if (editing) return;", text)
         self.assertNotIn("window.addEventListener('keydown'", text)
 
     def test_move_edit_runtime_exposure_contract_targets_webview_accessibility_mechanism(self) -> None:
@@ -696,7 +703,11 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
         self.assertIn("input.addEventListener('focusin', rememberMoveInputFocus)", text)
         self.assertIn("stage1MoveFocusPolicyReady", text)
         self.assertLess(text.index("installMoveFocusPolicy();"), text.index("installMoveEntryIdentity();"))
-        self.assertNotIn("document.addEventListener('keydown'", text)
+        # Chromium Ctrl+N is guarded once at document scope before async
+        # keymap resolution; editable controls explicitly keep native input.
+        self.assertIn("document.addEventListener('keydown'", text)
+        self.assertIn("key === 'n'", text)
+        self.assertIn("if (editing) return;", text)
         self.assertNotIn("window.addEventListener('keydown'", text)
 
     def test_board_focus_survives_state_driven_grid_replacement_without_global_key_hijack(self) -> None:
@@ -715,7 +726,11 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
         self.assertIn("stage1BoardFocusContinuityReady", text)
         self.assertIn("stage1BoardUiaSemanticsReady", text)
         self.assertIn("installBoardFocusContinuity();", text)
-        self.assertNotIn("document.addEventListener('keydown'", text)
+        # Chromium Ctrl+N is guarded once at document scope before async
+        # keymap resolution; editable controls explicitly keep native input.
+        self.assertIn("document.addEventListener('keydown'", text)
+        self.assertIn("key === 'n'", text)
+        self.assertIn("if (editing) return;", text)
         self.assertNotIn("window.addEventListener('keydown'", text)
 
     def test_new_game_visual_sequence_is_visual_only_interruptible_and_sound_timed(self) -> None:
@@ -785,13 +800,13 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
         ):
             self.assertIn(element_id, text)
         self.assertIn("a.get_sound_settings", text)
-        self.assertIn("a.set_sound_enabled", text)
-        self.assertIn("a.set_newgame_animation_enabled", text)
-        self.assertIn("a.set_sound_volume", text)
-        self.assertIn("a.set_clock_sound_policy", text)
-        self.assertIn("a.set_clock_sound_last_seconds", text)
-        self.assertIn("a.set_low_time_policy", text)
-        self.assertIn("a.set_low_time_seconds", text)
+        self.assertIn("'set_sound_enabled'", text)
+        self.assertIn("'set_newgame_animation_enabled'", text)
+        self.assertIn("'set_sound_volume'", text)
+        self.assertIn("'set_clock_sound_policy'", text)
+        self.assertIn("'set_clock_sound_last_seconds'", text)
+        self.assertIn("'set_low_time_policy'", text)
+        self.assertIn("'set_low_time_seconds'", text)
         self.assertIn("a.set_move_error_announcements", text)
         self.assertNotIn("sound-preview", text)
         self.assertNotIn("a.preview_sound", text)

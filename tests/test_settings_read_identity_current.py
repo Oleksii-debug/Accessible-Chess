@@ -126,6 +126,26 @@ class SettingsReadIdentityCurrentTests(unittest.TestCase):
             self.assertEqual(DEFAULTS, settings.data)
             self.assertIn("too large", settings.warning or "")
 
+    @unittest.skipUnless(os.name == "nt", "Windows-specific atomic replace regression")
+    def test_repeated_atomic_settings_writes_remain_readable_on_windows(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "settings.json"
+            settings = Settings(path)
+
+            settings.set("volume", 35)
+            settings.set("newgame_animation", False)
+            settings.set("tick_policy", "off")
+            settings.set("low_time_policy", "both")
+            settings.set("language", "en")
+
+            fresh = Settings(path)
+            self.assertIsNone(fresh.warning)
+            self.assertEqual(35, fresh.get("volume"))
+            self.assertFalse(fresh.get("newgame_animation"))
+            self.assertEqual("off", fresh.get("tick_policy"))
+            self.assertEqual("both", fresh.get("low_time_policy"))
+            self.assertEqual("en", fresh.get("language"))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import stat
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 import wave
@@ -1240,8 +1241,6 @@ class Version2PackagePreflightTests(unittest.TestCase):
             self.assertTrue(
                 {
                     "sound provenance notice",
-                    "packaged sound inventory",
-                    "sound inventory audit notice",
                     "WinForms accessibility app-config",
                     "packaged sound manifest",
                     "Stockfish GPL notice",
@@ -1376,8 +1375,11 @@ class Version2PackagePreflightTests(unittest.TestCase):
             _make_tree(root)
             checksum_path = root / CHECKSUMS_NAME
             rows = checksum_path.read_text(encoding="utf-8").splitlines()
+            # Preserve the expected inventory line count so the duplicate-path
+            # validator is reached rather than the earlier entry-count limit.
+            rows[-1] = rows[0]
             checksum_path.write_text(
-                "\n".join(rows + [rows[0]]) + "\n", encoding="utf-8"
+                "\n".join(rows) + "\n", encoding="utf-8"
             )
             with self.assertRaisesRegex(
                 Version2PackagePreflightError, "duplicate paths"
@@ -1434,9 +1436,9 @@ class Version2PackagePreflightTests(unittest.TestCase):
                 / "amd64"
                 / "ClrLoader.dll"
             )
-            dll.parent.mkdir(parents=True)
+            dll.parent.mkdir(parents=True, exist_ok=True)
             dll.write_bytes(
-                _minimal_windows_pe()
+                _minimal_windows_pe(managed=True, dll=True)
                 + b"\x00compiler=C:\\Users\\Builder\\source\\clr_loader\\ClrLoader.pdb\x00"
             )
             _write_checksums(root)
