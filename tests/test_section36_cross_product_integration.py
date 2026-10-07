@@ -5,6 +5,7 @@ from dataclasses import replace
 import unittest
 
 from acs.agent_tools import ToolCall, ToolExecutor
+from acs.chess_agent_tools import ChessAgentToolRegistry
 from acs.chesscore import Board
 from acs.interaction_contracts import PresentationState
 from acs.media_application import MediaApplicationService
@@ -320,24 +321,27 @@ class Section36CompositionTests(unittest.TestCase):
             tactile=tactile,
         )
         executor = ToolExecutor()
-
-        specs = integration.register(executor)
-        ids = [spec.tool_id for spec in specs]
+        ChessAgentToolRegistry(
+            executor=executor,
+            board_provider=Board,
+            board_commands_provider=lambda: None,
+            late_integration=integration,
+        ).register_all()
+        ids = [spec.tool_id for spec in executor.specs()]
+        late_ids = {
+            "account.status",
+            "workspace.status",
+            "classroom.teacher_assistant.status",
+            "classroom.teacher_assistant.apply",
+            "tactile.status",
+            "tactile.refresh_media",
+            "tactile.refresh_classroom",
+            "tactile.refresh_remote",
+        }
 
         self.assertEqual(len(ids), len(set(ids)))
-        self.assertEqual(
-            set(ids),
-            {
-                "account.status",
-                "workspace.status",
-                "classroom.teacher_assistant.status",
-                "classroom.teacher_assistant.apply",
-                "tactile.status",
-                "tactile.refresh_media",
-                "tactile.refresh_classroom",
-                "tactile.refresh_remote",
-            },
-        )
+        self.assertTrue(late_ids.issubset(ids))
+        self.assertIn("board.current", ids)
 
 
 if __name__ == "__main__":
