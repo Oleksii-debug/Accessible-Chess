@@ -45,6 +45,25 @@ class MutatingImporter:
         return ImportReport(source=before, format_name=self.format_name)
 
 
+class MutatingThenErrorImporter:
+    format_name = 'Mutating then failing fake'
+    suffixes = ('.muterr',)
+
+    def inspect(self, path: Path) -> ImportReport:
+        path.write_bytes(path.read_bytes() + b' changed-before-error')
+        raise RuntimeError('decoder failed after source mutation')
+
+
+class DeletingImporter:
+    format_name = 'Deleting fake'
+    suffixes = ('.delete',)
+
+    def inspect(self, path: Path) -> ImportReport:
+        before = fingerprint(path)
+        path.unlink()
+        return ImportReport(source=before, format_name=self.format_name)
+
+
 class FalseProvenanceImporter:
     format_name = 'False provenance fake'
     suffixes = ('.lie',)
@@ -304,6 +323,52 @@ class ImportRegistryTests(unittest.TestCase):
             with self.assertRaises(SourceMutationError):
                 registry.inspect(path)
             self.assertEqual(path.read_bytes(), b'original changed')
+
+    def test_registry_detects_mutation_even_when_adapter_then_raises(self):
+        registry = ImportRegistry()
+        registry.register(MutatingThenErrorImporter())
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / 'sample.muterr'
+            path.write_bytes(b'original')
+
+            with self.assertRaises(SourceMutationError) as ctx:
+                registry.inspect(path)
+
+            self.assertIn('modified source bytes', str(ctx.exception))
+            self.assertEqual(path.read_bytes(), b'original changed-before-error')
+
+    def test_batch_reports_mutation_before_adapter_error_and_continues(self):
+        registry = ImportRegistry()
+        registry.register(MutatingThenErrorImporter())
+        registry.register(FakeImporter())
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            mutating = root / 'bad.muterr'
+            valid = root / 'good.foo'
+            mutating.write_bytes(b'original')
+            valid.write_bytes(b'valid-source')
+
+            batch = registry.inspect_batch([mutating, valid])
+
+            self.assertEqual([item.ok for item in batch.items], [False, True])
+            self.assertIn('modified source bytes', batch.items[0].error)
+            self.assertNotIn('decoder failed after source mutation', batch.items[0].error)
+            self.assertEqual(len(batch.reports), 1)
+            self.assertEqual(batch.reports[0].format_name, FakeImporter.format_name)
+            self.assertEqual(valid.read_bytes(), b'valid-source')
+
+    def test_registry_fails_closed_when_adapter_deletes_source_before_return(self):
+        registry = ImportRegistry()
+        registry.register(DeletingImporter())
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / 'sample.delete'
+            path.write_bytes(b'original')
+
+            with self.assertRaises(SourceMutationError) as ctx:
+                registry.inspect(path)
+
+            self.assertIn('unverifiable', str(ctx.exception))
+            self.assertFalse(path.exists())
 
     def test_registry_rejects_report_for_bytes_other_than_inspected_source(self):
         registry = ImportRegistry()

@@ -132,8 +132,31 @@ class ImportRegistry:
             )
 
         before = fingerprint(source)
-        report = importer.inspect(source)
-        after = fingerprint(source)
+        try:
+            report = importer.inspect(source)
+        except Exception as exc:
+            # Ordinary adapter failures must not bypass the read-only source
+            # invariant. Re-verify the source before preserving the original
+            # adapter exception. Process-control BaseException values are not
+            # caught here and remain authoritative.
+            try:
+                after = fingerprint(source)
+            except Exception as verification_exc:
+                raise SourceMutationError(
+                    f"Read-only importer left source unverifiable after inspection: {source}"
+                ) from verification_exc
+            if not _same_source(before, after):
+                raise SourceMutationError(
+                    f"Read-only importer modified source bytes during inspection: {source}"
+                ) from exc
+            raise
+
+        try:
+            after = fingerprint(source)
+        except Exception as exc:
+            raise SourceMutationError(
+                f"Read-only importer left source unverifiable after inspection: {source}"
+            ) from exc
 
         if not _same_source(before, after):
             raise SourceMutationError(

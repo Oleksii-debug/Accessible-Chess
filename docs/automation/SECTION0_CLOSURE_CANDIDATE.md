@@ -76,6 +76,8 @@ The composed stack now requires:
 - explicit loss/damage/warning evidence for non-FULL records;
 - repeatable validation of mutable report collections and exact record values before observation/publication;
 - source-byte and provenance stability through ImportRegistry;
+- source immutability is re-verified after ordinary adapter exceptions, so a source-changing adapter cannot hide mutation behind its decoder error;
+- post-adapter source verification that becomes impossible (for example because the adapter deleted/replaced the source) fails closed as SourceMutationError;
 - registration-time importer format identity to match returned reports exactly;
 - replace/unregister routing and identity maps to remain synchronized;
 - format-identity rejection to be source-preserving and batch-recoverable;
