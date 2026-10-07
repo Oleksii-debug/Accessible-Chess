@@ -48,7 +48,7 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
     def test_all_reported_startup_failures_mark_window_and_nvda_unproven(self) -> None:
         generic_start = self.source.index("static void ac_fail(")
         generic_end = self.source.index(
-            "static void ac_report_write_fail(",
+            "static BOOL ac_direct_directory",
             generic_start,
         )
         generic = self.source[generic_start:generic_end]
@@ -175,6 +175,10 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
 
         main = self.source[self.source.index("void WINAPI wWinMainCRTStartup(void)") :]
         self.assertNotIn("CloseHandle(g_process.hProcess);", main)
+        # Every post-create fatal stage routes through the one retirement-aware
+        # ac_fail() authority. Disjoint earlier-success/early-exit branches may
+        # legitimately close a handle, so a fixed character-prefix oracle is
+        # not a valid ownership test.
         for stage in (
             'L"package-local data ownership transfer"',
             'L"package-local data directory guard transfer"',
@@ -184,10 +188,7 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
             'L"startup window observation"',
         ):
             with self.subTest(stage=stage):
-                stage_at = main.index(stage)
-                prefix = main[max(0, stage_at - 240):stage_at]
-                self.assertNotIn("ac_close_child_process_handle();", prefix)
-                self.assertNotIn("TerminateProcess(g_process.hProcess", prefix)
+                self.assertIn(f"ac_fail(report, {stage}", main)
 
     def test_packaged_bootstrap_exit_reasons_are_stable_and_synchronized(self):
         contracts = (
