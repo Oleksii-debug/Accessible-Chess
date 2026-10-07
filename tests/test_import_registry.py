@@ -540,6 +540,20 @@ class ImportRegistryTests(unittest.TestCase):
         with self.assertRaisesRegex(ImportRegistryError, "too many suffixes"):
             ImportRegistry().register(TooManyImporter())
 
+    def test_registration_format_name_is_bounded_before_whitespace_normalization(self):
+        class OversizedWhitespaceFormatNameImporter:
+            format_name = " " * 257
+            suffixes = (".oversized-format-name",)
+
+            def inspect(self, path: Path) -> ImportReport:
+                raise AssertionError("inspection must not run")
+
+        registry = ImportRegistry()
+        with self.assertRaisesRegex(ImportRegistryError, "format_name is too long"):
+            registry.register(OversizedWhitespaceFormatNameImporter())
+
+        self.assertEqual(registry.registered_suffixes, ())
+
     def test_registration_replace_flag_rejects_active_boolean_coercion(self):
         class ActiveReplace:
             def __bool__(self):
