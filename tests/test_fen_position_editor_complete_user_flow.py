@@ -2,6 +2,7 @@ import unittest
 from pathlib import Path
 
 from acs.input_limits import MAX_FEN_CHARS, MAX_SQUARE_TEXT_CHARS
+from acs.position_editor import PositionState, PositionValidationError
 from acs.webapp import AccessibleChessAPI
 
 
@@ -187,6 +188,104 @@ class FenPositionEditorCompleteUserFlowTests(unittest.TestCase):
         self.assertIn("el('position-piece-apply').click()", html)
         self.assertIn("el('position-metadata-apply').click()", html)
 
+
+    def test_direct_position_metadata_normalization_is_bounded_and_canonical(self):
+        position = PositionState.from_fen(
+            "4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 2"
+        )
+        changed = position.with_en_passant(" D6 ")
+        self.assertEqual(changed.en_passant, "d6")
+
+        with self.assertRaisesRegex(PositionValidationError, "too long"):
+            position.with_en_passant(" " * (MAX_SQUARE_TEXT_CHARS + 1))
+        with self.assertRaisesRegex(PositionValidationError, "too long"):
+            position.with_castling("K" * 257)
+
+        with self.assertRaisesRegex(PositionValidationError, "too long"):
+            PositionState(
+                position.pieces,
+                turn="w",
+                castling="K" * 257,
+                en_passant="-",
+            )
+
+    def test_root_editor_mutations_are_blocked_while_reviewing_history(self):
+        api = AccessibleChessAPI(lang="en")
+        self.assertTrue(api.make_move("e4")["ok"])
+        live_fen = api.board.fen()
+        live_tree = api.review_history.export_tree()
+        self.assertTrue(api.review_previous()["ok"])
+        self.assertFalse(api.get_state()["atHistoryEnd"])
+
+        operations = (
+            api.clear_board,
+            lambda: api.set_fen("4k3/8/8/8/8/8/8/4K3 w - - 0 1"),
+            lambda: api.set_position_text("W: K e1 B: K e8", "w"),
+        )
+        for operation in operations:
+            with self.subTest(operation=operation):
+                result = operation()
+                self.assertFalse(result["ok"])
+                self.assertIn("Return to the end of history", result["announcement"])
+                self.assertEqual(api.board.fen(), live_fen)
+                self.assertEqual(api.review_history.export_tree(), live_tree)
+
+    def test_side_to_move_action_clears_stale_en_passant_and_preserves_position(self):
+        api = AccessibleChessAPI(lang="en")
+        self.assertTrue(
+            api.set_fen("4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 2")["ok"]
+        )
+        before_pieces = api.board.fen().split()[0]
+
+        changed = api.set_turn("b")
+
+        self.assertTrue(changed["ok"])
+        fields = api.board.fen().split()
+        self.assertEqual(fields[0], before_pieces)
+        self.assertEqual(fields[1:], ["b", "-", "-", "0", "2"])
+        self.assertTrue(api.get_state()["positionComplete"])
+
+    def test_move_entry_side_command_uses_same_en_passant_safe_transition(self):
+        api = AccessibleChessAPI(lang="en")
+        self.assertTrue(
+            api.set_fen("4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 2")["ok"]
+        )
+
+        changed = api.make_move("b")
+
+        self.assertTrue(changed["ok"])
+        self.assertEqual(
+            api.board.fen(),
+            "4k3/8/8/3pP3/8/8/8/4K3 b - - 0 2",
+        )
+        self.assertTrue(api.get_state()["positionComplete"])
+
+    def test_rejected_fen_and_metadata_inputs_remain_available_for_keyboard_correction(self):
+        html = (Path(__file__).resolve().parents[1] / "web" / "index.html").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("function captureRejectedEditorInput(name)", html)
+        self.assertIn("function restoreRejectedEditorInput(name,snapshot)", html)
+        self.assertIn("if(r&&!r.ok)restoreRejectedEditorInput(name,rejectedEditorInput)", html)
+        self.assertIn("if(name==='set_fen')return{fen:el('fen-input').value}", html)
+        self.assertIn("if(name==='edit_position_metadata')return{turn:el('position-turn').value", html)
+
+    def test_board_render_restores_keyboard_focus_after_api_state_updates(self):
+        html = (Path(__file__).resolve().parents[1] / "web" / "index.html").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("restoreBoardFocus=grid.contains(document.activeElement)", html)
+        self.assertIn("if(restoreBoardFocus){const next=grid.querySelectorAll('[role=gridcell]')[boardIndex];if(next)next.focus()}", html)
+
+    def test_history_review_disables_fen_and_move_controls_in_current_webview(self):
+        html = (Path(__file__).resolve().parents[1] / "web" / "index.html").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            "['fen-input','fen-load','move-input','move-submit']",
+            html,
+        )
+        self.assertIn("n.disabled=!!locked||reviewLocked", html)
 
 if __name__ == "__main__":
     unittest.main()
