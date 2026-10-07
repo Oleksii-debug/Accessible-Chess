@@ -383,3 +383,21 @@ fresh terminal exact-head qualification.
 Section 0 remains `BLOCKED_EXTERNAL_CI`; Section 1 remains
 `BLOCKED_ON_SECTION0_AND_CI`. Neither Section is DONE.
 
+
+
+### Ordinary gameplay null-move containment
+
+Canonical `Board.push_text("--")` remains available as the reviewed
+format/analysis null-move primitive required by existing format integration.
+Section 1 ordinary gameplay no longer exposes that pseudo-move through
+`AccessibleChessAPI.make_move`.
+
+The application transaction boundary normalizes the incoming move with the
+canonical SAN normalizer and rejects a value that resolves to `--` before
+cloning or publishing Board/history state. Focused UI regression coverage proves
+both sides of the boundary: direct reviewed Board null-move behavior remains
+available, while ordinary move entry (including annotation-normalized `--!`)
+fails without changing FEN, GameTree/history, SAN history or side metadata.
+
+This preserves one chess authority and prevents a format-only transition from
+becoming a user-visible legal move.

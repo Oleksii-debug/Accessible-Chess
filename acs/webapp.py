@@ -938,6 +938,13 @@ class AccessibleChessAPI:
         This is the single Board/history publication path reused by manual and
         engine-game moves.
         """
+        # The canonical Board retains "--" as a format/analysis null-move
+        # primitive, but ordinary gameplay must publish only legal chess moves.
+        # Keep that pseudo-move behind its format boundary instead of letting
+        # typed move entry advance clocks/history without a legal move.
+        if Board.norm_san(text) == "--":
+            raise ValueError("null move is not an ordinary gameplay move")
+
         side = self.board.turn
         try:
             candidate_board = copy.deepcopy(self.board)

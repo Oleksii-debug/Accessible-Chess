@@ -151,6 +151,28 @@ class UIAnalysisWebAppTests(unittest.TestCase):
         self.assertEqual(api.board.fen(), before)
         self.assertEqual(api.sans, [])
 
+    def test_ordinary_move_entry_rejects_format_null_move_without_mutation(self):
+        # Null moves remain available to reviewed format/analysis code.
+        format_board = Board()
+        self.assertEqual(format_board.push_text("--"), "--")
+        self.assertEqual(format_board.turn, "b")
+
+        # The ordinary gameplay boundary must not expose that pseudo-move as a
+        # legal user move.
+        api, _fake = self.make_api()
+        before_fen = api.board.fen()
+        before_tree = api.review_history.export_tree()
+        before_sans = list(api.sans)
+        before_sides = list(api.move_sides)
+
+        result = api.make_move("--!")
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(api.board.fen(), before_fen)
+        self.assertEqual(api.review_history.export_tree(), before_tree)
+        self.assertEqual(api.sans, before_sans)
+        self.assertEqual(api.move_sides, before_sides)
+
     def test_composed_move_entry_history_failure_cannot_partially_publish_move(self):
         api, _fake = self.make_api()
         before_fen = api.board.fen()
