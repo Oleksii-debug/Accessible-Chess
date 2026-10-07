@@ -1688,7 +1688,7 @@ class ClassroomChatServerSQLiteStore:
                     key = (room, message_id)
                     if key not in message_keys:
                         raise ClassroomChatServerError(
-                            "chat state references unknown message"
+                            "moderation state references unknown message"
                         )
 
                 rooms = {
