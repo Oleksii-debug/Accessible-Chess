@@ -93,7 +93,8 @@ class ImportRegistry:
         return value if value.startswith(".") else "." + value
 
     def register(self, importer: ReadOnlyImporter, *, replace: bool = False) -> ImporterRegistration:
-        if type(importer.format_name) is not str or not importer.format_name.strip():
+        format_name = importer.format_name
+        if type(format_name) is not str or not format_name.strip():
             raise ImportRegistryError("Importer format_name must be non-empty exact text")
         suffixes = tuple(self._normalize_suffix(item) for item in importer.suffixes)
         if not suffixes:
