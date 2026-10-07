@@ -238,7 +238,14 @@ class Board:
     def legal_moves(self):
         c=self.turn
         out=[]
+        enemy_king='k' if c=='w' else 'K'
         for m in self.pseudo_moves(c):
+            # Attack maps may target the opposing king, but a canonical legal
+            # Move never captures it.  Malformed/historically impossible FEN
+            # must therefore fail closed here instead of publishing a
+            # king-capture Move that would remove the rules authority's king.
+            if self.board[m.to] == enemy_king:
+                continue
             b=self.clone(); b._apply(m)
             if not b.in_check(c): out.append(m)
         return out
