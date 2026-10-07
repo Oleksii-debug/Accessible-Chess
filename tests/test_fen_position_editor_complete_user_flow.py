@@ -206,7 +206,7 @@ class FenPositionEditorCompleteUserFlowTests(unittest.TestCase):
         self.assertIn("Invalid position", moved["announcement"])
         self.assertEqual(api.get_state()["fen"], before)
 
-        selected = api.click_square("e1")
+        selected = api.activate_square("e1")
         self.assertFalse(selected["ok"])
         self.assertIn("Invalid position", selected["announcement"])
         self.assertEqual(api.get_state()["fen"], before)
