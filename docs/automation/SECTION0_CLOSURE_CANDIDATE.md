@@ -122,3 +122,22 @@ Immediately before any DONE marker, refresh:
 `NVDA_VERIFIED=NO`
 
 Physical NVDA evidence is not a hard dependency for this data-contract Section, but no human/NVDA claim is made here.
+
+
+### Registry route-mutation containment
+
+The canonical Section-0.5 registry boundary now treats importer registration as
+host-owned authority for the entire inspection call, not adapter-owned mutable
+state. Before adapter execution it snapshots all suffix routes, registered
+format identities, and registration tokens. Any re-entrant replacement,
+unregistration, or cross-suffix route mutation is restored before the failure
+is published or a batch proceeds to another source.
+
+Focused regressions cover successful and failing adapters that attempt to
+replace their own route, later sources with the same suffix, and poisoning of
+an unrelated suffix. The unauthorized replacement is never invoked for the
+later source. Source mutation/unverifiable-source precedence and trusted
+cancellation/BaseException behavior remain unchanged.
+
+This repair is on the SAME #2346 lineage and does not introduce another import
+registry, parser, report model, or format authority.
