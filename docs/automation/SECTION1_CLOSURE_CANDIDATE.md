@@ -1068,3 +1068,37 @@ geometry must remain exactly 45 paths relative to `1e56fbcfd907972d8de7d5092c99c
 `HUMAN_TESTED=NO`
 
 `NVDA_VERIFIED=NO`
+
+### CURRENT LIVE AUTHORITY — reconvergence on passive exact-OSError filename predecessor
+
+Canonical Section 0 PR #2346 advanced on the same six-path lineage to
+`0fadcb0302992601778688a99d5014b7bfaba6ec`. Its new internally controlled
+residual prevents an exact built-in `OSError` from executing provider-owned
+`filename` / `filename2` path or string hooks while ordinary batch diagnostics
+are rendered. The Section-0 exact blobs now include:
+- `acs/import_registry.py=300ffdcec826983e181590961150728ed79f315e`;
+- `tests/test_import_registry.py=380e30f28bc691df9eb76fee129e2e9d1fd5846c`;
+- focused gate `5a2bea96cf96b0b0db217d962410fc67c1d17a0e`;
+- Whole V3 gate `54d7c7d1938671a87a1da575030a7fe61bcc6dd5`;
+- Section-0 receipt `b2d67a62ecee4b58206b29e670bd0756bb62655e`.
+
+Prepared Section 1 remains canonical PR #2356. The existing Section-1 history
+was reconverged without replay/rebase/squash by two-parent merge
+`8df9e526d9c5683c1975b795513dac3e01f531eb`, with the exact current
+Section-0 predecessor as first parent and the prior prepared Section-1 head
+`e2138fec339b85660273d2d0095a14c120b13ba9` as second parent. No Section-1
+FEN/SAN/Position runtime semantics were replaced.
+
+The predecessor-aware source/corpus and whole gates are repinned to
+`0fadcb0302992601778688a99d5014b7bfaba6ec`. Relative to that exact
+predecessor the effective Section-1 delta must remain exactly 45 paths and
+fresh exact-head lawful-corpus plus Ubuntu/Windows qualification is mandatory.
+
+`SECTION0_ACCEPTED=NO_PENDING_TERMINAL_CI`
+
+`SECTION_1_DONE=NO_PENDING_SECTION0_ACCEPTANCE_AND_EXACT_HEAD_QUALIFICATION`
+
+`HUMAN_TESTED=NO`
+
+`NVDA_VERIFIED=NO`
+
