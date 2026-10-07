@@ -413,6 +413,110 @@ class ImportRegistryTests(unittest.TestCase):
                 self.assertFalse(batch.items[0].ok)
                 self.assertEqual(batch.items[0].error, message)
 
+    def test_registration_metadata_cannot_rebind_host_route_container(self):
+        registry = ImportRegistry()
+        original = FakeImporter()
+        registry.register(original)
+
+        class HostileRouteMap(dict):
+            def __iter__(self):
+                raise AssertionError("metadata poison iteration hook must not run")
+
+            def __contains__(self, item):
+                raise AssertionError("metadata poison membership hook must not run")
+
+            def clear(self):
+                raise AssertionError("metadata poison clear hook must not run")
+
+        class MetadataPoisoner:
+            suffixes = (".metadata-poison",)
+
+            @property
+            def format_name(self):
+                registry._by_suffix = HostileRouteMap()
+                return "Metadata poisoner"
+
+            def inspect(self, path: Path) -> ImportReport:
+                raise AssertionError("inspection must not run")
+
+        with self.assertRaisesRegex(
+            ImportRegistryError,
+            "registration changed while reading importer metadata",
+        ):
+            registry.register(MetadataPoisoner())
+
+        self.assertEqual(type(registry._by_suffix), dict)
+        self.assertIs(registry.importer_for("still.foo"), original)
+        self.assertNotIn(".metadata-poison", registry.registered_suffixes)
+
+    def test_registration_suffix_iteration_cannot_hide_route_mutation_or_runtime_error(self):
+        registry = ImportRegistry()
+        original = FakeImporter()
+        registry.register(original)
+
+        class MutatingSuffixes:
+            def __iter__(self):
+                registry._format_name_by_suffix = {}
+                yield ".metadata-iter"
+                raise RuntimeError("suffix iterator failed after route mutation")
+
+        class IteratorPoisoner:
+            format_name = "Iterator poisoner"
+            suffixes = MutatingSuffixes()
+
+            def inspect(self, path: Path) -> ImportReport:
+                raise AssertionError("inspection must not run")
+
+        with self.assertRaisesRegex(
+            ImportRegistryError,
+            "registration changed while reading importer metadata",
+        ) as ctx:
+            registry.register(IteratorPoisoner())
+
+        self.assertIsInstance(ctx.exception.__cause__, RuntimeError)
+        self.assertIs(registry.importer_for("still.foo"), original)
+        self.assertNotIn(".metadata-iter", registry.registered_suffixes)
+
+    def test_registration_suffix_iterable_is_bounded_before_unbounded_materialization(self):
+        class InfiniteSuffixes:
+            def __init__(self):
+                self.calls = 0
+
+            def __iter__(self):
+                return self
+
+            def __next__(self):
+                self.calls += 1
+                return f".suffix-{self.calls}"
+
+        suffixes = InfiniteSuffixes()
+
+        class InfiniteImporter:
+            format_name = "Infinite suffix importer"
+
+            def __init__(self):
+                self.suffixes = suffixes
+
+            def inspect(self, path: Path) -> ImportReport:
+                raise AssertionError("inspection must not run")
+
+        with self.assertRaisesRegex(ImportRegistryError, "too many suffixes"):
+            ImportRegistry().register(InfiniteImporter())
+
+        self.assertEqual(suffixes.calls, 65)
+
+    def test_registration_replace_flag_rejects_active_boolean_coercion(self):
+        class ActiveReplace:
+            def __bool__(self):
+                raise AssertionError("replace boolean hook must not run")
+
+        registry = ImportRegistry()
+        registry.register(FakeImporter())
+        with self.assertRaisesRegex(ImportRegistryError, "replace flag must be boolean"):
+            registry.register(SecondFooImporter(), replace=ActiveReplace())
+
+        self.assertIs(registry.importer_for("still.foo"), registry.importer_for("still.bar"))
+
     def test_registration_routes_case_insensitive_suffixes_without_ui_or_database_knowledge(self):
         registry = ImportRegistry()
         importer = FakeImporter()
@@ -874,6 +978,163 @@ class ImportRegistryTests(unittest.TestCase):
             self.assertEqual(batch.items[1].report.format_name, victim.format_name)
             self.assertIs(registry.importer_for(victim_source), victim)
             self.assertEqual(replacement.calls, 0)
+
+    def test_batch_restores_hostile_route_container_without_running_mapping_hooks(self):
+        registry = ImportRegistry()
+        registry.register(FakeImporter())
+
+        class HostileRouteMap(dict):
+            def __iter__(self):
+                raise AssertionError("hostile route iteration hook must not run")
+
+            def __len__(self):
+                raise AssertionError("hostile route length hook must not run")
+
+            def clear(self):
+                raise AssertionError("hostile route clear hook must not run")
+
+            def update(self, *args, **kwargs):
+                raise AssertionError("hostile route update hook must not run")
+
+            def get(self, *args, **kwargs):
+                raise AssertionError("hostile route get hook must not run")
+
+        class ContainerPoisoner:
+            format_name = "Container poisoner"
+            suffixes = (".container-poison",)
+
+            def inspect(self, path: Path) -> ImportReport:
+                registry._by_suffix = HostileRouteMap()
+                return ImportReport(source=fingerprint(path), format_name=self.format_name)
+
+        poisoner = ContainerPoisoner()
+        registry.register(poisoner)
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            poisoned = root / "bad.container-poison"
+            valid = root / "good.foo"
+            poisoned.write_bytes(b"poison")
+            valid.write_bytes(b"valid")
+
+            batch = registry.inspect_batch([poisoned, valid])
+
+            self.assertEqual([item.ok for item in batch.items], [False, True])
+            self.assertIn("registration changed", batch.items[0].error)
+            self.assertIs(registry.importer_for(poisoned), poisoner)
+            self.assertIsInstance(registry._by_suffix, dict)
+            self.assertEqual(type(registry._by_suffix), dict)
+            self.assertEqual(batch.items[1].report.format_name, FakeImporter.format_name)
+
+    def test_adapter_error_restores_hostile_format_container_before_batch_continues(self):
+        registry = ImportRegistry()
+        registry.register(FakeImporter())
+
+        class HostileRouteMap(dict):
+            def __iter__(self):
+                raise AssertionError("hostile format iteration hook must not run")
+
+            def clear(self):
+                raise AssertionError("hostile format clear hook must not run")
+
+            def update(self, *args, **kwargs):
+                raise AssertionError("hostile format update hook must not run")
+
+        class FailingContainerPoisoner:
+            format_name = "Failing container poisoner"
+            suffixes = (".container-error",)
+
+            def inspect(self, path: Path) -> ImportReport:
+                registry._format_name_by_suffix = HostileRouteMap()
+                raise RuntimeError("decoder failure after container poison")
+
+        poisoner = FailingContainerPoisoner()
+        registry.register(poisoner)
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            poisoned = root / "bad.container-error"
+            valid = root / "good.foo"
+            poisoned.write_bytes(b"poison")
+            valid.write_bytes(b"valid")
+
+            batch = registry.inspect_batch([poisoned, valid])
+
+            self.assertEqual([item.ok for item in batch.items], [False, True])
+            self.assertIn("registration changed", batch.items[0].error)
+            self.assertIs(registry.importer_for(poisoned), poisoner)
+            self.assertEqual(type(registry._format_name_by_suffix), dict)
+            self.assertEqual(batch.items[1].report.format_name, FakeImporter.format_name)
+
+    def test_cancellation_restores_hostile_token_container_before_propagation(self):
+        registry = ImportRegistry()
+
+        class HostileRouteMap(dict):
+            def __iter__(self):
+                raise AssertionError("hostile token iteration hook must not run")
+
+            def clear(self):
+                raise AssertionError("hostile token clear hook must not run")
+
+            def update(self, *args, **kwargs):
+                raise AssertionError("hostile token update hook must not run")
+
+        class CancellingContainerPoisoner:
+            format_name = "Cancelling container poisoner"
+            suffixes = (".container-cancel",)
+
+            def inspect(self, path: Path) -> ImportReport:
+                registry._registration_token_by_suffix = HostileRouteMap()
+                raise SourceReadCancelledError("container cancellation")
+
+        poisoner = CancellingContainerPoisoner()
+        registry.register(poisoner)
+
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / "stop.container-cancel"
+            source.write_bytes(b"cancel")
+
+            with self.assertRaisesRegex(SourceReadCancelledError, "container cancellation"):
+                registry.inspect_batch([source])
+
+            self.assertIs(registry.importer_for(source), poisoner)
+            self.assertEqual(type(registry._registration_token_by_suffix), dict)
+            self.assertEqual(source.read_bytes(), b"cancel")
+
+    def test_process_control_restores_hostile_route_container_before_propagation(self):
+        registry = ImportRegistry()
+
+        class HostileRouteMap(dict):
+            def __iter__(self):
+                raise AssertionError("hostile process-control iteration hook must not run")
+
+            def clear(self):
+                raise AssertionError("hostile process-control clear hook must not run")
+
+            def update(self, *args, **kwargs):
+                raise AssertionError("hostile process-control update hook must not run")
+
+        class InterruptingContainerPoisoner:
+            format_name = "Interrupting container poisoner"
+            suffixes = (".container-interrupt",)
+
+            def inspect(self, path: Path) -> ImportReport:
+                registry._by_suffix = HostileRouteMap()
+                raise KeyboardInterrupt()
+
+        poisoner = InterruptingContainerPoisoner()
+        registry.register(poisoner)
+
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / "stop.container-interrupt"
+            source.write_bytes(b"interrupt")
+
+            with self.assertRaises(KeyboardInterrupt):
+                registry.inspect_batch([source])
+
+            self.assertIs(registry.importer_for(source), poisoner)
+            self.assertEqual(type(registry._by_suffix), dict)
+            self.assertEqual(source.read_bytes(), b"interrupt")
 
     def test_registry_binds_format_identity_at_registration_time(self):
         registry = ImportRegistry()

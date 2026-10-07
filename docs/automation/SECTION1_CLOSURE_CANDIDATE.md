@@ -677,3 +677,30 @@ This remains same-lineage Section-1 transition/recovery hardening on PR #2356.
 It does not change chess legality, expose null moves to ordinary gameplay, alter
 Section 0, or claim DONE. Exact-head whole/corpus qualification remains required.
 
+### Re-convergence after Section-0 registration-container and metadata hardening
+
+Section 0 advanced on the SAME canonical #2346 lineage from
+`7b172de1ace250e62cb9a077029c056f71d6f833` to
+`85417931bb80c36d55878635110d4fa79c57f80a`. The new predecessor closes two host-routing residuals without
+changing Section-1 product semantics: passive recovery from adapter-rebound
+registration containers, and a bounded transactional read of adapter-owned
+registration metadata/suffix iterables.
+
+Prepared Section 1 is therefore history-preservingly reconverged onto exact
+Section-0 predecessor `85417931bb80c36d55878635110d4fa79c57f80a` with a two-parent merge. The five Section-0
+paths are inherited from that exact predecessor; no Section-1 runtime commit is
+rebased, replayed, squashed or dropped. Relative to the new predecessor, the
+effective Section-1 delta must remain the same 45 Section-1 paths.
+
+The predecessor-aware source/corpus and whole gates are repinned to this exact
+Section-0 head and require fresh terminal lawful/Ubuntu/Windows qualification.
+Section 0 remains not DONE until its own exact-head focused + Whole V3 gates
+succeed, so this reconvergence is dependency-safe preparation only.
+
+`SECTION_0_DONE=NO_PENDING_TERMINAL_CI`
+
+`SECTION_1_DONE=NO_PENDING_SECTION0_ACCEPTANCE_AND_EXACT_HEAD_QUALIFICATION`
+
+`HUMAN_TESTED=NO`
+
+`NVDA_VERIFIED=NO`
