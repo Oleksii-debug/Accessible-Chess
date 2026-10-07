@@ -75,3 +75,5 @@ Do not write `DONE` from this audit alone. Terminal closure requires:
 After `DONE`, ordinary workers must skip Section 8. Reopen only for a concrete
 regression, invalid closure evidence, materially changed acceptance contract,
 or later integration that demonstrably breaks Section 8.
+
+Qualification base binding: the identical Section-8 workflow is present on the dedicated integration base before this candidate synchronize event, so pull-request qualification executes the candidate rather than relying on PR metadata alone.
