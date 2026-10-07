@@ -11,6 +11,8 @@ WebView or native shell can render with ordinary document semantics.
 from dataclasses import dataclass
 from typing import Any, Mapping
 
+from .entitlement_runtime_security import SAFE_LOCKED_ACTION_IDS
+
 
 _ALLOWED_STATES = frozenset({
     "free_beta",
@@ -37,6 +39,7 @@ class EntitlementView:
     action_label: str | None
     action_id: str | None
     preserve_user_data: bool = True
+    safe_action_ids: tuple[str, ...] = ()
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -48,6 +51,7 @@ class EntitlementView:
             "actionLabel": self.action_label,
             "actionId": self.action_id,
             "preserveUserData": self.preserve_user_data,
+            "safeActionIds": list(self.safe_action_ids),
         }
 
 
@@ -161,6 +165,7 @@ def project_entitlement(payload: Mapping[str, Any] | None, *, lang: str = "uk") 
                 summary="Accessible Chess could not verify the current access state. Your local user data is preserved.",
                 action_label="Retry access check",
                 action_id="entitlement.refresh",
+                safe_action_ids=SAFE_LOCKED_ACTION_IDS,
             )
         return EntitlementView(
             state="unknown",
@@ -182,6 +187,7 @@ def project_entitlement(payload: Mapping[str, Any] | None, *, lang: str = "uk") 
         summary=summary,
         action_label=action_label,
         action_id=action_id,
+        safe_action_ids=SAFE_LOCKED_ACTION_IDS if blocking else (),
     )
 
 
@@ -201,4 +207,6 @@ def semantic_contract(view: EntitlementView) -> dict[str, Any]:
         "actionControl": "button" if view.action_id else None,
         "modalRequired": False,
         "destructiveAction": False,
+        "premiumLocked": view.blocking,
+        "safeActionControl": "buttons" if view.safe_action_ids else None,
     }
