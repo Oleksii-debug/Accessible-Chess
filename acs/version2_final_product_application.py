@@ -8,6 +8,12 @@ from pathlib import Path
 from typing import Any
 
 from . import classroom_domain as cd
+from .classroom_media_webview_bridge import ClassroomMediaWebViewBridge
+from .classroom_media_webview_projection import (
+    ClassroomMediaWebViewProjection,
+    ParticipantLabelsProvider,
+)
+from .classroom_realtime_media import ClassroomMediaController
 from .education_webview_bridge import EducationWebViewBridge
 from .education_webview_projection import EducationWebViewProjection
 from .education_workspace import EducationWorkspace
@@ -96,6 +102,7 @@ class Version2FinalProductApplication(Version2Application):
         self._load_education(language)
 
         self.teacher: TeacherWebViewBridge | None = None
+        self.media: ClassroomMediaWebViewBridge | None = None
         self._teacher_state_provider: Callable[[], TeachingSessionState] | None = None
         self._teacher_dispatch: Callable[[str, Mapping[str, object]], object] | None = None
         self._teaching_plan: LessonSession | None = None
@@ -296,6 +303,31 @@ class Version2FinalProductApplication(Version2Application):
         self._teaching_state = None
         self._clear_teaching_binding()
 
+    def bind_classroom_media(
+        self,
+        controller: ClassroomMediaController,
+        participant_labels_provider: ParticipantLabelsProvider,
+    ) -> None:
+        """Bind the browser media controls to one trusted canonical media owner."""
+
+        self._assert_thread()
+        if self.media is not None:
+            raise RuntimeError("Classroom media is already bound")
+        projection = ClassroomMediaWebViewProjection(
+            controller,
+            participant_labels_provider,
+            language=self.shell.language,
+        )
+        # Force one complete safe projection before publishing browser reachability.
+        projection.snapshot()
+        self.media = ClassroomMediaWebViewBridge(projection)
+
+    def unbind_classroom_media(self) -> None:
+        """Remove only the presentation binding; provider teardown stays with its owner."""
+
+        self._assert_thread()
+        self.media = None
+
     def sync_composed_surfaces_language(self, language: UILanguage) -> None:
         self._assert_thread()
         if not isinstance(language, UILanguage):
@@ -308,6 +340,14 @@ class Version2FinalProductApplication(Version2Application):
                 visual_snapshot_provider=self._visual_snapshot,
             )
             self.teacher = TeacherWebViewBridge(projection, language=language)
+        if self.media is not None:
+            try:
+                self.media.projection.set_language(language)
+            except Exception:
+                # A stale/broken realtime label/provider seam must not abort the
+                # product-wide language switch. snapshot() will expose the media
+                # recovery state while core chess and Education remain usable.
+                pass
 
     def browser_command(
         self,
@@ -364,6 +404,10 @@ class Version2FinalProductApplication(Version2Application):
                 except Exception:
                     return self._error()
             return asdict(self.teacher.dispatch(command, payload))
+        if area == "media":
+            if self.media is None:
+                return self._error()
+            return asdict(self.media.dispatch(command, payload))
         if area in {"classes", "education"}:
             if self.education is None:
                 return self._error()
@@ -373,6 +417,15 @@ class Version2FinalProductApplication(Version2Application):
     def snapshot(self) -> dict[str, object]:
         self._assert_thread()
         result = super().snapshot()
+        media_snapshot: dict[str, object] | None = None
+        media_recovery_required = False
+        if self.media is not None:
+            try:
+                media_snapshot = self.media.projection.snapshot()
+            except Exception:
+                # Realtime/provider presentation failure must not make the chess
+                # board, lesson records, or recovery surfaces disappear.
+                media_recovery_required = True
         result.update(
             {
                 "teacher": (
@@ -387,10 +440,13 @@ class Version2FinalProductApplication(Version2Application):
                     if self.education is None
                     else self.education.projection.snapshot()
                 ),
+                "media": media_snapshot,
                 "product_status": {
                     "teacher_session_active": self.teacher is not None,
                     "education_available": self.education is not None,
                     "education_recovery_required": self._education_load_error,
+                    "media_binding_active": self.media is not None,
+                    "media_recovery_required": media_recovery_required,
                     "remote_transport": "not_approved",
                 },
             }
