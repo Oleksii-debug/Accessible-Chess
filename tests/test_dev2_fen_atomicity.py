@@ -582,6 +582,80 @@ class Dev2FenAtomicityTests(unittest.TestCase):
                     bad_stack=ActiveHistory(),
                 )
 
+    def test_fen_publication_revalidates_mutable_state_without_active_hooks(self):
+        class ActiveBoard(list):
+            touched = False
+
+            def _touch(self):
+                type(self).touched = True
+                raise AssertionError("active board container hook must not run")
+
+            def __len__(self):
+                self._touch()
+
+            def __iter__(self):
+                self._touch()
+
+            def __getitem__(self, key):
+                self._touch()
+
+        class ActiveText(str):
+            touched = False
+
+            def __str__(self):
+                type(self).touched = True
+                raise AssertionError("active scalar hook must not run")
+
+        active_board = Board()
+        hostile_board = ActiveBoard(active_board.board)
+        active_board.board = hostile_board
+        ActiveBoard.touched = False
+        with self.assertRaisesRegex(ValueError, "формат дошки"):
+            active_board.fen()
+        self.assertFalse(ActiveBoard.touched)
+        self.assertIs(active_board.board, hostile_board)
+
+        active_turn = Board()
+        hostile_turn = ActiveText("w")
+        active_turn.turn = hostile_turn
+        ActiveText.touched = False
+        with self.assertRaisesRegex(ValueError, "хід має бути"):
+            active_turn.fen()
+        self.assertFalse(ActiveText.touched)
+        self.assertIs(active_turn.turn, hostile_turn)
+
+        for attr, value, message in (
+            ("turn", "x", "хід має бути"),
+            ("castling", "QK", "права рокіровки"),
+            ("ep", True, "en passant"),
+            ("halfmove", True, "halfmove"),
+            ("fullmove", 0, "fullmove"),
+        ):
+            board = Board()
+            setattr(board, attr, value)
+            with self.subTest(attr=attr, value=value):
+                with self.assertRaisesRegex(ValueError, message):
+                    board.fen()
+                self.assertIs(getattr(board, attr), value)
+
+        missing_king = Board()
+        missing_king.board[60] = None
+        with self.assertRaisesRegex(ValueError, "по одному королю"):
+            missing_king.fen()
+        self.assertIsNone(missing_king.board[60])
+
+        huge_counter = Board()
+        huge_counter.halfmove = 10 ** MAX_FEN_CHARS
+        with self.assertRaisesRegex(ValueError, "занадто довгий"):
+            huge_counter.fen()
+
+        valid = Board()
+        published = valid.fen()
+        self.assertEqual(
+            published,
+            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+        )
+
     def test_move_text_and_square_scalar_coercion_fail_closed(self):
         board = Board()
         before = board.fen()

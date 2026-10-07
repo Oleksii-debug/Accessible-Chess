@@ -144,18 +144,49 @@ class Board:
         self.halfmove=halfmove; self.fullmove=fullmove; self.last_move=None
         if clear_history: self.undo_stack=[]; self.redo_stack=[]
     def fen(self):
+        """Publish only a canonically valid FEN from passive Board state."""
+        if type(self.board) is not list or len(self.board) != 64:
+            raise ValueError('FEN: неправильний формат дошки')
+        for piece in self.board:
+            if piece is not None and (
+                type(piece) is not str
+                or len(piece) != 1
+                or piece not in 'prnbqkPRNBQK'
+            ):
+                raise ValueError('FEN: неправильний формат дошки')
+        if type(self.turn) is not str or self.turn not in ('w','b'):
+            raise ValueError('FEN: хід має бути w або b')
+        if type(self.castling) is not str:
+            raise ValueError('FEN: неправильні права рокіровки')
+        if self.ep is not None and (
+            type(self.ep) is not int or not 0 <= self.ep < 64
+        ):
+            raise ValueError('FEN: неправильне поле en passant')
+        if type(self.halfmove) is not int or self.halfmove < 0:
+            raise ValueError('FEN: halfmove не може бути від’ємним')
+        if type(self.fullmove) is not int or self.fullmove < 1:
+            raise ValueError('FEN: fullmove має бути не менше 1')
+
         rows=[]
         for rank in range(7,-1,-1):
             row=''; empty=0
             for file in range(8):
                 p=self.board[rank*8+file]
-                if not p: empty+=1
+                if p is None:
+                    empty+=1
                 else:
                     if empty: row+=str(empty); empty=0
                     row+=p
             if empty: row+=str(empty)
             rows.append(row)
-        return '/'.join(rows)+f" {self.turn} {self.castling or '-'} {sq_name(self.ep) if self.ep is not None else '-'} {self.halfmove} {self.fullmove}"
+        candidate='/'.join(rows)+f" {self.turn} {self.castling or '-'} {sq_name(self.ep) if self.ep is not None else '-'} {self.halfmove} {self.fullmove}"
+        if len(candidate) > MAX_FEN_CHARS:
+            raise ValueError('FEN занадто довгий')
+        # Reuse set_fen as the canonical semantic/legality authority.  This
+        # validates a detached Board and therefore cannot normalize or mutate
+        # the state being published.
+        Board(candidate)
+        return candidate
     def king_square(self,c):
         c=_require_side(c)
         return self.board.index('K' if c=='w' else 'k')
