@@ -511,6 +511,81 @@ class ImportRegistryTests(unittest.TestCase):
             self.assertEqual(rerouted.read_bytes(), b'reentrant-batch-source')
             self.assertEqual(valid.read_bytes(), b'valid-source')
 
+    def test_registry_rejects_route_replacement_hidden_by_adapter_error(self):
+        registry = ImportRegistry()
+
+        class ReplacementImporter:
+            format_name = 'Replacement after failing route'
+            suffixes = ('.reroute-error',)
+
+            def inspect(self, path: Path) -> ImportReport:
+                return ImportReport(source=fingerprint(path), format_name=self.format_name)
+
+        replacement = ReplacementImporter()
+
+        class ReentrantFailingImporter:
+            format_name = 'Original failing route'
+            suffixes = ('.reroute-error',)
+
+            def inspect(self, path: Path) -> ImportReport:
+                registry.register(replacement, replace=True)
+                raise RuntimeError('decoder failed after route replacement')
+
+        registry.register(ReentrantFailingImporter())
+
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / 'source.reroute-error'
+            original_bytes = b'reentrant-route-error-source'
+            path.write_bytes(original_bytes)
+
+            with self.assertRaisesRegex(ImportRegistryError, 'registration changed') as ctx:
+                registry.inspect(path)
+
+            self.assertIsInstance(ctx.exception.__cause__, RuntimeError)
+            self.assertIs(registry.importer_for(path), replacement)
+            self.assertEqual(path.read_bytes(), original_bytes)
+
+    def test_batch_isolates_route_replacement_hidden_by_adapter_error(self):
+        registry = ImportRegistry()
+
+        class ReplacementImporter:
+            format_name = 'Batch replacement after failure'
+            suffixes = ('.batch-reroute-error',)
+
+            def inspect(self, path: Path) -> ImportReport:
+                return ImportReport(source=fingerprint(path), format_name=self.format_name)
+
+        replacement = ReplacementImporter()
+
+        class ReentrantFailingImporter:
+            format_name = 'Batch original failing route'
+            suffixes = ('.batch-reroute-error',)
+
+            def inspect(self, path: Path) -> ImportReport:
+                registry.register(replacement, replace=True)
+                raise RuntimeError('decoder failed after route replacement')
+
+        registry.register(ReentrantFailingImporter())
+        registry.register(FakeImporter())
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            rerouted = root / 'bad.batch-reroute-error'
+            valid = root / 'good.foo'
+            rerouted.write_bytes(b'reentrant-batch-route-error')
+            valid.write_bytes(b'valid-source')
+
+            batch = registry.inspect_batch([rerouted, valid])
+
+            self.assertEqual([item.ok for item in batch.items], [False, True])
+            self.assertIn('registration changed', batch.items[0].error)
+            self.assertIsNone(batch.items[0].report)
+            self.assertEqual(len(batch.reports), 1)
+            self.assertEqual(batch.reports[0].format_name, FakeImporter.format_name)
+            self.assertIs(registry.importer_for(rerouted), replacement)
+            self.assertEqual(rerouted.read_bytes(), b'reentrant-batch-route-error')
+            self.assertEqual(valid.read_bytes(), b'valid-source')
+
     def test_registry_binds_format_identity_at_registration_time(self):
         registry = ImportRegistry()
         importer = MutableFormatNameImporter()

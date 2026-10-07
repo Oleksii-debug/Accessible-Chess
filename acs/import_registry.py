@@ -163,6 +163,14 @@ class ImportRegistry:
                 raise SourceMutationError(
                     f"Read-only importer modified source bytes during inspection: {source}"
                 ) from exc
+            if (
+                self._by_suffix.get(source_suffix) is not importer
+                or self._format_name_by_suffix.get(source_suffix) != registered_format_name
+                or self._registration_token_by_suffix.get(source_suffix) is not registration_token
+            ):
+                raise ImportRegistryError(
+                    "Read-only importer registration changed during inspection"
+                ) from exc
             raise
 
         try:

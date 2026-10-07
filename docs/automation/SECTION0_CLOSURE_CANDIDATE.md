@@ -79,7 +79,7 @@ The composed stack now requires:
 - source immutability is re-verified after ordinary adapter exceptions, so a source-changing adapter cannot hide mutation behind its decoder error;
 - post-adapter source verification that becomes impossible (for example because the adapter deleted/replaced the source) fails closed as SourceMutationError;
 - registration-time importer format identity to match returned reports exactly;
-- the selected suffix/importer/format registration to remain one stable registration token across each inspection; re-entrant or concurrent replace/unregister/re-register of that suffix during adapter execution fails closed before report acceptance;
+- the selected suffix/importer/format registration to remain one stable registration token across each inspection; re-entrant or concurrent replace/unregister/re-register of that suffix during adapter execution fails closed before report acceptance or before an ordinary adapter error can hide the route mutation;
 - replace/unregister routing and identity maps to remain synchronized;
 - format-identity rejection to be source-preserving and batch-recoverable;
 - non-aborting `inspect_batch()` to isolate ordinary adapter/parser exceptions such as KeyError/IndexError per source and continue to later independent sources;
