@@ -8,12 +8,15 @@ on:
       - '.github/workflows/current-fen-history-section1-convergence.yml'
       - '.github/workflows/section1-fen-corpus-source-snapshot.yml'
       - '.github/workflows/section1-fen-edge-corpus.yml'
+      - '.github/workflows/section1-fen-castling-order.yml'
       - '.github/workflows/section1-positionstate-counter-boundary.yml'
       - '.github/workflows/section1-whole-contract-convergence.yml'
+      - 'acs/chesscore.py'
       - 'acs/position_editor.py'
       - 'docs/automation/SECTION1_CLOSURE_CANDIDATE.md'
       - 'tests/data/fen_edge_corpus_v1.json'
       - 'tests/test_fen_edge_corpus.py'
+      - 'tests/test_section1_fen_castling_order.py'
       - 'tests/test_section1_positionstate_counter_boundary.py'
   workflow_dispatch:
 
@@ -32,26 +35,29 @@ env:
   EDGE_OWNER_SHA: 3825a153c3f2a79d1164a0b3001afc2c740cf23d
   POSITION_OWNER_SHA: 9209f6cd06ac0cbc8a4ee9ff040797df76ec1ae1
   CONVERGENCE_ANCHOR_SHA: 7fc28a6cbe3224c843372e06b9b110be8ad94c94
+  FEN_SAN_CASTLING_HEAD: a9822c819eaa2e5b53d178908c28f20b1ff987c9
 
   INPUT_LIMITS_BLOB: 11972e4b4a949b9e6a8075b62656a9fa6d299ea6
   NOTATION_BLOB: eed13c31993fa9979b6a2cbd608cce63c1ce74df
-  CHESSCORE_BLOB: a15d8845e3c58f2d8f6defcdfe9f9bcf0e5da674
+  CHESSCORE_BLOB: 71c3154c2a1390da9eeec059e996ec189d27948f
   SAN_TEST_BLOB: 22e493307ac650d14f7fa7300d80cffcd100f36b
 
   QUALIFIER_BLOB: 6a230daff4c511339669c330fb4aabc988c7f86f
   QUALIFIER_TEST_BLOB: ff9b303ab9db4f61a707a6f3d53aa3b21596857d
   IMPORT_CONTRACT_BLOB: b302b1666511289a70b5b3569ed5360b5cb66a95
 
-  POSITION_EDITOR_BLOB: ec28fca72bbe766c4bafc73eefcda719abe75c28
+  POSITION_EDITOR_BLOB: 5e5808cacc9dffff4d1c290d418c68d8345babca
   POSITION_TEST_BLOB: ad6b0c0dbbe0e5d3cf47bb534a29d4d6a2925061
+  FEN_SAN_CASTLING_TEST_BLOB: 490983ee6ac32ec896c5f05059d9ace77d21f15b
   EDGE_CORPUS_BLOB: 485c7925a72ee802631e6089a4e9258206d9ef06
   EDGE_TEST_BLOB: d4beb33a0131cb4b748e8495f4cacb89ffefc9a5
 
   RECEIPT_WORKFLOW_BLOB: b8991a98b6c13118736907b7dce9e297b2b07ea2
   SOURCE_WORKFLOW_BLOB: 509f0d6b96cf0c15c9863d6b23e62446762bd46d
   EDGE_WORKFLOW_BLOB: 6f28d4f2fdf5b2fb1d5a4d4f25a0bee4fa45f750
+  FEN_SAN_CASTLING_WORKFLOW_BLOB: 1c623c5accf762ab210023ccab67ab65f1b594d4
   POSITION_WORKFLOW_BLOB: f0ac7cefcc5db28430680361b36a026c7d526dd2
-  CLOSURE_DOC_BLOB: ab70ca20bf97a95eda4cbb6eaecaed0ece42b305
+  CLOSURE_DOC_BLOB: 593e62b2eb8acdbf3e98a399029d58da06fc73cd
 
   P0F_PROVENANCE_BLOB: 3298aed00ca000d27f607cd861abbba9483ff358
   P0F_BUILDER_BLOB: b7b96a661652a17cb16e8ca4cabba3b8b373e483
@@ -94,13 +100,14 @@ jobs:
           fi
 
           for ancestor in             "$BASE_2340_SHA"             "$SECTION1_PARENT_SHA"             "$SAN_OWNER_SHA"             "$RECEIPT_OWNER_SHA"             "$EDGE_OWNER_SHA"             "$POSITION_OWNER_SHA"             "$CONVERGENCE_ANCHOR_SHA"
+            "$FEN_SAN_CASTLING_HEAD"
           do
             git merge-base --is-ancestor "$ancestor" HEAD
           done
 
           git diff --check "$BASE_2340_SHA"...HEAD
           changed="$(git diff --name-only "$BASE_2340_SHA"...HEAD | sort)"
-          expected="$(printf '%s\n'             '.github/workflows/current-fen-history-section1-convergence.yml'             '.github/workflows/section1-fen-corpus-source-snapshot.yml'             '.github/workflows/section1-fen-edge-corpus.yml'             '.github/workflows/section1-positionstate-counter-boundary.yml'             '.github/workflows/section1-whole-contract-convergence.yml'             'acs/position_editor.py'             'docs/automation/SECTION1_CLOSURE_CANDIDATE.md'             'tests/data/fen_edge_corpus_v1.json'             'tests/test_fen_edge_corpus.py'             'tests/test_section1_positionstate_counter_boundary.py' | sort)"
+          expected="$(printf '%s\n'             '.github/workflows/current-fen-history-section1-convergence.yml'             '.github/workflows/section1-fen-corpus-source-snapshot.yml'             '.github/workflows/section1-fen-edge-corpus.yml'             '.github/workflows/section1-fen-castling-order.yml'             '.github/workflows/section1-positionstate-counter-boundary.yml'             '.github/workflows/section1-whole-contract-convergence.yml'             'acs/chesscore.py'             'acs/position_editor.py'             'docs/automation/SECTION1_CLOSURE_CANDIDATE.md'             'tests/data/fen_edge_corpus_v1.json'             'tests/test_fen_edge_corpus.py'             'tests/test_section1_fen_castling_order.py'             'tests/test_section1_positionstate_counter_boundary.py' | sort)"
           test "$changed" = "$expected"
 
       - name: Bind exact canonical authorities and consumed residuals
@@ -118,12 +125,14 @@ jobs:
 
           test "$(git rev-parse HEAD:acs/position_editor.py)" = "$POSITION_EDITOR_BLOB"
           test "$(git rev-parse HEAD:tests/test_section1_positionstate_counter_boundary.py)" = "$POSITION_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_section1_fen_castling_order.py)" = "$FEN_SAN_CASTLING_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/data/fen_edge_corpus_v1.json)" = "$EDGE_CORPUS_BLOB"
           test "$(git rev-parse HEAD:tests/test_fen_edge_corpus.py)" = "$EDGE_TEST_BLOB"
 
           test "$(git rev-parse HEAD:.github/workflows/current-fen-history-section1-convergence.yml)" = "$RECEIPT_WORKFLOW_BLOB"
           test "$(git rev-parse HEAD:.github/workflows/section1-fen-corpus-source-snapshot.yml)" = "$SOURCE_WORKFLOW_BLOB"
           test "$(git rev-parse HEAD:.github/workflows/section1-fen-edge-corpus.yml)" = "$EDGE_WORKFLOW_BLOB"
+          test "$(git rev-parse HEAD:.github/workflows/section1-fen-castling-order.yml)" = "$FEN_SAN_CASTLING_WORKFLOW_BLOB"
           test "$(git rev-parse HEAD:.github/workflows/section1-positionstate-counter-boundary.yml)" = "$POSITION_WORKFLOW_BLOB"
           test "$(git rev-parse HEAD:docs/automation/SECTION1_CLOSURE_CANDIDATE.md)" = "$CLOSURE_DOC_BLOB"
 
@@ -143,6 +152,7 @@ jobs:
           acs/position_editor.py
           tools/qualify_fen_position_corpus.py
           tests/test_section1_san_transition_contract.py
+          tests/test_section1_fen_castling_order.py
           tests/test_section1_positionstate_counter_boundary.py
           tests/test_fen_edge_corpus.py
           tests/test_qualify_fen_position_corpus.py
@@ -151,6 +161,7 @@ jobs:
         run: >-
           python -m unittest -v
           tests.test_section1_san_transition_contract
+          tests.test_section1_fen_castling_order
           tests.test_notation
           tests.test_dev2_fen_atomicity
           tests.test_fen_input_budget_current
