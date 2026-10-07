@@ -217,3 +217,15 @@ Current predecessor condition:
 
 Current Section-1 condition:
 `SECTION_1_DONE=NO_PENDING_SECTION0_ACCEPTANCE_AND_PREDECESSOR_AWARE_WHOLE_QUALIFICATION`
+
+
+### PositionState serialization successor converged
+
+The prepared predecessor line additionally history-preservingly converges PR #2355:
+- #2355 exact head: `a76a3cf1cca4b339e847cb333918ffd125692da2`;
+- convergence merge into this prepared line: `05d5dad8fc26f6443ab921ab8e3dd75e7f1a74ea`;
+- retained `acs/position_editor.py=8f1a41df8142bf7e7689f4c5f5cf335d8523a4a9`;
+- retained regression `tests/test_section1_positionstate_serialization_boundary.py=a566cf563934037f523e7f25cd59ef83b0e910af`;
+- retained focused workflow `.github/workflows/section1-positionstate-serialization-boundary.yml=8194108042e2f9fde5d25fcb8b1f679a90a4e893`.
+
+Because `acs/position_editor.py` was already inside the Section-1 union, this adds two new paths, making the exact #2346-relative prepared union **42 paths**, not 43. The gate requires #2355 ancestry and revalidates the serialization regression before any closure claim.
