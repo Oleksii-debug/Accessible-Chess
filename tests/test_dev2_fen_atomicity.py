@@ -82,6 +82,34 @@ class Dev2FenAtomicityTests(unittest.TestCase):
                     before,
                 )
 
+    def test_null_move_preserves_reloadable_legality_and_refuses_to_pass_check(self):
+        normal = Board()
+        self.assertEqual(normal.push_text("--"), "--")
+        after_null = normal.fen()
+        self.assertEqual(Board(after_null).fen(), after_null)
+        self.assertEqual(normal.undo(), "--")
+        self.assertEqual(normal.redo(), "--")
+        self.assertEqual(normal.fen(), after_null)
+
+        checked = Board("4k3/8/8/8/8/8/4r3/4K3 w - - 0 1")
+        before = (
+            checked.fen(),
+            tuple(checked.undo_stack),
+            tuple(checked.redo_stack),
+            checked.last_move,
+        )
+        with self.assertRaisesRegex(ValueError, "Нульовий хід"):
+            checked.push_text("--")
+        self.assertEqual(
+            (
+                checked.fen(),
+                tuple(checked.undo_stack),
+                tuple(checked.redo_stack),
+                checked.last_move,
+            ),
+            before,
+        )
+
     def test_rejected_fen_is_atomic_for_state_history_redo_and_last_move(self):
         board = Board()
         board.push_text("e4")
