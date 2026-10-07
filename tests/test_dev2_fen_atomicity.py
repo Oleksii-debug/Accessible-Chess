@@ -47,6 +47,41 @@ class Dev2FenAtomicityTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     Board(fen)
 
+    def test_inactive_side_cannot_remain_in_check_but_side_to_move_may_be_checked(self):
+        valid_checked_side_to_move = (
+            "4k3/8/8/8/8/8/4r3/4K3 w - - 0 1",
+            "4k3/8/8/8/8/8/4R3/4K3 b - - 0 1",
+        )
+        for fen in valid_checked_side_to_move:
+            with self.subTest(valid=fen):
+                self.assertEqual(Board(fen).fen(), fen)
+
+        board = Board()
+        board.push_text("e4")
+        before = (
+            board.fen(),
+            tuple(board.undo_stack),
+            tuple(board.redo_stack),
+            board.last_move,
+        )
+        impossible = (
+            "4k3/8/8/8/8/8/4R3/4K3 w - - 0 1",
+            "4k3/4r3/8/8/8/8/8/4K3 b - - 0 1",
+        )
+        for fen in impossible:
+            with self.subTest(impossible=fen):
+                with self.assertRaisesRegex(ValueError, "залишається під шахом"):
+                    board.set_fen(fen)
+                self.assertEqual(
+                    (
+                        board.fen(),
+                        tuple(board.undo_stack),
+                        tuple(board.redo_stack),
+                        board.last_move,
+                    ),
+                    before,
+                )
+
     def test_rejected_fen_is_atomic_for_state_history_redo_and_last_move(self):
         board = Board()
         board.push_text("e4")
