@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import stat
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 import wave
@@ -1223,6 +1224,8 @@ class Version2PackagePreflightTests(unittest.TestCase):
             root = Path(td) / "package"
             root.mkdir()
             _make_tree(root)
+            _enable_full_sound_inventory(root)
+            _write_checksums(root)
 
             with patch.object(
                 preflight,
@@ -1437,7 +1440,7 @@ class Version2PackagePreflightTests(unittest.TestCase):
                 / "amd64"
                 / "ClrLoader.dll"
             )
-            dll.parent.mkdir(parents=True)
+            dll.parent.mkdir(parents=True, exist_ok=True)
             dll.write_bytes(
                 _minimal_windows_pe()
                 + b"\x00compiler=C:\\Users\\Builder\\source\\clr_loader\\ClrLoader.pdb\x00"
