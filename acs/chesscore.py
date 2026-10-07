@@ -301,7 +301,7 @@ class Board:
             raise ValueError('Хід має бути текстом')
         if len(s) > MAX_SAN_CHARS:
             raise ValueError('Хід занадто довгий')
-        token=s.strip().replace('–','-').replace('—','-').replace(' ','').rstrip('!?')
+        token=s.strip().replace('–','-').replace('—','-').rstrip('!?')
         # Preserve only the explicitly supported all-zero legacy castling
         # spellings. Mixed 0/O forms are not SAN and must not be silently
         # repaired into canonical castling.
