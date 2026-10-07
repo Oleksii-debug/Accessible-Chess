@@ -996,6 +996,42 @@ class ImportRegistryTests(unittest.TestCase):
                 registry.inspect(stop)
             self.assertEqual(str(strict_ctx.exception), 'source read cancelled')
 
+    def test_cooperative_cancellation_restores_route_and_stops_later_work(self):
+        registry = ImportRegistry()
+        original_route = FakeImporter()
+        replacement_route = SecondFooImporter()
+        later = ObservedAfterCancelImporter()
+        registry.register(original_route)
+        registry.register(later)
+
+        class CancellingRouteMutator:
+            format_name = 'Cancelling route mutator'
+            suffixes = ('.cancel-route',)
+
+            def inspect(self, path: Path) -> ImportReport:
+                registry.register(replacement_route, replace=True)
+                raise SourceReadCancelledError('source read cancelled')
+
+        cancelling = CancellingRouteMutator()
+        registry.register(cancelling)
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            stop = root / 'stop.cancel-route'
+            after = root / 'after.after-cancel'
+            stop.write_bytes(b'cancel-route-source')
+            after.write_bytes(b'must-not-be-inspected')
+
+            with self.assertRaises(SourceReadCancelledError) as ctx:
+                registry.inspect_batch([stop, after])
+
+            self.assertEqual(str(ctx.exception), 'source read cancelled')
+            self.assertEqual(later.calls, 0)
+            self.assertIs(registry.importer_for('after.foo'), original_route)
+            self.assertIs(registry.importer_for(stop), cancelling)
+            self.assertEqual(stop.read_bytes(), b'cancel-route-source')
+            self.assertEqual(after.read_bytes(), b'must-not-be-inspected')
+
     def test_batch_does_not_swallow_process_control_exceptions(self):
         registry = ImportRegistry()
         registry.register(ProcessControlImporter())

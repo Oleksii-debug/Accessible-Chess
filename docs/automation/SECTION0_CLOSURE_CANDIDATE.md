@@ -162,3 +162,22 @@ recovered.
 This is a narrow Section-0.5 recovery hardening on the SAME #2346 lineage. It
 does not add a parser, decoder, chess authority, report authority or alternate
 registry.
+
+
+### Cooperative cancellation route restoration
+
+A cooperative `SourceReadCancelledError` remains authoritative control flow even
+when the cancelling adapter attempted a re-entrant route mutation. The registry
+first restores the complete host-owned registration snapshot and proves source
+bytes are still unchanged; it then re-raises the exact cancellation before
+ordinary registration-drift reporting can convert Cancel into per-source batch
+evidence.
+
+The focused regression mutates an unrelated registered suffix and cancels.
+The original routes are restored, the cancellation propagates unchanged, and a
+later batch source is not inspected. Source mutation/unverifiable-source
+evidence still has precedence because the post-adapter fingerprint check remains
+before cancellation propagation.
+
+This is a narrow Section-0.5 recovery fix on the SAME #2346 lineage and adds no
+new parser, decoder, registry, report model or chess authority.
