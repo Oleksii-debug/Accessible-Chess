@@ -472,7 +472,13 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
             "foreach ($guardedDirectory in @($root, $app, $data))",
             "$probeError -ne 32",
             "Supervisor directory guard missing",
-            "$reportedChild.WaitForExit(12000)",
+            "AccessibleChessProcessExitProbe",
+            "OpenProcess(",
+            "WaitForSingleObject(",
+            "GetExitCodeProcess(",
+            "WaitForExitCode(",
+            "$smokeExitCode",
+            "Smoke child exit observation failed",
             "$first.WaitForExit(10000)",
             "$probeError -ne 0",
             "Directory guard leaked after supervisor exit",
@@ -484,7 +490,7 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
         second_wait = self.workflow.index("$second.WaitForExit(10000)")
         readiness = self.workflow.index("Primary launcher did not publish startup readiness")
         third_launch = self.workflow.index("$third = Start-Process -FilePath $launcher")
-        child_wait = self.workflow.index("$reportedChild.WaitForExit(12000)")
+        child_wait = self.workflow.index("[AccessibleChessProcessExitProbe]::WaitForExitCode(")
         first_wait = self.workflow.index("$first.WaitForExit(10000)")
         self.assertLess(first_launch, second_launch)
         self.assertLess(second_launch, second_wait)
