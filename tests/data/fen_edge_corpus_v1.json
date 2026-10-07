@@ -20,6 +20,7 @@
     {"id":"pawn-first-rank","fen":"4k3/8/8/8/8/8/8/P3K3 w - - 0 1","representation_valid":true,"playable":false},
     {"id":"two-white-kings","fen":"4k3/8/8/8/8/8/4K3/4K3 w - - 0 1","representation_valid":true,"playable":false},
     {"id":"duplicate-castling","fen":"4k3/8/8/8/8/8/8/R3K2R w KK - 0 1","representation_valid":false,"playable":false},
+    {"id":"chess960-rook-file-castling","fen":"rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w HAha - 0 1","representation_valid":false,"playable":false},
     {"id":"wrong-ep-rank","fen":"4k3/8/8/8/8/8/8/4K3 w - e3 0 1","representation_valid":false,"playable":false},
     {"id":"unicode-board-digit","fen":"4k3/8/8/8/8/8/８/4K3 w - - 0 1","representation_valid":false,"playable":false},
     {"id":"zero-fullmove","fen":"4k3/8/8/8/8/8/8/4K3 w - - 0 0","representation_valid":false,"playable":false},
