@@ -399,13 +399,53 @@ class ClassroomCollaborationController:
             raise CollaborationError("received chat message has invalid type")
         if message.room_id != self.room_id:
             raise CollaborationError("received chat message belongs to another room")
-        if message.hidden or message.redacted:
-            raise CollaborationError(
-                "live chat message cannot carry mutable state"
-            )
         self._require_member(message.sender_id)
-        _chat_body(message.body)
         self._require_transport_timestamp(message)
+        if message.hidden or message.redacted:
+            existing = tuple(
+                item
+                for item in self._store.room_messages(
+                    self.room_id,
+                    include_hidden=True,
+                )
+                if item.message_id == message.message_id
+            )
+            if len(existing) != 1:
+                raise CollaborationError(
+                    "live chat message cannot carry mutable state"
+                )
+            prior = existing[0]
+            immutable_fields = (
+                "room_id",
+                "sender_id",
+                "sequence_no",
+                "retention",
+            )
+            if any(
+                getattr(prior, field) != getattr(message, field)
+                for field in immutable_fields
+            ):
+                raise CollaborationError(
+                    "live mutable chat state conflicts with message identity"
+                )
+            if (
+                not prior.redacted
+                and not message.redacted
+                and prior.body != message.body
+            ):
+                raise CollaborationError(
+                    "live mutable chat state conflicts with message body"
+                )
+            if (
+                prior.sent_at_unix_ms is not None
+                and message.sent_at_unix_ms is not None
+                and prior.sent_at_unix_ms != message.sent_at_unix_ms
+            ):
+                raise CollaborationError(
+                    "live mutable chat state conflicts with authoritative timestamp"
+                )
+            return self._persist_chat_with_gap_recovery(message)
+        _chat_body(message.body)
         return self._persist_chat_with_gap_recovery(message)
 
     def _persist_chat_with_gap_recovery(
