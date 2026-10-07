@@ -1,0 +1,101 @@
+name: Section 0 Format Authority Contract
+
+on:
+  pull_request:
+    branches:
+      - 'converge/history-surrogate-epd-gametree-20261006-ooxple7'
+    paths:
+      - '.github/workflows/section0-format-authority-contract.yml'
+      - 'docs/FORMAT_AUTHORITY_BOUNDARIES.md'
+      - 'tests/test_section0_format_authority_contract.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: section0-format-authority-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+env:
+  EXPECTED_BASE_SHA: 5854b528fbd3632cfa69553a70973123eaf14b54
+  CHESSCORE_BLOB: e04982c2de52394c2c9f5e5725d6267cbc55ce3d
+  POSITION_EDITOR_BLOB: fd48b517c4489fe70e4ecb102e2615027be8f098
+  EPD_BLOB: 06b47a2a30cbd7b97095424a6f146bd175ea185a
+  GAMETREE_BLOB: 565afa84260d5b8dc2ee8979bb0538b495516f97
+  PGN_ROUNDTRIP_BLOB: 76e10f5035e55cc413632dcb3829f698a70b41ca
+  LIBRARY_IMPORT_BLOB: 3ff7dfa63e8d587d5688daed21bdbfce30664c1a
+  GAME_IDENTITY_BLOB: 4cfc738084a99ee12c4397c71c846cac4426754d
+  CONTRACT_DOC_BLOB: a1f7680f120c1a397e323dc9e633018a59adc711
+  CONTRACT_TEST_BLOB: ca8cc57fa0ca5c6888004239100390f136d43ac8
+
+jobs:
+  authority-contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Prove exact stacked geometry
+        shell: bash
+        env:
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          expected_head="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
+          test "$(git rev-parse HEAD)" = "$expected_head"
+          if [ -n "${EVENT_BASE_SHA:-}" ]; then
+            test "$EVENT_BASE_SHA" = "$EXPECTED_BASE_SHA"
+          fi
+          test "$(git merge-base "$EXPECTED_BASE_SHA" HEAD)" = "$EXPECTED_BASE_SHA"
+          git diff --check "$EXPECTED_BASE_SHA"...HEAD
+          changed="$(git diff --name-only "$EXPECTED_BASE_SHA"...HEAD | sort)"
+          expected_paths="$(printf '%s\n' \
+            '.github/workflows/section0-format-authority-contract.yml' \
+            'docs/FORMAT_AUTHORITY_BOUNDARIES.md' \
+            'tests/test_section0_format_authority_contract.py' | sort)"
+          test "$changed" = "$expected_paths"
+
+      - name: Bind inherited authority and contract bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:acs/chesscore.py)" = "$CHESSCORE_BLOB"
+          test "$(git rev-parse HEAD:acs/position_editor.py)" = "$POSITION_EDITOR_BLOB"
+          test "$(git rev-parse HEAD:acs/epd.py)" = "$EPD_BLOB"
+          test "$(git rev-parse HEAD:acs/gametree.py)" = "$GAMETREE_BLOB"
+          test "$(git rev-parse HEAD:acs/pgn_roundtrip.py)" = "$PGN_ROUNDTRIP_BLOB"
+          test "$(git rev-parse HEAD:acs/library_import_service.py)" = "$LIBRARY_IMPORT_BLOB"
+          test "$(git rev-parse HEAD:acs/game_identity.py)" = "$GAME_IDENTITY_BLOB"
+          test "$(git rev-parse HEAD:docs/FORMAT_AUTHORITY_BOUNDARIES.md)" = "$CONTRACT_DOC_BLOB"
+          test "$(git rev-parse HEAD:tests/test_section0_format_authority_contract.py)" = "$CONTRACT_TEST_BLOB"
+
+      - name: Compile contract test
+        run: python -m py_compile tests/test_section0_format_authority_contract.py
+
+      - name: Section 0 authority contract
+        run: python -m unittest -v tests.test_section0_format_authority_contract
+
+      - name: Retained format authority regressions
+        run: >-
+          python -m unittest -v
+          tests.test_epd
+          tests.test_d06_pgn_roundtrip
+          tests.test_position_text_authority
+          tests.test_version2_formats_integration
+
+      - name: Core chess selftest
+        run: python -m acs.selftest
