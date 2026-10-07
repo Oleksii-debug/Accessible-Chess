@@ -1551,6 +1551,28 @@ class ImportRegistryTests(unittest.TestCase):
             self.assertIn('unverifiable', str(ctx.exception))
             self.assertFalse(source.exists())
 
+    def test_batch_process_control_cannot_hide_deleted_source_or_continue(self):
+        registry = ImportRegistry()
+        deleting = DeletingProcessControlImporter()
+        later = ObservedAfterCancelImporter()
+        registry.register(deleting)
+        registry.register(later)
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / 'stop.interrupt-delete'
+            after = root / 'after.after-cancel'
+            source.write_bytes(b'original')
+            after.write_bytes(b'must-not-be-inspected')
+
+            with self.assertRaises(SourceMutationError) as ctx:
+                registry.inspect_batch([source, after])
+
+            self.assertIn('unverifiable', str(ctx.exception))
+            self.assertIsInstance(ctx.exception.__cause__, SystemExit)
+            self.assertEqual(later.calls, 0)
+            self.assertFalse(source.exists())
+            self.assertEqual(after.read_bytes(), b'must-not-be-inspected')
+
     def test_process_control_restores_cross_suffix_route_before_propagation(self):
         registry = ImportRegistry()
         original_route = FakeImporter()

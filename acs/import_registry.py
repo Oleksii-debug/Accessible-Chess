@@ -488,10 +488,14 @@ class ImportRegistry:
                 self._restore_registration_snapshot(registration_snapshot)
             try:
                 after = fingerprint(source)
-            except Exception as verification_exc:
+            except Exception:
+                # Preserve the direct process-control signal as the explicit
+                # cause. Batch preflight uses that passive exception chain to
+                # distinguish control-plus-mutation from ordinary per-source
+                # adapter/source failures and must not continue afterwards.
                 raise SourceMutationError(
                     f"Read-only importer left source unverifiable after inspection: {safe_source}"
-                ) from verification_exc
+                ) from exc
             if not _same_source(before, after):
                 raise SourceMutationError(
                     f"Read-only importer modified source bytes during inspection: {safe_source}"
@@ -656,6 +660,16 @@ class ImportRegistry:
                 # Do not turn Cancel into ordinary per-source batch evidence or
                 # continue inspecting later sources after the caller stopped.
                 raise
+            except SourceMutationError as exc:
+                # Ordinary source mutation remains bounded per-source evidence,
+                # but a mutation that occurred before direct process-control is
+                # fail-closed for the whole batch. Otherwise KeyboardInterrupt
+                # or SystemExit could be converted into a normal continue path.
+                cause = exc.__cause__
+                if isinstance(cause, BaseException) and not isinstance(cause, Exception):
+                    raise
+                message = _batch_error_text(exc, source)
+                items.append(BatchInspectionItem(path=source, error=message))
             except Exception as exc:
                 # Batch preflight is deliberately non-aborting for ordinary
                 # failures, but adapter exception text is not a safe reporting
