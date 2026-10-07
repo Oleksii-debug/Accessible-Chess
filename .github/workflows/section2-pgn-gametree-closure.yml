@@ -24,6 +24,7 @@ env:
   PGN_WORKSPACE_BLOB: 7978337169b53a3490bc5e675b6ae20189648057
   PGN_DOCUMENT_BLOB: 77ec72c4852e47a3722c981c54236143ecb0dde2
   PGN_SAVE_SNAPSHOT_BLOB: 3d269c871482ff15a47a04b6f7a91061e64fd346
+  PGN_SERVICE_BLOB: 04b50204d5ac894b9a0e6b8b980554f4a4e49649
   STREAMING_IMPORT_BLOB: 73e9a3d689f1853f40ce402f16d859987d7d6d0e
   STREAMING_EXPORT_BLOB: 913a74348f1323887d9d880285814a7680869ae1
   WEBVIEW_BRIDGE_BLOB: 31a2f132027cc8c4d75a1d0b149a98239dd1c95e
@@ -45,6 +46,7 @@ env:
   SETUP_FEN_INTEGRITY_TEST_BLOB: 9b72b134abd1bce43d88e020eb9da58bdadad034
   NEW_GAME_POSITION_INTEGRITY_TEST_BLOB: 02d3c829576698dc7a1da70be1052d454651cd46
   PASSIVE_INGRESS_TEST_BLOB: 47c4f6711bd1229e0d1a61b14c4f328b7b509494
+  EXPORT_FAILURE_RECOVERY_TEST_BLOB: b9a4d3901819cbc70e6606f97331b7c8a26e193b
   PGN_DOM_TEST_BLOB: f0264db70f18591fde16b16dd2c98ced88c81a60
   PGN_TREE_KEYBOARD_DOM_BLOB: 3ec326e766110eba04228bcda92cc1d3dfea011a
   PGN_TREE_KEY_OWNERSHIP_BLOB: ab47179b52be5744053a842f992902ecf4f978b1
@@ -95,6 +97,8 @@ jobs:
           git diff --check "$SECTION1_PREDECESSOR_SHA"...HEAD
           changed="$(git diff --name-only "$SECTION1_PREDECESSOR_SHA"...HEAD | sort)"
           expected="$(printf '%s\n'             '.github/workflows/section2-pgn-gametree-closure.yml'             'acs/pgn_save_snapshot.py'             'acs/pgn_workspace.py'             'docs/automation/SECTION2_CLOSURE_AUDIT.md'             'tests/test_dev1_pgn_webview_projection.py'             'tests/test_pgn_complete_editing_user_flow.py'             'tests/test_pgn_document_new_game_position_integrity.py'             'tests/test_pgn_document_passive_ingress.py'             'tests/test_pgn_save_snapshot.py'             'tests/test_pgn_workspace.py'             'tests/test_version2_pgn_commands.py' \
+            'acs/pgn_service.py' \
+            'tests/test_dev4_pgn_export_failure_recovery.py' \
             'tests/js/pgn_surface_dom_test.js' | sort)"
           test "$changed" = "$expected"
 
@@ -108,6 +112,7 @@ jobs:
           test "$(git rev-parse HEAD:acs/pgn_workspace.py)" = "$PGN_WORKSPACE_BLOB"
           test "$(git rev-parse HEAD:acs/pgn_document.py)" = "$PGN_DOCUMENT_BLOB"
           test "$(git rev-parse HEAD:acs/pgn_save_snapshot.py)" = "$PGN_SAVE_SNAPSHOT_BLOB"
+          test "$(git rev-parse HEAD:acs/pgn_service.py)" = "$PGN_SERVICE_BLOB"
           test "$(git rev-parse HEAD:acs/pgn_streaming_import.py)" = "$STREAMING_IMPORT_BLOB"
           test "$(git rev-parse HEAD:acs/version2_windows_pgn_export.py)" = "$STREAMING_EXPORT_BLOB"
           test "$(git rev-parse HEAD:acs/pgn_webview_bridge.py)" = "$WEBVIEW_BRIDGE_BLOB"
@@ -128,6 +133,7 @@ jobs:
           test "$(git rev-parse HEAD:tests/test_d06_gametree_persistence_vertical.py)" = "$GAMETREE_PERSISTENCE_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_d06_v2_gametree_resume_reachability.py)" = "$GAMETREE_RESUME_REACHABILITY_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_pgn_document_setup_fen_integrity.py)" = "$SETUP_FEN_INTEGRITY_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_dev4_pgn_export_failure_recovery.py)" = "$EXPORT_FAILURE_RECOVERY_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/js/pgn_surface_dom_test.js)" = "$PGN_DOM_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/js/pgn_tree_keyboard_dom_test.js)" = "$PGN_TREE_KEYBOARD_DOM_BLOB"
           test "$(git rev-parse HEAD:tests/js/pgn_tree_boundary_key_ownership_test.js)" = "$PGN_TREE_KEY_OWNERSHIP_BLOB"
@@ -157,6 +163,7 @@ jobs:
           acs/pgn_workspace.py
           acs/pgn_document.py
           acs/pgn_save_snapshot.py
+          acs/pgn_service.py
           acs/pgn_streaming_import.py
           acs/version2_windows_pgn_export.py
           acs/pgn_webview_bridge.py
