@@ -6,6 +6,7 @@ on:
       - 'section0/import-batch-runtime-isolation-20261007-sol56'
     paths:
       - '.github/workflows/current-fen-history-section1-convergence.yml'
+      - '.github/workflows/section1-epd-serialization-revalidation.yml'
       - '.github/workflows/section1-fen-castling-order.yml'
       - '.github/workflows/section1-fen-corpus-source-snapshot.yml'
       - '.github/workflows/section1-fen-edge-corpus.yml'
@@ -19,6 +20,7 @@ on:
       - '.github/workflows/section1-san-transition-contract.yml'
       - '.github/workflows/section1-whole-contract-convergence.yml'
       - 'acs/chesscore.py'
+      - 'acs/epd.py'
       - 'acs/input_limits.py'
       - 'acs/notation.py'
       - 'acs/position_editor.py'
@@ -30,6 +32,7 @@ on:
       - 'docs/automation/SECTION1_CLOSURE_CANDIDATE.md'
       - 'tests/data/fen_edge_corpus_v1.json'
       - 'tests/test_dev2_fen_atomicity.py'
+      - 'tests/test_epd.py'
       - 'tests/test_fen_edge_corpus.py'
       - 'tests/test_fen_position_editor_complete_user_flow.py'
       - 'tests/test_qualify_fen_position_corpus.py'
@@ -60,6 +63,7 @@ env:
   SECTION0_PREDECESSOR_SHA: 3714172861b9bc2b28dbb4de58027aea522eba55
   SECTION1_SUCCESSOR_SHA: dffbacbbb2ca52812774a20aa58341caad407898
   SECTION1_SERIALIZATION_SHA: a76a3cf1cca4b339e847cb333918ffd125692da2
+  SECTION1_EPD_SHA: 4df2d1870f74dd279218f054e97c6ae781e92808
   TOOL_BLOB: 6a230daff4c511339669c330fb4aabc988c7f86f
   TEST_BLOB: ff9b303ab9db4f61a707a6f3d53aa3b21596857d
   IMPORT_CONTRACT_BLOB: d9855d173f8c73440e190482a107299be28949c5
@@ -103,10 +107,12 @@ jobs:
           test "$(git merge-base "$SECTION0_PREDECESSOR_SHA" HEAD)" = "$SECTION0_PREDECESSOR_SHA"
           git merge-base --is-ancestor "$SECTION1_SUCCESSOR_SHA" HEAD
           git merge-base --is-ancestor "$SECTION1_SERIALIZATION_SHA" HEAD
+          git merge-base --is-ancestor "$SECTION1_EPD_SHA" HEAD
           git diff --check "$SECTION0_PREDECESSOR_SHA"...HEAD
           changed="$(git diff --name-only "$SECTION0_PREDECESSOR_SHA"...HEAD | sort)"
           expected="$(cat <<'EOF' | sort
           .github/workflows/current-fen-history-section1-convergence.yml
+          .github/workflows/section1-epd-serialization-revalidation.yml
           .github/workflows/section1-fen-castling-order.yml
           .github/workflows/section1-fen-corpus-source-snapshot.yml
           .github/workflows/section1-fen-edge-corpus.yml
@@ -120,6 +126,7 @@ jobs:
           .github/workflows/section1-san-transition-contract.yml
           .github/workflows/section1-whole-contract-convergence.yml
           acs/chesscore.py
+          acs/epd.py
           acs/input_limits.py
           acs/notation.py
           acs/position_editor.py
@@ -131,6 +138,7 @@ jobs:
           docs/automation/SECTION1_CLOSURE_CANDIDATE.md
           tests/data/fen_edge_corpus_v1.json
           tests/test_dev2_fen_atomicity.py
+          tests/test_epd.py
           tests/test_fen_edge_corpus.py
           tests/test_fen_position_editor_complete_user_flow.py
           tests/test_qualify_fen_position_corpus.py
