@@ -53,7 +53,7 @@ jobs:
           test "$(git merge-base "$EXPECTED_PARENT" HEAD)" = "$EXPECTED_PARENT"
           git diff --check "$EXPECTED_PARENT"...HEAD
           changed="$(git diff --name-only "$EXPECTED_PARENT"...HEAD | LC_ALL=C sort)"
-          expected="$(printf '%s\n'             '.github/workflows/recorded-media-truth-corpus.yml'             'acs/media_truth_corpus.py'             'tests/fixtures/recorded_media_truth/ambiguous.svg'             'tests/fixtures/recorded_media_truth/manifest.json'             'tests/fixtures/recorded_media_truth/occluded.svg'             'tests/fixtures/recorded_media_truth/stable-black.svg'             'tests/fixtures/recorded_media_truth/stable-white.svg'             'tests/fixtures/recorded_media_truth/transition.svg'             'tests/test_recorded_media_truth_corpus.py' | LC_ALL=C sort)"
+          expected="$(printf '%s\n'             '.github/workflows/recorded-media-truth-corpus.yml'             'acs/media_preprocess.py'             'acs/media_truth_corpus.py'             'acs/recorded_media_application.py'             'tests/fixtures/recorded_media_truth/ambiguous.svg'             'tests/fixtures/recorded_media_truth/manifest.json'             'tests/fixtures/recorded_media_truth/occluded.svg'             'tests/fixtures/recorded_media_truth/stable-black.svg'             'tests/fixtures/recorded_media_truth/stable-white.svg'             'tests/fixtures/recorded_media_truth/transition.svg'             'tests/test_media_preprocess.py'             'tests/test_recorded_media_application.py'             'tests/test_recorded_media_sync.py'             'tests/test_recorded_media_truth_corpus.py' | LC_ALL=C sort)"
           test "$changed" = "$expected" || {
             printf 'RECORDED_TRUTH_CORPUS_SCOPE_DRIFT\n%s\n' "$changed" >&2
             exit 1
@@ -62,6 +62,7 @@ jobs:
       - name: Compile truth-corpus boundary
         run: >-
           python -m py_compile
+          acs/media_preprocess.py
           acs/media_truth_corpus.py
           acs/recorded_media_application.py
           acs/recorded_media_sync.py
@@ -71,6 +72,7 @@ jobs:
         run: >-
           python -m unittest -v
           tests.test_recorded_media_truth_corpus
+          tests.test_media_preprocess
           tests.test_recorded_media_application
           tests.test_recorded_media_sync
           tests.test_media_preprocess_executor
