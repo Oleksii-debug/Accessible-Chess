@@ -310,3 +310,29 @@ without rebasing or replaying Section-1 source. Relative to exact Section-0
 predecessor `dbbe1c88f399e458df0417ef43ece4a9e32db12d`, the effective Section-1 delta remains the existing
 45-path union. Section 1 remains OPEN until Section 0 is accepted and fresh
 exact-head source/corpus plus whole qualification is terminal GREEN.
+
+
+### Re-convergence after Section-0 bounded suffix/error hardening
+
+Section 0 advanced on the SAME canonical #2346 lineage to
+`5d0f190f6214675868aed2df5a2361c6dd4f3cda`. That checkpoint retains the
+complete route-restoration/cancellation behavior and additionally bounds
+canonical importer suffix declarations plus unknown-suffix diagnostics; its
+closure receipt formatting is corrected and its focused/whole gates are
+repinned to the exact new blobs.
+
+Prepared Section 1 was history-preservingly reconverged through merge-only
+PR #2360, producing merge commit
+`a0b4e2f06bac1e4e53f7b63b1731b1f91bb4e3aa` on the existing
+`prepare/section1-on-section0-20261007-sol56` branch. No rebase, force-push,
+source replay or second Section-1 authority was introduced.
+
+Relative to exact Section-0 predecessor
+`5d0f190f6214675868aed2df5a2361c6dd4f3cda`, the effective Section-1 delta
+remains ahead-only / behind=0 with the same 45 Section-1 paths. The source/corpus
+and whole gates must bind this predecessor and obtain fresh exact-descendant
+terminal qualification.
+
+Section 0 remains `BLOCKED_EXTERNAL_CI` and is not accepted. Section 1 remains
+OPEN pending Section-0 acceptance plus its own exact-descendant source/corpus and
+whole qualification.
