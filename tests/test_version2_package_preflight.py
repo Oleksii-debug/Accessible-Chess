@@ -1376,8 +1376,11 @@ class Version2PackagePreflightTests(unittest.TestCase):
             _make_tree(root)
             checksum_path = root / CHECKSUMS_NAME
             rows = checksum_path.read_text(encoding="utf-8").splitlines()
+            # Preserve the expected inventory line count so the duplicate-path
+            # validator is reached rather than the earlier entry-count limit.
+            rows[-1] = rows[0]
             checksum_path.write_text(
-                "\n".join(rows + [rows[0]]) + "\n", encoding="utf-8"
+                "\n".join(rows) + "\n", encoding="utf-8"
             )
             with self.assertRaisesRegex(
                 Version2PackagePreflightError, "duplicate paths"
