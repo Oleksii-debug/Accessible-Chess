@@ -1015,3 +1015,32 @@ Fresh exact-head Section-0 and Section-1 terminal qualification is mandatory.
 `HUMAN_TESTED=NO`
 
 `NVDA_VERIFIED=NO`
+
+### Atomic move publication at the shared FEN size boundary
+
+A Section-1 counter-boundary audit found that canonical `Board.set_fen()` could
+accept a valid FEN exactly at `MAX_FEN_CHARS`, after which an ordinary quiet
+move or a null/pseudo move could increment halfmove/fullmove counters and publish
+a successor whose serialized FEN exceeded the same canonical ingress limit.
+That successor could no longer round-trip through `Board(...)`, while history
+had already been mutated.
+
+Canonical move publication now preflights the post-transition candidate before
+mutating live Board/history state. The candidate must serialize within
+`MAX_FEN_CHARS` and re-enter the canonical Board FEN authority successfully.
+Only then may the live undo/redo stacks and Board fields be published.
+
+Regression coverage constructs exact-budget legal FEN values whose next quiet
+move and next black null move each grow a counter beyond the shared limit. Both
+operations must fail before publication and preserve FEN, undo stack, redo stack
+and last-move state exactly.
+
+Exact successor blobs:
+- `acs/chesscore.py`: `fe06cd118bae682a7d58a4c199d9d95508de9a4b`
+- `tests/test_dev2_fen_atomicity.py`: `05a4f795148f82cb1936d0b178a0294616a9ac9d`
+
+This is a same-lineage Section 1.1/1.3 round-trip and recovery hardening. It
+adds no alternate FEN parser, SAN authority or chess-rules implementation.
+
+`SECTION_1_DONE=NO_PENDING_SECTION0_ACCEPTANCE_AND_EXACT_HEAD_QUALIFICATION`
+
