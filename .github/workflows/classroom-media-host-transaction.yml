@@ -1,0 +1,81 @@
+name: Classroom Media Host Transaction
+
+on:
+  push:
+    branches:
+      - feature/classroom-media-host-transaction-20261003
+  pull_request:
+    branches:
+      - work/full-product-teacher-education-reachability-20260911
+    paths:
+      - 'acs/classroom_media_host_transactions.py'
+      - 'tests/test_classroom_media_host_transactions.py'
+      - '.github/workflows/classroom-media-host-transaction.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: classroom-media-host-transaction-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove bounded host-transaction scope
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          test "$PR_BASE_REF" = "work/full-product-teacher-education-reachability-20260911"
+          test -n "$EVENT_BASE_SHA"
+          git cat-file -e "$EVENT_BASE_SHA^{commit}"
+          git merge-base --is-ancestor "$EVENT_BASE_SHA" HEAD
+          test "$(git merge-base "$EVENT_BASE_SHA" HEAD)" = "$EVENT_BASE_SHA"
+          mapfile -t actual < <(git diff --name-only "$EVENT_BASE_SHA...HEAD" | LC_ALL=C sort)
+          expected=(
+            '.github/workflows/classroom-media-host-transaction.yml'
+            'acs/classroom_media_host_transactions.py'
+            'tests/test_classroom_media_host_transactions.py'
+          )
+          if [[ "${actual[*]}" != "${expected[*]}" ]]; then
+            printf 'Unexpected classroom media host-transaction PR scope.\nExpected:\n'
+            printf '  %s\n' "${expected[@]}"
+            printf 'Actual:\n'
+            printf '  %s\n' "${actual[@]}"
+            exit 1
+          fi
+          git diff --check "$EVENT_BASE_SHA...HEAD"
+          git diff --quiet "$EVENT_BASE_SHA...HEAD" -- \
+            acs/classroom_realtime_media.py \
+            acs/classroom_media_webview_bridge.py \
+            acs/classroom_media_webview_projection.py \
+            web/livekit_classroom_media.js \
+            web/full_product_classroom_media.js
+          echo "CLASSROOM_MEDIA_HOST_BASE=$EVENT_BASE_SHA"
+          echo 'CLASSROOM_MEDIA_HOST_BOUNDED_SCOPE=PASS'
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Run two-phase host transaction contract
+        run: python -m unittest -v tests.test_classroom_media_host_transactions
+
+      - name: Re-run canonical realtime-media policy authority
+        run: python -m unittest -v tests.test_classroom_realtime_media
