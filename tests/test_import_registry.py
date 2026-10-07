@@ -477,33 +477,57 @@ class ImportRegistryTests(unittest.TestCase):
         self.assertIs(registry.importer_for("still.foo"), original)
         self.assertNotIn(".metadata-iter", registry.registered_suffixes)
 
-    def test_registration_suffix_iterable_is_bounded_before_unbounded_materialization(self):
-        class InfiniteSuffixes:
-            def __init__(self):
-                self.calls = 0
+    def test_registration_suffix_container_must_match_readonly_importer_contract(self):
+        class ActiveTuple(tuple):
+            touched = False
 
             def __iter__(self):
-                return self
+                type(self).touched = True
+                raise AssertionError("active suffix tuple hook must not run")
 
-            def __next__(self):
-                self.calls += 1
-                return f".suffix-{self.calls}"
+            def __len__(self):
+                type(self).touched = True
+                raise AssertionError("active suffix tuple length hook must not run")
 
-        suffixes = InfiniteSuffixes()
+        class BadContainerImporter:
+            format_name = "Bad suffix container"
 
-        class InfiniteImporter:
-            format_name = "Infinite suffix importer"
-
-            def __init__(self):
+            def __init__(self, suffixes):
                 self.suffixes = suffixes
 
             def inspect(self, path: Path) -> ImportReport:
                 raise AssertionError("inspection must not run")
 
-        with self.assertRaisesRegex(ImportRegistryError, "too many suffixes"):
-            ImportRegistry().register(InfiniteImporter())
+        for suffixes in (
+            ".x",
+            [".x"],
+            iter((".x",)),
+            ActiveTuple((".x",)),
+        ):
+            with self.subTest(container=type(suffixes).__name__):
+                ActiveTuple.touched = False
+                with self.assertRaisesRegex(
+                    ImportRegistryError,
+                    "exact immutable tuple",
+                ):
+                    ImportRegistry().register(BadContainerImporter(suffixes))
+                self.assertFalse(ActiveTuple.touched)
 
-        self.assertEqual(suffixes.calls, 65)
+        registry = ImportRegistry()
+        with self.assertRaisesRegex(ImportRegistryError, "exact immutable tuple"):
+            registry.register(BadContainerImporter("x"))
+        self.assertEqual(registry.registered_suffixes, ())
+
+    def test_registration_suffix_tuple_count_is_bounded(self):
+        class TooManyImporter:
+            format_name = "Too many suffixes"
+            suffixes = tuple(f".suffix-{index}" for index in range(65))
+
+            def inspect(self, path: Path) -> ImportReport:
+                raise AssertionError("inspection must not run")
+
+        with self.assertRaisesRegex(ImportRegistryError, "too many suffixes"):
+            ImportRegistry().register(TooManyImporter())
 
     def test_registration_replace_flag_rejects_active_boolean_coercion(self):
         class ActiveReplace:
