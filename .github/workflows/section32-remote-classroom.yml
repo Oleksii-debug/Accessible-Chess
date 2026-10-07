@@ -1,0 +1,65 @@
+name: Section 32 Remote Classroom
+
+on:
+  pull_request:
+    paths:
+      - "acs/classroom_*"
+      - "acs/livekit_join_token_issuer.py"
+      - "web/livekit_classroom_media_runtime.js"
+      - "tests/test_classroom_*"
+      - "docs/automation/SECTION32_CLOSURE_AUDIT.md"
+      - ".github/workflows/section32-remote-classroom.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  section32:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile Section 32 modules
+        run: python -m compileall -q acs
+      - name: Run synchronized classroom, teaching and recording contracts
+        run: >
+          python -m unittest -v
+          tests.test_remote_session
+          tests.test_teaching_session
+          tests.test_teaching_session_adversarial
+          tests.test_teaching_reverse_channel
+          tests.test_classroom_realtime_media
+          tests.test_classroom_pairing
+          tests.test_classroom_prepared_position_deployment
+          tests.test_education_records
+          tests.test_education_records_store
+          tests.test_classroom_lesson_recording
+      - name: Run durable chat and file collaboration contracts
+        run: >
+          python -m unittest -v
+          tests.test_classroom_collaboration_storage
+          tests.test_classroom_collaboration
+          tests.test_classroom_chat_rpc
+          tests.test_classroom_chat_http_endpoint
+          tests.test_classroom_collaboration_chat_server
+          tests.test_classroom_collaboration_webview
+          tests.test_classroom_file_rpc
+          tests.test_classroom_file_server
+          tests.test_classroom_file_http_transport
+      - name: Run provider-neutral media transaction contracts
+        run: >
+          python -m unittest -v
+          tests.test_classroom_join_credentials
+          tests.test_classroom_join_http_client
+          tests.test_classroom_join_http_endpoint
+          tests.test_classroom_media_host_transactions
+          tests.test_classroom_media_provider_execution
+          tests.test_classroom_media_session_transactions
+          tests.test_classroom_media_provider_binder
