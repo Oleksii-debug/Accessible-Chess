@@ -1005,6 +1005,34 @@ class ImportRegistryTests(unittest.TestCase):
             with self.assertRaises(KeyboardInterrupt):
                 registry.inspect_batch([source])
 
+    def test_process_control_restores_cross_suffix_route_before_propagation(self):
+        registry = ImportRegistry()
+        original_route = FakeImporter()
+        replacement_route = SecondFooImporter()
+        registry.register(original_route)
+
+        class InterruptingRouteMutator:
+            format_name = 'Process control route mutator'
+            suffixes = ('.interrupt-route',)
+
+            def inspect(self, path: Path) -> ImportReport:
+                registry.register(replacement_route, replace=True)
+                raise KeyboardInterrupt()
+
+        mutator = InterruptingRouteMutator()
+        registry.register(mutator)
+
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / 'stop.interrupt-route'
+            source.write_bytes(b'control-source')
+
+            with self.assertRaises(KeyboardInterrupt):
+                registry.inspect_batch([source])
+
+            self.assertIs(registry.importer_for('after.foo'), original_route)
+            self.assertIs(registry.importer_for(source), mutator)
+            self.assertEqual(source.read_bytes(), b'control-source')
+
     def test_registry_rejects_low_level_mutated_exact_record(self):
         registry = ImportRegistry()
         registry.register(LowLevelMutatedRecordImporter())

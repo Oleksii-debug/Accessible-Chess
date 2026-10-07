@@ -284,6 +284,14 @@ class ImportRegistry:
             if batch_context:
                 raise _AdapterInspectionFailure(exc) from exc
             raise
+        except BaseException:
+            # Process-control signals remain authoritative, but they may not
+            # leave adapter-owned mutations in the host-owned routing table.
+            # Restore only registration authority, then re-raise the original
+            # signal unchanged rather than converting it to batch evidence.
+            if not self._registration_matches(registration_snapshot):
+                self._restore_registration_snapshot(registration_snapshot)
+            raise
 
         registration_changed = not self._registration_matches(registration_snapshot)
         if registration_changed:
