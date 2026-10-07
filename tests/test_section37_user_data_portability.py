@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import unittest
 
+from acs.full_product_actions import build_full_product_action_registry
 from acs.user_data_portability import (
     BundleKind,
     DomainAdapter,
@@ -159,6 +160,12 @@ class Section37PortabilityTests(unittest.TestCase):
                 owner.restore,
                 contains_secret_material=True,
             )
+
+    def test_accessible_action_registry_exposes_all_portability_operations(self):
+        ids = {item.action_id for item in build_full_product_action_registry().actions}
+        self.assertTrue(
+            {"data.backup", "data.restore", "data.export", "data.import"}.issubset(ids)
+        )
 
     def test_kind_mismatch_is_rejected(self):
         owner = _Owner("settings", 2, b"x")
