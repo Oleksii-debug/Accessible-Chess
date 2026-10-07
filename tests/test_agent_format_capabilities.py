@@ -288,11 +288,13 @@ class AgentFormatImportReportTests(unittest.TestCase):
         for arguments in (
             {"attempt_id": True},
             {"attempt_id": 0},
-            {"attempt_id": 1 << 63},
         ):
             with self.subTest(arguments=arguments):
                 result = self.execute("formats.import_report", arguments)
                 self.assertFalse(result.ok)
+
+        with self.assertRaisesRegex(ValueError, "integer exceeds JSON safe range"):
+            self.execute("formats.import_report", {"attempt_id": 1 << 63})
 
         for arguments in (
             {"status": "unknown"},
