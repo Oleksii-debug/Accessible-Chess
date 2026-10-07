@@ -333,30 +333,40 @@ jobs:
           New-Item -ItemType Directory -Force $app | Out-Null
           Copy-Item build/AccessibleChess.exe $launcher
           Copy-Item build/SmokeChild.exe (Join-Path $app 'AccessibleChess.exe')
+
+          # The primary launcher remains as a windowless supervisor for the
+          # child lifetime. A concurrent launcher must coalesce immediately.
           $first = Start-Process -FilePath $launcher -WorkingDirectory $root -PassThru
           Start-Sleep -Milliseconds 100
           $second = Start-Process -FilePath $launcher -WorkingDirectory $root -PassThru
-
-          if (-not $first.WaitForExit(10000)) {
-            $first.Kill()
-            throw 'First overlapping portable launcher invocation did not exit within 10 seconds'
-          }
-          if ($first.ExitCode -ne 0) {
-            throw "Overlapping first portable launcher smoke failed with exit code $($first.ExitCode)"
-          }
           if (-not $second.WaitForExit(10000)) {
             $second.Kill()
-            throw 'Second overlapping portable launcher invocation did not exit within 10 seconds'
+            throw 'Second overlapping portable launcher did not coalesce within 10 seconds'
           }
           if ($second.ExitCode -ne 0) {
             throw "Overlapping second portable launcher smoke failed with exit code $($second.ExitCode)"
           }
 
           $report = Join-Path $root 'launch-report.txt'
-          if (-not (Test-Path -LiteralPath $report -PathType Leaf)) {
-            throw 'Launch report missing after overlapping launchers'
+          $deadline = [DateTime]::UtcNow.AddSeconds(10)
+          $text = $null
+          do {
+            Start-Sleep -Milliseconds 100
+            if (Test-Path -LiteralPath $report -PathType Leaf) {
+              try { $text = Get-Content -LiteralPath $report -Raw -Encoding utf8 } catch { $text = $null }
+            }
+          } while (
+            [DateTime]::UtcNow -lt $deadline -and
+            ($null -eq $text -or -not $text.Contains('STATUS: STARTUP_WINDOW_READY'))
+          )
+          if ($null -eq $text -or -not $text.Contains('STATUS: STARTUP_WINDOW_READY')) {
+            if (-not $first.HasExited) { $first.Kill(); $first.WaitForExit() }
+            throw 'Primary launcher did not publish startup readiness'
           }
-          $text = Get-Content -LiteralPath $report -Raw -Encoding utf8
+          if ($first.HasExited) {
+            throw "Primary launcher supervisor exited while child was still running; exit=$($first.ExitCode)"
+          }
+
           foreach ($required in @(
             'PREFLIGHT: PASS',
             'PROCESS_CREATED: YES',
@@ -364,15 +374,17 @@ jobs:
             'PACKAGE_ROOT_GUARD: DIRECT_DIRECTORY_HANDLE_READY',
             'APP_RUNTIME_GUARD: DIRECT_DIRECTORY_HANDLE_READY',
             'PACKAGE_DATA_GUARD: DIRECT_DIRECTORY_HANDLE_READY',
-            'PACKAGE_ROOT_GUARD: TRANSFERRED_TO_CHILD',
-            'APP_RUNTIME_GUARD: TRANSFERRED_TO_CHILD',
-            'PACKAGE_DATA_GUARD: TRANSFERRED_TO_CHILD',
+            'PACKAGE_ROOT_GUARD: RETAINED_BY_LAUNCHER_SUPERVISOR',
+            'APP_RUNTIME_GUARD: RETAINED_BY_LAUNCHER_SUPERVISOR',
+            'PACKAGE_DATA_GUARD: RETAINED_BY_LAUNCHER_SUPERVISOR',
             'STATUS: STARTUP_WINDOW_READY',
+            'LAUNCHER_SUPERVISOR: ACTIVE_UNTIL_CHILD_EXIT',
             'USER_WINDOW_PROVEN: YES',
             'USER_NVDA_PROVEN: NO'
           )) {
             if (-not $text.Contains($required)) { throw "Launch report missing: $required" }
           }
+
           $pidLines = @(
             $text -split "\r?\n" | Where-Object { $_ -match '^CHILD_PROCESS_ID: [0-9]+$' }
           )
@@ -387,18 +399,32 @@ jobs:
           if (-not ($reportedChild.Path -eq $expectedChildPath)) {
             throw "Launch report child PID path mismatch: $($reportedChild.Path)"
           }
+
+          # Prove single-instance ownership still exists after startup readiness,
+          # not only during the launcher's initial observation window.
+          $third = Start-Process -FilePath $launcher -WorkingDirectory $root -PassThru
+          if (-not $third.WaitForExit(10000)) {
+            $third.Kill()
+            throw 'Post-readiness duplicate launcher did not coalesce'
+          }
+          if ($third.ExitCode -ne 0) {
+            throw "Post-readiness duplicate launcher failed with exit code $($third.ExitCode)"
+          }
+
           $ownedChildren = @(
             Get-Process -ErrorAction SilentlyContinue | Where-Object {
               try { $_.Path -eq $expectedChildPath } catch { $false }
             }
           )
           if ($ownedChildren.Count -ne 1) {
-            throw "Expected exactly one package-local child after overlapping launchers; found $($ownedChildren.Count)"
+            throw "Expected exactly one package-local child while supervisor is active; found $($ownedChildren.Count)"
           }
           if ([uint32]$ownedChildren[0].Id -ne $reportedChildPid) {
             throw "Single package-local child PID mismatch: report=$reportedChildPid actual=$($ownedChildren[0].Id)"
           }
 
+          # The report must be closed after readiness even though the supervisor
+          # keeps package directory guards alive.
           $exclusive = [IO.File]::Open(
             $report,
             [IO.FileMode]::Open,
@@ -460,18 +486,35 @@ jobs:
           foreach ($guardedDirectory in @($root, $app, $data)) {
             $probeError = [AccessibleChessDirectoryDeleteProbe]::Probe($guardedDirectory)
             if ($probeError -ne 32) {
-              throw "Transferred directory guard missing for $guardedDirectory; DELETE-open result=$probeError"
+              throw "Supervisor directory guard missing for $guardedDirectory; DELETE-open result=$probeError"
             }
           }
 
-          Start-Sleep -Seconds 7
+          # The smoke child exits naturally after about seven seconds. The
+          # supervisor must remain until then, then release all directory locks.
+          if (-not $reportedChild.WaitForExit(12000)) {
+            $reportedChild.Kill()
+            $reportedChild.WaitForExit()
+            if (-not $first.HasExited) { $first.Kill(); $first.WaitForExit() }
+            throw 'Smoke child did not exit naturally within 12 seconds'
+          }
+          if ($reportedChild.ExitCode -ne 0) {
+            if (-not $first.HasExited) { $first.Kill(); $first.WaitForExit() }
+            throw "Smoke child exited with code $($reportedChild.ExitCode)"
+          }
+          if (-not $first.WaitForExit(10000)) {
+            $first.Kill()
+            $first.WaitForExit()
+            throw 'Launcher supervisor did not exit after child termination'
+          }
+          if ($first.ExitCode -ne 0) {
+            throw "Launcher supervisor exited with code $($first.ExitCode)"
+          }
 
-          $reportedChild.Kill()
-          $reportedChild.WaitForExit()
           foreach ($guardedDirectory in @($root, $app, $data)) {
             $probeError = [AccessibleChessDirectoryDeleteProbe]::Probe($guardedDirectory)
             if ($probeError -ne 0) {
-              throw "Directory guard leaked after child exit for $guardedDirectory; DELETE-open result=$probeError"
+              throw "Directory guard leaked after supervisor exit for $guardedDirectory; DELETE-open result=$probeError"
             }
           }
 
@@ -729,13 +772,13 @@ jobs:
           assert 'CHILD_RUNNING_AFTER_STARTUP_OBSERVATION' not in source
           assert 'SetEnvironmentVariableW(L"LOCALAPPDATA"' in source
           assert 'L".accessible-chess-instance.lock"' in source
-          assert 'static STARTUPINFOEXW g_startup;' in source
-          assert 'CREATE_UNICODE_ENVIRONMENT | CREATE_SUSPENDED | EXTENDED_STARTUPINFO_PRESENT' in source
-          assert 'PROC_THREAD_ATTRIBUTE_HANDLE_LIST' in source
-          assert 'InitializeProcThreadAttributeList(' in source
-          assert 'UpdateProcThreadAttribute(' in source
-          assert 'SetHandleInformation(' in source
+          assert 'CREATE_UNICODE_ENVIRONMENT | CREATE_SUSPENDED' in source
           assert 'DuplicateHandle(' not in source
+          assert 'LAUNCHER_SUPERVISOR: ACTIVE_UNTIL_CHILD_EXIT' in source
+          assert 'WaitForSingleObject(g_process.hProcess, INFINITE)' in source
+          assert 'PACKAGE_ROOT_GUARD: RETAINED_BY_LAUNCHER_SUPERVISOR' in source
+          assert 'APP_RUNTIME_GUARD: RETAINED_BY_LAUNCHER_SUPERVISOR' in source
+          assert 'PACKAGE_DATA_GUARD: RETAINED_BY_LAUNCHER_SUPERVISOR' in source
           assert 'PACKAGE_DATA_OWNER: SINGLE_INSTANCE_GUARD_ACTIVE' in source
           assert '#define AC_TIMEOUT_CLEANUP_WAIT_MS 5000' in source
           assert 'TerminateProcess(g_process.hProcess, ERROR_TIMEOUT)' in source
