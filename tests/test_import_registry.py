@@ -305,6 +305,28 @@ class ImportRegistryTests(unittest.TestCase):
 
             self.assertEqual(path.read_bytes(), original)
 
+    def test_batch_isolates_mislabelled_format_and_continues(self):
+        registry = ImportRegistry()
+        registry.register(MislabelledFormatImporter())
+        registry.register(FakeImporter())
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            bad = root / 'bad.mislabel'
+            good = root / 'good.foo'
+            bad.write_bytes(b'mislabelled-source')
+            good.write_bytes(b'valid-source')
+
+            batch = registry.inspect_batch([bad, good])
+
+            self.assertEqual([item.ok for item in batch.items], [False, True])
+            self.assertIn('format identity', batch.items[0].error)
+            self.assertIsNone(batch.items[0].report)
+            self.assertEqual(len(batch.reports), 1)
+            self.assertEqual(batch.reports[0].format_name, FakeImporter.format_name)
+            self.assertEqual(bad.read_bytes(), b'mislabelled-source')
+            self.assertEqual(good.read_bytes(), b'valid-source')
+
     def test_registry_rejects_non_report_before_active_field_access(self):
         registry = ImportRegistry()
         registry.register(NonReportImporter())
