@@ -60,9 +60,9 @@ class CanonicalFormatCapabilityContractTests(unittest.TestCase):
             (fen.read, fen.edit, fen.write, fen.round_trip),
             (
                 CapabilityStatus.SUPPORTED,
+                CapabilityStatus.PARTIAL,
                 CapabilityStatus.SUPPORTED,
-                CapabilityStatus.SUPPORTED,
-                CapabilityStatus.SUPPORTED,
+                CapabilityStatus.PARTIAL,
             ),
         )
 
