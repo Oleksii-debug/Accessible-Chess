@@ -15,8 +15,8 @@ at the proprietary source and publishes only canonical GameTree/ACSDB/PGN data.
 | `.cbc` | COMPONENT ONLY | Consumed as annotator/commentator data by the configured CBH backend where present | Never imported standalone |
 | `.cbs` | COMPONENT ONLY | Consumed as source data by the configured CBH backend where present | Never imported standalone |
 | `.cbf` + `.cbi` | BLOCKED | Recognized and fingerprintable as the legacy two-file family | No licensed, canonical fixture-backed semantic decoder is configured |
-| `.2cbh` | BLOCKED | Recognized and fingerprintable as a primary source | No fixture-backed semantic decoder |
-| `.cbone` | BLOCKED | Recognized and fingerprintable as a primary source | No fixture-backed semantic decoder |
+| `.2cbh` | BLOCKED | Recognized as a multi-file database primary; whole-family integrity intentionally fails closed until the complete companion map is evidence-qualified | No lawful fixture-backed semantic decoder or qualified complete companion topology |
+| `.cbone` | BLOCKED | Recognized as a single-file database topology and fingerprintable without implying semantics | No lawful fixture-backed semantic decoder |
 | `.cbz` | BLOCKED | Recognized by product research as an encrypted archive family | Password/decryption lifecycle is not implemented and no silent password handling is allowed |
 
 ## Variant boundary
