@@ -1,0 +1,93 @@
+name: Classroom chat HTTP transport
+
+on:
+  pull_request:
+    branches:
+      - feature/classroom-chat-rpc-core-20261002
+    paths:
+      - 'acs/classroom_chat_http_endpoint.py'
+      - 'tests/test_classroom_chat_http_endpoint.py'
+      - '.github/workflows/classroom-chat-http-endpoint.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: classroom-chat-http-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove current stacked base and exact HTTP scope
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          test "$BASE_REF" = "feature/classroom-chat-rpc-core-20261002"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
+          git cat-file -e "$EVENT_BASE_SHA^{commit}"
+          git merge-base --is-ancestor "$EVENT_BASE_SHA" HEAD
+          git fetch --no-tags origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
+          LIVE_BASE_SHA="$(git rev-parse "refs/remotes/origin/$BASE_REF")"
+          git merge-base --is-ancestor "$LIVE_BASE_SHA" HEAD
+          test "$(git merge-base "$LIVE_BASE_SHA" HEAD)" = "$LIVE_BASE_SHA"
+          git diff --check "$LIVE_BASE_SHA...HEAD"
+          mapfile -t actual < <(git diff --name-only "$LIVE_BASE_SHA...HEAD" | LC_ALL=C sort)
+          expected=(
+            '.github/workflows/classroom-chat-http-endpoint.yml'
+            'acs/classroom_chat_http_endpoint.py'
+            'tests/test_classroom_chat_http_endpoint.py'
+          )
+          if [[ "${actual[*]}" != "${expected[*]}" ]]; then
+            printf 'Unexpected classroom chat HTTP scope.\nExpected:\n'
+            printf '  %s\n' "${expected[@]}"
+            printf 'Actual:\n'
+            printf '  %s\n' "${actual[@]}"
+            exit 1
+          fi
+          echo "CLASSROOM_CHAT_HTTP_EVENT_BASE=$EVENT_BASE_SHA"
+          echo "CLASSROOM_CHAT_HTTP_LIVE_BASE=$LIVE_BASE_SHA"
+          echo 'CLASSROOM_CHAT_HTTP_EXACT_SCOPE=PASS'
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile complete chat transport stack
+        run: >-
+          python -m py_compile
+          acs/classroom_chat_http_endpoint.py
+          acs/classroom_chat_rpc.py
+          acs/classroom_collaboration_chat_server.py
+          acs/classroom_collaboration.py
+          acs/classroom_collaboration_storage.py
+          tests/test_classroom_chat_http_endpoint.py
+
+      - name: Run HTTP, RPC, server and canonical chat contracts
+        run: >-
+          python -m unittest -v
+          tests.test_classroom_chat_http_endpoint
+          tests.test_classroom_chat_rpc
+          tests.test_classroom_collaboration_chat_server
+          tests.test_classroom_collaboration
+          tests.test_classroom_collaboration_storage
+
+      - name: Core selftest
+        run: python -m acs.selftest
