@@ -210,9 +210,10 @@ class PgnDocumentPassiveIngressTests(unittest.TestCase):
         text_before = session.copy_pgn()
         session._document_revision = ActiveInt(0)
 
-        with self.assertRaises(TypeError):
+        with self.assertRaises(PgnDocumentError) as caught:
             session.edit_tag("Event", "Must not commit")
 
+        self.assertEqual(caught.exception.code, PgnDocumentErrorCode.INVALID_TAG)
         self.assertIs(session.workspace, workspace_before)
         self.assertEqual(session.copy_pgn(), text_before)
 
@@ -390,25 +391,33 @@ class PgnDocumentPassiveIngressTests(unittest.TestCase):
         path = GuardedText("source.pgn")
         path.armed = True
         source = SourceFingerprint(
-            path=path,
+            path="source.pgn",
             size=1,
             sha256="0" * 64,
             suffix=".pgn",
         )
+        object.__setattr__(source, "path", path)
         with self.assertRaises(TypeError):
             PgnDocumentSession(workspace, source=source)
 
     def test_session_rejects_noncanonical_source_fingerprint_values(self) -> None:
         workspace = PgnWorkspace.from_text(PGN)
-        invalid_sources = (
-            SourceFingerprint(path="", size=1, sha256="0" * 64, suffix=""),
-            SourceFingerprint(path="source.pgn", size=-1, sha256="0" * 64, suffix=".pgn"),
-            SourceFingerprint(path="source.pgn", size=1, sha256="not-a-digest", suffix=".pgn"),
-            SourceFingerprint(path="source.pgn", size=1, sha256="A" * 64, suffix=".pgn"),
-            SourceFingerprint(path="source.pgn", size=1, sha256="0" * 64, suffix=".txt"),
+        invalid_fields = (
+            ("path", ""),
+            ("size", -1),
+            ("sha256", "not-a-digest"),
+            ("sha256", "A" * 64),
+            ("suffix", ".txt"),
         )
-        for source in invalid_sources:
-            with self.subTest(source=source):
+        for field_name, invalid_value in invalid_fields:
+            with self.subTest(field=field_name, value=invalid_value):
+                source = SourceFingerprint(
+                    path="source.pgn",
+                    size=1,
+                    sha256="0" * 64,
+                    suffix=".pgn",
+                )
+                object.__setattr__(source, field_name, invalid_value)
                 with self.assertRaises(ValueError):
                     PgnDocumentSession(
                         workspace,
@@ -692,11 +701,12 @@ class PgnDocumentPassiveIngressTests(unittest.TestCase):
         active_path = GuardedText("source.pgn")
         active_path.armed = True
         published = SourceFingerprint(
-            path=active_path,
+            path="source.pgn",
             size=101,
             sha256="1" * 64,
             suffix=".pgn",
         )
+        object.__setattr__(published, "path", active_path)
 
         with patch("acs.pgn_document.save_pgn_atomic", return_value=published):
             self.assert_document_error(
@@ -764,7 +774,7 @@ class PgnDocumentPassiveIngressTests(unittest.TestCase):
     def test_restore_rejects_nested_variation_step_subclass_before_attribute_hooks(self) -> None:
         session = self.session()
         step = ActiveVariationStep(0, 0)
-        step.armed = True
+        object.__setattr__(step, "armed", True)
         cursor = GameTreeCursor(line_path=(step,), next_move_index=0)
         context = PgnDocumentContext(
             session.workspace.content_digest,
