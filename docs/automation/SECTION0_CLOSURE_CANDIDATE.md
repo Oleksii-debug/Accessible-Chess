@@ -639,3 +639,17 @@ This remains the same six-path PR #2346 Section-0 lineage and introduces no
 new format, parser, ImportReport, capability or chess authority.
 
 `SECTION_0_DONE=NO_PENDING_TERMINAL_CI_AND_LIVE_REVALIDATION`
+
+### Retained EPD printable-ASCII oracle convergence
+
+Whole V3 run `37625870827` reached the retained format/source regressions on both Ubuntu and Windows after exact topology, blob binding, compilation, and Section-0.1–0.5 contracts all passed. Both matrices exposed the same stale test oracle in `tests.test_epd.EpdFormatTests.test_invalid_and_duplicate_counter_operations_fail_closed`: current `parse_epd()` intentionally rejects any non-ASCII record at the top-level printable-ASCII grammar boundary, but the old assertion still expected the lower counter-specific diagnostic for an Arabic-Indic digit.
+
+The regression now asserts the existing top-level grammar error. Runtime/parser/chess semantics are unchanged. Both canonical Section-0 gates declare and exact-pin the retained EPD test so this dependency cannot drift outside successor geometry.
+
+Exact updated test blob:
+- `tests/test_epd.py`: `a4c700389fbe9a3a82113feccd2065887b2718bb`;
+- focused gate blob: `f4a63b8e1ccf2f052614556829dd6e3864fa82b6`.
+
+This is acceptance/evidence convergence only; no parser, PositionState, chess-rule, ImportReport or capability authority changes.
+
+`SECTION_0_DONE=NO_PENDING_TERMINAL_CI_AND_LIVE_REVALIDATION`
