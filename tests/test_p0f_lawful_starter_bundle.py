@@ -148,7 +148,13 @@ def test_quality_evidence_rejects_unfinished_and_accepts_strict_finished_game():
 def test_quality_evidence_rejects_strictly_parsed_but_canonically_illegal_game():
     record = next(_iter_complete_game_records(io.StringIO(build_starter_pgn(1))))
     finished = _finished_record(record)
-    illegal = re.sub(r"(1\\.\\s+)\\S+", r"\\1Rd1d2", finished, count=1)
+    illegal, replacements = re.subn(
+        r"(\b1\.(?:\.\.)?\s*)\S+",
+        r"\1Rd1d2",
+        finished,
+        count=1,
+    )
+    assert replacements == 1
     assert illegal != finished
 
     evidence, reason = _candidate_evidence(illegal, 9)
