@@ -142,13 +142,13 @@ class UIAnalysisWebAppTests(unittest.TestCase):
         self.assertTrue(api.clear_board()["ok"])
         self.assertTrue(api.edit_position_piece("e1", "K")["ok"])
         self.assertTrue(api.edit_position_piece("e2", "k")["ok"])
-        before = api.board.fen()
+        before = api.get_state()["fen"]
 
         result = api.make_move("Ke2")
 
         self.assertFalse(result["ok"])
         self.assertIn("Некоректна позиція", result["announcement"])
-        self.assertEqual(api.board.fen(), before)
+        self.assertEqual(api.get_state()["fen"], before)
         self.assertEqual(api.sans, [])
 
     def test_ordinary_move_entry_rejects_format_null_move_without_mutation(self):
