@@ -106,13 +106,25 @@ def _require_private_directory(info: os.stat_result, label: str) -> None:
 
 
 def _same_file_version(first: os.stat_result, second: os.stat_result) -> bool:
-    return (
-        _same_file_identity(first, second)
-        and int(first.st_size) == int(second.st_size)
-        and int(getattr(first, "st_mtime_ns", 0))
-        == int(getattr(second, "st_mtime_ns", 0))
-        and int(getattr(first, "st_ctime_ns", 0))
-        == int(getattr(second, "st_ctime_ns", 0))
+    if (
+        not _same_file_identity(first, second)
+        or int(first.st_size) != int(second.st_size)
+        or int(getattr(first, "st_mtime_ns", 0))
+        != int(getattr(second, "st_mtime_ns", 0))
+    ):
+        return False
+
+    # On Windows, st_ctime is creation-time metadata and Python can report it
+    # differently for a pathname stat versus an already-open handle after
+    # atomic replacement. Treating that metadata as a content-version token
+    # makes the application reject its own freshly-published settings file.
+    # Identity + size + mtime still fence pathname replacement here, while the
+    # canonical settings revision SHA-256 fences same-version stale writers.
+    if os.name == "nt":
+        return True
+
+    return int(getattr(first, "st_ctime_ns", 0)) == int(
+        getattr(second, "st_ctime_ns", 0)
     )
 
 
