@@ -357,3 +357,29 @@ Relative to exact predecessor
 remains ahead-only / behind=0 / exact merge-base with exactly 45 Section-1
 paths. Fresh source/corpus and whole gates are required on the final descendant
 head. Section 0 is still BLOCKED_EXTERNAL_CI, so neither Section is DONE.
+
+### Re-convergence after Section-0 process-control source-integrity hardening
+
+Section 0 advanced on the SAME canonical #2346 lineage to
+`7b172de1ace250e62cb9a077029c056f71d6f833`. In addition to restoring
+host-owned routes around direct `BaseException` control flow, the registry now
+re-fingerprints the source before propagating an unchanged-source
+`KeyboardInterrupt` / `SystemExit`. A process-control adapter that mutates or
+deletes the source therefore fails closed as `SourceMutationError` instead of
+bypassing the read-only source boundary.
+
+Prepared Section 1 was history-preservingly reconverged through merge-only
+PR #2362, producing merge commit
+`b71f8f1f48f36dfb7fc7458572607090ac8c8e41` on the existing
+`prepare/section1-on-section0-20261007-sol56` branch. No Section-1 semantic
+runtime source was replayed, rebased, or duplicated.
+
+Relative to exact Section-0 predecessor
+`7b172de1ace250e62cb9a077029c056f71d6f833`, the effective Section-1 delta is
+again ahead-only / behind=0 / exact merge-base with exactly 45 Section-1 paths.
+The source/corpus and whole gates are repinned to this predecessor and require
+fresh terminal exact-head qualification.
+
+Section 0 remains `BLOCKED_EXTERNAL_CI`; Section 1 remains
+`BLOCKED_ON_SECTION0_AND_CI`. Neither Section is DONE.
+
