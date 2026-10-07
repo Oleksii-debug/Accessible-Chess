@@ -44,21 +44,22 @@ class FenCorpusQualificationReport:
 
 
 def _read_bounded_utf8(path: Path) -> tuple[str, str]:
-    if not path.is_file():
-        raise FenCorpusQualificationError(f"PGN corpus is not a regular file: {path}")
-    size = path.stat().st_size
-    if size < 1:
+    try:
+        source, payload = read_source_snapshot(
+            path,
+            max_bytes=MAX_PGN_SOURCE_BYTES,
+        )
+    except (OSError, ValueError) as exc:
+        raise FenCorpusQualificationError(
+            f"PGN corpus could not be read through the canonical source boundary: {exc}"
+        ) from exc
+    if not payload:
         raise FenCorpusQualificationError("PGN corpus is empty")
-    if size > MAX_PGN_SOURCE_BYTES:
-        raise FenCorpusQualificationError("PGN corpus exceeds the canonical whole-document byte limit")
-    payload = path.read_bytes()
-    if len(payload) != size:
-        raise FenCorpusQualificationError("PGN corpus changed while being read")
     try:
         text = payload.decode("utf-8", errors="strict")
     except UnicodeDecodeError as exc:
         raise FenCorpusQualificationError("PGN corpus must be strict UTF-8") from exc
-    return text, hashlib.sha256(payload).hexdigest()
+    return text, source.sha256
 
 
 def _canonical_position(fen: str) -> tuple[str, tuple[str, ...]]:
