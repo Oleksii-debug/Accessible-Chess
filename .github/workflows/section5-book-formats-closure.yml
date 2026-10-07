@@ -1,0 +1,77 @@
+name: Section 5 Book Formats Closure
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  SECTION4_PREDECESSOR_SHA: ade920d6efadb51383a0f422a0a8a15ba5c29000
+
+jobs:
+  semantic-book-contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+      - name: Exact evidence-only geometry and authority blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git merge-base "$SECTION4_PREDECESSOR_SHA" HEAD)" = "$SECTION4_PREDECESSOR_SHA"
+          git diff --check "$SECTION4_PREDECESSOR_SHA"...HEAD
+          actual="$(git diff --name-only "$SECTION4_PREDECESSOR_SHA"...HEAD | LC_ALL=C sort)"
+          expected="$(printf '%s\n' '.github/workflows/section5-book-formats-closure.yml' 'docs/automation/SECTION5_CLOSURE_AUDIT.md' | LC_ALL=C sort)"
+          test "$actual" = "$expected"
+          test "$(git hash-object acs/bookdocument.py)" = "23249894e2e7d9c3b2c0602515188000ea846a41"
+          test "$(git hash-object acs/bookreader.py)" = "7afb17856686683c5cce5fd8f80ed00383d255a3"
+          test "$(git hash-object acs/book_text_import.py)" = "18f26a228022f682c0d0948423282dfe29ab4b54"
+          test "$(git hash-object acs/book_html_import.py)" = "8400a3a90a17e99406b99c60a7af1baefa1f784d"
+          test "$(git hash-object acs/book_epub_import.py)" = "c6c3144f2582d9e0489ece8ed9c602af40d0956d"
+          test "$(git hash-object acs/book_game_content.py)" = "5d7d76bc97a429abbb0ad5aab308c71f04b6e0ee"
+      - name: Compile owned semantic book surface
+        run: >-
+          python -m py_compile
+          acs/bookdocument.py
+          acs/bookreader.py
+          acs/book_text_import.py
+          acs/book_html_import.py
+          acs/book_epub_import.py
+          acs/book_game_content.py
+      - name: Execute Section 5 semantic format contract
+        run: >-
+          python -m unittest -v
+          tests.test_bookdocument
+          tests.test_bookreader
+          tests.test_markdown_library_journey
+          tests.test_v2_book_text_import
+          tests.test_v2_book_html_import
+          tests.test_v2_book_epub_import
+          tests.test_book_html_runtime_correctness
+          tests.test_book_epub_runtime_correctness
+          tests.test_v2_markdown_semantic_lists
+          tests.test_v2_html_semantic_lists
+          tests.test_v2_book_game_content
+          tests.test_book_active_import_cancellation
+          tests.test_bookdocument_deserialize_bounds_current
+          tests.test_bookdocument_identity_bounds_current
+          tests.test_bookdocument_scalar_bounds_current
+          tests.test_bookdocument_total_text_budget_current
+          tests.test_legacy_book_utf16_integration
+          tests.test_book_training_large_reading_journey
+      - name: Core selftest
+        run: python -m acs.selftest
