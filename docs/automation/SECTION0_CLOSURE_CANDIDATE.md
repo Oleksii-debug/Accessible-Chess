@@ -141,3 +141,24 @@ cancellation/BaseException behavior remain unchanged.
 
 This repair is on the SAME #2346 lineage and does not introduce another import
 registry, parser, report model, or format authority.
+
+
+### Process-control route restoration
+
+Process-control values derived directly from `BaseException` remain trusted
+control flow and are still re-raised unchanged rather than converted into
+per-source batch evidence. They can no longer be used by an adapter to retain
+a re-entrant registry mutation: before propagating the signal, the registry
+compares the complete suffix/format/token snapshot and restores host-owned
+routing authority when it changed.
+
+The focused regression mutates an unrelated registered suffix and then raises
+`KeyboardInterrupt`; after propagation, both the interrupted adapter route and
+the unrelated original route remain exactly as registered. Post-signal source
+fingerprinting is intentionally not substituted for the process-control signal,
+so cancellation/interrupt semantics remain authoritative while routing state is
+recovered.
+
+This is a narrow Section-0.5 recovery hardening on the SAME #2346 lineage. It
+does not add a parser, decoder, chess authority, report authority or alternate
+registry.
