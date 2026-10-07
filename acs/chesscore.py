@@ -357,6 +357,11 @@ class Board:
     def push(self,m):
         if type(m) is not Move:
             raise ValueError('Хід має бути canonical Move')
+        # Move history is part of the same publication transaction. Reject
+        # corrupt/active containers before append()/clear() can mutate metadata
+        # or execute provider hooks.
+        self._require_recovery_stack(self.undo_stack)
+        self._require_recovery_stack(self.redo_stack)
         before=self.fen(); san=self.san(m)
         self.undo_stack.append((before,san)); self.redo_stack.clear(); self._apply(m)
         return san
@@ -372,6 +377,10 @@ class Board:
         """
         if self.in_check(self.turn):
             raise ValueError('Нульовий хід не можна виконати під шахом')
+        # Null-move history uses the same canonical stacks as ordinary moves.
+        # Validate both before history or Board fields can be published.
+        self._require_recovery_stack(self.undo_stack)
+        self._require_recovery_stack(self.redo_stack)
         before=self.fen()
         self.undo_stack.append((before,'--')); self.redo_stack.clear()
         self.ep=None

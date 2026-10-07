@@ -657,3 +657,23 @@ This is a same-lineage Section-1 recovery-integrity repair on PR #2356. It does
 not alter Section 0, introduce a second chess authority, or make a DONE claim.
 Terminal exact-head Ubuntu/Windows/lawful-corpus qualification is still required.
 
+### Ordinary/null move history-container failure atomicity
+
+The same passive-container invariant applies before creating history, not only
+while consuming recovery metadata. Canonical `Board.push()` and
+`Board.push_null()` previously appended a new undo entry and then cleared the
+redo stack without first proving that both containers were exact built-in lists.
+A tuple destination could therefore fail after the undo stack had already
+changed, while a list subclass could execute provider-controlled
+`append()`/`clear()` hooks at the transition publication boundary.
+
+Both ordinary and reviewed null transitions now validate `undo_stack` and
+`redo_stack` as exact passive lists before either history stack or Board state
+can change. Focused negative coverage exercises both stack directions for both
+transition families with passive tuples and active list subclasses, proving no
+FEN/opposite-stack/`last_move` mutation and no active hook execution.
+
+This remains same-lineage Section-1 transition/recovery hardening on PR #2356.
+It does not change chess legality, expose null moves to ordinary gameplay, alter
+Section 0, or claim DONE. Exact-head whole/corpus qualification remains required.
+

@@ -475,6 +475,60 @@ class Dev2FenAtomicityTests(unittest.TestCase):
             redo_active_before,
         )
 
+    def test_moves_reject_noncanonical_history_stacks_before_publication(self):
+        class ActiveHistory(list):
+            touched = False
+
+            def _touch(self):
+                type(self).touched = True
+                raise AssertionError("active history container hook must not run")
+
+            def append(self, value):
+                self._touch()
+
+            def clear(self):
+                self._touch()
+
+            def __len__(self):
+                self._touch()
+
+            def __getitem__(self, key):
+                self._touch()
+
+            def __iter__(self):
+                self._touch()
+
+        def assert_rejected(*, null_move, stack_name, bad_stack):
+            board = Board()
+            move = None if null_move else board.parse_move("e4")
+            other_name = "redo_stack" if stack_name == "undo_stack" else "undo_stack"
+            other_before = tuple(getattr(board, other_name))
+            before = (board.fen(), board.last_move)
+            setattr(board, stack_name, bad_stack)
+            if type(bad_stack) is ActiveHistory:
+                ActiveHistory.touched = False
+
+            with self.assertRaisesRegex(ValueError, "неправильний формат"):
+                if null_move:
+                    board.push_null()
+                else:
+                    board.push(move)
+
+            self.assertEqual((board.fen(), board.last_move), before)
+            self.assertEqual(tuple(getattr(board, other_name)), other_before)
+            self.assertIs(getattr(board, stack_name), bad_stack)
+            if type(bad_stack) is ActiveHistory:
+                self.assertFalse(ActiveHistory.touched)
+
+        for null_move in (False, True):
+            for stack_name in ("undo_stack", "redo_stack"):
+                assert_rejected(null_move=null_move, stack_name=stack_name, bad_stack=())
+                assert_rejected(
+                    null_move=null_move,
+                    stack_name=stack_name,
+                    bad_stack=ActiveHistory(),
+                )
+
     def test_move_text_and_square_scalar_coercion_fail_closed(self):
         board = Board()
         before = board.fen()
