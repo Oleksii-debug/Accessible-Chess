@@ -16,6 +16,7 @@ through the shared import boundary.
 
 from dataclasses import dataclass
 from pathlib import Path
+from threading import RLock
 from typing import Iterable
 
 from .import_contract import (
@@ -179,6 +180,10 @@ def _batch_error_text(exc: Exception, source: Path) -> str:
 
 class ImportRegistry:
     def __init__(self) -> None:
+        # Registration is host authority. Serialize public registry operations
+        # so another thread cannot report a successful route mutation that an
+        # in-flight inspection later rolls back to its earlier snapshot.
+        self._authority_lock = RLock()
         self._by_suffix: dict[str, ReadOnlyImporter] = {}
         self._format_name_by_suffix: dict[str, str] = {}
         self._registration_token_by_suffix: dict[str, object] = {}
@@ -314,6 +319,12 @@ class ImportRegistry:
         return value
 
     def register(self, importer: ReadOnlyImporter, *, replace: bool = False) -> ImporterRegistration:
+        with self._authority_lock:
+            return self._register_locked(importer, replace=replace)
+
+    def _register_locked(
+        self, importer: ReadOnlyImporter, *, replace: bool = False
+    ) -> ImporterRegistration:
         if type(replace) is not bool:
             raise ImportRegistryError("Importer replace flag must be boolean")
 
@@ -374,6 +385,10 @@ class ImportRegistry:
         return ImporterRegistration(importer=importer, suffixes=suffixes)
 
     def unregister(self, importer: ReadOnlyImporter) -> None:
+        with self._authority_lock:
+            self._unregister_locked(importer)
+
+    def _unregister_locked(self, importer: ReadOnlyImporter) -> None:
         if not self._registration_state_is_passive():
             raise ImportRegistryError("Importer registration state is inconsistent")
         for suffix in [key for key, value in self._by_suffix.items() if value is importer]:
@@ -382,11 +397,13 @@ class ImportRegistry:
             del self._registration_token_by_suffix[suffix]
 
     def importer_for(self, path: str | Path) -> ReadOnlyImporter | None:
-        source = self._coerce_source_path(path)
-        return self._by_suffix.get(source.suffix.lower())
+        with self._authority_lock:
+            source = self._coerce_source_path(path)
+            return self._by_suffix.get(source.suffix.lower())
 
     def inspect(self, path: str | Path) -> ImportReport:
-        return self._inspect(path, batch_context=False)
+        with self._authority_lock:
+            return self._inspect(path, batch_context=False)
 
     def _inspect(self, path: str | Path, *, batch_context: bool) -> ImportReport:
         source = self._coerce_source_path(path)
@@ -520,7 +537,8 @@ class ImportRegistry:
         iterator creation/advance cannot silently replace canonical routing
         between otherwise strict source inspections.
         """
-        return [self.inspect(path) for path in self._iter_batch_paths(paths)]
+        with self._authority_lock:
+            return [self._inspect(path, batch_context=False) for path in self._iter_batch_paths(paths)]
 
     def _iter_batch_paths(
         self, paths: Iterable[str | Path]
@@ -575,6 +593,10 @@ class ImportRegistry:
             yield raw_path
 
     def inspect_batch(self, paths: Iterable[str | Path]) -> BatchInspection:
+        with self._authority_lock:
+            return self._inspect_batch_locked(paths)
+
+    def _inspect_batch_locked(self, paths: Iterable[str | Path]) -> BatchInspection:
         """Inspect every requested source without hiding later results.
 
         This is the preferred preflight for multi-file families such as classic
@@ -640,10 +662,15 @@ class ImportRegistry:
 
     @property
     def registered_suffixes(self) -> tuple[str, ...]:
-        by_suffix, _, _ = self._registration_snapshot()
-        return tuple(sorted(by_suffix))
+        with self._authority_lock:
+            by_suffix, _, _ = self._registration_snapshot()
+            return tuple(sorted(by_suffix))
 
     def registrations(self) -> tuple[ImporterRegistration, ...]:
+        with self._authority_lock:
+            return self._registrations_locked()
+
+    def _registrations_locked(self) -> tuple[ImporterRegistration, ...]:
         by_suffix, _, _ = self._registration_snapshot()
         grouped: dict[int, tuple[ReadOnlyImporter, list[str]]] = {}
         for suffix, importer in by_suffix.items():
