@@ -33,6 +33,33 @@ class SourceFingerprint:
     sha256: str
     suffix: str
 
+    def __post_init__(self) -> None:
+        SourceFingerprint.validate(self)
+
+    def validate(self) -> None:
+        """Prove passive scalar provenance before any path/hash comparison."""
+        if type(self) is not SourceFingerprint:
+            raise TypeError("source fingerprint must be an exact passive SourceFingerprint")
+        if type(self.path) is not str or not self.path or "\x00" in self.path:
+            raise ValueError("source fingerprint path must be non-empty exact text")
+        if type(self.size) is not int or self.size < 0:
+            raise ValueError("source fingerprint size must be a non-negative integer")
+        if (
+            type(self.sha256) is not str
+            or len(self.sha256) != 64
+            or any(character not in "0123456789abcdef" for character in self.sha256)
+        ):
+            raise ValueError("source fingerprint sha256 must be lowercase hexadecimal")
+        if type(self.suffix) is not str:
+            raise TypeError("source fingerprint suffix must be exact text")
+        if self.suffix and (
+            not self.suffix.startswith(".")
+            or self.suffix != self.suffix.lower()
+            or "/" in self.suffix
+            or "\\" in self.suffix
+        ):
+            raise ValueError("source fingerprint suffix must be canonical lowercase text")
+
 
 @dataclass(frozen=True)
 class ImportedRecord:
@@ -83,6 +110,7 @@ class ImportReport:
             raise TypeError("import report must be an exact passive ImportReport")
         if type(self.source) is not SourceFingerprint:
             raise TypeError("import report source must be an exact SourceFingerprint")
+        self.source.validate()
         if type(self.format_name) is not str or not self.format_name.strip():
             raise ValueError("format_name must be non-empty exact text")
         if type(self.records) is not list:
