@@ -26,6 +26,7 @@ from acs.teaching_session import (
     TeachingActivity,
     TeachingPositionSource,
     TeachingStep,
+    TeachingSessionPhase,
     default_policy,
 )
 from acs.version2_final_product_application import Version2FinalProductApplication
@@ -155,6 +156,41 @@ class Version2TeacherSessionRuntimeBindingTests(unittest.TestCase):
             self.app.browser_command("teacher", "teacher.snapshot")["kind"],
         )
         self.assertFalse(self.app.snapshot()["product_status"]["teacher_session_active"])
+
+    def test_restart_restores_durable_paused_lesson_and_stop_clears_checkpoint(self) -> None:
+        self.app.start_teaching_session(self._plan())
+        paused = self.app._dispatch_owned_teaching_action("teaching.pause", {})
+        self.assertEqual(TeachingSessionPhase.PAUSED, paused.phase)
+        self.assertTrue((self.root / "teaching-session.json").exists())
+
+        second_database = AcsDatabase(self.root / "library-second.acsdb")
+        self.addCleanup(second_database.close)
+        second_analysis = AnalysisService(lambda: None)
+        self.addCleanup(second_analysis.close)
+        restored = Version2FinalProductApplication(
+            second_database,
+            progress_store=BookProgressStore(self.root / "book-progress-second.json"),
+            engine_assistance=EngineAssistedWorkflowService(second_analysis),
+            board_dispatch=lambda *_: None,
+            board_position_projector=lambda fen: {"ok": bool(fen)},
+            copy_text=lambda _text: None,
+            education_workspace_path=self.root / "education-workspace.json",
+            teaching_session_path=self.root / "teaching-session.json",
+        )
+
+        restored_state = restored._owned_teaching_state()
+        self.assertEqual(TeachingSessionPhase.PAUSED, restored_state.phase)
+        self.assertEqual(paused.revision, restored_state.revision)
+        self.assertTrue(restored.snapshot()["product_status"]["teacher_session_active"])
+        self.assertFalse(restored.snapshot()["product_status"]["teaching_recovery_required"])
+
+        resumed = restored._dispatch_owned_teaching_action("teaching.resume", {})
+        self.assertEqual(TeachingSessionPhase.ACTIVE, resumed.phase)
+        self.assertEqual(paused.revision + 1, resumed.revision)
+
+        restored.stop_teaching_session()
+        self.assertFalse((self.root / "teaching-session.json").exists())
+        self.assertFalse(restored.snapshot()["product_status"]["teacher_session_active"])
 
     def test_external_binding_cannot_replace_application_owned_session(self) -> None:
         self.app.start_teaching_session(self._plan())

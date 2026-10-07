@@ -24,6 +24,7 @@ from .teaching_session import (
     start_session,
     validate_lesson_session_scope,
 )
+from .teaching_session_store import TeachingSessionStore
 from .version2_application import Version2Application
 from .visual_board_webview import VisualBoardWebViewState
 from .visual_pack_store import VisualPackStore, VisualPreferencesStore
@@ -48,6 +49,7 @@ class Version2FinalProductApplication(Version2Application):
         self,
         *args: Any,
         education_workspace_path: str | Path | None = None,
+        teaching_session_path: str | Path | None = None,
         visual_pack_root: str | Path | None = None,
         visual_preferences_path: str | Path | None = None,
         **kwargs: Any,
@@ -77,6 +79,11 @@ class Version2FinalProductApplication(Version2Application):
             else data_root / "education-workspace.json"
         )
         self.education_store = EducationWorkspaceStore(path)
+        self.teaching_store = TeachingSessionStore(
+            Path(teaching_session_path)
+            if teaching_session_path is not None
+            else data_root / "teaching-session.json"
+        )
         self.visual = VisualBoardWebViewState(
             VisualPackStore(
                 Path(visual_pack_root)
@@ -100,6 +107,9 @@ class Version2FinalProductApplication(Version2Application):
         self._teacher_dispatch: Callable[[str, Mapping[str, object]], object] | None = None
         self._teaching_plan: LessonSession | None = None
         self._teaching_state: TeachingSessionState | None = None
+        self._teaching_revision: str | None = None
+        self._teaching_load_error = False
+        self._restore_teaching_session()
 
     def _load_education(self, language: UILanguage) -> None:
         try:
@@ -212,6 +222,40 @@ class Version2FinalProductApplication(Version2Application):
             raise RuntimeError("Teaching session is already bound")
         self._install_teaching_binding(state_provider, dispatch)
 
+    def _restore_teaching_session(self) -> None:
+        """Recover one validated local lesson before publishing the Teacher surface."""
+
+        try:
+            loaded = self.teaching_store.load()
+        except Exception:
+            self._teaching_load_error = True
+            return
+        if loaded is None:
+            self._teaching_load_error = False
+            return
+
+        workspace = self._education_workspace
+        if type(workspace) is not EducationWorkspace:
+            self._teaching_load_error = True
+            return
+        try:
+            validate_lesson_session_scope(loaded.plan, workspace.classroom)
+            self._teaching_plan = loaded.plan
+            self._teaching_state = loaded.state
+            self._teaching_revision = loaded.revision
+            self._install_teaching_binding(
+                self._owned_teaching_state,
+                self._dispatch_owned_teaching_action,
+            )
+        except Exception:
+            self._teaching_plan = None
+            self._teaching_state = None
+            self._teaching_revision = None
+            self._clear_teaching_binding()
+            self._teaching_load_error = True
+            return
+        self._teaching_load_error = False
+
     def _owned_teaching_state(self) -> TeachingSessionState:
         state = self._teaching_state
         if type(state) is not TeachingSessionState:
@@ -242,7 +286,17 @@ class Version2FinalProductApplication(Version2Application):
             payload,
             expected_revision=state.revision,
         )
+        durable_revision = self._teaching_revision
+        if type(durable_revision) is not str:
+            raise RuntimeError("Teaching session durable revision is unavailable")
+        next_revision = self.teaching_store.save(
+            plan,
+            next_state,
+            expected_revision=durable_revision,
+        )
         self._teaching_state = next_state
+        self._teaching_revision = next_revision
+        self._teaching_load_error = False
         return next_state
 
     def start_teaching_session(self, plan: LessonSession) -> TeachingSessionState:
@@ -271,11 +325,19 @@ class Version2FinalProductApplication(Version2Application):
                 self._owned_teaching_state,
                 self._dispatch_owned_teaching_action,
             )
+            durable_revision = self.teaching_store.save(
+                plan,
+                state,
+                expected_revision=None,
+            )
         except Exception:
             self._teaching_plan = None
             self._teaching_state = None
+            self._teaching_revision = None
             self._clear_teaching_binding()
             raise
+        self._teaching_revision = durable_revision
+        self._teaching_load_error = False
         return state
 
     def stop_teaching_session(self) -> None:
@@ -284,16 +346,26 @@ class Version2FinalProductApplication(Version2Application):
         self._assert_thread()
         if self._teaching_state is None:
             raise RuntimeError("No application-owned teaching session is active")
+        durable_revision = self._teaching_revision
+        if type(durable_revision) is not str:
+            raise RuntimeError("Teaching session durable revision is unavailable")
+        self.teaching_store.clear(expected_revision=durable_revision)
         self._teaching_plan = None
         self._teaching_state = None
+        self._teaching_revision = None
+        self._teaching_load_error = False
         self._clear_teaching_binding()
 
     def unbind_teaching_session(self) -> None:
         """Unbind any trusted Teacher owner and discard only local live ownership."""
 
         self._assert_thread()
+        if self._teaching_state is not None:
+            self.stop_teaching_session()
+            return
         self._teaching_plan = None
         self._teaching_state = None
+        self._teaching_revision = None
         self._clear_teaching_binding()
 
     def sync_composed_surfaces_language(self, language: UILanguage) -> None:
@@ -389,6 +461,7 @@ class Version2FinalProductApplication(Version2Application):
                 ),
                 "product_status": {
                     "teacher_session_active": self.teacher is not None,
+                    "teaching_recovery_required": self._teaching_load_error,
                     "education_available": self.education is not None,
                     "education_recovery_required": self._education_load_error,
                     "remote_transport": "not_approved",
