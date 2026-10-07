@@ -1,0 +1,28 @@
+{
+  "schema": "accessible-chess-fen-edge-corpus-v1",
+  "provenance": {
+    "kind": "project-authored-deterministic-test-data",
+    "external_bytes": false,
+    "note": "Generated from the documented FEN grammar and Accessible Chess canonical validation boundaries; contains no third-party prose, proprietary databases, credentials, or user data."
+  },
+  "records": [
+    {"id":"start","fen":"rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1","representation_valid":true,"playable":true,"canonical":"rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"},
+    {"id":"kings-only-white","fen":"4k3/8/8/8/8/8/8/4K3 w - - 0 1","representation_valid":true,"playable":true,"canonical":"4k3/8/8/8/8/8/8/4K3 w - - 0 1"},
+    {"id":"kings-only-black-counters","fen":"4k3/8/8/8/8/8/8/4K3 b - - 17 42","representation_valid":true,"playable":true,"canonical":"4k3/8/8/8/8/8/8/4K3 b - - 17 42"},
+    {"id":"white-castling","fen":"4k3/8/8/8/8/8/8/R3K2R w KQ - 4 20","representation_valid":true,"playable":true,"canonical":"4k3/8/8/8/8/8/8/R3K2R w KQ - 4 20"},
+    {"id":"black-castling","fen":"r3k2r/8/8/8/8/8/8/4K3 b kq - 0 1","representation_valid":true,"playable":true,"canonical":"r3k2r/8/8/8/8/8/8/4K3 b kq - 0 1"},
+    {"id":"white-en-passant","fen":"4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 2","representation_valid":true,"playable":true,"canonical":"4k3/8/8/3pP3/8/8/8/4K3 w - d6 0 2"},
+    {"id":"black-en-passant","fen":"4k3/8/8/8/4P3/8/8/4K3 b - e3 0 1","representation_valid":true,"playable":true,"canonical":"4k3/8/8/8/4P3/8/8/4K3 b - e3 0 1"},
+    {"id":"promotion-ready","fen":"4k3/P7/8/8/8/8/7p/4K3 w - - 99 50","representation_valid":true,"playable":true,"canonical":"4k3/P7/8/8/8/8/7p/4K3 w - - 99 50"},
+    {"id":"adjacent-kings","fen":"8/8/8/8/8/8/4k3/4K3 w - - 0 1","representation_valid":true,"playable":false},
+    {"id":"inconsistent-castling","fen":"4k3/8/8/8/8/8/8/4K3 w K - 0 1","representation_valid":true,"playable":false},
+    {"id":"missing-ep-pawn","fen":"4k3/8/8/8/8/8/8/4K3 w - e6 0 1","representation_valid":true,"playable":false},
+    {"id":"pawn-first-rank","fen":"4k3/8/8/8/8/8/8/P3K3 w - - 0 1","representation_valid":true,"playable":false},
+    {"id":"two-white-kings","fen":"4k3/8/8/8/8/8/4K3/4K3 w - - 0 1","representation_valid":true,"playable":false},
+    {"id":"duplicate-castling","fen":"4k3/8/8/8/8/8/8/R3K2R w KK - 0 1","representation_valid":false,"playable":false},
+    {"id":"wrong-ep-rank","fen":"4k3/8/8/8/8/8/8/4K3 w - e3 0 1","representation_valid":false,"playable":false},
+    {"id":"unicode-board-digit","fen":"4k3/8/8/8/8/8/８/4K3 w - - 0 1","representation_valid":false,"playable":false},
+    {"id":"zero-fullmove","fen":"4k3/8/8/8/8/8/8/4K3 w - - 0 0","representation_valid":false,"playable":false},
+    {"id":"four-field-legacy-core","fen":"4k3/8/8/8/8/8/8/4K3 w - -","representation_valid":false,"playable":true,"canonical":"4k3/8/8/8/8/8/8/4K3 w - - 0 1"}
+  ]
+}
