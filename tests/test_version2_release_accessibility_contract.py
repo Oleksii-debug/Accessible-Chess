@@ -133,7 +133,10 @@ class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
         )
 
     def test_empty_product_routes_have_heading_and_focusable_status(self) -> None:
-        self.assertIn('routeId === "pgn" || routeId === "library" || routeId === "books" || routeId === "training"', BOOTSTRAP.replace("\n", " "))
+        self.assertRegex(
+            BOOTSTRAP,
+            r'routeId === "pgn"\s*\|\|\s*routeId === "library"\s*\|\|\s*routeId === "books"\s*\|\|\s*routeId === "training"',
+        )
         self.assertIn('return "v2-" + routeId + "-empty-status";', BOOTSTRAP)
         self.assertIn('function renderEmptyProduct(routeId, heading, language)', BOOTSTRAP)
         self.assertIn('const title = documentRef.createElement("h2");', BOOTSTRAP)
