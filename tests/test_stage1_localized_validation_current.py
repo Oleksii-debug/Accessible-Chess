@@ -5,7 +5,7 @@ import unittest
 from unittest.mock import patch
 
 from acs.input_limits import MAX_FEN_CHARS
-from acs.webapp import AccessibleChessAPI
+from acs.webapp import AccessibleChessAPI, parse_sq as canonical_parse_sq
 
 
 CYRILLIC = re.compile(r"[А-Яа-яІіЇїЄє]")
@@ -101,7 +101,16 @@ class Stage1LocalizedValidationCurrentTests(unittest.TestCase):
         )
         self.assertNotIn("private", move_result["announcement"])
 
-        with patch("acs.webapp.parse_sq", side_effect=RuntimeError("private square implementation detail")):
+        parse_calls = 0
+
+        def fail_first_parse(value):
+            nonlocal parse_calls
+            parse_calls += 1
+            if parse_calls == 1:
+                raise RuntimeError("private square implementation detail")
+            return canonical_parse_sq(value)
+
+        with patch("acs.webapp.parse_sq", side_effect=fail_first_parse):
             square_result = api.activate_square("e2")
         self.assertFalse(square_result["ok"])
         self.assertEqual(square_result["announcement"], "Invalid square.")
