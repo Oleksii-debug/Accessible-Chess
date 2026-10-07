@@ -668,3 +668,31 @@ ImportReport schema, capability or chess authority.
 
 `SECTION_0_DONE=NO_PENDING_TERMINAL_CI_AND_LIVE_REVALIDATION`
 
+### Host-owned accepted ImportReport snapshot
+
+The successful registry boundary previously validated an exact passive
+`ImportReport` and then returned the adapter-owned object itself.
+`ImportReport.records` and `global_warnings` are intentionally mutable while
+an adapter assembles evidence, so an adapter retaining that object could rewrite
+already accepted evidence after validation.
+
+The registry now reconstructs a host-owned accepted snapshot after validation:
+the `SourceFingerprint`, every `ImportedRecord`, the records list and global
+warnings list are detached from adapter-owned aliases. Format identity and
+source provenance are checked against this accepted snapshot and callers receive
+that snapshot, not the adapter's retained object graph.
+
+A regression retains the adapter's original report, then after `inspect()`
+mutates its source fingerprint and record via retained references, changes its
+format label, clears its records and rewrites its global warnings. The accepted
+report remains valid, unchanged and bound to the original immutable source.
+
+Exact successor blobs:
+- `acs/import_registry.py`: `1a95d321d1c965567cd13d53355597b3b9589280`;
+- `tests/test_import_registry.py`: `e08c5d14e58ed1433aa496477ef0f222546edeee`;
+- focused qualification workflow: `6e01082f3ca2e06133f6b6dc72036e0ca4b95bc9`.
+
+This remains the same exact six-path canonical PR #2346 lineage. No parser,
+decoder, ImportReport schema, format capability or chess authority is added.
+
+`SECTION_0_DONE=NO_PENDING_TERMINAL_CI_AND_LIVE_REVALIDATION`
