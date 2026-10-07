@@ -193,7 +193,11 @@ class ImportRegistry:
                     # batch-aborting failure.
                     message = ""
                 if not message:
-                    message = type(exc).__name__
+                    try:
+                        fallback = type(exc).__name__.strip()
+                    except Exception:
+                        fallback = ""
+                    message = fallback or "Exception"
                 items.append(BatchInspectionItem(path=source, error=message))
             else:
                 items.append(BatchInspectionItem(path=source, report=report))
