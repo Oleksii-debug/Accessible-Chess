@@ -385,3 +385,33 @@ invalid-Unicode failure-boundary repair.
 
 `SECTION2_ANNOTATION_UNICODE_ATOMICITY=MOVE_AND_LINE_PROVEN`
 `SECTION_2_DONE=NO_PENDING_SECTION1_ACCEPTANCE_AND_TERMINAL_GATE`
+
+
+### Exact-current 7-path candidate readback and focused PGN GREEN
+
+Current canonical Section-2 preparation is an exact descendant of Section-1 candidate
+`cc379e0de20512303e6dbcbd9c6d135cf59d4363` with behind=0 and exact merge-base.
+Its effective delta is bounded to exactly seven Section-2 paths:
+
+- `.github/workflows/section2-pgn-gametree-closure.yml`
+- `acs/pgn_workspace.py`
+- `docs/automation/SECTION2_CLOSURE_AUDIT.md`
+- `tests/test_dev1_pgn_webview_projection.py`
+- `tests/test_pgn_complete_editing_user_flow.py`
+- `tests/test_pgn_workspace.py`
+- `tests/test_version2_pgn_commands.py`
+
+The current closure gate has 51 environment inputs with no duplicate definitions and
+no unresolved environment references. All 47 Git-tree blob bindings consumed by the
+gate were independently read back from the current canonical branch and matched
+exactly: **47/47 MATCH, 0 mismatches**.
+
+Push-triggered focused workflow `PGN Complete Editing Current`, run
+`37645434649`, is terminal SUCCESS on both Ubuntu 22.04 and Windows 2025 after
+the search dirty-state and exact multi-comment regression-oracle repairs. This is
+reusable exact-current focused evidence, not a substitute for the manual terminal
+Section-2 whole/corpus gate after Section 1 is accepted.
+
+`SECTION2_EXACT_BLOB_READBACK=47/47_MATCH`
+`SECTION2_FOCUSED_PGN_DUAL_OS=SUCCESS`
+`SECTION_2_DONE=NO_PENDING_SECTION1_ACCEPTANCE_AND_TERMINAL_GATE`
