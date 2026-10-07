@@ -124,7 +124,7 @@ _TEXT = {
         "teacher_screen": "Teacher board", "teacher_pointer_clear": "Clear teacher pointer",
         "teacher_coordinates": "Toggle coordinates", "teacher_orientation": "Toggle orientation",
         "teacher_event": "Read latest student event", "classes_screen": "Classes and students",
-        "settings_screen": "Settings", "help_screen": "Keyboard and help",
+        "settings_screen": "Settings", "tactile_status": "Read tactile status", "tactile_refresh": "Refresh tactile board", "help_screen": "Keyboard and help",
     },
     UILanguage.UA: {
         "top.file": "&Файл", "top.game": "&Гра", "top.position": "&Позиція",
@@ -164,7 +164,7 @@ _TEXT = {
         "teacher_screen": "Дошка вчителя", "teacher_pointer_clear": "Прибрати покажчик учителя",
         "teacher_coordinates": "Перемкнути координати", "teacher_orientation": "Перевернути дошку",
         "teacher_event": "Прочитати останню дію учня", "classes_screen": "Класи та учні",
-        "settings_screen": "Налаштування", "help_screen": "Клавіатура і довідка",
+        "settings_screen": "Налаштування", "tactile_status": "Прочитати стан тактильної дошки", "tactile_refresh": "Оновити тактильну дошку", "help_screen": "Клавіатура і довідка",
     },
 }
 
@@ -239,7 +239,7 @@ def build_full_product_menu_spec(
         "books": (action("books_screen", "screen.books"), action("book_open_file", "book.open"), action("book_cancel_open", "book.cancel_open"), action("book_previous_block", "book.previous_block"), action("book_next_block", "book.next_block"), action("book_previous_heading", "book.previous_heading"), action("book_next_heading", "book.next_heading"), action("book_previous_position", "book.previous_position"), action("book_next_position", "book.next_position"), action("book_previous_game", "book.previous_game"), action("book_next_game", "book.next_game"), action("book_bookmark", "book.bookmark"), action("book_open_position", "book.open_position"), action("book_previous_move", "book.board_previous_move"), action("book_next_move", "book.board_next_move"), action("book_return", "book.return")),
         "training": (action("training_screen", "screen.training"), action("training_hint", "training.hint"), action("training_reveal", "training.reveal_solution"), action("training_retry", "training.retry"), action("training_reset", "training.reset")),
         "teacher": (action("teacher_screen", "screen.teacher"), action("teacher_pointer_clear", "teacher.pointer_clear"), action("teacher_coordinates", "teacher.coordinates_toggle"), action("teacher_orientation", "teacher.orientation_toggle"), action("teacher_event", "teacher.read_student_event"), action("classes_screen", "screen.classes")),
-        "settings": (action("settings_screen", "screen.settings"),),
+        "settings": (action("settings_screen", "screen.settings"), action("tactile_status", "tactile.status"), action("tactile_refresh", "tactile.refresh")),
         "help": (action("help_screen", "screen.help"),),
     }
     return tuple(

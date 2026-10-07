@@ -39,6 +39,8 @@ from .library_webview_projection import LibraryImportPhase, LibraryWebViewEvent
 from .pgn_document import PgnDocumentSession
 from .position_editor import PositionState
 from .pgn_workspace import PgnWorkspace
+from .tactile_graphics import TactileGraphicsController, TactileSimulator
+from .tactile_sync import TactileSyncController, TactileSyncState
 from .pgn_webview_bridge import PgnWebViewBridge
 from .pgn_workspace_webview_adapter import PgnWorkspaceWebViewProjection
 from .report_paths import report_safe_name
@@ -165,11 +167,31 @@ class Version2Application:
             BookProgressStoreErrorCode.STALE_WRITE,
         }
     )
+    _TACTILE_POSITION_ACTIONS = frozenset(
+        {
+            "file.new",
+            "edit.undo",
+            "edit.redo",
+            "history.previous",
+            "history.next",
+            "history.go_to_move",
+            "history.commit_go_to_move",
+            "board.activate",
+            "board.activate_alternative",
+            "board.play_best",
+            "move.submit",
+            "move.undo",
+            "move.redo",
+            "move.clear",
+            "move.standard",
+            "move.empty",
+        }
+    )
 
     def __init__(self, database: AcsDatabase, *, progress_store: BookProgressStore,
                  engine_assistance: EngineAssistedWorkflowService, board_dispatch,
                  board_position_projector=None, copy_text=lambda _: None,
-                 language=UILanguage.UA):
+                 language=UILanguage.UA, tactile_display=None):
         self._thread = threading.get_ident()
         self.database = database
         self.progress_store = progress_store
@@ -205,6 +227,10 @@ class Version2Application:
         self._book_browser_dispatch_token = None
         self.reader = self.book_key = self.book_workflow = self.book_delegate = self.books = None
         self.training_workspace = self.training = None
+        if tactile_display is None:
+            tactile_display = TactileSimulator()
+        self.tactile_graphics = TactileGraphicsController(tactile_display)
+        self.tactile_sync = TactileSyncController(self.tactile_graphics)
         self.shell = build_version2_shell(language=language)
         self.router = build_version2_router(self.shell, self._delegate)
         self.adapter = build_version2_webview_adapter(self.shell, self.router)
@@ -1255,6 +1281,10 @@ class Version2Application:
                     training_message_key=training_message_key,
                 )
                 raise
+        if self.training_workspace is not None:
+            self._sync_tactile_safely(
+                lambda: self.tactile_sync.sync_training(self.training_workspace.session)
+            )
         return result
 
     def _dispatch_book_surface_command(
@@ -1534,7 +1564,78 @@ class Version2Application:
             raise RuntimeError("canonical visible FEN is inconsistent")
         return canonical
 
+    @staticmethod
+    def _tactile_snapshot_payload(snapshot):
+        return {
+            "state": snapshot.state.value,
+            "source": None if snapshot.source is None else snapshot.source.value,
+            "canonical_fen": snapshot.canonical_fen,
+            "sync_revision": snapshot.sync_revision,
+            "source_revision": snapshot.source_revision,
+            "scene_sequence": snapshot.scene_sequence,
+            "status_key": snapshot.status_key,
+        }
+
+    def _announce_tactile_snapshot(self, snapshot):
+        if snapshot.state is TactileSyncState.SYNCED:
+            announcement = (
+                "Тактильну дошку синхронізовано з поточною позицією."
+                if self.shell.language is UILanguage.UA
+                else "Tactile board synchronized with the current position."
+            )
+        elif snapshot.state is TactileSyncState.ERROR:
+            announcement = (
+                "Не вдалося оновити тактильну дошку. Шахова позиція не змінена."
+                if self.shell.language is UILanguage.UA
+                else "Tactile board refresh failed. The chess position was not changed."
+            )
+        else:
+            announcement = (
+                "Тактильну дошку ще не синхронізовано."
+                if self.shell.language is UILanguage.UA
+                else "Tactile board has not been synchronized yet."
+            )
+        self._events.append(
+            {"kind": "status", "payload": {"announcement": announcement}}
+        )
+
+    def _sync_tactile_safely(self, callback):
+        try:
+            return callback()
+        except Exception:
+            # Automatic synchronization is an observer side effect. Keep failures
+            # queryable through tactile.status without adding unsolicited NVDA
+            # announcements to every Board/PGN/Book/Training navigation action.
+            return self.tactile_sync.snapshot()
+
+    def _refresh_tactile_current_context(self):
+        route_id = self.shell.current_route.route_id
+        if route_id == "board":
+            if self.book_workflow is not None and self.book_workflow.active:
+                return self.tactile_sync.sync_book(self.book_workflow)
+            if self.pgn_board_active and self.session is not None:
+                return self.tactile_sync.sync_pgn(self.session.workspace)
+            return self.tactile_sync.sync_position(self._canonical_visible_fen())
+        if route_id == "pgn" and self.session is not None:
+            return self.tactile_sync.sync_pgn(self.session.workspace)
+        if route_id == "training" and self.training_workspace is not None:
+            return self.tactile_sync.sync_training(self.training_workspace.session)
+        raise ValueError("no canonical tactile position is available in the current context")
+
     def _delegate(self, action, payload):
+        if action in {"tactile.status", "tactile.refresh"}:
+            if payload:
+                raise ValueError("tactile commands accept no payload")
+            if action == "tactile.status":
+                snapshot = self.tactile_sync.snapshot()
+            else:
+                try:
+                    snapshot = self._refresh_tactile_current_context()
+                except Exception:
+                    snapshot = self.tactile_sync.snapshot()
+            self._announce_tactile_snapshot(snapshot)
+            return self._tactile_snapshot_payload(snapshot)
+
         if action == "board.read_fen":
             if payload:
                 raise ValueError("Read FEN accepts no payload")
@@ -1638,6 +1739,9 @@ class Version2Application:
                                 self._focus = self.shell.restore_focus_target()
                 raise
             self.pgn_board_active = True
+            self._sync_tactile_safely(
+                lambda: self.tactile_sync.sync_pgn(self.session.workspace)
+            )
             return None
         if action == "pgn.return":
             if payload:
@@ -1697,6 +1801,9 @@ class Version2Application:
                     self._focus = route_focus
                     self.pgn_board_active = False
                 raise
+            self._sync_tactile_safely(
+                lambda: self.tactile_sync.sync_pgn(workspace)
+            )
             return None
         if action.startswith("pgn.") and action not in {"pgn.open", "pgn.cancel_open", "pgn.save", "pgn.save_as", "pgn.cancel_save", "pgn.export_selection"}:
             # All Board-owned PGN actions returned above. The remaining PGN
@@ -1710,7 +1817,12 @@ class Version2Application:
                 raise ValueError("PGN command requires the visible PGN workspace")
             if not payload and self.pgn is not None and action == "pgn.copy_selection":
                 return self.pgn.dispatch(action)
-            return self.pgn_commands(action, payload)
+            result = self.pgn_commands(action, payload)
+            if self.session is not None:
+                self._sync_tactile_safely(
+                    lambda: self.tactile_sync.sync_pgn(self.session.workspace)
+                )
+            return result
         if action == "pgn.export_selection" and not payload and self.pgn is not None:
             return self.pgn.dispatch(action)
         if action == "library.open_game":
@@ -1987,6 +2099,9 @@ class Version2Application:
                         self._recover_book_projection_failure(before_view)
                         raise
                     self.pgn_board_active = False
+                    self._sync_tactile_safely(
+                        lambda: self.tactile_sync.sync_book(self.book_workflow)
+                    )
                     if result.kind is BookBoardUiEventKind.BOARD_OPENED:
                         self._events.append({"kind": "book-board", "payload": {"focus_target": "board-launcher"}})
                 if result.kind is BookBoardUiEventKind.RETURNED_TO_BOOK:
@@ -2070,7 +2185,15 @@ class Version2Application:
                 else:
                     self._file_event(result)
             return result
-        return self._board_dispatch(action, payload)
+        result = self._board_dispatch(action, payload)
+        if (
+            self.shell.current_route.route_id == "board"
+            and action in self._TACTILE_POSITION_ACTIONS
+        ):
+            self._sync_tactile_safely(
+                lambda: self.tactile_sync.sync_position(self._canonical_visible_fen())
+            )
+        return result
 
     def browser_command(self, area, command, payload=None):
         self._assert_thread()
