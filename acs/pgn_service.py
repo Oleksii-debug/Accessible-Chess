@@ -638,7 +638,15 @@ def _publish_no_clobber(tmp_path: Path, destination: Path) -> None:
     if os.name == "nt":
         # MoveFileExW without REPLACE_EXISTING preserves no-clobber semantics;
         # WRITE_THROUGH makes the namespace move itself a durability barrier.
-        _windows_move_write_through(tmp_path, destination, replace=False)
+        # Keep the public error contract identical to the POSIX hard-link path:
+        # an already-existing destination remains FileExistsError, while a
+        # publication primitive failure is a stable PgnFileError.
+        try:
+            _windows_move_write_through(tmp_path, destination, replace=False)
+        except FileExistsError:
+            raise
+        except OSError as exc:
+            raise PgnFileError("PGN no-clobber publication is unavailable") from exc
         return
 
     try:
