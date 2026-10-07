@@ -1,0 +1,147 @@
+name: Section 20 Media User Workflow Closure
+
+on:
+  pull_request:
+    branches:
+      - integration/section20-media-user-workflow-20261007
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: section20-media-${{ github.event.pull_request.number || github.ref }}-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact Section 20 candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prove exact Section 20 parent and scope
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          EXPECTED_BASE: 3853e28793840a222bef4c4748d3fb129436cf34
+          BASE_BRANCH: integration/section20-media-user-workflow-20261007
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          git fetch --no-tags origin "+refs/heads/$BASE_BRANCH:refs/remotes/origin/section20-base"
+          live_base="$(git rev-parse refs/remotes/origin/section20-base)"
+          test "$live_base" = "$EXPECTED_BASE" || {
+            printf 'SECTION20_BASE_MOVED expected=%s live=%s\n' "$EXPECTED_BASE" "$live_base" >&2
+            exit 1
+          }
+          test "$(git merge-base "$EXPECTED_BASE" HEAD)" = "$EXPECTED_BASE"
+          git merge-base --is-ancestor "$EXPECTED_BASE" HEAD
+          git diff --check "$EXPECTED_BASE"...HEAD
+          changed="$(git diff --name-only "$EXPECTED_BASE"...HEAD | LC_ALL=C sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/section20-media-user-workflow.yml' \
+            'acs/media_preprocess.py' \
+            'acs/media_preprocess_executor.py' \
+            'acs/media_truth_corpus.py' \
+            'acs/media_user_workflow.py' \
+            'acs/recorded_media_accessibility.py' \
+            'acs/recorded_media_application.py' \
+            'acs/recorded_media_sync.py' \
+            'acs/structured_broadcast.py' \
+            'acs/structured_broadcast_application.py' \
+            'acs/structured_broadcast_live.py' \
+            'acs/version2_final_release.py' \
+            'tests/fixtures/recorded_media_truth/ambiguous.svg' \
+            'tests/fixtures/recorded_media_truth/manifest.json' \
+            'tests/fixtures/recorded_media_truth/occluded.svg' \
+            'tests/fixtures/recorded_media_truth/stable-black.svg' \
+            'tests/fixtures/recorded_media_truth/stable-white.svg' \
+            'tests/fixtures/recorded_media_truth/transition.svg' \
+            'tests/js/recorded_media_accessible_player_dom_test.js' \
+            'tests/js/version2_media_user_workflow_dom_test.js' \
+            'tests/js/youtube_iframe_playback_adapter_test.js' \
+            'tests/test_media_preprocess.py' \
+            'tests/test_media_preprocess_executor.py' \
+            'tests/test_media_user_workflow.py' \
+            'tests/test_recorded_media_accessibility.py' \
+            'tests/test_recorded_media_application.py' \
+            'tests/test_recorded_media_sync.py' \
+            'tests/test_recorded_media_truth_corpus.py' \
+            'tests/test_structured_broadcast.py' \
+            'tests/test_structured_broadcast_application.py' \
+            'tests/test_structured_broadcast_live.py' \
+            'tests/test_version2_final_media_workflow_composition.py' \
+            'web/recorded_media_accessible_player.js' \
+            'web/version2_media_restore_bootstrap.js' \
+            'web/version2_media_user_workflow.js' \
+            'web/youtube_iframe_playback_adapter.js' | LC_ALL=C sort)"
+          test "$changed" = "$expected" || {
+            printf 'UNEXPECTED_SECTION20_SCOPE\n%s\n' "$changed" >&2
+            exit 1
+          }
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile Media closure surface
+        run: >-
+          python -m py_compile
+          acs/media_core.py
+          acs/media_application.py
+          acs/media_accessibility.py
+          acs/media_preprocess.py
+          acs/media_preprocess_executor.py
+          acs/recorded_media_sync.py
+          acs/recorded_media_application.py
+          acs/recorded_media_accessibility.py
+          acs/media_truth_corpus.py
+          acs/structured_broadcast.py
+          acs/structured_broadcast_application.py
+          acs/structured_broadcast_live.py
+          acs/media_user_workflow.py
+          acs/version2_final_release.py
+          tests/test_media_user_workflow.py
+          tests/test_version2_final_media_workflow_composition.py
+
+      - name: Run Media Section 16-20 integration regressions
+        run: >-
+          python -m unittest -v
+          tests.test_media_core
+          tests.test_media_application
+          tests.test_media_accessibility
+          tests.test_media_preprocess
+          tests.test_media_preprocess_executor
+          tests.test_recorded_media_sync
+          tests.test_recorded_media_application
+          tests.test_recorded_media_accessibility
+          tests.test_recorded_media_truth_corpus
+          tests.test_structured_broadcast
+          tests.test_structured_broadcast_application
+          tests.test_structured_broadcast_live
+          tests.test_media_user_workflow
+          tests.test_version2_final_media_restore_composition
+          tests.test_version2_final_media_workflow_composition
+
+      - name: Run browser accessibility and provider contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check web/recorded_media_accessible_player.js
+          node --check web/youtube_iframe_playback_adapter.js
+          node --check web/version2_media_user_workflow.js
+          node tests/js/recorded_media_accessible_player_dom_test.js
+          node tests/js/youtube_iframe_playback_adapter_test.js
+          node tests/js/media_accessible_restore_dom_test.js
+          node tests/js/version2_media_restore_bootstrap_dom_test.js
+          node tests/js/version2_media_user_workflow_dom_test.js
