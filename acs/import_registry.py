@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from threading import RLock
 from typing import Iterable
+import unicodedata
 
 from .import_contract import (
     ImportReport,
@@ -33,6 +34,7 @@ from .report_paths import report_safe_name
 _MAX_IMPORT_SUFFIX_CHARS = 64
 _MAX_IMPORT_SUFFIXES = 64
 _MAX_IMPORT_FORMAT_NAME_CHARS = 256
+_UNSAFE_IMPORT_FORMAT_NAME_CATEGORIES = frozenset({"Cc", "Cf", "Cs", "Zl", "Zp"})
 _PASSIVE_OSERROR_TYPES = frozenset(
     {
         OSError,
@@ -376,6 +378,13 @@ class ImportRegistry:
             # boundary and must not permit unbounded work before registration.
             if len(format_name) > _MAX_IMPORT_FORMAT_NAME_CHARS:
                 raise ImportRegistryError("Importer format_name is too long")
+            if any(
+                unicodedata.category(character) in _UNSAFE_IMPORT_FORMAT_NAME_CATEGORIES
+                for character in format_name
+            ):
+                raise ImportRegistryError(
+                    "Importer format_name contains unsafe control text"
+                )
             if not format_name.strip():
                 raise ImportRegistryError("Importer format_name must be non-empty exact text")
 
