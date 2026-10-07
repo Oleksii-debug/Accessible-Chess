@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>План і підписка — Accessible Chess</title>
+<style>
+body{font-family:system-ui,sans-serif;line-height:1.5;max-width:60rem;margin:0 auto;padding:1rem}
+button,select{font:inherit;padding:.55rem;margin:.2rem}
+fieldset{margin:1rem 0}.status{min-height:1.5rem}.actions{display:flex;flex-wrap:wrap;gap:.4rem}
+.readable{white-space:pre-wrap;overflow-wrap:anywhere}
+</style>
+</head>
+<body>
+<a href="#main">До основного вмісту</a>
+<header>
+<h1>План і підписка</h1>
+<p>Клавіатурна та екранна доступність не залежать від тарифу.</p>
+</header>
+<div id="status" class="status" role="status" aria-live="polite" aria-atomic="true"></div>
+<div id="error" class="status" role="alert" aria-live="assertive"></div>
+<main id="main" tabindex="-1">
+<section aria-labelledby="account-heading">
+<h2 id="account-heading">Реєстрація та обліковий запис</h2>
+<p id="account-state" class="readable"></p>
+<button id="register" type="button">Реєстрація / створити обліковий запис</button>
+</section>
+<section aria-labelledby="plan-heading">
+<h2 id="plan-heading">Вибір плану</h2>
+<form id="plan-form">
+<fieldset>
+<legend>Доступні плани</legend>
+<div id="plans"></div>
+</fieldset>
+<label for="cadence">Період оплати</label>
+<select id="cadence" name="cadence"></select>
+<div class="actions">
+<button id="select-plan" type="button">Вибрати план</button>
+<button id="checkout" type="button">Перейти до оплати</button>
+</div>
+</form>
+<p id="plan-details" class="readable"></p>
+</section>
+<section aria-labelledby="confirmation-heading">
+<h2 id="confirmation-heading">Підтвердження</h2>
+<p id="confirmation" class="readable"></p>
+<button id="refresh-confirmation" type="button">Оновити підтвердження оплати</button>
+<a id="navigation-link" href="#" hidden rel="noreferrer">Продовжити</a>
+</section>
+<section aria-labelledby="manage-heading">
+<h2 id="manage-heading">Керування підпискою</h2>
+<div class="actions">
+<button id="manage" type="button">Керувати підпискою</button>
+<button id="cancel-start" type="button">Скасувати підписку</button>
+</div>
+<div id="cancel-confirmation" hidden>
+<p>Підтвердьте скасування. Ваші локальні дані, експорт і відновлення не видаляються.</p>
+<button id="cancel-confirm" type="button">Так, скасувати</button>
+<button id="cancel-back" type="button">Не скасовувати</button>
+</div>
+</section>
+<section aria-labelledby="data-heading">
+<h2 id="data-heading">Ваші дані</h2>
+<p>Експорт і відновлення локальних даних залишаються доступними незалежно від стану підписки.</p>
+<p id="data-safety" class="readable"></p>
+</section>
+</main>
+<script src="/assets/accessible_chess_subscription.js"></script>
+</body>
+</html>
