@@ -1,0 +1,120 @@
+name: Section 1 FEN En Passant Fullmove Boundary
+
+on:
+  pull_request:
+    branches:
+      - 'section1/fen-en-passant-halfmove-20261007-sol56'
+    paths:
+      - '.github/workflows/section1-fen-en-passant-fullmove.yml'
+      - 'acs/chesscore.py'
+      - 'tests/test_section1_fen_en_passant_fullmove.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: section1-fen-en-passant-fullmove-${{ github.event.pull_request.head.sha }}
+  cancel-in-progress: true
+
+env:
+  EXPECTED_PARENT_SHA: ad79373b4ce6c867a1e69f54f674d121ed48389f
+  CHESSCORE_BLOB: 5ba261b7b18d8a9c6cf8858d111d412035a7e5f4
+  TEST_BLOB: 6b6889191f2faee9384275dadfe3405ba6beaf93
+  HALFMOVE_TEST_BLOB: 26564b2613fa4becd7780e96e1c4e258e212123a
+  HALFMOVE_WORKFLOW_BLOB: cd3c9ff92331483aea208e4678e586edbbfeb74f
+  SAN_TEST_BLOB: dd910faeaee287c8944f36cf3c5d7cff88c7bc79
+  SAN_WORKFLOW_BLOB: fd315537c7ae8698ec02fa6071e2d1b020972cf9
+  FEN_ATOMICITY_TEST_BLOB: 1cc88c136b5a9b711b5e495d1752a67be310a7e0
+  FEN_FIELD_TEST_BLOB: 9d9917a46fd4cbf99f4d966e8e44b8602caf9222
+  KING_CAPTURE_TEST_BLOB: 4c0facef788c2ace18cbed0fcaeee9195113ec9f
+  SAN_TRANSITION_TEST_BLOB: 22e493307ac650d14f7fa7300d80cffcd100f36b
+  NOTATION_BLOB: eed13c31993fa9979b6a2cbd608cce63c1ce74df
+  POSITION_EDITOR_FLOW_TEST_BLOB: 3c9a0aaffcd32b5680a9a6341867a41aabda66a7
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Prove exact descendant geometry
+        shell: bash
+        env:
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EVENT_HEAD_SHA"
+          test "$EVENT_BASE_REF" = "section1/fen-en-passant-halfmove-20261007-sol56"
+          if [ "$EVENT_BASE_SHA" != "$EXPECTED_PARENT_SHA" ]; then
+            git merge-base --is-ancestor "$EVENT_BASE_SHA" "$EXPECTED_PARENT_SHA"
+          fi
+          test "$(git merge-base "$EXPECTED_PARENT_SHA" HEAD)" = "$EXPECTED_PARENT_SHA"
+          git diff --check "$EXPECTED_PARENT_SHA"...HEAD
+          changed="$(git diff --name-only "$EXPECTED_PARENT_SHA"...HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/section1-fen-en-passant-fullmove.yml' \
+            'acs/chesscore.py' \
+            'tests/test_section1_fen_en_passant_fullmove.py' | sort)"
+          test "$changed" = "$expected"
+
+      - name: Bind exact FEN authority and inherited Section 1 evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:acs/chesscore.py)" = "$CHESSCORE_BLOB"
+          test "$(git rev-parse HEAD:tests/test_section1_fen_en_passant_fullmove.py)" = "$TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_section1_fen_en_passant_halfmove.py)" = "$HALFMOVE_TEST_BLOB"
+          test "$(git rev-parse HEAD:.github/workflows/section1-fen-en-passant-halfmove.yml)" = "$HALFMOVE_WORKFLOW_BLOB"
+          test "$(git rev-parse HEAD:tests/test_section1_san_internal_whitespace.py)" = "$SAN_TEST_BLOB"
+          test "$(git rev-parse HEAD:.github/workflows/section1-san-internal-whitespace.yml)" = "$SAN_WORKFLOW_BLOB"
+          test "$(git rev-parse HEAD:tests/test_dev2_fen_atomicity.py)" = "$FEN_ATOMICITY_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_section1_fen_field_count.py)" = "$FEN_FIELD_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_section1_king_capture_boundary.py)" = "$KING_CAPTURE_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_section1_san_transition_contract.py)" = "$SAN_TRANSITION_TEST_BLOB"
+          test "$(git rev-parse HEAD:acs/notation.py)" = "$NOTATION_BLOB"
+          test "$(git rev-parse HEAD:tests/test_fen_position_editor_complete_user_flow.py)" = "$POSITION_EDITOR_FLOW_TEST_BLOB"
+
+      - name: Compile focused contract
+        run: >-
+          python -m py_compile
+          acs/chesscore.py
+          tests/test_section1_fen_en_passant_fullmove.py
+          tests/test_section1_fen_en_passant_halfmove.py
+          tests/test_section1_san_internal_whitespace.py
+          tests/test_dev2_fen_atomicity.py
+          tests/test_section1_fen_field_count.py
+          tests/test_section1_king_capture_boundary.py
+          tests/test_section1_san_transition_contract.py
+
+      - name: Execute fullmove invariant and adjacent Section 1 regressions
+        run: >-
+          python -m unittest -v
+          tests.test_section1_fen_en_passant_fullmove
+          tests.test_section1_fen_en_passant_halfmove
+          tests.test_dev2_fen_atomicity
+          tests.test_section1_fen_field_count
+          tests.test_section1_fen_castling_order
+          tests.test_fen_position_editor_complete_user_flow
+          tests.test_section1_san_internal_whitespace
+          tests.test_section1_king_capture_boundary
+          tests.test_section1_san_transition_contract
+          tests.test_notation
+
+      - name: Core chess selftest
+        run: python -m acs.selftest

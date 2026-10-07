@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 import re, copy
-from .input_limits import MAX_FEN_CHARS
+from .input_limits import MAX_FEN_CHARS, MAX_SAN_CHARS
 from .squares import FILES, parse_square, square_name
 
 PIECE_UA={'P':'білий пішак','N':'білий кінь','B':'білий слон','R':'біла тура','Q':'білий ферзь','K':'білий король',
@@ -69,7 +69,7 @@ class Board:
         if type(clear_history) is not bool:
             raise ValueError('clear_history має бути логічним значенням')
         parts=fen.strip().split()
-        if len(parts)<4 or len(parts)>6: raise ValueError('FEN має містити від 4 до 6 полів')
+        if len(parts) not in (4, 6): raise ValueError('FEN має містити 4 або 6 полів')
         rows=parts[0].split('/')
         if len(rows)!=8: raise ValueError('FEN: потрібно 8 горизонталей')
         bd=[None]*64
@@ -91,12 +91,17 @@ class Board:
         if turn not in ('w','b'): raise ValueError('FEN: хід має бути w або b')
         castling='' if parts[2]=='-' else parts[2]
         if any(ch not in 'KQkq' for ch in castling) or len(set(castling))!=len(castling): raise ValueError('FEN: неправильні права рокіровки')
+        canonical_castling=''.join(ch for ch in 'KQkq' if ch in castling)
+        if castling != canonical_castling: raise ValueError('FEN: права рокіровки мають порядок KQkq')
         ep=None if parts[3]=='-' else parse_sq(parts[3])
+        if ep is not None and sq_name(ep) != parts[3]:
+            raise ValueError('FEN: поле en passant має бути канонічним нижнім регістром')
         if any(not text.isascii() or not text.isdecimal() for text in parts[4:6]):
             raise ValueError('FEN: лічильники мають бути невід’ємними десятковими числами')
         try:
-            halfmove=int(parts[4]) if len(parts)>4 else 0
-            fullmove=int(parts[5]) if len(parts)>5 else 1
+            has_explicit_counters=len(parts)==6
+            halfmove=int(parts[4]) if has_explicit_counters else 0
+            fullmove=int(parts[5]) if has_explicit_counters else (2 if ep is not None and turn=='w' else 1)
         except ValueError:
             raise ValueError('FEN: лічильники мають бути невід’ємними десятковими числами') from None
         if halfmove<0: raise ValueError('FEN: halfmove не може бути від’ємним')
@@ -118,8 +123,23 @@ class Board:
             moved_pawn='p' if turn=='w' else 'P'
             if bd[moved_sq]!=moved_pawn or bd[origin_sq] is not None:
                 raise ValueError('FEN: en passant не відповідає попередньому подвійому ходу пішака')
+            if halfmove != 0:
+                raise ValueError('FEN: halfmove має дорівнювати 0 після подвійного ходу пішака')
+            if turn=='w' and fullmove < 2:
+                raise ValueError('FEN: fullmove має бути не менше 2 після подвійного ходу чорного пішака')
 
-        # Commit only after every syntactic and structural check has passed.
+        # A legal FEN may have the side to move in check, but the side that just
+        # moved cannot still have its own king in check.  Validate this through
+        # the canonical Board attack authority before publishing any candidate
+        # fields to self, preserving set_fen failure atomicity.
+        probe=copy.copy(self)
+        probe.board=bd; probe.turn=turn; probe.castling=castling; probe.ep=ep
+        probe.halfmove=halfmove; probe.fullmove=fullmove
+        inactive='b' if turn=='w' else 'w'
+        if probe.in_check(inactive):
+            raise ValueError('FEN: король сторони, яка щойно ходила, залишається під шахом')
+
+        # Commit only after every syntactic, structural and legality check has passed.
         self.board=bd; self.turn=turn; self.castling=castling; self.ep=ep
         self.halfmove=halfmove; self.fullmove=fullmove; self.last_move=None
         if clear_history: self.undo_stack=[]; self.redo_stack=[]
@@ -234,7 +254,14 @@ class Board:
     def legal_moves(self):
         c=self.turn
         out=[]
+        enemy_king='k' if c=='w' else 'K'
         for m in self.pseudo_moves(c):
+            # Attack maps may target the opposing king, but a canonical legal
+            # Move never captures it.  Malformed/historically impossible FEN
+            # must therefore fail closed here instead of publishing a
+            # king-capture Move that would remove the rules authority's king.
+            if self.board[m.to] == enemy_king:
+                continue
             b=self.clone(); b._apply(m)
             if not b.in_check(c): out.append(m)
         return out
@@ -288,7 +315,18 @@ class Board:
     def norm_san(s):
         if type(s) is not str:
             raise ValueError('Хід має бути текстом')
-        return s.strip().replace('0','O').replace('–','-').replace('—','-').replace(' ','').rstrip('!?')
+        if len(s) > MAX_SAN_CHARS:
+            raise ValueError('Хід занадто довгий')
+        token=s.strip().replace('–','-').replace('—','-').rstrip('!?')
+        # Preserve only the explicitly supported all-zero legacy castling
+        # spellings. Mixed 0/O forms are not SAN and must not be silently
+        # repaired into canonical castling.
+        for legacy,canonical in (('0-0-0','O-O-O'),('0-0','O-O')):
+            if token.startswith(legacy):
+                suffix=token[len(legacy):]
+                if suffix in ('','+','#'):
+                    return canonical+suffix
+        return token
     def parse_move(self,text):
         if type(text) is not str:
             raise ValueError('Хід має бути текстом')
@@ -299,16 +337,31 @@ class Board:
                 if (m.frm,m.to,m.promotion)==(frm,to,pr): return m
             raise ValueError('Нелегальний координатний хід')
         candidates=[]
+        # Preserve the historical convenience that a human may omit a
+        # generated check/checkmate suffix, but never accept a suffix that
+        # contradicts canonical Board SAN.  Explicit +/# is a semantic claim.
+        explicit_suffix = t[-1] if t.endswith(('+', '#')) else ''
+        target = t[:-1] if explicit_suffix else t
         for m in self.legal_moves():
-            s=self.norm_san(self.san(m)).rstrip('+#')
-            target=t.rstrip('+#')
-            if s==target: candidates.append(m)
+            canonical=self.norm_san(self.san(m))
+            canonical_suffix = canonical[-1] if canonical.endswith(('+', '#')) else ''
+            canonical_core = canonical[:-1] if canonical_suffix else canonical
+            if canonical_core != target:
+                continue
+            if explicit_suffix and explicit_suffix != canonical_suffix:
+                continue
+            candidates.append(m)
         if len(candidates)==1: return candidates[0]
         if not candidates: raise ValueError('Не вдалося розпізнати або хід нелегальний: '+text)
         raise ValueError('Хід неоднозначний: '+text)
     def push(self,m):
         if type(m) is not Move:
             raise ValueError('Хід має бути canonical Move')
+        # Move history is part of the same publication transaction. Reject
+        # corrupt/active containers before append()/clear() can mutate metadata
+        # or execute provider hooks.
+        self._require_recovery_stack(self.undo_stack)
+        self._require_recovery_stack(self.redo_stack)
         before=self.fen(); san=self.san(m)
         self.undo_stack.append((before,san)); self.redo_stack.clear(); self._apply(m)
         return san
@@ -318,8 +371,16 @@ class Board:
         A null move changes no pieces or castling rights. It clears en-passant,
         advances the halfmove/fullmove counters exactly like a quiet ply, flips
         the side to move, and participates in the same undo/redo history as
-        ordinary canonical moves.
+        ordinary canonical moves. It cannot be used to pass while the moving
+        side is in check, because that would create a FEN which canonical Board
+        legality must reject on reload.
         """
+        if self.in_check(self.turn):
+            raise ValueError('Нульовий хід не можна виконати під шахом')
+        # Null-move history uses the same canonical stacks as ordinary moves.
+        # Validate both before history or Board fields can be published.
+        self._require_recovery_stack(self.undo_stack)
+        self._require_recovery_stack(self.redo_stack)
         before=self.fen()
         self.undo_stack.append((before,'--')); self.redo_stack.clear()
         self.ep=None
@@ -334,12 +395,69 @@ class Board:
         if self.norm_san(t)=='--':
             return self.push_null()
         return self.push(self.parse_move(t))
+    @staticmethod
+    def _validate_recovery_transition(before_fen, san, after_fen):
+        """Prove one stored history pair before undo/redo publication.
+
+        A stored target FEN is not sufficient recovery authority by itself:
+        its SAN must be exact passive text and must replay through canonical
+        Board move legality to the exact paired after-position.  This keeps
+        corrupted but individually valid FEN/SAN values from poisoning the
+        opposite history stack.
+        """
+        if type(before_fen) is not str or type(after_fen) is not str:
+            raise ValueError('Збережена позиція історії має бути FEN текстом')
+        if type(san) is not str:
+            raise ValueError('Збережений хід історії має бути текстом')
+        if len(san) > MAX_SAN_CHARS:
+            raise ValueError('Збережений хід історії занадто довгий')
+        probe=Board(before_fen)
+        replayed=probe.push_text(san)
+        if replayed != san or probe.fen() != after_fen:
+            raise ValueError('Збережений хід історії не відповідає позиції')
+
+    @staticmethod
+    def _require_recovery_stack(stack):
+        """Reject active/noncanonical history containers before any recovery use."""
+        if type(stack) is not list:
+            raise ValueError('Збережена історія має неправильний формат')
+        return stack
+
+    @staticmethod
+    def _peek_recovery_entry(stack):
+        """Return one exact passive recovery pair without invoking active containers."""
+        stack=Board._require_recovery_stack(stack)
+        if not stack:
+            return None
+        entry=stack[-1]
+        if type(entry) is not tuple or len(entry)!=2:
+            raise ValueError('Збережена історія має неправильний формат')
+        return entry
+
     def undo(self):
-        if not self.undo_stack: return None
-        current=self.fen(); before,san=self.undo_stack.pop(); self.redo_stack.append((current,san)); self.set_fen(before,clear_history=False); return san
+        entry=self._peek_recovery_entry(self.undo_stack)
+        if entry is None: return None
+        # The opposite stack is part of this publication transaction too.
+        # Validate it before set_fen()/pop() so append cannot discover an
+        # active/noncanonical destination after Board/history mutation.
+        self._require_recovery_stack(self.redo_stack)
+        current=self.fen(); before,san=entry
+        # Recovery metadata is one semantic pair. Prove both the target FEN and
+        # its canonical transition before publishing either board or stack state.
+        self._validate_recovery_transition(before,san,current)
+        self.set_fen(before,clear_history=False)
+        self.undo_stack.pop(); self.redo_stack.append((current,san)); return san
     def redo(self):
-        if not self.redo_stack: return None
-        current=self.fen(); target,san=self.redo_stack.pop(); self.undo_stack.append((current,san)); self.set_fen(target,clear_history=False); return san
+        entry=self._peek_recovery_entry(self.redo_stack)
+        if entry is None: return None
+        # Symmetrically validate the undo destination before any publication.
+        self._require_recovery_stack(self.undo_stack)
+        current=self.fen(); target,san=entry
+        # Re-prove the same canonical transition in the forward direction
+        # before the target or either stack is changed.
+        self._validate_recovery_transition(current,san,target)
+        self.set_fen(target,clear_history=False)
+        self.redo_stack.pop(); self.undo_stack.append((current,san)); return san
     def square_description(self,sq):
         sq=_require_square_index(sq)
         p=self.board[sq]; return f"{sq_name(sq)[0]} {sq_name(sq)[1]}, {PIECE_UA[p] if p else 'порожньо'}"
