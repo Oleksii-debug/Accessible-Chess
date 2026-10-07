@@ -231,6 +231,29 @@ class ImportRegistry:
         self._format_name_by_suffix = dict(format_names)
         self._registration_token_by_suffix = dict(tokens)
 
+    def _coerce_source_path(self, path: str | Path) -> Path:
+        """Coerce one source path without letting PathLike code seize routing authority."""
+
+        registration_snapshot = self._registration_snapshot()
+        try:
+            source = Path(path)
+        except BaseException as exc:
+            registration_changed = not self._registration_matches(registration_snapshot)
+            if registration_changed:
+                self._restore_registration_snapshot(registration_snapshot)
+            if registration_changed and isinstance(exc, Exception):
+                raise ImportRegistryError(
+                    "Importer registration changed while reading source path"
+                ) from exc
+            raise
+
+        if not self._registration_matches(registration_snapshot):
+            self._restore_registration_snapshot(registration_snapshot)
+            raise ImportRegistryError(
+                "Importer registration changed while reading source path"
+            )
+        return source
+
     @staticmethod
     def _normalize_suffix(suffix: str) -> str:
         if type(suffix) is not str:
@@ -311,17 +334,14 @@ class ImportRegistry:
             del self._registration_token_by_suffix[suffix]
 
     def importer_for(self, path: str | Path) -> ReadOnlyImporter | None:
-        if not self._registration_state_is_passive():
-            raise ImportRegistryError("Importer registration state is inconsistent")
-        return self._by_suffix.get(Path(path).suffix.lower())
+        source = self._coerce_source_path(path)
+        return self._by_suffix.get(source.suffix.lower())
 
     def inspect(self, path: str | Path) -> ImportReport:
         return self._inspect(path, batch_context=False)
 
     def _inspect(self, path: str | Path, *, batch_context: bool) -> ImportReport:
-        if not self._registration_state_is_passive():
-            raise ImportRegistryError("Importer registration state is inconsistent")
-        source = Path(path)
+        source = self._coerce_source_path(path)
         safe_source = report_safe_name(source)
         source_suffix = source.suffix.lower()
         importer = self._by_suffix.get(source_suffix)
@@ -456,7 +476,18 @@ class ImportRegistry:
         items: list[BatchInspectionItem] = []
         for raw_path in paths:
             try:
-                source = Path(raw_path)
+                source = self._coerce_source_path(raw_path)
+            except ImportRegistryError as exc:
+                # A PathLike that re-enters the registry is an authority
+                # violation, not a new routing baseline. The helper restores
+                # host-owned state before this bounded evidence is published.
+                items.append(
+                    BatchInspectionItem(
+                        path=Path("<invalid-source>"),
+                        error=str(exc),
+                    )
+                )
+                continue
             except Exception:
                 # Path coercion is per-source ingress. An invalid/active
                 # PathLike must not abort the whole batch or leak its exception

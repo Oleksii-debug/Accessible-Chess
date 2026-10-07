@@ -321,3 +321,20 @@ The regression now attacks the suffixes property itself: it mutates host routing
 and raises before returning metadata. Registration must restore the snapshot and
 surface registration-change evidence while preserving the original RuntimeError
 as the cause. Generic iterable hooks remain intentionally unreachable.
+
+### Source-path coercion authority recovery
+
+A later Section-0.5 audit found an ingress gap before adapter execution: a custom
+PathLike could run code from __fspath__(), replace canonical suffix routing, and
+return a valid-looking path before the registry captured its inspection
+snapshot. That made the hostile route look like the baseline instead of a
+mutation.
+
+Path coercion now executes under the same host-owned registration snapshot used
+for importer metadata and adapter execution. Any re-entrant suffix/format/token
+mutation is restored before lookup or inspection. Ordinary PathLike conversion
+failures remain isolated per source in batch preflight, while direct
+KeyboardInterrupt/SystemExit still propagate after routing recovery. Regression
+coverage exercises strict lookup, strict inspection, batch continuation,
+ordinary-error sanitization, and process-control restoration without adding a
+new format or chess authority.
