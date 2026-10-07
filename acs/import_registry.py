@@ -131,6 +131,11 @@ class ImportRegistry:
             raise SourceMutationError(
                 f"Read-only importer modified source bytes during inspection: {source}"
             )
+        if type(report) is not ImportReport:
+            raise ImportRegistryError(
+                "Read-only importer must return an exact passive ImportReport"
+            )
+        report.validate()
         if not _same_source(before, report.source):
             raise SourceProvenanceError(
                 f"Importer report provenance does not match inspected source: {source}"
