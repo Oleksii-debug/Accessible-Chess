@@ -69,7 +69,7 @@ class Board:
         if type(clear_history) is not bool:
             raise ValueError('clear_history має бути логічним значенням')
         parts=fen.strip().split()
-        if len(parts)<4 or len(parts)>6: raise ValueError('FEN має містити від 4 до 6 полів')
+        if len(parts) not in (4, 6): raise ValueError('FEN має містити 4 або 6 полів')
         rows=parts[0].split('/')
         if len(rows)!=8: raise ValueError('FEN: потрібно 8 горизонталей')
         bd=[None]*64
