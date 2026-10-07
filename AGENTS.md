@@ -13,8 +13,8 @@ This root file is the highest-priority repository instruction for autonomous wor
 - Ownership, claims, leases, assignments, queues, and coordinator labels are advisory coordination metadata only. They must not prevent useful safe work.
 - A worker may create branches, commits, pull requests, comments, tests, fixes, integration commits, and merges when repository and GitHub permissions allow it and the change is honestly verified.
 - A worker does not need to wait for a designated human or designated integration worker merely because an older document says so.
-- Dependency or merge order constrains final integration order only. It must not stop independent implementation, testing, research, hardening, documentation, fixtures, adapters, accessibility work, packaging work, or other non-conflicting work.
-- A queued, pending, slow, or unavailable CI run is never by itself a reason to terminate the worker. Record the pending qualification state and immediately continue with another valuable independent task.
+- Parallel implementation, testing, research, hardening, documentation, fixtures, adapters, accessibility and packaging are allowed only when consistent with the ordered Sequential closure authority below: prioritize the earliest unfinished Section and use later work only when dependency-safe or directly supportive.
+- A queued, pending, slow, or unavailable CI run is never by itself a reason to terminate the worker. Record the pending qualification state and continue only work permitted by the current ordered closure front.
 - A blocked primary closure front may be left only after all safe internally controllable residual work is exhausted and the blocker is durably recorded; later work must remain dependency-safe.
 - STATUS: BLOCKED is allowed only when the worker has exhausted all reasonably available safe independent work that can materially advance the product in the current run.
 - Do not idle merely because another pull request, branch, worker, check, or review is active.
