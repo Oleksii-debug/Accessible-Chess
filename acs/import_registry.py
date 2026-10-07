@@ -21,6 +21,7 @@ from typing import Iterable
 
 from .import_contract import (
     ImportReport,
+    ImportedRecord,
     ReadOnlyImporter,
     SourceFingerprint,
     SourceReadCancelledError,
@@ -127,6 +128,33 @@ def _same_source(left: SourceFingerprint, right: SourceFingerprint) -> bool:
         and left.size == right.size
         and left.sha256 == right.sha256
         and left.suffix.lower() == right.suffix.lower()
+    )
+
+
+def _snapshot_import_report(report: ImportReport) -> ImportReport:
+    """Detach accepted evidence from adapter-owned mutable report aliases."""
+    source = report.source
+    accepted_source = SourceFingerprint(
+        path=source.path,
+        size=source.size,
+        sha256=source.sha256,
+        suffix=source.suffix,
+    )
+    accepted_records = [
+        ImportedRecord(
+            source_record_id=record.source_record_id,
+            quality=record.quality,
+            game_id=record.game_id,
+            message=record.message,
+            warnings=tuple(record.warnings),
+        )
+        for record in tuple(report.records)
+    ]
+    return ImportReport(
+        source=accepted_source,
+        format_name=report.format_name,
+        records=accepted_records,
+        global_warnings=list(tuple(report.global_warnings)),
     )
 
 
@@ -531,19 +559,20 @@ class ImportRegistry:
             )
         try:
             report.validate()
+            accepted_report = _snapshot_import_report(report)
         except (TypeError, ValueError) as exc:
             raise ImportRegistryError(
                 "Read-only importer returned an invalid ImportReport"
             ) from exc
-        if report.format_name != registered_format_name:
+        if accepted_report.format_name != registered_format_name:
             raise ImportRegistryError(
                 "Read-only importer report format identity does not match registered importer"
             )
-        if not _same_source(before, report.source):
+        if not _same_source(before, accepted_report.source):
             raise SourceProvenanceError(
                 f"Importer report provenance does not match inspected source: {safe_source}"
             )
-        return report
+        return accepted_report
 
     def inspect_many(self, paths: Iterable[str | Path]) -> list[ImportReport]:
         """Strict multi-source inspection; aborts on the first source error.

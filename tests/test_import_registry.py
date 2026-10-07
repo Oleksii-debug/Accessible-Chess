@@ -653,6 +653,69 @@ class ImportRegistryTests(unittest.TestCase):
             self.assertEqual(report.source.path, str(path.resolve()))
             self.assertEqual(report.source.sha256, fingerprint(path).sha256)
 
+    def test_accepted_report_is_detached_from_adapter_owned_mutable_aliases(self):
+        class RetainingImporter:
+            format_name = "Retaining fake format"
+            suffixes = (".retained-report",)
+
+            def __init__(self) -> None:
+                self.returned_report: ImportReport | None = None
+
+            def inspect(self, path: Path) -> ImportReport:
+                report = ImportReport(
+                    source=fingerprint(path),
+                    format_name=self.format_name,
+                    records=[
+                        ImportedRecord(
+                            "stable-record",
+                            ImportQuality.FULL,
+                            message="stable message",
+                            warnings=("stable record warning",),
+                        )
+                    ],
+                    global_warnings=["stable global warning"],
+                )
+                self.returned_report = report
+                return report
+
+        registry = ImportRegistry()
+        importer = RetainingImporter()
+        registry.register(importer)
+
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "sample.retained-report"
+            path.write_bytes(b"immutable accepted evidence")
+            accepted = registry.inspect(path)
+
+            retained = importer.returned_report
+            self.assertIsNotNone(retained)
+            assert retained is not None
+            self.assertIsNot(accepted, retained)
+            self.assertIsNot(accepted.source, retained.source)
+            self.assertIsNot(accepted.records, retained.records)
+            self.assertIsNot(accepted.records[0], retained.records[0])
+            self.assertIsNot(accepted.global_warnings, retained.global_warnings)
+
+            expected_sha = accepted.source.sha256
+            retained_record = retained.records[0]
+            object.__setattr__(retained.source, "sha256", "0" * 64)
+            object.__setattr__(retained_record, "source_record_id", "poisoned-record")
+            retained.format_name = "poisoned format"
+            retained.records.clear()
+            retained.global_warnings[:] = ["poisoned warning"]
+
+            accepted.validate()
+            self.assertEqual(accepted.format_name, RetainingImporter.format_name)
+            self.assertEqual(accepted.source.sha256, expected_sha)
+            self.assertEqual(accepted.records[0].source_record_id, "stable-record")
+            self.assertEqual(accepted.records[0].message, "stable message")
+            self.assertEqual(
+                accepted.records[0].warnings,
+                ("stable record warning",),
+            )
+            self.assertEqual(accepted.global_warnings, ["stable global warning"])
+            self.assertEqual(path.read_bytes(), b"immutable accepted evidence")
+
     def test_registry_detects_source_mutation_even_when_adapter_reports_old_fingerprint(self):
         registry = ImportRegistry()
         registry.register(MutatingImporter())

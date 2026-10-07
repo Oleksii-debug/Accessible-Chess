@@ -668,3 +668,62 @@ ImportReport schema, capability or chess authority.
 
 `SECTION_0_DONE=NO_PENDING_TERMINAL_CI_AND_LIVE_REVALIDATION`
 
+### Host-owned accepted ImportReport snapshot
+
+The successful registry boundary previously validated an exact passive
+`ImportReport` and then returned the adapter-owned object itself.
+`ImportReport.records` and `global_warnings` are intentionally mutable while
+an adapter assembles evidence, so an adapter retaining that object could rewrite
+already accepted evidence after validation.
+
+The registry now reconstructs a host-owned accepted snapshot after validation:
+the `SourceFingerprint`, every `ImportedRecord`, the records list and global
+warnings list are detached from adapter-owned aliases. Format identity and
+source provenance are checked against this accepted snapshot and callers receive
+that snapshot, not the adapter's retained object graph.
+
+A regression retains the adapter's original report, then after `inspect()`
+mutates its source fingerprint and record via retained references, changes its
+format label, clears its records and rewrites its global warnings. The accepted
+report remains valid, unchanged and bound to the original immutable source.
+
+Exact successor blobs:
+- `acs/import_registry.py`: `1a95d321d1c965567cd13d53355597b3b9589280`;
+- `tests/test_import_registry.py`: `e08c5d14e58ed1433aa496477ef0f222546edeee`;
+- focused qualification workflow: `6e01082f3ca2e06133f6b6dc72036e0ca4b95bc9`.
+
+This remains the same exact six-path canonical PR #2346 lineage. No parser,
+decoder, ImportReport schema, format capability or chess authority is added.
+
+`SECTION_0_DONE=NO_PENDING_TERMINAL_CI_AND_LIVE_REVALIDATION`
+
+
+### Retained EPD printable-ASCII oracle convergence
+
+Exact-head Whole V3 qualification exposed a retained test-oracle conflict after
+the Section-0.1 through 0.5 executable contract had passed. The failing case
+feeds Arabic-Indic `١` to `hmvc` but expected the later counter-specific
+`non-negative ASCII integer` diagnostic. Canonical `parse_epd()`
+intentionally enforces one-line printable ASCII before operation/counter
+parsing, so the non-ASCII glyph is correctly rejected at the earlier ingress
+boundary.
+
+The retained oracle now expects the canonical `printable ASCII` rejection for
+that one non-ASCII case. Signed and zero-padded ASCII counters remain accepted
+and the ASCII negative counter remains counter-specifically rejected. No EPD
+parser or chess behavior changed.
+
+The exact Section-0 successor geometry expands from six to seven paths so this
+retained regression is itself bound by both canonical qualification gates.
+The focused gate now exact-pins, compiles, and executes `tests/test_epd.py`;
+Whole V3 continues to run the retained EPD suite and now pins the same test
+blob.
+
+Exact successor blobs:
+- `tests/test_epd.py`: `e170377a57f0680bd73f275012d40843509b92a2`;
+- focused workflow: `949998bedd409390744b58c4c496d43db0241b54`.
+
+This is test/evidence convergence only. It introduces no alternate EPD/FEN,
+PositionState, parser, format-capability, ImportReport or chess authority.
+
+`SECTION_0_DONE=NO_PENDING_TERMINAL_CI_AND_LIVE_REVALIDATION`
