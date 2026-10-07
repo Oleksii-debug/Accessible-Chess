@@ -449,20 +449,18 @@ class ImportRegistryTests(unittest.TestCase):
         self.assertIs(registry.importer_for("still.foo"), original)
         self.assertNotIn(".metadata-poison", registry.registered_suffixes)
 
-    def test_registration_suffix_iteration_cannot_hide_route_mutation_or_runtime_error(self):
+    def test_registration_suffix_property_cannot_hide_route_mutation_or_runtime_error(self):
         registry = ImportRegistry()
         original = FakeImporter()
         registry.register(original)
 
-        class MutatingSuffixes:
-            def __iter__(self):
-                registry._format_name_by_suffix = {}
-                yield ".metadata-iter"
-                raise RuntimeError("suffix iterator failed after route mutation")
+        class PropertyPoisoner:
+            format_name = "Suffix property poisoner"
 
-        class IteratorPoisoner:
-            format_name = "Iterator poisoner"
-            suffixes = MutatingSuffixes()
+            @property
+            def suffixes(self):
+                registry._format_name_by_suffix = {}
+                raise RuntimeError("suffix property failed after route mutation")
 
             def inspect(self, path: Path) -> ImportReport:
                 raise AssertionError("inspection must not run")
@@ -471,11 +469,11 @@ class ImportRegistryTests(unittest.TestCase):
             ImportRegistryError,
             "registration changed while reading importer metadata",
         ) as ctx:
-            registry.register(IteratorPoisoner())
+            registry.register(PropertyPoisoner())
 
         self.assertIsInstance(ctx.exception.__cause__, RuntimeError)
         self.assertIs(registry.importer_for("still.foo"), original)
-        self.assertNotIn(".metadata-iter", registry.registered_suffixes)
+        self.assertEqual(registry.registered_suffixes, (".bar", ".foo"))
 
     def test_registration_suffix_container_must_match_readonly_importer_contract(self):
         class ActiveTuple(tuple):

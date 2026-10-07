@@ -311,3 +311,13 @@ of broadening its API.
 
 This is the same five-path Section-0.5 lineage and adds no new importer API or
 format authority.
+
+### Exact-tuple acceptance-test convergence
+
+After enforcing the declared exact tuple suffix contract, one older adversarial
+test still expected a custom suffix iterator to execute before route-drift
+detection. That expectation contradicted the new passive-container boundary.
+The regression now attacks the suffixes property itself: it mutates host routing
+and raises before returning metadata. Registration must restore the snapshot and
+surface registration-change evidence while preserving the original RuntimeError
+as the cause. Generic iterable hooks remain intentionally unreachable.
