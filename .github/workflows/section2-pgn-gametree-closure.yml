@@ -29,7 +29,7 @@ env:
   SEMANTIC_FIDELITY_TEST_BLOB: 9a07a3623043981c40d1df605c990f3ac09211a7
   STRICT_RECOVERY_TEST_BLOB: 06e184390eb8b3957063ab8480ce707aec4da4fe
   REAL_RECOVERY_TEST_BLOB: 8bf849bc3246bc70fff59637c169c9873d9520dd
-  EDITING_TEST_BLOB: f81ecc0fbc9512731ebde7ef56330ed036194b5e
+  EDITING_TEST_BLOB: f0730d2a9b442b3110d2739e8cfe460af54a1d0d
   ACCESSIBLE_GAMETREE_TEST_BLOB: 9f9902e86d27bd9ace0dfd8379969b422800f761
   STREAMING_IMPORT_TEST_BLOB: 312fd1be794ef61537528d11ada731109d185ff1
   STREAMING_EXPORT_TEST_BLOB: f12627d462ce73a07fd1b9ddd25edad4414720c6
@@ -56,7 +56,7 @@ env:
   SECTION2_AUDIT_BLOB: f71c6ced01ff261b4cd0be507119ecc81c6ce307
   PGN_WEBVIEW_PROJECTION_BLOB: 5327c3c89da28f9150a09eff4cc15131cc80cc76
   FULL_PRODUCT_PRESENTERS_BLOB: aa9c7c10a03fbe85bfa9a3b542188a5b31fee655
-  PGN_WEBVIEW_PROJECTION_TEST_BLOB: c58b9096bcccd8b5a09f2e8bdb9c09ebfe5bcc4b
+  PGN_WEBVIEW_PROJECTION_TEST_BLOB: 1488fd39957bb412c0e551252a4364629f816481
   PGN_PRESENTER_GRAPH_TEST_BLOB: c66f1473f46f1595add938b27f9e8ea553e91348
   RESOURCE_SECURITY_TEST_BLOB: 6f4d34d2c42a6bd5c5692ae131b1286d23e8d78d
   PGN_DOCUMENT_TEST_BLOB: 765634330f481d6cc72eb8715bc4222aea2f90c5
@@ -93,7 +93,7 @@ jobs:
           test "$(git merge-base "$SECTION1_PREDECESSOR_SHA" HEAD)" = "$SECTION1_PREDECESSOR_SHA"
           git diff --check "$SECTION1_PREDECESSOR_SHA"...HEAD
           changed="$(git diff --name-only "$SECTION1_PREDECESSOR_SHA"...HEAD | sort)"
-          expected="$(printf '%s\n'             '.github/workflows/section2-pgn-gametree-closure.yml'             'acs/pgn_workspace.py'             'docs/automation/SECTION2_CLOSURE_AUDIT.md'             'tests/test_pgn_workspace.py'             'tests/test_version2_pgn_commands.py' | sort)"
+          expected="$(printf '%s\n'             '.github/workflows/section2-pgn-gametree-closure.yml'             'acs/pgn_workspace.py'             'docs/automation/SECTION2_CLOSURE_AUDIT.md'             'tests/test_dev1_pgn_webview_projection.py'             'tests/test_pgn_complete_editing_user_flow.py'             'tests/test_pgn_workspace.py'             'tests/test_version2_pgn_commands.py' | sort)"
           test "$changed" = "$expected"
 
       - name: Bind exact inherited PGN GameTree authorities
