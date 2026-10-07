@@ -1,4 +1,4 @@
-name: Section 1 Released Corpus Evidence Convergence
+name: Section 1 Released Closure Lanes Convergence
 
 on:
   pull_request:
@@ -7,9 +7,12 @@ on:
     paths:
       - '.github/workflows/current-fen-history-section1-convergence.yml'
       - '.github/workflows/section1-fen-edge-corpus.yml'
+      - '.github/workflows/section1-positionstate-counter-boundary.yml'
       - '.github/workflows/section1-released-corpus-convergence.yml'
+      - 'acs/position_editor.py'
       - 'tests/data/fen_edge_corpus_v1.json'
       - 'tests/test_fen_edge_corpus.py'
+      - 'tests/test_section1_positionstate_counter_boundary.py'
   workflow_dispatch:
 
 permissions:
@@ -20,13 +23,18 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  FIRST_PARENT_SHA: e604047873ec5de10db747e91f39eb36edab89c4
+  SOURCE_PARENT_SHA: e604047873ec5de10db747e91f39eb36edab89c4
+  CONVERGENCE_PARENT_SHA: 137217b04fb77cabf59deabfab227d7a02459a4c
   RECEIPT_PARENT_SHA: f6a2c6df5705eadcca1070564c517e6d8c13a248
   EDGE_PARENT_SHA: 3825a153c3f2a79d1164a0b3001afc2c740cf23d
+  POSITION_PARENT_SHA: 9209f6cd06ac0cbc8a4ee9ff040797df76ec1ae1
   RECEIPT_WORKFLOW_BLOB: 9fd45a5e3cd9a9b37df81fbae284b90cb41a637c
   EDGE_WORKFLOW_BLOB: 84f4e41ac49b2f35e7556e99561b92956191b75d
   EDGE_CORPUS_BLOB: ed61ab2296d26727c4220c6e5abb437bb1e1ab5a
   EDGE_TEST_BLOB: d4beb33a0131cb4b748e8495f4cacb89ffefc9a5
+  POSITION_WORKFLOW_BLOB: 919139af688900e21a91550fd09751b19ba9a608
+  POSITION_EDITOR_BLOB: ec28fca72bbe766c4bafc73eefcda719abe75c28
+  POSITION_TEST_BLOB: ad6b0c0dbbe0e5d3cf47bb534a29d4d6a2925061
   QUALIFIER_BLOB: 6a230daff4c511339669c330fb4aabc988c7f86f
   QUALIFIER_TEST_BLOB: ff9b303ab9db4f61a707a6f3d53aa3b21596857d
   IMPORT_CONTRACT_BLOB: b302b1666511289a70b5b3569ed5360b5cb66a95
@@ -58,7 +66,7 @@ jobs:
         with:
           python-version: '3.12.10'
 
-      - name: Prove exact three-parent convergence and effective geometry
+      - name: Prove exact released-lane convergence and effective geometry
         shell: bash
         env:
           EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -69,23 +77,27 @@ jobs:
           expected_head="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
           test "$(git rev-parse HEAD)" = "$expected_head"
           test "$EVENT_BASE_REF" = "section1/fen-corpus-source-snapshot-20261007-sol56"
-          test "$EVENT_BASE_SHA" = "$FIRST_PARENT_SHA"
-          read -r merge_sha first_parent second_parent third_parent extra <<<"$(git rev-list --parents -n 1 HEAD)"
+          test "$EVENT_BASE_SHA" = "$SOURCE_PARENT_SHA"
+          read -r merge_sha first_parent second_parent extra <<<"$(git rev-list --parents -n 1 HEAD)"
           test "$merge_sha" = "$expected_head"
-          test "$first_parent" = "$FIRST_PARENT_SHA"
-          test "$second_parent" = "$RECEIPT_PARENT_SHA"
-          test "$third_parent" = "$EDGE_PARENT_SHA"
+          test "$first_parent" = "$CONVERGENCE_PARENT_SHA"
+          test "$second_parent" = "$POSITION_PARENT_SHA"
           test -z "${extra:-}"
+          git merge-base --is-ancestor "$SOURCE_PARENT_SHA" HEAD
           git merge-base --is-ancestor "$RECEIPT_PARENT_SHA" HEAD
           git merge-base --is-ancestor "$EDGE_PARENT_SHA" HEAD
-          git diff --check "$FIRST_PARENT_SHA"...HEAD
-          changed="$(git diff --name-only "$FIRST_PARENT_SHA"...HEAD | sort)"
+          git merge-base --is-ancestor "$POSITION_PARENT_SHA" HEAD
+          git diff --check "$SOURCE_PARENT_SHA"...HEAD
+          changed="$(git diff --name-only "$SOURCE_PARENT_SHA"...HEAD | sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/current-fen-history-section1-convergence.yml' \
             '.github/workflows/section1-fen-edge-corpus.yml' \
+            '.github/workflows/section1-positionstate-counter-boundary.yml' \
             '.github/workflows/section1-released-corpus-convergence.yml' \
+            'acs/position_editor.py' \
             'tests/data/fen_edge_corpus_v1.json' \
-            'tests/test_fen_edge_corpus.py' | sort)"
+            'tests/test_fen_edge_corpus.py' \
+            'tests/test_section1_positionstate_counter_boundary.py' | sort)"
           test "$changed" = "$expected"
 
       - name: Bind exact retained and converged authorities
@@ -96,6 +108,9 @@ jobs:
           test "$(git rev-parse HEAD:.github/workflows/section1-fen-edge-corpus.yml)" = "$EDGE_WORKFLOW_BLOB"
           test "$(git rev-parse HEAD:tests/data/fen_edge_corpus_v1.json)" = "$EDGE_CORPUS_BLOB"
           test "$(git rev-parse HEAD:tests/test_fen_edge_corpus.py)" = "$EDGE_TEST_BLOB"
+          test "$(git rev-parse HEAD:.github/workflows/section1-positionstate-counter-boundary.yml)" = "$POSITION_WORKFLOW_BLOB"
+          test "$(git rev-parse HEAD:acs/position_editor.py)" = "$POSITION_EDITOR_BLOB"
+          test "$(git rev-parse HEAD:tests/test_section1_positionstate_counter_boundary.py)" = "$POSITION_TEST_BLOB"
           test "$(git rev-parse HEAD:tools/qualify_fen_position_corpus.py)" = "$QUALIFIER_BLOB"
           test "$(git rev-parse HEAD:tests/test_qualify_fen_position_corpus.py)" = "$QUALIFIER_TEST_BLOB"
           test "$(git rev-parse HEAD:acs/import_contract.py)" = "$IMPORT_CONTRACT_BLOB"
@@ -117,6 +132,8 @@ jobs:
           tools/qualify_fen_position_corpus.py
           tests/test_qualify_fen_position_corpus.py
           tests/test_fen_edge_corpus.py
+          acs/position_editor.py
+          tests/test_section1_positionstate_counter_boundary.py
           tests/test_section1_san_transition_contract.py
 
       - name: Execute FEN SAN Position and evidence regressions
@@ -125,6 +142,7 @@ jobs:
           tests.test_section1_san_transition_contract
           tests.test_qualify_fen_position_corpus
           tests.test_fen_edge_corpus
+          tests.test_section1_positionstate_counter_boundary
           tests.test_fen_position_editor_complete_user_flow
           tests.test_position_editor
           tests.test_position_editor_passive_boundary
