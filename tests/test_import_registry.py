@@ -1,12 +1,14 @@
 import tempfile
 import unittest
 from pathlib import Path
+from threading import Event, Thread
 
 from acs.import_contract import (
     ImportQuality,
     ImportReport,
     ImportedRecord,
     SourceFingerprint,
+    SourceReadCancelledError,
     fingerprint,
 )
 from acs.import_registry import (
@@ -42,6 +44,25 @@ class MutatingImporter:
     def inspect(self, path: Path) -> ImportReport:
         before = fingerprint(path)
         path.write_bytes(path.read_bytes() + b' changed')
+        return ImportReport(source=before, format_name=self.format_name)
+
+
+class MutatingThenErrorImporter:
+    format_name = 'Mutating then failing fake'
+    suffixes = ('.muterr',)
+
+    def inspect(self, path: Path) -> ImportReport:
+        path.write_bytes(path.read_bytes() + b' changed-before-error')
+        raise RuntimeError('decoder failed after source mutation')
+
+
+class DeletingImporter:
+    format_name = 'Deleting fake'
+    suffixes = ('.delete',)
+
+    def inspect(self, path: Path) -> ImportReport:
+        before = fingerprint(path)
+        path.unlink()
         return ImportReport(source=before, format_name=self.format_name)
 
 
@@ -128,6 +149,215 @@ class ConstructionTypeErrorImporter:
         )
 
 
+class KeyErrorImporter:
+    format_name = 'Unexpected key failure'
+    suffixes = ('.key-error',)
+
+    def inspect(self, path: Path) -> ImportReport:
+        raise KeyError()
+
+
+class IndexErrorImporter:
+    format_name = 'Unexpected index failure'
+    suffixes = ('.index-error',)
+
+    def inspect(self, path: Path) -> ImportReport:
+        raise IndexError('decoder record index out of range')
+
+
+class PrivateOSErrorImporter:
+    format_name = 'Private filesystem failure'
+    suffixes = ('.private-oserror',)
+
+    def inspect(self, path: Path) -> ImportReport:
+        raise OSError(
+            5,
+            r'decoder failed while reading C:\\Users\\PrivateBackend\\cache.bin',
+            str(path.parent / 'decoder-cache.bin'),
+        )
+
+
+class ActiveFilenamePayload:
+    hook_calls = 0
+
+    def __fspath__(self):
+        type(self).hook_calls += 1
+        raise KeyboardInterrupt('filename fspath hook must never execute')
+
+    def __str__(self):
+        type(self).hook_calls += 1
+        raise KeyboardInterrupt('filename string hook must never execute')
+
+
+class ActiveFilenameOSErrorImporter:
+    format_name = 'Active filename filesystem failure'
+    suffixes = ('.active-filename-oserror',)
+
+    def inspect(self, path: Path) -> ImportReport:
+        # OSError stores the third argument as filename without coercing it.
+        # The registry must not later execute provider path/string hooks merely
+        # to render bounded batch evidence for this ordinary adapter failure.
+        raise OSError(
+            5,
+            r'private decoder strerror C:\\Users\\PrivateBackend\\secret.bin',
+            ActiveFilenamePayload(),
+        )
+
+
+class HostileOSError(OSError):
+    hook_calls = 0
+
+    @property
+    def filename(self):
+        type(self).hook_calls += 1
+        raise KeyboardInterrupt('filename attribute hook must never execute')
+
+    @property
+    def filename2(self):
+        type(self).hook_calls += 1
+        raise KeyboardInterrupt('filename2 attribute hook must never execute')
+
+    @property
+    def errno(self):
+        type(self).hook_calls += 1
+        raise KeyboardInterrupt('errno attribute hook must never execute')
+
+
+class HostileOSErrorImporter:
+    format_name = 'Hostile filesystem failure'
+    suffixes = ('.hostile-oserror',)
+
+    def inspect(self, path: Path) -> ImportReport:
+        raise HostileOSError(
+            5,
+            r'private decoder strerror C:\\Users\\PrivateBackend\\secret.bin',
+        )
+
+
+class PrivateValueErrorImporter:
+    format_name = 'Private value failure'
+    suffixes = ('.private-value',)
+
+    def inspect(self, path: Path) -> ImportReport:
+        raise ValueError(f"invalid metadata at {path.parent / 'decoder-cache.bin'}")
+
+
+class PrivateRuntimeErrorImporter:
+    format_name = 'Private runtime failure'
+    suffixes = ('.private-runtime',)
+
+    def inspect(self, path: Path) -> ImportReport:
+        raise RuntimeError(
+            r'backend crashed at C:\\Users\\PrivateBackend\\Documents\\decoder.dll'
+        )
+
+
+class PrivateRegistryErrorImporter:
+    format_name = 'Private registry-like adapter failure'
+    suffixes = ('.private-registry',)
+
+    def inspect(self, path: Path) -> ImportReport:
+        raise ImportRegistryError(
+            f"adapter-owned registry-like error at {path.parent / 'decoder-secret.bin'}"
+        )
+
+
+class ActivePathRegistryError(ImportRegistryError):
+    str_calls = 0
+
+    def __str__(self):
+        type(self).str_calls += 1
+        raise KeyboardInterrupt("provider __str__ must never execute")
+
+
+class BrokenStringError(Exception):
+    def __str__(self) -> str:
+        raise RuntimeError('exception rendering failed')
+
+
+class BrokenStringImporter:
+    format_name = 'Broken exception rendering'
+    suffixes = ('.broken-str',)
+
+    def inspect(self, path: Path) -> ImportReport:
+        raise BrokenStringError()
+
+
+class InvalidStringError(Exception):
+    def __str__(self):  # type: ignore[override]
+        return object()
+
+
+class InvalidStringImporter:
+    format_name = 'Invalid exception rendering'
+    suffixes = ('.invalid-str',)
+
+    def inspect(self, path: Path) -> ImportReport:
+        raise InvalidStringError()
+
+
+class NamelessStringError(Exception):
+    def __str__(self) -> str:
+        return ''
+
+
+NamelessStringError.__name__ = ''
+
+
+class NamelessStringImporter:
+    format_name = 'Nameless exception rendering'
+    suffixes = ('.nameless-str',)
+
+    def inspect(self, path: Path) -> ImportReport:
+        raise NamelessStringError()
+
+
+class CooperativeCancelImporter:
+    format_name = 'Cooperative source cancellation'
+    suffixes = ('.cancel-source',)
+
+    def inspect(self, path: Path) -> ImportReport:
+        raise SourceReadCancelledError('source read cancelled')
+
+
+class ObservedAfterCancelImporter:
+    format_name = 'Must not run after cancel'
+    suffixes = ('.after-cancel',)
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def inspect(self, path: Path) -> ImportReport:
+        self.calls += 1
+        return ImportReport(source=fingerprint(path), format_name=self.format_name)
+
+
+class ProcessControlImporter:
+    format_name = 'Process control passthrough'
+    suffixes = ('.interrupt',)
+
+    def inspect(self, path: Path) -> ImportReport:
+        raise KeyboardInterrupt()
+
+
+class MutatingProcessControlImporter:
+    format_name = 'Mutating process control'
+    suffixes = ('.interrupt-mutate',)
+
+    def inspect(self, path: Path) -> ImportReport:
+        path.write_bytes(path.read_bytes() + b' changed-before-interrupt')
+        raise KeyboardInterrupt()
+
+
+class DeletingProcessControlImporter:
+    format_name = 'Deleting process control'
+    suffixes = ('.interrupt-delete',)
+
+    def inspect(self, path: Path) -> ImportReport:
+        path.unlink()
+        raise SystemExit(2)
+
+
 class LowLevelMutatedRecordImporter:
     format_name = 'Low-level mutated exact report'
     suffixes = ('.mutated-record',)
@@ -169,6 +399,200 @@ class ImportRegistryTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ImportRegistryError, 'exact text'):
             ImportRegistry().register(ActiveSuffixImporter())
+
+    def test_registration_rejects_unroutable_or_unbounded_suffix_text(self):
+        class UnsafeSuffixImporter:
+            format_name = 'Unsafe suffix'
+
+            def __init__(self, suffix: str) -> None:
+                self.suffixes = (suffix,)
+
+            def inspect(self, path: Path) -> ImportReport:
+                raise AssertionError('inspection must not run')
+
+        unsafe_suffixes = (
+            '.bad\nsuffix',
+            '.bad\u2028suffix',
+            '.nested/path',
+            '.nested\\path',
+            '.',
+            '..double',
+            '.' + ('x' * 65),
+        )
+        for suffix in unsafe_suffixes:
+            with self.subTest(suffix=repr(suffix)):
+                with self.assertRaisesRegex(
+                    ImportRegistryError,
+                    'bounded canonical extension text',
+                ):
+                    ImportRegistry().register(UnsafeSuffixImporter(suffix))
+
+    def test_unknown_suffix_error_is_bounded_and_control_safe(self):
+        registry = ImportRegistry()
+        registry.register(FakeImporter())
+
+        unsafe_paths = (
+            'source.' + ('x' * 4096),
+            'source.bad\nsuffix',
+            'source.bad\u2028suffix',
+        )
+        for source in unsafe_paths:
+            with self.subTest(source=repr(source)):
+                with self.assertRaises(ImportRegistryError) as ctx:
+                    registry.inspect(source)
+                message = str(ctx.exception)
+                self.assertEqual(
+                    message,
+                    'No read-only importer registered for suffix: <invalid>',
+                )
+                self.assertNotIn('\n', message)
+                self.assertNotIn('\u2028', message)
+                self.assertLess(len(message), 80)
+
+                batch = registry.inspect_batch([source])
+                self.assertEqual(len(batch.items), 1)
+                self.assertFalse(batch.items[0].ok)
+                self.assertEqual(batch.items[0].error, message)
+
+    def test_registration_metadata_cannot_rebind_host_route_container(self):
+        registry = ImportRegistry()
+        original = FakeImporter()
+        registry.register(original)
+
+        class HostileRouteMap(dict):
+            def __iter__(self):
+                raise AssertionError("metadata poison iteration hook must not run")
+
+            def __contains__(self, item):
+                raise AssertionError("metadata poison membership hook must not run")
+
+            def clear(self):
+                raise AssertionError("metadata poison clear hook must not run")
+
+        class MetadataPoisoner:
+            suffixes = (".metadata-poison",)
+
+            @property
+            def format_name(self):
+                registry._by_suffix = HostileRouteMap()
+                return "Metadata poisoner"
+
+            def inspect(self, path: Path) -> ImportReport:
+                raise AssertionError("inspection must not run")
+
+        with self.assertRaisesRegex(
+            ImportRegistryError,
+            "registration changed while reading importer metadata",
+        ):
+            registry.register(MetadataPoisoner())
+
+        self.assertEqual(type(registry._by_suffix), dict)
+        self.assertIs(registry.importer_for("still.foo"), original)
+        self.assertNotIn(".metadata-poison", registry.registered_suffixes)
+
+    def test_registration_suffix_property_cannot_hide_route_mutation_or_runtime_error(self):
+        registry = ImportRegistry()
+        original = FakeImporter()
+        registry.register(original)
+
+        class PropertyPoisoner:
+            format_name = "Suffix property poisoner"
+
+            @property
+            def suffixes(self):
+                registry._format_name_by_suffix = {}
+                raise RuntimeError("suffix property failed after route mutation")
+
+            def inspect(self, path: Path) -> ImportReport:
+                raise AssertionError("inspection must not run")
+
+        with self.assertRaisesRegex(
+            ImportRegistryError,
+            "registration changed while reading importer metadata",
+        ) as ctx:
+            registry.register(PropertyPoisoner())
+
+        self.assertIsInstance(ctx.exception.__cause__, RuntimeError)
+        self.assertIs(registry.importer_for("still.foo"), original)
+        self.assertEqual(registry.registered_suffixes, (".bar", ".foo"))
+
+    def test_registration_suffix_container_must_match_readonly_importer_contract(self):
+        class ActiveTuple(tuple):
+            touched = False
+
+            def __iter__(self):
+                type(self).touched = True
+                raise AssertionError("active suffix tuple hook must not run")
+
+            def __len__(self):
+                type(self).touched = True
+                raise AssertionError("active suffix tuple length hook must not run")
+
+        class BadContainerImporter:
+            format_name = "Bad suffix container"
+
+            def __init__(self, suffixes):
+                self.suffixes = suffixes
+
+            def inspect(self, path: Path) -> ImportReport:
+                raise AssertionError("inspection must not run")
+
+        for suffixes in (
+            ".x",
+            [".x"],
+            iter((".x",)),
+            ActiveTuple((".x",)),
+        ):
+            with self.subTest(container=type(suffixes).__name__):
+                ActiveTuple.touched = False
+                with self.assertRaisesRegex(
+                    ImportRegistryError,
+                    "exact immutable tuple",
+                ):
+                    ImportRegistry().register(BadContainerImporter(suffixes))
+                self.assertFalse(ActiveTuple.touched)
+
+        registry = ImportRegistry()
+        with self.assertRaisesRegex(ImportRegistryError, "exact immutable tuple"):
+            registry.register(BadContainerImporter("x"))
+        self.assertEqual(registry.registered_suffixes, ())
+
+    def test_registration_suffix_tuple_count_is_bounded(self):
+        class TooManyImporter:
+            format_name = "Too many suffixes"
+            suffixes = tuple(f".suffix-{index}" for index in range(65))
+
+            def inspect(self, path: Path) -> ImportReport:
+                raise AssertionError("inspection must not run")
+
+        with self.assertRaisesRegex(ImportRegistryError, "too many suffixes"):
+            ImportRegistry().register(TooManyImporter())
+
+    def test_registration_format_name_is_bounded_before_whitespace_normalization(self):
+        class OversizedWhitespaceFormatNameImporter:
+            format_name = " " * 257
+            suffixes = (".oversized-format-name",)
+
+            def inspect(self, path: Path) -> ImportReport:
+                raise AssertionError("inspection must not run")
+
+        registry = ImportRegistry()
+        with self.assertRaisesRegex(ImportRegistryError, "format_name is too long"):
+            registry.register(OversizedWhitespaceFormatNameImporter())
+
+        self.assertEqual(registry.registered_suffixes, ())
+
+    def test_registration_replace_flag_rejects_active_boolean_coercion(self):
+        class ActiveReplace:
+            def __bool__(self):
+                raise AssertionError("replace boolean hook must not run")
+
+        registry = ImportRegistry()
+        registry.register(FakeImporter())
+        with self.assertRaisesRegex(ImportRegistryError, "replace flag must be boolean"):
+            registry.register(SecondFooImporter(), replace=ActiveReplace())
+
+        self.assertIs(registry.importer_for("still.foo"), registry.importer_for("still.bar"))
 
     def test_registration_routes_case_insensitive_suffixes_without_ui_or_database_knowledge(self):
         registry = ImportRegistry()
@@ -229,6 +653,69 @@ class ImportRegistryTests(unittest.TestCase):
             self.assertEqual(report.source.path, str(path.resolve()))
             self.assertEqual(report.source.sha256, fingerprint(path).sha256)
 
+    def test_accepted_report_is_detached_from_adapter_owned_mutable_aliases(self):
+        class RetainingImporter:
+            format_name = "Retaining fake format"
+            suffixes = (".retained-report",)
+
+            def __init__(self) -> None:
+                self.returned_report: ImportReport | None = None
+
+            def inspect(self, path: Path) -> ImportReport:
+                report = ImportReport(
+                    source=fingerprint(path),
+                    format_name=self.format_name,
+                    records=[
+                        ImportedRecord(
+                            "stable-record",
+                            ImportQuality.FULL,
+                            message="stable message",
+                            warnings=("stable record warning",),
+                        )
+                    ],
+                    global_warnings=["stable global warning"],
+                )
+                self.returned_report = report
+                return report
+
+        registry = ImportRegistry()
+        importer = RetainingImporter()
+        registry.register(importer)
+
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "sample.retained-report"
+            path.write_bytes(b"immutable accepted evidence")
+            accepted = registry.inspect(path)
+
+            retained = importer.returned_report
+            self.assertIsNotNone(retained)
+            assert retained is not None
+            self.assertIsNot(accepted, retained)
+            self.assertIsNot(accepted.source, retained.source)
+            self.assertIsNot(accepted.records, retained.records)
+            self.assertIsNot(accepted.records[0], retained.records[0])
+            self.assertIsNot(accepted.global_warnings, retained.global_warnings)
+
+            expected_sha = accepted.source.sha256
+            retained_record = retained.records[0]
+            object.__setattr__(retained.source, "sha256", "0" * 64)
+            object.__setattr__(retained_record, "source_record_id", "poisoned-record")
+            retained.format_name = "poisoned format"
+            retained.records.clear()
+            retained.global_warnings[:] = ["poisoned warning"]
+
+            accepted.validate()
+            self.assertEqual(accepted.format_name, RetainingImporter.format_name)
+            self.assertEqual(accepted.source.sha256, expected_sha)
+            self.assertEqual(accepted.records[0].source_record_id, "stable-record")
+            self.assertEqual(accepted.records[0].message, "stable message")
+            self.assertEqual(
+                accepted.records[0].warnings,
+                ("stable record warning",),
+            )
+            self.assertEqual(accepted.global_warnings, ["stable global warning"])
+            self.assertEqual(path.read_bytes(), b"immutable accepted evidence")
+
     def test_registry_detects_source_mutation_even_when_adapter_reports_old_fingerprint(self):
         registry = ImportRegistry()
         registry.register(MutatingImporter())
@@ -238,6 +725,52 @@ class ImportRegistryTests(unittest.TestCase):
             with self.assertRaises(SourceMutationError):
                 registry.inspect(path)
             self.assertEqual(path.read_bytes(), b'original changed')
+
+    def test_registry_detects_mutation_even_when_adapter_then_raises(self):
+        registry = ImportRegistry()
+        registry.register(MutatingThenErrorImporter())
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / 'sample.muterr'
+            path.write_bytes(b'original')
+
+            with self.assertRaises(SourceMutationError) as ctx:
+                registry.inspect(path)
+
+            self.assertIn('modified source bytes', str(ctx.exception))
+            self.assertEqual(path.read_bytes(), b'original changed-before-error')
+
+    def test_batch_reports_mutation_before_adapter_error_and_continues(self):
+        registry = ImportRegistry()
+        registry.register(MutatingThenErrorImporter())
+        registry.register(FakeImporter())
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            mutating = root / 'bad.muterr'
+            valid = root / 'good.foo'
+            mutating.write_bytes(b'original')
+            valid.write_bytes(b'valid-source')
+
+            batch = registry.inspect_batch([mutating, valid])
+
+            self.assertEqual([item.ok for item in batch.items], [False, True])
+            self.assertIn('modified source bytes', batch.items[0].error)
+            self.assertNotIn('decoder failed after source mutation', batch.items[0].error)
+            self.assertEqual(len(batch.reports), 1)
+            self.assertEqual(batch.reports[0].format_name, FakeImporter.format_name)
+            self.assertEqual(valid.read_bytes(), b'valid-source')
+
+    def test_registry_fails_closed_when_adapter_deletes_source_before_return(self):
+        registry = ImportRegistry()
+        registry.register(DeletingImporter())
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / 'sample.delete'
+            path.write_bytes(b'original')
+
+            with self.assertRaises(SourceMutationError) as ctx:
+                registry.inspect(path)
+
+            self.assertIn('unverifiable', str(ctx.exception))
+            self.assertFalse(path.exists())
 
     def test_registry_rejects_report_for_bytes_other_than_inspected_source(self):
         registry = ImportRegistry()
@@ -275,6 +808,546 @@ class ImportRegistryTests(unittest.TestCase):
         registry = ImportRegistry()
         with self.assertRaisesRegex(ImportRegistryError, 'format_name'):
             registry.register(InvalidFormatNameImporter())
+
+    def test_route_selection_is_linearized_before_registration_snapshot_race(self):
+        class ReplacementImporter:
+            format_name = "Replacement race identity"
+            suffixes = (".snapshot-race",)
+
+            def __init__(self):
+                self.calls = 0
+
+            def inspect(self, path: Path) -> ImportReport:
+                self.calls += 1
+                return ImportReport(
+                    source=fingerprint(path),
+                    format_name=self.format_name,
+                )
+
+        replacement = ReplacementImporter()
+
+        class SnapshotRaceRegistry(ImportRegistry):
+            def __init__(self):
+                super().__init__()
+                self.arm_race = False
+                self.snapshot_calls = 0
+                self.replacement = replacement
+
+            def _registration_snapshot(self):
+                self.snapshot_calls += 1
+                # During inspect(), call 1 belongs to source-path coercion. On
+                # call 2 simulate a concurrent route replacement at the exact
+                # historical window between route selection and its snapshot.
+                if self.arm_race and self.snapshot_calls == 2:
+                    suffix = ".snapshot-race"
+                    self._by_suffix[suffix] = self.replacement
+                    self._format_name_by_suffix[suffix] = self.replacement.format_name
+                    self._registration_token_by_suffix[suffix] = object()
+                return super()._registration_snapshot()
+
+        registry = SnapshotRaceRegistry()
+
+        class OriginalImporter:
+            format_name = "Original race identity"
+            suffixes = (".snapshot-race",)
+
+            def __init__(self):
+                self.calls = 0
+
+            def inspect(self, path: Path) -> ImportReport:
+                self.calls += 1
+                # This deliberately mimics the replacement identity. The old
+                # selection-before-snapshot order could accept this report.
+                return ImportReport(
+                    source=fingerprint(path),
+                    format_name=replacement.format_name,
+                )
+
+        original = OriginalImporter()
+        registry.register(original)
+
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "source.snapshot-race"
+            path.write_bytes(b"stable")
+
+            registry.snapshot_calls = 0
+            registry.arm_race = True
+            report = registry.inspect(path)
+
+            # The replacement happened before the authoritative selection
+            # snapshot, so the replacement—not the stale original—must inspect.
+            self.assertEqual(report.format_name, replacement.format_name)
+            self.assertEqual(replacement.calls, 1)
+            self.assertEqual(original.calls, 0)
+            self.assertIs(registry.importer_for(path), replacement)
+            self.assertEqual(path.read_bytes(), b"stable")
+
+    def test_registry_rejects_reentrant_route_replacement_during_inspection(self):
+        registry = ImportRegistry()
+
+        class ReplacementImporter:
+            format_name = 'Replacement route identity'
+            suffixes = ('.reroute',)
+
+            def inspect(self, path: Path) -> ImportReport:
+                return ImportReport(source=fingerprint(path), format_name=self.format_name)
+
+        replacement = ReplacementImporter()
+
+        class ReentrantImporter:
+            format_name = 'Original route identity'
+            suffixes = ('.reroute',)
+
+            def inspect(self, path: Path) -> ImportReport:
+                registry.register(replacement, replace=True)
+                # Deliberately return the replacement identity. Without a
+                # stable registration snapshot this can be accepted even
+                # though a different importer actually inspected the source.
+                return ImportReport(
+                    source=fingerprint(path),
+                    format_name=replacement.format_name,
+                )
+
+        original = ReentrantImporter()
+        registry.register(original)
+
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / 'source.reroute'
+            original_bytes = b'reentrant-route-source'
+            path.write_bytes(original_bytes)
+
+            with self.assertRaisesRegex(ImportRegistryError, 'registration changed'):
+                registry.inspect(path)
+
+            self.assertIs(registry.importer_for(path), original)
+            self.assertEqual(path.read_bytes(), original_bytes)
+
+    def test_batch_isolates_reentrant_route_replacement_and_continues(self):
+        registry = ImportRegistry()
+
+        class ReplacementImporter:
+            format_name = 'Batch replacement route'
+            suffixes = ('.batch-reroute',)
+
+            def inspect(self, path: Path) -> ImportReport:
+                return ImportReport(source=fingerprint(path), format_name=self.format_name)
+
+        replacement = ReplacementImporter()
+
+        class ReentrantImporter:
+            format_name = 'Batch original route'
+            suffixes = ('.batch-reroute',)
+
+            def inspect(self, path: Path) -> ImportReport:
+                registry.register(replacement, replace=True)
+                return ImportReport(
+                    source=fingerprint(path),
+                    format_name=replacement.format_name,
+                )
+
+        original = ReentrantImporter()
+        registry.register(original)
+        registry.register(FakeImporter())
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            rerouted = root / 'bad.batch-reroute'
+            valid = root / 'good.foo'
+            rerouted.write_bytes(b'reentrant-batch-source')
+            valid.write_bytes(b'valid-source')
+
+            batch = registry.inspect_batch([rerouted, valid])
+
+            self.assertEqual([item.ok for item in batch.items], [False, True])
+            self.assertIn('registration changed', batch.items[0].error)
+            self.assertIsNone(batch.items[0].report)
+            self.assertEqual(len(batch.reports), 1)
+            self.assertEqual(batch.reports[0].format_name, FakeImporter.format_name)
+            self.assertIs(registry.importer_for(rerouted), original)
+            self.assertEqual(rerouted.read_bytes(), b'reentrant-batch-source')
+            self.assertEqual(valid.read_bytes(), b'valid-source')
+
+    def test_registry_rejects_route_replacement_hidden_by_adapter_error(self):
+        registry = ImportRegistry()
+
+        class ReplacementImporter:
+            format_name = 'Replacement after failing route'
+            suffixes = ('.reroute-error',)
+
+            def inspect(self, path: Path) -> ImportReport:
+                return ImportReport(source=fingerprint(path), format_name=self.format_name)
+
+        replacement = ReplacementImporter()
+
+        class ReentrantFailingImporter:
+            format_name = 'Original failing route'
+            suffixes = ('.reroute-error',)
+
+            def inspect(self, path: Path) -> ImportReport:
+                registry.register(replacement, replace=True)
+                raise RuntimeError('decoder failed after route replacement')
+
+        original = ReentrantFailingImporter()
+        registry.register(original)
+
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / 'source.reroute-error'
+            original_bytes = b'reentrant-route-error-source'
+            path.write_bytes(original_bytes)
+
+            with self.assertRaisesRegex(ImportRegistryError, 'registration changed') as ctx:
+                registry.inspect(path)
+
+            self.assertIsInstance(ctx.exception.__cause__, RuntimeError)
+            self.assertIs(registry.importer_for(path), original)
+            self.assertEqual(path.read_bytes(), original_bytes)
+
+    def test_batch_isolates_route_replacement_hidden_by_adapter_error(self):
+        registry = ImportRegistry()
+
+        class ReplacementImporter:
+            format_name = 'Batch replacement after failure'
+            suffixes = ('.batch-reroute-error',)
+
+            def inspect(self, path: Path) -> ImportReport:
+                return ImportReport(source=fingerprint(path), format_name=self.format_name)
+
+        replacement = ReplacementImporter()
+
+        class ReentrantFailingImporter:
+            format_name = 'Batch original failing route'
+            suffixes = ('.batch-reroute-error',)
+
+            def inspect(self, path: Path) -> ImportReport:
+                registry.register(replacement, replace=True)
+                raise RuntimeError('decoder failed after route replacement')
+
+        original = ReentrantFailingImporter()
+        registry.register(original)
+        registry.register(FakeImporter())
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            rerouted = root / 'bad.batch-reroute-error'
+            valid = root / 'good.foo'
+            rerouted.write_bytes(b'reentrant-batch-route-error')
+            valid.write_bytes(b'valid-source')
+
+            batch = registry.inspect_batch([rerouted, valid])
+
+            self.assertEqual([item.ok for item in batch.items], [False, True])
+            self.assertIn('registration changed', batch.items[0].error)
+            self.assertIsNone(batch.items[0].report)
+            self.assertEqual(len(batch.reports), 1)
+            self.assertEqual(batch.reports[0].format_name, FakeImporter.format_name)
+            self.assertIs(registry.importer_for(rerouted), original)
+            self.assertEqual(rerouted.read_bytes(), b'reentrant-batch-route-error')
+            self.assertEqual(valid.read_bytes(), b'valid-source')
+
+    def test_batch_restores_same_suffix_route_before_later_source(self):
+        registry = ImportRegistry()
+
+        class ReplacementImporter:
+            format_name = 'Unauthorized replacement'
+            suffixes = ('.same-route',)
+
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def inspect(self, path: Path) -> ImportReport:
+                self.calls += 1
+                return ImportReport(source=fingerprint(path), format_name=self.format_name)
+
+        replacement = ReplacementImporter()
+
+        class ReentrantOnceImporter:
+            format_name = 'Authorized original'
+            suffixes = ('.same-route',)
+
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def inspect(self, path: Path) -> ImportReport:
+                self.calls += 1
+                if self.calls == 1:
+                    registry.register(replacement, replace=True)
+                return ImportReport(source=fingerprint(path), format_name=self.format_name)
+
+        original = ReentrantOnceImporter()
+        registry.register(original)
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            first = root / 'first.same-route'
+            second = root / 'second.same-route'
+            first.write_bytes(b'first')
+            second.write_bytes(b'second')
+
+            batch = registry.inspect_batch([first, second])
+
+            self.assertEqual([item.ok for item in batch.items], [False, True])
+            self.assertIn('registration changed', batch.items[0].error)
+            self.assertEqual(batch.items[1].report.format_name, original.format_name)
+            self.assertIs(registry.importer_for(second), original)
+            self.assertEqual(original.calls, 2)
+            self.assertEqual(replacement.calls, 0)
+
+    def test_batch_restores_same_suffix_route_after_adapter_error(self):
+        registry = ImportRegistry()
+
+        class ReplacementImporter:
+            format_name = 'Unauthorized error replacement'
+            suffixes = ('.same-route-error',)
+
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def inspect(self, path: Path) -> ImportReport:
+                self.calls += 1
+                return ImportReport(source=fingerprint(path), format_name=self.format_name)
+
+        replacement = ReplacementImporter()
+
+        class ReentrantOnceFailingImporter:
+            format_name = 'Authorized error original'
+            suffixes = ('.same-route-error',)
+
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def inspect(self, path: Path) -> ImportReport:
+                self.calls += 1
+                if self.calls == 1:
+                    registry.register(replacement, replace=True)
+                    raise RuntimeError('first source failed after reroute')
+                return ImportReport(source=fingerprint(path), format_name=self.format_name)
+
+        original = ReentrantOnceFailingImporter()
+        registry.register(original)
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            first = root / 'first.same-route-error'
+            second = root / 'second.same-route-error'
+            first.write_bytes(b'first')
+            second.write_bytes(b'second')
+
+            batch = registry.inspect_batch([first, second])
+
+            self.assertEqual([item.ok for item in batch.items], [False, True])
+            self.assertIn('registration changed', batch.items[0].error)
+            self.assertEqual(batch.items[1].report.format_name, original.format_name)
+            self.assertIs(registry.importer_for(second), original)
+            self.assertEqual(original.calls, 2)
+            self.assertEqual(replacement.calls, 0)
+
+    def test_registry_rejects_and_restores_cross_suffix_route_poisoning(self):
+        registry = ImportRegistry()
+
+        class VictimImporter:
+            format_name = 'Victim original'
+            suffixes = ('.victim-route',)
+
+            def inspect(self, path: Path) -> ImportReport:
+                return ImportReport(source=fingerprint(path), format_name=self.format_name)
+
+        class VictimReplacement:
+            format_name = 'Victim replacement'
+            suffixes = ('.victim-route',)
+
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def inspect(self, path: Path) -> ImportReport:
+                self.calls += 1
+                return ImportReport(source=fingerprint(path), format_name=self.format_name)
+
+        victim = VictimImporter()
+        replacement = VictimReplacement()
+        registry.register(victim)
+
+        class CrossSuffixPoisoner:
+            format_name = 'Cross suffix poisoner'
+            suffixes = ('.poison-route',)
+
+            def inspect(self, path: Path) -> ImportReport:
+                registry.register(replacement, replace=True)
+                return ImportReport(source=fingerprint(path), format_name=self.format_name)
+
+        poisoner = CrossSuffixPoisoner()
+        registry.register(poisoner)
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            poison = root / 'bad.poison-route'
+            victim_source = root / 'good.victim-route'
+            poison.write_bytes(b'poison')
+            victim_source.write_bytes(b'victim')
+
+            batch = registry.inspect_batch([poison, victim_source])
+
+            self.assertEqual([item.ok for item in batch.items], [False, True])
+            self.assertIn('registration changed', batch.items[0].error)
+            self.assertEqual(batch.items[1].report.format_name, victim.format_name)
+            self.assertIs(registry.importer_for(victim_source), victim)
+            self.assertEqual(replacement.calls, 0)
+
+    def test_batch_restores_hostile_route_container_without_running_mapping_hooks(self):
+        registry = ImportRegistry()
+        registry.register(FakeImporter())
+
+        class HostileRouteMap(dict):
+            def __iter__(self):
+                raise AssertionError("hostile route iteration hook must not run")
+
+            def __len__(self):
+                raise AssertionError("hostile route length hook must not run")
+
+            def clear(self):
+                raise AssertionError("hostile route clear hook must not run")
+
+            def update(self, *args, **kwargs):
+                raise AssertionError("hostile route update hook must not run")
+
+            def get(self, *args, **kwargs):
+                raise AssertionError("hostile route get hook must not run")
+
+        class ContainerPoisoner:
+            format_name = "Container poisoner"
+            suffixes = (".container-poison",)
+
+            def inspect(self, path: Path) -> ImportReport:
+                registry._by_suffix = HostileRouteMap()
+                return ImportReport(source=fingerprint(path), format_name=self.format_name)
+
+        poisoner = ContainerPoisoner()
+        registry.register(poisoner)
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            poisoned = root / "bad.container-poison"
+            valid = root / "good.foo"
+            poisoned.write_bytes(b"poison")
+            valid.write_bytes(b"valid")
+
+            batch = registry.inspect_batch([poisoned, valid])
+
+            self.assertEqual([item.ok for item in batch.items], [False, True])
+            self.assertIn("registration changed", batch.items[0].error)
+            self.assertIs(registry.importer_for(poisoned), poisoner)
+            self.assertIsInstance(registry._by_suffix, dict)
+            self.assertEqual(type(registry._by_suffix), dict)
+            self.assertEqual(batch.items[1].report.format_name, FakeImporter.format_name)
+
+    def test_adapter_error_restores_hostile_format_container_before_batch_continues(self):
+        registry = ImportRegistry()
+        registry.register(FakeImporter())
+
+        class HostileRouteMap(dict):
+            def __iter__(self):
+                raise AssertionError("hostile format iteration hook must not run")
+
+            def clear(self):
+                raise AssertionError("hostile format clear hook must not run")
+
+            def update(self, *args, **kwargs):
+                raise AssertionError("hostile format update hook must not run")
+
+        class FailingContainerPoisoner:
+            format_name = "Failing container poisoner"
+            suffixes = (".container-error",)
+
+            def inspect(self, path: Path) -> ImportReport:
+                registry._format_name_by_suffix = HostileRouteMap()
+                raise RuntimeError("decoder failure after container poison")
+
+        poisoner = FailingContainerPoisoner()
+        registry.register(poisoner)
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            poisoned = root / "bad.container-error"
+            valid = root / "good.foo"
+            poisoned.write_bytes(b"poison")
+            valid.write_bytes(b"valid")
+
+            batch = registry.inspect_batch([poisoned, valid])
+
+            self.assertEqual([item.ok for item in batch.items], [False, True])
+            self.assertIn("registration changed", batch.items[0].error)
+            self.assertIs(registry.importer_for(poisoned), poisoner)
+            self.assertEqual(type(registry._format_name_by_suffix), dict)
+            self.assertEqual(batch.items[1].report.format_name, FakeImporter.format_name)
+
+    def test_cancellation_restores_hostile_token_container_before_propagation(self):
+        registry = ImportRegistry()
+
+        class HostileRouteMap(dict):
+            def __iter__(self):
+                raise AssertionError("hostile token iteration hook must not run")
+
+            def clear(self):
+                raise AssertionError("hostile token clear hook must not run")
+
+            def update(self, *args, **kwargs):
+                raise AssertionError("hostile token update hook must not run")
+
+        class CancellingContainerPoisoner:
+            format_name = "Cancelling container poisoner"
+            suffixes = (".container-cancel",)
+
+            def inspect(self, path: Path) -> ImportReport:
+                registry._registration_token_by_suffix = HostileRouteMap()
+                raise SourceReadCancelledError("container cancellation")
+
+        poisoner = CancellingContainerPoisoner()
+        registry.register(poisoner)
+
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / "stop.container-cancel"
+            source.write_bytes(b"cancel")
+
+            with self.assertRaisesRegex(SourceReadCancelledError, "container cancellation"):
+                registry.inspect_batch([source])
+
+            self.assertIs(registry.importer_for(source), poisoner)
+            self.assertEqual(type(registry._registration_token_by_suffix), dict)
+            self.assertEqual(source.read_bytes(), b"cancel")
+
+    def test_process_control_restores_hostile_route_container_before_propagation(self):
+        registry = ImportRegistry()
+
+        class HostileRouteMap(dict):
+            def __iter__(self):
+                raise AssertionError("hostile process-control iteration hook must not run")
+
+            def clear(self):
+                raise AssertionError("hostile process-control clear hook must not run")
+
+            def update(self, *args, **kwargs):
+                raise AssertionError("hostile process-control update hook must not run")
+
+        class InterruptingContainerPoisoner:
+            format_name = "Interrupting container poisoner"
+            suffixes = (".container-interrupt",)
+
+            def inspect(self, path: Path) -> ImportReport:
+                registry._by_suffix = HostileRouteMap()
+                raise KeyboardInterrupt()
+
+        poisoner = InterruptingContainerPoisoner()
+        registry.register(poisoner)
+
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / "stop.container-interrupt"
+            source.write_bytes(b"interrupt")
+
+            with self.assertRaises(KeyboardInterrupt):
+                registry.inspect_batch([source])
+
+            self.assertIs(registry.importer_for(source), poisoner)
+            self.assertEqual(type(registry._by_suffix), dict)
+            self.assertEqual(source.read_bytes(), b"interrupt")
 
     def test_registry_binds_format_identity_at_registration_time(self):
         registry = ImportRegistry()
@@ -361,12 +1434,299 @@ class ImportRegistryTests(unittest.TestCase):
             batch = registry.inspect_batch([malformed, valid])
 
             self.assertEqual([item.ok for item in batch.items], [False, True])
-            self.assertIn('exact list', batch.items[0].error)
+            self.assertEqual(
+                batch.items[0].error,
+                'Importer rejected source: bad.type-report',
+            )
+            self.assertNotIn('exact list', batch.items[0].error)
             self.assertIsNone(batch.items[0].report)
             self.assertIsNotNone(batch.items[1].report)
             self.assertEqual(batch.items[1].report.counts['full'], 1)
             self.assertEqual(malformed.read_bytes(), b'malformed-report-source')
             self.assertEqual(valid.read_bytes(), b'valid-source')
+
+    def test_batch_isolates_ordinary_importer_exceptions_and_continues(self):
+        registry = ImportRegistry()
+        registry.register(KeyErrorImporter())
+        registry.register(IndexErrorImporter())
+        registry.register(FakeImporter())
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            key_failure = root / 'bad.key-error'
+            index_failure = root / 'bad.index-error'
+            valid = root / 'good.foo'
+            key_failure.write_bytes(b'key-error-source')
+            index_failure.write_bytes(b'index-error-source')
+            valid.write_bytes(b'valid-source')
+
+            batch = registry.inspect_batch([key_failure, index_failure, valid])
+
+            self.assertEqual([item.ok for item in batch.items], [False, False, True])
+            self.assertEqual(batch.items[0].error, 'Importer rejected source: bad.key-error')
+            self.assertEqual(batch.items[1].error, 'Importer rejected source: bad.index-error')
+            self.assertNotIn('decoder record index out of range', batch.items[1].error)
+            self.assertIsNone(batch.items[0].report)
+            self.assertIsNone(batch.items[1].report)
+            self.assertIsNotNone(batch.items[2].report)
+            self.assertEqual(len(batch.reports), 1)
+            self.assertEqual(len(batch.errors), 2)
+            self.assertEqual(key_failure.read_bytes(), b'key-error-source')
+            self.assertEqual(index_failure.read_bytes(), b'index-error-source')
+            self.assertEqual(valid.read_bytes(), b'valid-source')
+
+            # The strict single-source API remains strict and still exposes
+            # the adapter failure to callers that explicitly chose it.
+            with self.assertRaises(KeyError):
+                registry.inspect(key_failure)
+
+    def test_batch_contains_broken_exception_rendering_and_continues(self):
+        registry = ImportRegistry()
+        registry.register(BrokenStringImporter())
+        registry.register(InvalidStringImporter())
+        registry.register(NamelessStringImporter())
+        registry.register(FakeImporter())
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            broken = root / 'bad.broken-str'
+            invalid = root / 'bad.invalid-str'
+            nameless = root / 'bad.nameless-str'
+            valid = root / 'good.foo'
+            broken.write_bytes(b'broken-str-source')
+            invalid.write_bytes(b'invalid-str-source')
+            nameless.write_bytes(b'nameless-str-source')
+            valid.write_bytes(b'valid-source')
+
+            batch = registry.inspect_batch([broken, invalid, nameless, valid])
+
+            self.assertEqual([item.ok for item in batch.items], [False, False, False, True])
+            self.assertEqual(batch.items[0].error, 'Importer rejected source: bad.broken-str')
+            self.assertEqual(batch.items[1].error, 'Importer rejected source: bad.invalid-str')
+            self.assertEqual(batch.items[2].error, 'Importer rejected source: bad.nameless-str')
+            self.assertEqual(len(batch.reports), 1)
+            self.assertEqual(batch.reports[0].format_name, FakeImporter.format_name)
+            self.assertEqual(broken.read_bytes(), b'broken-str-source')
+            self.assertEqual(invalid.read_bytes(), b'invalid-str-source')
+            self.assertEqual(nameless.read_bytes(), b'nameless-str-source')
+            self.assertEqual(valid.read_bytes(), b'valid-source')
+
+            # Strict single-source inspection keeps exposing the original
+            # adapter exception instead of converting it to batch evidence.
+            with self.assertRaises(BrokenStringError):
+                registry.inspect(broken)
+
+    def test_batch_propagates_cooperative_source_cancellation_without_later_work(self):
+        registry = ImportRegistry()
+        cancelled = CooperativeCancelImporter()
+        later = ObservedAfterCancelImporter()
+        registry.register(cancelled)
+        registry.register(later)
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            stop = root / 'stop.cancel-source'
+            after = root / 'after.after-cancel'
+            stop.write_bytes(b'cancel-source')
+            after.write_bytes(b'must-not-be-inspected')
+
+            with self.assertRaises(SourceReadCancelledError) as batch_ctx:
+                registry.inspect_batch([stop, after])
+
+            self.assertEqual(str(batch_ctx.exception), 'source read cancelled')
+            self.assertEqual(later.calls, 0)
+            self.assertEqual(after.read_bytes(), b'must-not-be-inspected')
+
+            # The strict API also preserves the exact cooperative cancellation
+            # signal after proving the source was left unchanged.
+            with self.assertRaises(SourceReadCancelledError) as strict_ctx:
+                registry.inspect(stop)
+            self.assertEqual(str(strict_ctx.exception), 'source read cancelled')
+
+    def test_cooperative_cancellation_restores_route_and_stops_later_work(self):
+        registry = ImportRegistry()
+        original_route = FakeImporter()
+        replacement_route = SecondFooImporter()
+        later = ObservedAfterCancelImporter()
+        registry.register(original_route)
+        registry.register(later)
+
+        class CancellingRouteMutator:
+            format_name = 'Cancelling route mutator'
+            suffixes = ('.cancel-route',)
+
+            def inspect(self, path: Path) -> ImportReport:
+                registry.register(replacement_route, replace=True)
+                raise SourceReadCancelledError('source read cancelled')
+
+        cancelling = CancellingRouteMutator()
+        registry.register(cancelling)
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            stop = root / 'stop.cancel-route'
+            after = root / 'after.after-cancel'
+            stop.write_bytes(b'cancel-route-source')
+            after.write_bytes(b'must-not-be-inspected')
+
+            with self.assertRaises(SourceReadCancelledError) as ctx:
+                registry.inspect_batch([stop, after])
+
+            self.assertEqual(str(ctx.exception), 'source read cancelled')
+            self.assertEqual(later.calls, 0)
+            self.assertIs(registry.importer_for('after.foo'), original_route)
+            self.assertIs(registry.importer_for(stop), cancelling)
+            self.assertEqual(stop.read_bytes(), b'cancel-route-source')
+            self.assertEqual(after.read_bytes(), b'must-not-be-inspected')
+
+    def test_cooperative_cancellation_cannot_hide_source_mutation_or_continue(self):
+        registry = ImportRegistry()
+        later = ObservedAfterCancelImporter()
+
+        class MutatingCooperativeCancelImporter:
+            format_name = 'Mutating cooperative cancellation'
+            suffixes = ('.cancel-mutate',)
+
+            def inspect(self, path: Path) -> ImportReport:
+                path.write_bytes(path.read_bytes() + b' changed-before-cancel')
+                raise SourceReadCancelledError('source read cancelled after mutation')
+
+        cancelling = MutatingCooperativeCancelImporter()
+        registry.register(cancelling)
+        registry.register(later)
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            stop = root / 'stop.cancel-mutate'
+            after = root / 'after.after-cancel'
+            stop.write_bytes(b'original')
+            after.write_bytes(b'must-not-be-inspected')
+
+            with self.assertRaises(SourceMutationError) as ctx:
+                registry.inspect_batch([stop, after])
+
+            self.assertIn('modified source bytes', str(ctx.exception))
+            self.assertIsInstance(ctx.exception.__cause__, SourceReadCancelledError)
+            self.assertEqual(later.calls, 0)
+            self.assertEqual(stop.read_bytes(), b'original changed-before-cancel')
+            self.assertEqual(after.read_bytes(), b'must-not-be-inspected')
+
+    def test_cooperative_cancellation_cannot_hide_deleted_source_or_continue(self):
+        registry = ImportRegistry()
+        later = ObservedAfterCancelImporter()
+
+        class DeletingCooperativeCancelImporter:
+            format_name = 'Deleting cooperative cancellation'
+            suffixes = ('.cancel-delete',)
+
+            def inspect(self, path: Path) -> ImportReport:
+                path.unlink()
+                raise SourceReadCancelledError('source read cancelled after deletion')
+
+        cancelling = DeletingCooperativeCancelImporter()
+        registry.register(cancelling)
+        registry.register(later)
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            stop = root / 'stop.cancel-delete'
+            after = root / 'after.after-cancel'
+            stop.write_bytes(b'original')
+            after.write_bytes(b'must-not-be-inspected')
+
+            with self.assertRaises(SourceMutationError) as ctx:
+                registry.inspect_batch([stop, after])
+
+            self.assertIn('unverifiable', str(ctx.exception))
+            self.assertIsInstance(ctx.exception.__cause__, SourceReadCancelledError)
+            self.assertEqual(later.calls, 0)
+            self.assertFalse(stop.exists())
+            self.assertEqual(after.read_bytes(), b'must-not-be-inspected')
+
+    def test_batch_does_not_swallow_process_control_exceptions(self):
+        registry = ImportRegistry()
+        registry.register(ProcessControlImporter())
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / 'stop.interrupt'
+            source.write_bytes(b'interrupt-source')
+            with self.assertRaises(KeyboardInterrupt):
+                registry.inspect_batch([source])
+            self.assertEqual(source.read_bytes(), b'interrupt-source')
+
+    def test_process_control_cannot_hide_source_mutation(self):
+        registry = ImportRegistry()
+        registry.register(MutatingProcessControlImporter())
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / 'stop.interrupt-mutate'
+            source.write_bytes(b'original')
+
+            with self.assertRaises(SourceMutationError) as ctx:
+                registry.inspect_batch([source])
+
+            self.assertIn('modified source bytes', str(ctx.exception))
+            self.assertEqual(source.read_bytes(), b'original changed-before-interrupt')
+
+    def test_process_control_cannot_hide_deleted_source(self):
+        registry = ImportRegistry()
+        registry.register(DeletingProcessControlImporter())
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / 'stop.interrupt-delete'
+            source.write_bytes(b'original')
+
+            with self.assertRaises(SourceMutationError) as ctx:
+                registry.inspect(source)
+
+            self.assertIn('unverifiable', str(ctx.exception))
+            self.assertFalse(source.exists())
+
+    def test_batch_process_control_cannot_hide_deleted_source_or_continue(self):
+        registry = ImportRegistry()
+        deleting = DeletingProcessControlImporter()
+        later = ObservedAfterCancelImporter()
+        registry.register(deleting)
+        registry.register(later)
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / 'stop.interrupt-delete'
+            after = root / 'after.after-cancel'
+            source.write_bytes(b'original')
+            after.write_bytes(b'must-not-be-inspected')
+
+            with self.assertRaises(SourceMutationError) as ctx:
+                registry.inspect_batch([source, after])
+
+            self.assertIn('unverifiable', str(ctx.exception))
+            self.assertIsInstance(ctx.exception.__cause__, SystemExit)
+            self.assertEqual(later.calls, 0)
+            self.assertFalse(source.exists())
+            self.assertEqual(after.read_bytes(), b'must-not-be-inspected')
+
+    def test_process_control_restores_cross_suffix_route_before_propagation(self):
+        registry = ImportRegistry()
+        original_route = FakeImporter()
+        replacement_route = SecondFooImporter()
+        registry.register(original_route)
+
+        class InterruptingRouteMutator:
+            format_name = 'Process control route mutator'
+            suffixes = ('.interrupt-route',)
+
+            def inspect(self, path: Path) -> ImportReport:
+                registry.register(replacement_route, replace=True)
+                raise KeyboardInterrupt()
+
+        mutator = InterruptingRouteMutator()
+        registry.register(mutator)
+
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / 'stop.interrupt-route'
+            source.write_bytes(b'control-source')
+
+            with self.assertRaises(KeyboardInterrupt):
+                registry.inspect_batch([source])
+
+            self.assertIs(registry.importer_for('after.foo'), original_route)
+            self.assertIs(registry.importer_for(source), mutator)
+            self.assertEqual(source.read_bytes(), b'control-source')
 
     def test_registry_rejects_low_level_mutated_exact_record(self):
         registry = ImportRegistry()
@@ -397,6 +1757,491 @@ class ImportRegistryTests(unittest.TestCase):
         registry.unregister(second)
         self.assertIsNone(registry.importer_for('x.foo'))
         self.assertIs(registry.importer_for('x.bar'), first)
+
+    def test_registry_owned_failures_hide_private_parent_paths(self):
+        with tempfile.TemporaryDirectory() as td:
+            private = Path(td) / 'Users' / 'PrivateUser' / 'Documents'
+            private.mkdir(parents=True)
+
+            mutation = private / 'analysis.mut'
+            mutation.write_bytes(b'original')
+            registry = ImportRegistry()
+            registry.register(MutatingImporter())
+            with self.assertRaises(SourceMutationError) as mutation_ctx:
+                registry.inspect(mutation)
+            mutation_message = str(mutation_ctx.exception)
+            self.assertIn('analysis.mut', mutation_message)
+            self.assertNotIn('PrivateUser', mutation_message)
+            self.assertNotIn('Documents', mutation_message)
+            self.assertNotIn('Users', mutation_message)
+
+            provenance = private / 'analysis.lie'
+            provenance.write_bytes(b'original')
+            registry = ImportRegistry()
+            registry.register(FalseProvenanceImporter())
+            with self.assertRaises(SourceProvenanceError) as provenance_ctx:
+                registry.inspect(provenance)
+            provenance_message = str(provenance_ctx.exception)
+            self.assertIn('analysis.lie', provenance_message)
+            self.assertNotIn('PrivateUser', provenance_message)
+            self.assertNotIn('Documents', provenance_message)
+            self.assertNotIn('Users', provenance_message)
+
+    def test_batch_filesystem_error_exposes_only_bounded_safe_context(self):
+        registry = ImportRegistry()
+        registry.register(PrivateOSErrorImporter())
+        with tempfile.TemporaryDirectory() as td:
+            private = Path(td) / 'Users' / 'PrivateUser' / 'Documents'
+            private.mkdir(parents=True)
+            source = private / 'analysis.private-oserror'
+            source.write_bytes(b'source')
+
+            error = registry.inspect_batch([source]).errors[0].error
+
+            self.assertIn('Filesystem error', error)
+            self.assertIn('errno 5', error)
+            self.assertIn('decoder-cache.bin', error)
+            self.assertNotIn('PrivateUser', error)
+            self.assertNotIn('Documents', error)
+            self.assertNotIn('PrivateBackend', error)
+            self.assertNotIn('decoder failed', error)
+
+    def test_batch_exact_oserror_never_executes_active_filename_payload(self):
+        registry = ImportRegistry()
+        registry.register(ActiveFilenameOSErrorImporter())
+        registry.register(FakeImporter())
+        ActiveFilenamePayload.hook_calls = 0
+        with tempfile.TemporaryDirectory() as td:
+            private = Path(td) / 'Users' / 'PrivateUser' / 'Documents'
+            private.mkdir(parents=True)
+            hostile = private / 'hostile.active-filename-oserror'
+            valid = private / 'good.foo'
+            hostile.write_bytes(b'hostile')
+            valid.write_bytes(b'valid')
+
+            batch = registry.inspect_batch([hostile, valid])
+
+            self.assertEqual([item.ok for item in batch.items], [False, True])
+            self.assertEqual(
+                batch.items[0].error,
+                'Filesystem error (errno 5): hostile.active-filename-oserror',
+            )
+            self.assertEqual(ActiveFilenamePayload.hook_calls, 0)
+            self.assertNotIn('PrivateUser', batch.items[0].error)
+            self.assertNotIn('PrivateBackend', batch.items[0].error)
+            self.assertNotIn('secret.bin', batch.items[0].error)
+            self.assertEqual(len(batch.reports), 1)
+            self.assertEqual(batch.reports[0].format_name, FakeImporter.format_name)
+            self.assertEqual(valid.read_bytes(), b'valid')
+
+    def test_batch_hostile_oserror_attributes_cannot_abort_recovery(self):
+        registry = ImportRegistry()
+        registry.register(HostileOSErrorImporter())
+        registry.register(FakeImporter())
+        HostileOSError.hook_calls = 0
+        with tempfile.TemporaryDirectory() as td:
+            private = Path(td) / 'Users' / 'PrivateUser' / 'Documents'
+            private.mkdir(parents=True)
+            hostile = private / 'hostile.hostile-oserror'
+            valid = private / 'good.foo'
+            hostile.write_bytes(b'hostile')
+            valid.write_bytes(b'valid')
+
+            batch = registry.inspect_batch([hostile, valid])
+
+            self.assertEqual([item.ok for item in batch.items], [False, True])
+            self.assertEqual(
+                batch.items[0].error,
+                'Importer rejected source: hostile.hostile-oserror',
+            )
+            self.assertEqual(HostileOSError.hook_calls, 0)
+            self.assertNotIn('PrivateUser', batch.items[0].error)
+            self.assertNotIn('PrivateBackend', batch.items[0].error)
+            self.assertNotIn('secret.bin', batch.items[0].error)
+            self.assertEqual(len(batch.reports), 1)
+            self.assertEqual(batch.reports[0].format_name, FakeImporter.format_name)
+            self.assertEqual(valid.read_bytes(), b'valid')
+
+    def test_batch_ordinary_adapter_text_is_not_a_reporting_channel(self):
+        registry = ImportRegistry()
+        registry.register(PrivateValueErrorImporter())
+        registry.register(PrivateRuntimeErrorImporter())
+        registry.register(PrivateRegistryErrorImporter())
+        with tempfile.TemporaryDirectory() as td:
+            private = Path(td) / 'Users' / 'PrivateUser' / 'Documents'
+            private.mkdir(parents=True)
+            value_source = private / 'value.private-value'
+            runtime_source = private / 'runtime.private-runtime'
+            registry_source = private / 'registry.private-registry'
+            value_source.write_bytes(b'value')
+            runtime_source.write_bytes(b'runtime')
+            registry_source.write_bytes(b'registry')
+
+            batch = registry.inspect_batch([value_source, runtime_source, registry_source])
+
+            self.assertEqual(
+                batch.items[0].error,
+                'Importer rejected source: value.private-value',
+            )
+            self.assertEqual(
+                batch.items[1].error,
+                'Importer rejected source: runtime.private-runtime',
+            )
+            self.assertEqual(
+                batch.items[2].error,
+                'Importer rejected source: registry.private-registry',
+            )
+            combined = '\n'.join(item.error for item in batch.items)
+            self.assertNotIn('PrivateUser', combined)
+            self.assertNotIn('Documents', combined)
+            self.assertNotIn('PrivateBackend', combined)
+            self.assertNotIn('decoder-cache.bin', combined)
+            self.assertNotIn('decoder-secret.bin', combined)
+            self.assertNotIn('backend crashed', combined)
+            self.assertNotIn('registry-like error', combined)
+
+            # Strict inspection remains an internal API that preserves the
+            # original adapter exception identity and diagnostic text.
+            with self.assertRaises(ValueError) as strict_ctx:
+                registry.inspect(value_source)
+            self.assertIn('decoder-cache.bin', str(strict_ctx.exception))
+            with self.assertRaises(ImportRegistryError) as registry_ctx:
+                registry.inspect(registry_source)
+            self.assertIn('decoder-secret.bin', str(registry_ctx.exception))
+
+    def test_batch_pathlike_exact_registry_error_is_provider_owned_and_sanitized(self):
+        registry = ImportRegistry()
+        registry.register(FakeImporter())
+
+        class RegistryErrorPathLike:
+            def __fspath__(self):
+                raise ImportRegistryError(
+                    r"provider path error at C:\\Users\\PrivateUser\\secret"
+                )
+
+        batch = registry.inspect_batch([RegistryErrorPathLike()])
+
+        self.assertEqual(len(batch.items), 1)
+        self.assertEqual(batch.items[0].path, Path("<invalid-source>"))
+        self.assertEqual(batch.items[0].error, "Invalid source path")
+        self.assertNotIn("PrivateUser", batch.items[0].error)
+
+        with self.assertRaises(ImportRegistryError) as strict_ctx:
+            registry.inspect(RegistryErrorPathLike())
+        self.assertIn("PrivateUser", str(strict_ctx.exception))
+
+    def test_batch_pathlike_active_registry_error_subclass_never_executes_str(self):
+        registry = ImportRegistry()
+        registry.register(FakeImporter())
+        ActivePathRegistryError.str_calls = 0
+
+        class ActiveRegistryErrorPathLike:
+            def __fspath__(self):
+                raise ActivePathRegistryError()
+
+        batch = registry.inspect_batch([ActiveRegistryErrorPathLike()])
+
+        self.assertEqual(len(batch.items), 1)
+        self.assertEqual(batch.items[0].error, "Invalid source path")
+        self.assertEqual(ActivePathRegistryError.str_calls, 0)
+
+    def test_batch_invalid_path_scalar_is_isolated_and_later_sources_continue(self):
+        registry = ImportRegistry()
+        registry.register(FakeImporter())
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            first = root / "first.foo"
+            last = root / "last.bar"
+            first.write_bytes(b"first")
+            last.write_bytes(b"last")
+
+            batch = registry.inspect_batch([first, None, last])
+
+            self.assertEqual([item.ok for item in batch.items], [True, False, True])
+            self.assertEqual(batch.items[1].path, Path("<invalid-source>"))
+            self.assertEqual(batch.items[1].error, "Invalid source path")
+            self.assertEqual(len(batch.reports), 2)
+            self.assertEqual(first.read_bytes(), b"first")
+            self.assertEqual(last.read_bytes(), b"last")
+
+            # Strict single-source inspection keeps its fail-fast API contract.
+            with self.assertRaises(TypeError):
+                registry.inspect(None)
+
+    def test_batch_pathlike_conversion_error_is_sanitized_per_source(self):
+        registry = ImportRegistry()
+        registry.register(FakeImporter())
+
+        class BrokenPathLike:
+            def __fspath__(self):
+                raise RuntimeError(
+                    r"private path conversion C:\\Users\\PrivateUser\\secret"
+                )
+
+        with tempfile.TemporaryDirectory() as td:
+            valid = Path(td) / "good.foo"
+            valid.write_bytes(b"valid")
+
+            batch = registry.inspect_batch([BrokenPathLike(), valid])
+
+            self.assertEqual([item.ok for item in batch.items], [False, True])
+            self.assertEqual(batch.items[0].path, Path("<invalid-source>"))
+            self.assertEqual(batch.items[0].error, "Invalid source path")
+            self.assertNotIn("PrivateUser", batch.items[0].error)
+            self.assertEqual(batch.items[1].report.format_name, FakeImporter.format_name)
+
+    def test_batch_pathlike_process_control_is_not_converted_to_source_evidence(self):
+        registry = ImportRegistry()
+
+        class InterruptingPathLike:
+            def __fspath__(self):
+                raise KeyboardInterrupt()
+
+        with self.assertRaises(KeyboardInterrupt):
+            registry.inspect_batch([InterruptingPathLike()])
+
+    def test_pathlike_cannot_rebind_route_before_strict_lookup_or_inspection(self):
+        registry = ImportRegistry()
+        original = FakeImporter()
+        replacement = SecondFooImporter()
+        registry.register(original)
+
+        class MutatingPathLike:
+            def __init__(self, value: str) -> None:
+                self.value = value
+
+            def __fspath__(self):
+                registry.register(replacement, replace=True)
+                return self.value
+
+        with self.assertRaisesRegex(
+            ImportRegistryError,
+            "registration changed while reading source path",
+        ):
+            registry.importer_for(MutatingPathLike("source.foo"))
+        self.assertIs(registry.importer_for("source.foo"), original)
+
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / "source.foo"
+            source.write_bytes(b"source")
+            with self.assertRaisesRegex(
+                ImportRegistryError,
+                "registration changed while reading source path",
+            ):
+                registry.inspect(MutatingPathLike(str(source)))
+            self.assertIs(registry.importer_for(source), original)
+            self.assertEqual(source.read_bytes(), b"source")
+
+    def test_batch_restores_pathlike_route_mutation_and_continues(self):
+        registry = ImportRegistry()
+        original = FakeImporter()
+        replacement = SecondFooImporter()
+        registry.register(original)
+
+        class MutatingPathLike:
+            def __init__(self, value: str) -> None:
+                self.value = value
+
+            def __fspath__(self):
+                registry.register(replacement, replace=True)
+                return self.value
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            poisoned = root / "poisoned.foo"
+            valid = root / "valid.foo"
+            poisoned.write_bytes(b"poisoned")
+            valid.write_bytes(b"valid")
+
+            batch = registry.inspect_batch([MutatingPathLike(str(poisoned)), valid])
+
+            self.assertEqual([item.ok for item in batch.items], [False, True])
+            self.assertEqual(batch.items[0].path, Path("<invalid-source>"))
+            self.assertEqual(
+                batch.items[0].error,
+                "Importer registration changed while reading source path",
+            )
+            self.assertIs(registry.importer_for(valid), original)
+            self.assertEqual(batch.items[1].report.format_name, original.format_name)
+            self.assertEqual(poisoned.read_bytes(), b"poisoned")
+            self.assertEqual(valid.read_bytes(), b"valid")
+
+    def test_batch_pathlike_route_mutation_and_error_is_restored_without_text_leak(self):
+        registry = ImportRegistry()
+        original = FakeImporter()
+        replacement = SecondFooImporter()
+        registry.register(original)
+
+        class MutatingBrokenPathLike:
+            def __fspath__(self):
+                registry.register(replacement, replace=True)
+                raise RuntimeError(
+                    r"private path conversion C:\Users\PrivateUser\secret"
+                )
+
+        batch = registry.inspect_batch([MutatingBrokenPathLike()])
+
+        self.assertEqual(len(batch.items), 1)
+        self.assertFalse(batch.items[0].ok)
+        self.assertEqual(batch.items[0].path, Path("<invalid-source>"))
+        self.assertEqual(
+            batch.items[0].error,
+            "Importer registration changed while reading source path",
+        )
+        self.assertNotIn("PrivateUser", batch.items[0].error)
+        self.assertIs(registry.importer_for("source.foo"), original)
+
+    def test_pathlike_process_control_restores_route_before_propagation(self):
+        registry = ImportRegistry()
+        original = FakeImporter()
+        replacement = SecondFooImporter()
+        registry.register(original)
+
+        class InterruptingPathLike:
+            def __fspath__(self):
+                registry.register(replacement, replace=True)
+                raise KeyboardInterrupt()
+
+        with self.assertRaises(KeyboardInterrupt):
+            registry.inspect_batch([InterruptingPathLike()])
+
+        self.assertIs(registry.importer_for("source.foo"), original)
+
+    def test_inspect_many_iterable_creation_cannot_rebind_host_route(self):
+        registry = ImportRegistry()
+        original = FakeImporter()
+        replacement = SecondFooImporter()
+        registry.register(original)
+
+        class MutatingStrictIterable:
+            def __iter__(self):
+                registry.register(replacement, replace=True)
+                return iter(("source.foo",))
+
+        with self.assertRaisesRegex(
+            ImportRegistryError, "registration changed while reading batch source iterable"
+        ):
+            registry.inspect_many(MutatingStrictIterable())
+
+        self.assertIs(registry.importer_for("source.foo"), original)
+
+    def test_inspect_many_iterator_advance_cannot_rebind_route_between_sources(self):
+        registry = ImportRegistry()
+        original = FakeImporter()
+        replacement = SecondFooImporter()
+        registry.register(original)
+
+        with tempfile.TemporaryDirectory() as td:
+            first = Path(td) / "first.foo"
+            second = Path(td) / "second.foo"
+            first.write_bytes(b"first")
+            second.write_bytes(b"second")
+
+            class MutatingStrictIterator:
+                def __init__(self):
+                    self.index = 0
+
+                def __iter__(self):
+                    return self
+
+                def __next__(self):
+                    self.index += 1
+                    if self.index == 1:
+                        return first
+                    if self.index == 2:
+                        registry.register(replacement, replace=True)
+                        return second
+                    raise StopIteration
+
+            with self.assertRaisesRegex(
+                ImportRegistryError, "registration changed while reading batch source iterable"
+            ):
+                registry.inspect_many(MutatingStrictIterator())
+
+            self.assertIs(registry.importer_for("source.foo"), original)
+
+    def test_inspect_many_iterator_process_control_restores_route_before_propagation(self):
+        registry = ImportRegistry()
+        original = FakeImporter()
+        replacement = SecondFooImporter()
+        registry.register(original)
+
+        class InterruptingStrictIterator:
+            def __iter__(self):
+                return self
+
+            def __next__(self):
+                registry.register(replacement, replace=True)
+                raise KeyboardInterrupt("stop strict iteration")
+
+        with self.assertRaises(KeyboardInterrupt):
+            registry.inspect_many(InterruptingStrictIterator())
+
+        self.assertIs(registry.importer_for("source.foo"), original)
+
+    def test_batch_iterable_creation_cannot_rebind_host_route(self):
+        registry = ImportRegistry()
+        original = FakeImporter()
+        replacement = SecondFooImporter()
+        registry.register(original)
+
+        class MutatingBatchIterable:
+            def __iter__(self):
+                registry.register(replacement, replace=True)
+                return iter(("source.foo",))
+
+        with self.assertRaisesRegex(
+            ImportRegistryError, "registration changed while reading batch source iterable"
+        ):
+            registry.inspect_batch(MutatingBatchIterable())
+
+        self.assertIs(registry.importer_for("source.foo"), original)
+
+    def test_batch_iterator_advance_cannot_rebind_host_route(self):
+        registry = ImportRegistry()
+        original = FakeImporter()
+        replacement = SecondFooImporter()
+        registry.register(original)
+
+        class MutatingBatchIterator:
+            def __init__(self):
+                self.done = False
+
+            def __iter__(self):
+                return self
+
+            def __next__(self):
+                if self.done:
+                    raise StopIteration
+                self.done = True
+                registry.register(replacement, replace=True)
+                return "source.foo"
+
+        with self.assertRaisesRegex(
+            ImportRegistryError, "registration changed while reading batch source iterable"
+        ):
+            registry.inspect_batch(MutatingBatchIterator())
+
+        self.assertIs(registry.importer_for("source.foo"), original)
+
+    def test_batch_iterator_process_control_restores_route_before_propagation(self):
+        registry = ImportRegistry()
+        original = FakeImporter()
+        replacement = SecondFooImporter()
+        registry.register(original)
+
+        class InterruptingBatchIterator:
+            def __iter__(self):
+                return self
+
+            def __next__(self):
+                registry.register(replacement, replace=True)
+                raise KeyboardInterrupt("stop batch iteration")
+
+        with self.assertRaises(KeyboardInterrupt):
+            registry.inspect_batch(InterruptingBatchIterator())
+
+        self.assertIs(registry.importer_for("source.foo"), original)
 
     def test_batch_preflight_reports_every_source_in_order_without_aborting(self):
         registry = ImportRegistry()
@@ -435,6 +2280,231 @@ class ImportRegistryTests(unittest.TestCase):
             self.assertTrue(batch.all_ok)
             self.assertEqual(len(batch.reports), 2)
             self.assertEqual(batch.errors, ())
+
+
+    def test_registration_projections_fail_closed_before_active_mapping_hooks(self):
+        registry = ImportRegistry()
+        importer = FakeImporter()
+        registry.register(importer)
+        self.assertEqual(registry.registered_suffixes, ('.bar', '.foo'))
+        registrations = registry.registrations()
+        self.assertEqual(len(registrations), 1)
+        self.assertIs(registrations[0].importer, importer)
+        self.assertEqual(registrations[0].suffixes, ('.bar', '.foo'))
+
+        class HostileRouteMap(dict):
+            touched = False
+
+            def _touch(self):
+                type(self).touched = True
+                raise AssertionError("active registration projection hook must not run")
+
+            def __iter__(self):
+                self._touch()
+
+            def __len__(self):
+                self._touch()
+
+            def keys(self):
+                self._touch()
+
+            def values(self):
+                self._touch()
+
+            def items(self):
+                self._touch()
+
+            def get(self, key, default=None):
+                self._touch()
+
+        original_by_suffix = registry._by_suffix
+        hostile_routes = HostileRouteMap(original_by_suffix)
+        registry._by_suffix = hostile_routes
+        HostileRouteMap.touched = False
+        with self.assertRaisesRegex(ImportRegistryError, "registration state is inconsistent"):
+            _ = registry.registered_suffixes
+        self.assertFalse(HostileRouteMap.touched)
+        registry._by_suffix = original_by_suffix
+
+        original_tokens = registry._registration_token_by_suffix
+        hostile_tokens = HostileRouteMap(original_tokens)
+        registry._registration_token_by_suffix = hostile_tokens
+        HostileRouteMap.touched = False
+        with self.assertRaisesRegex(ImportRegistryError, "registration state is inconsistent"):
+            registry.registrations()
+        self.assertFalse(HostileRouteMap.touched)
+        registry._registration_token_by_suffix = original_tokens
+
+        self.assertEqual(registry.registered_suffixes, ('.bar', '.foo'))
+        registrations = registry.registrations()
+        self.assertEqual(len(registrations), 1)
+        self.assertIs(registrations[0].importer, importer)
+        self.assertEqual(registrations[0].suffixes, ('.bar', '.foo'))
+
+
+    def test_concurrent_registration_is_serialized_with_active_inspection(self):
+        registry = ImportRegistry()
+        inspection_entered = Event()
+        release_inspection = Event()
+        registration_started = Event()
+        registration_metadata_entered = Event()
+        registration_finished = Event()
+        inspection_reports: list[ImportReport] = []
+        worker_errors: list[BaseException] = []
+
+        class BlockingImporter:
+            format_name = "Blocking inspection format"
+            suffixes = (".blocking",)
+
+            def inspect(self, path: Path) -> ImportReport:
+                inspection_entered.set()
+                if not release_inspection.wait(timeout=5):
+                    raise RuntimeError("test inspection release timed out")
+                return ImportReport(
+                    source=fingerprint(path),
+                    format_name=self.format_name,
+                )
+
+        class ConcurrentImporter:
+            suffixes = (".concurrent",)
+
+            @property
+            def format_name(self) -> str:
+                registration_metadata_entered.set()
+                return "Concurrent registered format"
+
+            def inspect(self, path: Path) -> ImportReport:
+                return ImportReport(
+                    source=fingerprint(path),
+                    format_name=self.format_name,
+                )
+
+        blocking = BlockingImporter()
+        concurrent = ConcurrentImporter()
+        registry.register(blocking)
+
+        def run_inspection() -> None:
+            try:
+                with tempfile.TemporaryDirectory() as td:
+                    path = Path(td) / "source.blocking"
+                    path.write_bytes(b"stable-source")
+                    inspection_reports.append(registry.inspect(path))
+            except BaseException as exc:  # pragma: no cover - surfaced below
+                worker_errors.append(exc)
+
+        def run_registration() -> None:
+            registration_started.set()
+            try:
+                registry.register(concurrent)
+            except BaseException as exc:  # pragma: no cover - surfaced below
+                worker_errors.append(exc)
+            finally:
+                registration_finished.set()
+
+        inspector = Thread(target=run_inspection, name="section0-registry-inspector")
+        registrar = Thread(target=run_registration, name="section0-registry-registrar")
+        inspector.start()
+        self.assertTrue(inspection_entered.wait(timeout=5))
+
+        registrar.start()
+        self.assertTrue(registration_started.wait(timeout=5))
+        self.assertFalse(
+            registration_metadata_entered.wait(timeout=0.2),
+            "concurrent register() must not observe importer metadata while inspection owns routing authority",
+        )
+        self.assertFalse(
+            registration_finished.is_set(),
+            "concurrent register() must not publish while inspection owns routing authority",
+        )
+
+        release_inspection.set()
+        inspector.join(timeout=5)
+        registrar.join(timeout=5)
+
+        self.assertFalse(inspector.is_alive())
+        self.assertFalse(registrar.is_alive())
+        self.assertTrue(registration_metadata_entered.is_set())
+        self.assertEqual(worker_errors, [])
+        self.assertEqual(len(inspection_reports), 1)
+        self.assertEqual(inspection_reports[0].format_name, blocking.format_name)
+        self.assertIs(registry.importer_for("next.blocking"), blocking)
+        self.assertIs(registry.importer_for("next.concurrent"), concurrent)
+        self.assertEqual(
+            registry.registered_suffixes,
+            (".blocking", ".concurrent"),
+        )
+
+
+    def test_concurrent_unregister_is_serialized_with_active_inspection(self):
+        inspection_entered = Event()
+        release_inspection = Event()
+        unregister_helper_entered = Event()
+        unregister_finished = Event()
+        inspection_reports: list[ImportReport] = []
+        worker_errors: list[BaseException] = []
+
+        class ObservedRegistry(ImportRegistry):
+            def _unregister_locked(self, importer):
+                unregister_helper_entered.set()
+                return super()._unregister_locked(importer)
+
+        class BlockingImporter:
+            format_name = "Blocking unregister format"
+            suffixes = (".blocking-unregister",)
+
+            def inspect(self, path: Path) -> ImportReport:
+                inspection_entered.set()
+                if not release_inspection.wait(timeout=5):
+                    raise RuntimeError("test inspection release timed out")
+                return ImportReport(
+                    source=fingerprint(path),
+                    format_name=self.format_name,
+                )
+
+        registry = ObservedRegistry()
+        blocking = BlockingImporter()
+        registry.register(blocking)
+
+        def run_inspection() -> None:
+            try:
+                with tempfile.TemporaryDirectory() as td:
+                    path = Path(td) / "source.blocking-unregister"
+                    path.write_bytes(b"stable-source")
+                    inspection_reports.append(registry.inspect(path))
+            except BaseException as exc:  # pragma: no cover - surfaced below
+                worker_errors.append(exc)
+
+        def run_unregister() -> None:
+            try:
+                registry.unregister(blocking)
+            except BaseException as exc:  # pragma: no cover - surfaced below
+                worker_errors.append(exc)
+            finally:
+                unregister_finished.set()
+
+        inspector = Thread(target=run_inspection, name="section0-unregister-inspector")
+        unregistrar = Thread(target=run_unregister, name="section0-unregistrar")
+        inspector.start()
+        self.assertTrue(inspection_entered.wait(timeout=5))
+
+        unregistrar.start()
+        self.assertFalse(
+            unregister_helper_entered.wait(timeout=0.2),
+            "concurrent unregister() must not enter mutation helper while inspection owns routing authority",
+        )
+        self.assertFalse(unregister_finished.is_set())
+
+        release_inspection.set()
+        inspector.join(timeout=5)
+        unregistrar.join(timeout=5)
+
+        self.assertFalse(inspector.is_alive())
+        self.assertFalse(unregistrar.is_alive())
+        self.assertTrue(unregister_helper_entered.is_set())
+        self.assertEqual(worker_errors, [])
+        self.assertEqual(len(inspection_reports), 1)
+        self.assertEqual(inspection_reports[0].format_name, blocking.format_name)
+        self.assertIsNone(registry.importer_for("next.blocking-unregister"))
 
 
 if __name__ == '__main__':
