@@ -23,6 +23,10 @@ from .webapp_keymap import KeymapAwareAccessibleChessAPI
 class Stage1ReleaseAccessibleChessAPI(_core.Stage1ReleaseAccessibleChessAPI):
     """Release API with the saturation board-command dispatcher enabled."""
 
+    def _local_game_mode_active(self) -> bool:
+        """Keep local lifecycle authority disjoint from the Stockfish coordinator."""
+        return self._engine_game_phase in {"idle", "stopped"}
+
     @staticmethod
     def _binding_context(value: object) -> str:
         raw = getattr(value, "value", value)
@@ -392,6 +396,22 @@ class Stage1ReleaseAccessibleChessAPI(_core.Stage1ReleaseAccessibleChessAPI):
             self._defer_engine_game_move_sound = previous_defer
 
     def dispatch_action(self, action_id: str, square: str | None = None) -> dict[str, Any]:
+        action = action_id.strip() if isinstance(action_id, str) else ""
+        local_game_actions = {
+            "game.offer_draw",
+            "game.accept_draw",
+            "game.decline_draw",
+            "game.resign",
+        }
+        if action in local_game_actions and self._local_game_mode_active():
+            # Local play uses the canonical keymap/application command path.
+            # Stockfish play retains its independent Section-13 session owner.
+            return KeymapAwareAccessibleChessAPI.dispatch_action(self, action, square)
+        if action in {"game.accept_draw", "game.decline_draw"}:
+            return self._concise_error(
+                "Відповідь на локальну нічию недоступна під час гри проти Stockfish.",
+                "Local draw responses are unavailable during a Stockfish game.",
+            )
         actions = {
             "edit.undo": self.undo,
             "edit.redo": self.redo,
@@ -403,7 +423,6 @@ class Stage1ReleaseAccessibleChessAPI(_core.Stage1ReleaseAccessibleChessAPI):
             "game.offer_draw": self.offer_draw_engine_game,
             "game.resign": self.resign_engine_game,
         }
-        action = action_id.strip() if isinstance(action_id, str) else ""
         handler = actions.get(action)
         if handler is not None:
             return handler()
