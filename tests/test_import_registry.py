@@ -72,6 +72,18 @@ class MislabelledFormatImporter:
         )
 
 
+class MutableFormatNameImporter:
+    format_name = 'Original registered format'
+    suffixes = ('.mutable-format-name',)
+
+    def inspect(self, path: Path) -> ImportReport:
+        return ImportReport(
+            source=fingerprint(path),
+            format_name=self.format_name,
+            records=[ImportedRecord('1', ImportQuality.FULL)],
+        )
+
+
 class InvalidFormatNameImporter:
     format_name = ''
     suffixes = ('.invalid-format-name',)
@@ -143,6 +155,21 @@ class LowLevelMutatedSourceImporter:
 
 
 class ImportRegistryTests(unittest.TestCase):
+    def test_registration_rejects_non_text_suffix_before_normalization_hooks(self):
+        class ActiveSuffix(str):
+            def strip(self, *args, **kwargs):
+                raise AssertionError('strip hook must not run')
+
+        class ActiveSuffixImporter:
+            format_name = 'Active suffix'
+            suffixes = (ActiveSuffix('.active'),)
+
+            def inspect(self, path: Path) -> ImportReport:
+                raise AssertionError('inspection must not run')
+
+        with self.assertRaisesRegex(ImportRegistryError, 'exact text'):
+            ImportRegistry().register(ActiveSuffixImporter())
+
     def test_registration_routes_case_insensitive_suffixes_without_ui_or_database_knowledge(self):
         registry = ImportRegistry()
         importer = FakeImporter()
@@ -235,6 +262,22 @@ class ImportRegistryTests(unittest.TestCase):
         registry = ImportRegistry()
         with self.assertRaisesRegex(ImportRegistryError, 'format_name'):
             registry.register(InvalidFormatNameImporter())
+
+    def test_registry_binds_format_identity_at_registration_time(self):
+        registry = ImportRegistry()
+        importer = MutableFormatNameImporter()
+        registry.register(importer)
+        importer.format_name = 'Changed after registration'
+
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / 'source.mutable-format-name'
+            original = b'registration-time-format-identity'
+            path.write_bytes(original)
+
+            with self.assertRaisesRegex(ImportRegistryError, 'format identity'):
+                registry.inspect(path)
+
+            self.assertEqual(path.read_bytes(), original)
 
     def test_registry_rejects_report_with_different_format_identity(self):
         registry = ImportRegistry()
