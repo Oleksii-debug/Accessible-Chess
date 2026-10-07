@@ -310,13 +310,25 @@ class ImportRegistry:
             if batch_context:
                 raise _AdapterInspectionFailure(exc) from exc
             raise
-        except BaseException:
-            # Process-control signals remain authoritative, but they may not
-            # leave adapter-owned mutations in the host-owned routing table.
-            # Restore only registration authority, then re-raise the original
-            # signal unchanged rather than converting it to batch evidence.
+        except BaseException as exc:
+            # Process-control signals remain authoritative only after the same
+            # read-only source invariant has been proven. An adapter must not
+            # bypass source-integrity verification by mutating/deleting the
+            # source and then raising KeyboardInterrupt/SystemExit. Restore
+            # host-owned routing first, verify the source, then propagate the
+            # original signal unchanged when the source is still identical.
             if not self._registration_matches(registration_snapshot):
                 self._restore_registration_snapshot(registration_snapshot)
+            try:
+                after = fingerprint(source)
+            except Exception as verification_exc:
+                raise SourceMutationError(
+                    f"Read-only importer left source unverifiable after inspection: {safe_source}"
+                ) from verification_exc
+            if not _same_source(before, after):
+                raise SourceMutationError(
+                    f"Read-only importer modified source bytes during inspection: {safe_source}"
+                ) from exc
             raise
 
         registration_changed = not self._registration_matches(registration_snapshot)
