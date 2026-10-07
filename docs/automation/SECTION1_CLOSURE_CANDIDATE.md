@@ -189,3 +189,31 @@ evidence but does not substitute for the exact whole-convergence head.
 `HUMAN_TESTED=NO`
 
 `NVDA_VERIFIED=NO`
+
+
+## Prepared predecessor convergence — 2026-10-07
+
+This branch now contains a **prepared, non-accepted** history-preserving cross-Section merge so Section 1 can qualify immediately after Section 0 reaches terminal acceptance.
+
+Exact parents of the prepared merge:
+- first parent / current Section 0 candidate: PR #2346 `3714172861b9bc2b28dbb4de58027aea522eba55`;
+- second parent / current Section 1 successor apex: PR #2353 `dffbacbbb2ca52812774a20aa58341caad407898`;
+- merge commit: `9fdaa587bbe7e95422f55b1eb437ecdeba13e132`;
+- prepared branch: `prepare/section1-on-section0-20261007-sol56`.
+
+Mechanical composition proof at merge creation:
+- #2346 -> merge: ahead-only / behind=0 / exact merge-base #2346 / exactly 40 Section-1 paths;
+- #2353 -> merge: ahead-only / behind=0 / exact merge-base #2353 / exactly 16 Section-0 paths;
+- common-apex Section-0 and Section-1 changed-path sets have zero direct overlap;
+- the merged tree retains Section-0 `acs/import_contract.py=d9855d173f8c73440e190482a107299be28949c5`;
+- it retains Section-1 `acs/chesscore.py=5ba261b7b18d8a9c6cf8858d111d412035a7e5f4` and `acs/position_editor.py=5e5808cacc9dffff4d1c290d418c68d8345babca`.
+
+The Section-1 corpus/source qualification is repinned on this prepared lineage to the exact Section-0 ImportContract and proves #2353 ancestry plus the complete Section-1 union relative to #2346.
+
+This preparation does **not** accept Section 0 and does **not** close Section 1. If #2346 moves, fails qualification, or is not the accepted predecessor, this prepared line must fail closed and be reconverged before use.
+
+Current predecessor condition:
+`SECTION0_ACCEPTED=NO_PENDING_TERMINAL_CI`
+
+Current Section-1 condition:
+`SECTION_1_DONE=NO_PENDING_SECTION0_ACCEPTANCE_AND_PREDECESSOR_AWARE_WHOLE_QUALIFICATION`
