@@ -42,6 +42,7 @@ from .webapp_keymap import (
 
 
 _LOG = logging.getLogger(__name__)
+_ENGINE_GAME_SETTING_TEXT_CHARS = 32
 
 
 class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
@@ -658,14 +659,16 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
 
     @staticmethod
     def _bounded_int(value: Any, *, low: int, high: int) -> int:
-        if isinstance(value, bool):
-            raise ValueError("boolean is not an integer setting")
-        if isinstance(value, str):
+        # Browser/API scalar ingress is passive: reject subclasses and arbitrary
+        # objects before invoking overridable string/number conversion hooks.
+        if type(value) is str:
+            if len(value) > _ENGINE_GAME_SETTING_TEXT_CHARS:
+                raise ValueError("setting text is too long")
             text = value.strip()
-            if not text or not text.isdecimal():
-                raise ValueError("setting must be an integer")
+            if not text or not text.isascii() or not text.isdecimal():
+                raise ValueError("setting must be an ASCII integer")
             value = int(text)
-        if not isinstance(value, int) or not low <= value <= high:
+        if type(value) is not int or not low <= value <= high:
             raise ValueError("setting is outside supported bounds")
         return value
 
@@ -975,13 +978,10 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
         return EngineNoMoveResolution("1/2-1/2", EndReason.STALEMATE)
 
     def _commit_engine_move(self, move: str) -> None:
-        side = self.board.turn
-        san = self.board.push_text(move)
-        self.sans.append(san)
-        self.move_sides.append(side)
-        self.redo_meta.clear()
-        self.selected_source = None
-        self._record_position_after_move(san, side)
+        # Engine callbacks use the exact same Board/history transaction as
+        # manual moves.  Provider or history failures therefore publish nothing
+        # instead of leaving a moved Board with stale review metadata.
+        san = self._commit_move_text_transaction(move)
         if self._suppress_next_engine_move_sound_for_start:
             self._suppress_next_engine_move_sound_for_start = False
         else:
@@ -1189,7 +1189,9 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
                 "Stockfish play is unavailable.",
             )
         try:
-            selected_side = str(human_side or "").strip().lower()
+            if type(human_side) is not str or len(human_side) > _ENGINE_GAME_SETTING_TEXT_CHARS:
+                raise ValueError("invalid side")
+            selected_side = human_side.strip().lower()
             if selected_side not in {"white", "black", "random", "w", "b"}:
                 raise ValueError("invalid side")
             selected_side = {"w": "white", "b": "black"}.get(selected_side, selected_side)
@@ -1214,11 +1216,22 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
                 "Check side, level, and time control.",
             )
 
+        reset = super().new_game()
+        if not reset.get("ok"):
+            return self._concise_error(
+                "Не вдалося підготувати стандартну позицію для гри.",
+                "The standard position could not be prepared for play.",
+            )
+        # The existing engine-game lifecycle remains authoritative until the
+        # standard board/history root has actually published.  Only then may a
+        # replacement game discard the prior session state.
         self._reset_engine_game_state()
-        super().new_game()
         session = EngineGameSessionCoordinator(
             self._engine_play_service,
-            fen_provider=self.board.fen,
+            # Board publication is transactional and may replace self.board.
+            # Resolve FEN at call time instead of binding the session forever to
+            # the Board object that happened to exist at game start.
+            fen_provider=lambda: self.board.fen(),
             side_to_move_provider=lambda: self.board.turn,
             commit_engine_move=self._commit_engine_move,
             history_node_provider=lambda: str(self.live_history_node),
@@ -1458,11 +1471,13 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
             blocked = self._temporary_exploration_error()
             if blocked is not None:
                 return blocked
-        self._reset_engine_game_state()
         result = super().new_game()
-        if result.get("ok"):
-            self._play_game_start_sound()
-        return result
+        if not result.get("ok"):
+            return result
+        message = str(result.get("announcement") or "")
+        self._reset_engine_game_state()
+        self._play_game_start_sound()
+        return self._ok(message)
 
     def clear_board(self) -> dict[str, Any]:
         if self._engine_takeback_unsafe:
@@ -1471,8 +1486,12 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
             blocked = self._temporary_exploration_error()
             if blocked is not None:
                 return blocked
+        result = super().clear_board()
+        if not result.get("ok"):
+            return result
+        message = str(result.get("announcement") or "")
         self._reset_engine_game_state()
-        return super().clear_board()
+        return self._ok(message)
 
     def make_move(self, text: str) -> dict[str, Any]:
         if self._engine_takeback_unsafe:
@@ -1501,6 +1520,39 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
                 _shared_spoken_san(self.sans[-1], self.lang),
             )
         return result
+
+    def edit_position_piece(self, square: str, piece: str) -> dict[str, Any]:
+        if self._engine_takeback_unsafe:
+            return self._error(self._takeback_recovery_message())
+        result = super().edit_position_piece(square, piece)
+        if not result.get("ok"):
+            return result
+        message = str(result.get("announcement") or "")
+        self._reset_engine_game_state()
+        return self._ok(message)
+
+    def edit_position_metadata(
+        self,
+        turn: str,
+        castling: str,
+        en_passant: str,
+        halfmove_text: str,
+        fullmove_text: str,
+    ) -> dict[str, Any]:
+        if self._engine_takeback_unsafe:
+            return self._error(self._takeback_recovery_message())
+        result = super().edit_position_metadata(
+            turn,
+            castling,
+            en_passant,
+            halfmove_text,
+            fullmove_text,
+        )
+        if not result.get("ok"):
+            return result
+        message = str(result.get("announcement") or "")
+        self._reset_engine_game_state()
+        return self._ok(message)
 
     def set_fen(self, fen: str) -> dict[str, Any]:
         if self._engine_takeback_unsafe:
