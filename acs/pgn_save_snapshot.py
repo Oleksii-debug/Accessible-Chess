@@ -761,8 +761,6 @@ def commit_pgn_save_publication(
     if binding.session_ref() is not current:
         raise _stale("PGN save publication belongs to a different document session")
     live_workspace = current.workspace
-    if binding.workspace_ref() is not live_workspace:
-        raise _stale("PGN workspace changed before the save publication could commit")
 
     # Re-read live provenance only through passive exact-scalar validation
     # before any equality work. Frozen SourceFingerprint instances and the
@@ -803,6 +801,19 @@ def commit_pgn_save_publication(
     live_document_revision = current.document_revision
     if type(live_document_revision) is not int or live_document_revision < 0:
         raise TypeError("PGN live document revision is invalid")
+
+    # Canonical document edits replace PgnWorkspace atomically and advance the
+    # document revision.  A background save is allowed to commit the older
+    # durable generation in that case: the published digest becomes the saved
+    # baseline while the newer workspace stays dirty.  A workspace replacement
+    # without a newer document generation is not a legitimate edit and remains
+    # stale/fail-closed.
+    captured_workspace = binding.workspace_ref()
+    if (
+        captured_workspace is not live_workspace
+        and live_document_revision <= binding.document_revision
+    ):
+        raise _stale("PGN workspace was replaced without a newer document generation")
 
     # Exact replay after a successful owner-thread commit is harmless.  This is
     # checked before source-staleness because an unchanged Save can legitimately
