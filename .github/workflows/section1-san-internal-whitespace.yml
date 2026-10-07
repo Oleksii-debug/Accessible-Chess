@@ -19,7 +19,9 @@ concurrency:
 env:
   EXPECTED_PARENT_SHA: 8d72eaf3ad9eb9532fe67e8cf977d71b8a0555c5
   CHESSCORE_BLOB: ad67814942fc3eb8f7dce71c8e99032d94cd0f65
-  TEST_BLOB: 3ac34b9d915d047a8e35692bbdf9c941539b5227
+  TEST_BLOB: dd910faeaee287c8944f36cf3c5d7cff88c7bc79
+  MOVE_ENTRY_BLOB: 30bd6fd478638030d0042a1418b69a3eb600dc66
+  MOVE_ENTRY_TEST_BLOB: bceae6b13563625630e2fba43133f4d3efc51659
   NOTATION_BLOB: eed13c31993fa9979b6a2cbd608cce63c1ce74df
   TRANSITION_TEST_BLOB: 22e493307ac650d14f7fa7300d80cffcd100f36b
   KING_CAPTURE_TEST_BLOB: 4c0facef788c2ace18cbed0fcaeee9195113ec9f
@@ -74,6 +76,8 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD:acs/chesscore.py)" = "$CHESSCORE_BLOB"
           test "$(git rev-parse HEAD:tests/test_section1_san_internal_whitespace.py)" = "$TEST_BLOB"
+          test "$(git rev-parse HEAD:acs/move_entry.py)" = "$MOVE_ENTRY_BLOB"
+          test "$(git rev-parse HEAD:tests/test_move_entry.py)" = "$MOVE_ENTRY_TEST_BLOB"
           test "$(git rev-parse HEAD:acs/notation.py)" = "$NOTATION_BLOB"
           test "$(git rev-parse HEAD:tests/test_section1_san_transition_contract.py)" = "$TRANSITION_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_section1_king_capture_boundary.py)" = "$KING_CAPTURE_TEST_BLOB"
@@ -85,7 +89,9 @@ jobs:
           python -m py_compile
           acs/chesscore.py
           acs/notation.py
+          acs/move_entry.py
           tests/test_section1_san_internal_whitespace.py
+          tests/test_move_entry.py
           tests/test_section1_san_transition_contract.py
           tests/test_section1_king_capture_boundary.py
           tests/test_section1_fen_field_count.py
@@ -95,6 +101,7 @@ jobs:
         run: >-
           python -m unittest -v
           tests.test_section1_san_internal_whitespace
+          tests.test_move_entry
           tests.test_section1_san_transition_contract
           tests.test_notation
           tests.test_section1_king_capture_boundary
