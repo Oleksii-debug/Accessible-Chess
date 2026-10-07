@@ -366,3 +366,22 @@ failure-boundary repair.
 
 `SECTION2_EXECUTED_PYTHON_TEST_PINS=28/28`
 `SECTION_2_DONE=NO_PENDING_SECTION1_ACCEPTANCE_AND_TERMINAL_GATE`
+
+
+### Symmetric invalid-Unicode annotation failure atomicity
+
+The bounded `PgnWorkspace` repair covers both move annotations and line
+leading/trailing annotations. The retained workspace regression now proves both
+public mutation boundaries reject a lone UTF-16 surrogate as stable
+`PgnWorkspaceErrorCode.INVALID_DOCUMENT` while preserving exact serialized
+document text, content digest, content revision and dirty state.
+
+Current workspace-regression blob:
+- `tests/test_pgn_workspace.py = a1bdab52d57c8dc7d32e304f0429c8ac82cf0330`.
+
+This adds no grammar or annotation semantics. It closes the negative/failure-
+atomicity evidence for both production branches changed by the Section-2
+invalid-Unicode failure-boundary repair.
+
+`SECTION2_ANNOTATION_UNICODE_ATOMICITY=MOVE_AND_LINE_PROVEN`
+`SECTION_2_DONE=NO_PENDING_SECTION1_ACCEPTANCE_AND_TERMINAL_GATE`
