@@ -8,11 +8,14 @@ This receipt converges the current Section 0 contract lineages without replacing
 
 - canonical pre-Section-0 apex: `5854b528fbd3632cfa69553a70973123eaf14b54`
 - authority-boundary lineage (#2329): `c61fbc8f1381ddec05109532f907595c2a7c9aaf`
-- fail-closed ImportReport lineage (#2330): `3dcdf4463ebec205ca202f1faee58130d7ddbd4e`
-- capability-matrix lineage (#2328): `2ca2d3f78b0070ce7c0382c64729d3457136900e`
-- two-parent convergence receipt: `0bc9dd57d41f047e0c259af3dcf8b2791cac23d3`
+- fail-closed ImportReport lineage (#2330), current reviewed head: `633244a659b7998acddd34bef79b5e511d2990a3`
+- capability-matrix lineage (#2328), absorbed reviewed head: `2ca2d3f78b0070ce7c0382c64729d3457136900e`
+- original two-parent capability/import receipt: `0bc9dd57d41f047e0c259af3dcf8b2791cac23d3`
   - first parent: `3dcdf4463ebec205ca202f1faee58130d7ddbd4e`
   - second parent: `2ca2d3f78b0070ce7c0382c64729d3457136900e`
+- current reconvergence receipt: `7c76b5f53d1e8767bd0d3f5fb2406c7aaa3d78a6`
+  - first parent: `633244a659b7998acddd34bef79b5e511d2990a3`
+  - second parent: `b076b3d34bfa808a1fa3992f22b8897499352e1c`
 
 The merge preserves both histories. No force-push or replay of overlapping runtime authorities is used.
 

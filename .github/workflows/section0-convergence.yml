@@ -21,15 +21,18 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  EXPECTED_BASE_SHA: 3dcdf4463ebec205ca202f1faee58130d7ddbd4e
-  MERGE_RECEIPT: 0bc9dd57d41f047e0c259af3dcf8b2791cac23d3
+  EXPECTED_BASE_SHA: 633244a659b7998acddd34bef79b5e511d2990a3
+  MERGE_RECEIPT: 7c76b5f53d1e8767bd0d3f5fb2406c7aaa3d78a6
+  PRIOR_MERGE_RECEIPT: 0bc9dd57d41f047e0c259af3dcf8b2791cac23d3
+  PRIOR_IMPORT_HEAD: 3dcdf4463ebec205ca202f1faee58130d7ddbd4e
+  PRIOR_CONVERGENCE_HEAD: b076b3d34bfa808a1fa3992f22b8897499352e1c
   AUTHORITY_HEAD: c61fbc8f1381ddec05109532f907595c2a7c9aaf
-  IMPORT_HEAD: 3dcdf4463ebec205ca202f1faee58130d7ddbd4e
+  IMPORT_HEAD: 633244a659b7998acddd34bef79b5e511d2990a3
   CAPABILITY_HEAD: 2ca2d3f78b0070ce7c0382c64729d3457136900e
   CAPABILITY_BLOB: 86412ba41f4824c865c0da22c3a4f6e771a12fd1
   CAPABILITY_DOC_BLOB: e83a2119ec473ddebcc11561ddd1c3855195ab52
   CAPABILITY_TEST_BLOB: f148fb159ef42452e63776f5ed0a98faf14f997b
-  CLOSURE_DOC_BLOB: c14804b8f0c56a83e0510f25b5b5faffb7f9a8ba
+  CLOSURE_DOC_BLOB: 87370084e5569b21aa2c0613a16c6a1d218acc04
 
 jobs:
   section0-convergence:
@@ -64,7 +67,9 @@ jobs:
           fi
           test "$(git merge-base "$EXPECTED_BASE_SHA" HEAD)" = "$EXPECTED_BASE_SHA"
           test "$(git rev-parse "$MERGE_RECEIPT^1")" = "$IMPORT_HEAD"
-          test "$(git rev-parse "$MERGE_RECEIPT^2")" = "$CAPABILITY_HEAD"
+          test "$(git rev-parse "$MERGE_RECEIPT^2")" = "$PRIOR_CONVERGENCE_HEAD"
+          test "$(git rev-parse "$PRIOR_MERGE_RECEIPT^1")" = "$PRIOR_IMPORT_HEAD"
+          test "$(git rev-parse "$PRIOR_MERGE_RECEIPT^2")" = "$CAPABILITY_HEAD"
           git merge-base --is-ancestor "$AUTHORITY_HEAD" HEAD
           git merge-base --is-ancestor "$IMPORT_HEAD" HEAD
           git merge-base --is-ancestor "$CAPABILITY_HEAD" HEAD
