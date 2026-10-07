@@ -72,6 +72,23 @@ Exact repaired blobs:
 
 This changes no FEN grammar, move legality, SAN authority, PositionState schema, or 48-path predecessor-relative geometry.
 
+### Strict-FEN king-capture fixture alignment
+
+Whole exact-SHA run `37633066960` proved that the retained king-capture regression still constructed historically impossible FEN directly through `Board(...)`. That expectation is superseded by the stronger Section-1 canonical FEN boundary: a position where the inactive side remains in check is rejected before publication.
+
+The repair is test/evidence-only; `acs/chesscore.py` is unchanged. The regression now:
+- proves canonical ingress rejects each historically impossible FEN;
+- creates the same condition only as explicit low-level test corruption starting from a canonical checked-side position;
+- proves the pseudo-move attack can target the opposing king while the existing legal-move filter never publishes that capture;
+- proves strict `Board.fen()`, SAN/coordinate parsing and push remain fail-closed and failure-atomic on the corrupted state;
+- preserves ordinary check/checkmate SAN behavior.
+
+Exact repaired evidence:
+- `tests/test_section1_king_capture_boundary.py = 5041554b7e3a94ecaae7ba7841b3eda6c7252df3`
+- `.github/workflows/section1-king-capture-boundary.yml = 73502af0231b8cf6daa0fa1624f8c5a4e8c06852`
+
+This changes no product code, chess rule, FEN grammar, SAN grammar, or predecessor-relative path geometry.
+
 ## Exact predecessor-relative geometry
 
 Accepted predecessor: `dfdd077247e82e45596a044e5a606ec6c39ba17a`
