@@ -5,6 +5,9 @@ on:
     branches:
       - section17/recorded-media-youtube-closure-20261007-sol56
       - converge/section17-recorded-media-youtube-20261007-sol56
+  pull_request:
+    branches:
+      - converge/section17-recorded-media-youtube-20261007-sol56
   workflow_dispatch:
 
 permissions:
