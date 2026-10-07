@@ -80,7 +80,7 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
                 self.assertIn(token, early)
 
     def test_startup_timeout_retires_child_before_fallible_report_writes(self):
-        start = self.source.index("static void ac_fail_startup_timeout(HANDLE report)")
+        start = self.source.index("static void ac_fail_startup_timeout(")
         end = self.source.index("void WINAPI wWinMainCRTStartup(void)", start)
         timeout = self.source[start:end]
 
@@ -97,9 +97,32 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
         self.assertIn('L"TIMEOUT_CHILD_CLEANUP: FAILED"', timeout)
         self.assertIn('L"CHILD_LEFT_RUNNING: NO"', timeout)
         self.assertIn('L"CHILD_LEFT_RUNNING: YES"', timeout)
+        for token in (
+            "ac_close_child_process_handle();",
+            "CloseHandle(g_instance_lock);",
+            "g_instance_lock = INVALID_HANDLE_VALUE;",
+            "CloseHandle(root_guard);",
+            "CloseHandle(app_guard);",
+            "CloseHandle(data_guard);",
+            "CloseHandle(report);",
+            "report = INVALID_HANDLE_VALUE;",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, timeout)
+        cleanup = timeout.index("if (child_stopped) {", timeout.index("cleanup_error"))
+        status = timeout.index('ac_write_line(report, L"STATUS: FAILED_STARTUP_TIMEOUT")')
+        popup = timeout.index("MessageBoxW(")
+        report_close = timeout.index("CloseHandle(report);", status)
+        self.assertLess(cleanup, status)
+        self.assertLess(status, report_close)
+        self.assertLess(report_close, popup)
         self.assertLess(
             timeout.index("TerminateProcess(g_process.hProcess, ERROR_TIMEOUT)"),
             timeout.index('ac_write_line(report, L"STATUS: FAILED_STARTUP_TIMEOUT")'),
+        )
+        self.assertIn(
+            "ac_fail_startup_timeout(report, root_guard, app_guard, data_guard);",
+            self.source,
         )
 
         self.assertIn("'TIMEOUT_CHILD_CLEANUP: PASS'", self.workflow)
