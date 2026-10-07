@@ -145,6 +145,58 @@ class ImportRegistry:
         self._format_name_by_suffix: dict[str, str] = {}
         self._registration_token_by_suffix: dict[str, object] = {}
 
+    def _registration_snapshot(
+        self,
+    ) -> tuple[
+        dict[str, ReadOnlyImporter],
+        dict[str, str],
+        dict[str, object],
+    ]:
+        """Capture the complete routing authority before adapter execution."""
+        return (
+            dict(self._by_suffix),
+            dict(self._format_name_by_suffix),
+            dict(self._registration_token_by_suffix),
+        )
+
+    def _registration_matches(
+        self,
+        snapshot: tuple[
+            dict[str, ReadOnlyImporter],
+            dict[str, str],
+            dict[str, object],
+        ],
+    ) -> bool:
+        by_suffix, format_names, tokens = snapshot
+        if (
+            set(self._by_suffix) != set(by_suffix)
+            or set(self._format_name_by_suffix) != set(format_names)
+            or set(self._registration_token_by_suffix) != set(tokens)
+        ):
+            return False
+        return all(
+            self._by_suffix[suffix] is importer
+            and self._format_name_by_suffix[suffix] == format_names[suffix]
+            and self._registration_token_by_suffix[suffix] is tokens[suffix]
+            for suffix, importer in by_suffix.items()
+        )
+
+    def _restore_registration_snapshot(
+        self,
+        snapshot: tuple[
+            dict[str, ReadOnlyImporter],
+            dict[str, str],
+            dict[str, object],
+        ],
+    ) -> None:
+        by_suffix, format_names, tokens = snapshot
+        self._by_suffix.clear()
+        self._by_suffix.update(by_suffix)
+        self._format_name_by_suffix.clear()
+        self._format_name_by_suffix.update(format_names)
+        self._registration_token_by_suffix.clear()
+        self._registration_token_by_suffix.update(tokens)
+
     @staticmethod
     def _normalize_suffix(suffix: str) -> str:
         if type(suffix) is not str:
@@ -200,15 +252,19 @@ class ImportRegistry:
         registration_token = self._registration_token_by_suffix.get(source_suffix)
         if registered_format_name is None or registration_token is None:
             raise ImportRegistryError("Importer registration state is inconsistent")
+        registration_snapshot = self._registration_snapshot()
 
         before = fingerprint(source)
         try:
             report = importer.inspect(source)
         except Exception as exc:
             # Ordinary adapter failures must not bypass the read-only source
-            # invariant. Re-verify the source before preserving the original
-            # adapter exception. Process-control BaseException values are not
-            # caught here and remain authoritative.
+            # invariant. Registration is process authority, not adapter-owned
+            # state: contain any re-entrant route mutation before observing the
+            # source again or continuing a batch.
+            registration_changed = not self._registration_matches(registration_snapshot)
+            if registration_changed:
+                self._restore_registration_snapshot(registration_snapshot)
             try:
                 after = fingerprint(source)
             except Exception as verification_exc:
@@ -219,11 +275,7 @@ class ImportRegistry:
                 raise SourceMutationError(
                     f"Read-only importer modified source bytes during inspection: {safe_source}"
                 ) from exc
-            if (
-                self._by_suffix.get(source_suffix) is not importer
-                or self._format_name_by_suffix.get(source_suffix) != registered_format_name
-                or self._registration_token_by_suffix.get(source_suffix) is not registration_token
-            ):
+            if registration_changed:
                 raise ImportRegistryError(
                     "Read-only importer registration changed during inspection"
                 ) from exc
@@ -233,6 +285,9 @@ class ImportRegistry:
                 raise _AdapterInspectionFailure(exc) from exc
             raise
 
+        registration_changed = not self._registration_matches(registration_snapshot)
+        if registration_changed:
+            self._restore_registration_snapshot(registration_snapshot)
         try:
             after = fingerprint(source)
         except Exception as exc:
@@ -244,6 +299,10 @@ class ImportRegistry:
             raise SourceMutationError(
                 f"Read-only importer modified source bytes during inspection: {safe_source}"
             )
+        if registration_changed:
+            raise ImportRegistryError(
+                "Read-only importer registration changed during inspection"
+            )
         if type(report) is not ImportReport:
             raise ImportRegistryError(
                 "Read-only importer must return an exact passive ImportReport"
@@ -254,14 +313,6 @@ class ImportRegistry:
             raise ImportRegistryError(
                 "Read-only importer returned an invalid ImportReport"
             ) from exc
-        if (
-            self._by_suffix.get(source_suffix) is not importer
-            or self._format_name_by_suffix.get(source_suffix) != registered_format_name
-            or self._registration_token_by_suffix.get(source_suffix) is not registration_token
-        ):
-            raise ImportRegistryError(
-                "Read-only importer registration changed during inspection"
-            )
         if report.format_name != registered_format_name:
             raise ImportRegistryError(
                 "Read-only importer report format identity does not match registered importer"
