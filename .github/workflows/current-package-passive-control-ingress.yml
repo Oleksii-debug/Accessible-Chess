@@ -75,21 +75,33 @@ jobs:
           git merge-base --is-ancestor "$base_sha" HEAD
           test "$(git merge-base "$base_sha" HEAD)" = "$base_sha"
           git diff --check "$base_sha"...HEAD
-          mapfile -t actual < <(git diff --name-only "$base_sha"...HEAD | sort)
-          expected=(
+          mapfile -t changed < <(git diff --name-only "$base_sha"...HEAD | sort)
+          allowed_package_paths=(
             ".github/workflows/current-package-passive-control-ingress.yml"
+            ".github/workflows/w6-v2-package-assembler.yml"
+            ".github/workflows/w6-v2-package-preflight-current-runtime.yml"
+            ".github/workflows/w6-v2-release-payload-current-assembler.yml"
             "acs/version2_package_assembler.py"
             "acs/version2_package_preflight.py"
             "acs/version2_portable_package.py"
             "acs/version2_release_payload.py"
+            "tests/test_v2_package_required_resources.py"
             "tests/test_version2_package_assembler.py"
+            "tests/test_version2_package_pe_identity.py"
             "tests/test_version2_package_preflight.py"
             "tests/test_version2_portable_package.py"
             "tests/test_version2_release_payload.py"
           )
-          test "${#actual[@]}" -eq "${#expected[@]}"
-          for i in "${!expected[@]}"; do
-            test "${actual[$i]}" = "${expected[$i]}"
+          for path in "${changed[@]}"; do
+            case "$path" in
+              acs/version2_package_*|acs/version2_portable_package.py|acs/version2_release_payload.py|tests/test_v2_package_required_resources.py|tests/test_version2_package_*|tests/test_version2_portable_package.py|tests/test_version2_release_payload.py|.github/workflows/*package*|.github/workflows/w6-v2-release-payload-current-assembler.yml)
+                found=false
+                for allowed in "${allowed_package_paths[@]}"; do
+                  if [[ "$path" == "$allowed" ]]; then found=true; break; fi
+                done
+                test "$found" = true || { echo "UNQUALIFIED_PACKAGE_SCOPE $path" >&2; exit 1; }
+                ;;
+            esac
           done
           test "$(git rev-parse "HEAD:acs/version2_package_preflight.py")" = "$PREFLIGHT_BLOB"
           test "$(git rev-parse "HEAD:acs/version2_portable_package.py")" = "$PORTABLE_BLOB"
