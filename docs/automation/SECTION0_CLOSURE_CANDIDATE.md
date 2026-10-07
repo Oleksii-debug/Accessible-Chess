@@ -154,12 +154,13 @@ a re-entrant registry mutation: before propagating the signal, the registry
 compares the complete suffix/format/token snapshot and restores host-owned
 routing authority when it changed.
 
-The focused regression mutates an unrelated registered suffix and then raises
-`KeyboardInterrupt`; after propagation, both the interrupted adapter route and
-the unrelated original route remain exactly as registered. Post-signal source
-fingerprinting is intentionally not substituted for the process-control signal,
-so cancellation/interrupt semantics remain authoritative while routing state is
-recovered.
+The focused regressions cover both an unchanged-source interrupt and hostile
+process-control adapters that mutate or delete the source before raising
+`KeyboardInterrupt` / `SystemExit`. Host-owned routing is restored first; the
+source is then re-fingerprinted. An unchanged source preserves the exact
+process-control signal, while changed or unverifiable bytes fail closed as
+`SourceMutationError`, so process-control cannot bypass the read-only source
+boundary.
 
 This is a narrow Section-0.5 recovery hardening on the SAME #2346 lineage. It
 does not add a parser, decoder, chess authority, report authority or alternate
