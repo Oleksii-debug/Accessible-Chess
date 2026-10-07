@@ -1168,3 +1168,30 @@ qualification is mandatory.
 `HUMAN_TESTED=NO`
 
 `NVDA_VERIFIED=NO`
+
+
+## Accepted Section-0 predecessor convergence and bounded FEN publication preflight — 2026-10-07
+
+Section 0 is now durably DONE under Terminal Section Closure Protocol v2.
+
+Accepted dependency evidence:
+- accepted Section-0 source: `dfdd077247e82e45596a044e5a606ec6c39ba17a`;
+- canonical Section-0 integration merge: `71a191075d489edb1dcddaae6801f2e8cff80050`;
+- durable closure registry commit on `main`: `392e7463fa6f77b14984026e0815a4deb12d5f28`;
+- focused Section-0 run `37626867433`: Ubuntu 22.04 + Windows 2025 SUCCESS;
+- Whole V3 run `37626867408`: Ubuntu 22.04 + Windows 2025 SUCCESS.
+
+Canonical Section-1 lineage consumed dependency-safe child #2365 before the one-time predecessor convergence. That residual fences exact integer `halfmove` / `fullmove` values numerically before FEN string rendering, preventing corrupted mutable Board state from entering CPython's huge-integer decimal rendering path before the shared FEN budget rejects it. Canonical Board remains the only chess/FEN authority.
+
+Current predecessor convergence:
+- canonical Section-1 head after history-preserving merge: `36e2aa7897434eb55fb8983e7c03792c033bb18e`;
+- accepted predecessor: `dfdd077247e82e45596a044e5a606ec6c39ba17a`;
+- geometry: ahead-only / behind=0 / exact merge-base / exactly 46 Section-1 paths;
+- no rebase, squash, force-push or second chess authority.
+
+The remaining internally controlled closure work is qualification binding only: repin source/corpus and Whole gates to the accepted predecessor and exact current blobs, then freeze one exact Section-1 candidate. Terminal exact-head lawful corpus + Ubuntu + Windows qualification remains mandatory before DONE.
+
+`SECTION_0_DONE=YES`
+`SECTION_1_DONE=NO_PENDING_EXACT_HEAD_QUALIFICATION`
+`HUMAN_TESTED=NO`
+`NVDA_VERIFIED=NO`
