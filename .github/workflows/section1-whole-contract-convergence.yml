@@ -24,6 +24,7 @@ on:
       - 'acs/input_limits.py'
       - 'acs/notation.py'
       - 'acs/position_editor.py'
+      - 'acs/version2_profile.py'
       - 'acs/stage1_release_ui_core.py'
       - 'acs/ui_analysis_adapter.py'
       - 'acs/webapp.py'
@@ -54,7 +55,7 @@ on:
       - 'web/index.html'
   workflow_dispatch:
 
-# TERMINAL_SECTION1_FREEZE_MARKER: accepted predecessor + exact 47-path candidate
+# TERMINAL_SECTION1_FREEZE_MARKER: accepted predecessor + exact 48-path candidate
 
 permissions:
   contents: read
@@ -81,6 +82,7 @@ env:
   CHESSCORE_BLOB: fa1bbadfce9cec2547014ab9bd63a0f91bee1a0d
   WEBAPP_BLOB: ff382335de37dee2e88754dda14a948f826504c4
   POSITION_EDITOR_BLOB: 8f1a41df8142bf7e7689f4c5f5cf335d8523a4a9
+  VERSION2_PROFILE_BLOB: 87ed363d64e8c3d6de291dd63376a42e059b0a29
   EPD_BLOB: c1454f2af145729874283fa3b2c9cc29ecac6250
   IMPORT_CONTRACT_BLOB: d9855d173f8c73440e190482a107299be28949c5
 
@@ -102,7 +104,7 @@ env:
   UI_WEBAPP_TEST_BLOB: c529587bfc65fff315b3ca96c8f5a581ca7cab44
 
   RECEIPT_WORKFLOW_BLOB: b8991a98b6c13118736907b7dce9e297b2b07ea2
-  SOURCE_WORKFLOW_BLOB: 9fc6b77578ac211182a5a1ccbc720e990c0e99a3
+  SOURCE_WORKFLOW_BLOB: 6757c3a064d696804285a37a083a1ec66994c2bb
   EDGE_WORKFLOW_BLOB: 6f28d4f2fdf5b2fb1d5a4d4f25a0bee4fa45f750
   FEN_CASTLING_WORKFLOW_BLOB: 1c623c5accf762ab210023ccab67ab65f1b594d4
   POSITION_WORKFLOW_BLOB: f0ac7cefcc5db28430680361b36a026c7d526dd2
@@ -114,7 +116,7 @@ env:
   EP_FULLMOVE_WORKFLOW_BLOB: fe3f379c88bf2c86d487af16d78b561014cb557d
   POSITION_SERIALIZATION_WORKFLOW_BLOB: 8194108042e2f9fde5d25fcb8b1f679a90a4e893
   EPD_WORKFLOW_BLOB: 88c9880aed687330dfb3cac5ac07c92813af289d
-  CLOSURE_DOC_BLOB: 712e6d0e44cfad1fffbed0b5096be9c9d121f634
+  CLOSURE_DOC_BLOB: c88770e33688afa65d3b483bbdde14f90b959a0d
 
   P0F_PROVENANCE_BLOB: 3298aed00ca000d27f607cd861abbba9483ff358
   P0F_BUILDER_BLOB: 1137eac8804bbef600921853c37a69a77588f03c
@@ -129,7 +131,6 @@ jobs:
         os: [ubuntu-22.04, windows-2025]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
-
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -181,6 +182,7 @@ jobs:
           acs/input_limits.py
           acs/notation.py
           acs/position_editor.py
+          acs/version2_profile.py
           acs/stage1_release_ui_core.py
           acs/ui_analysis_adapter.py
           acs/webapp.py
@@ -212,6 +214,7 @@ jobs:
           EOF
           )"
           test "$changed" = "$expected"
+          test "$(printf '%s\n' "$changed" | sed '/^$/d' | wc -l | tr -d ' ')" = "48"
 
       - name: Bind exact current authorities and all consumed residuals
         shell: bash
@@ -222,6 +225,7 @@ jobs:
           test "$(git rev-parse HEAD:acs/chesscore.py)" = "$CHESSCORE_BLOB"
           test "$(git rev-parse HEAD:acs/webapp.py)" = "$WEBAPP_BLOB"
           test "$(git rev-parse HEAD:acs/position_editor.py)" = "$POSITION_EDITOR_BLOB"
+          test "$(git rev-parse HEAD:acs/version2_profile.py)" = "$VERSION2_PROFILE_BLOB"
           test "$(git rev-parse HEAD:acs/epd.py)" = "$EPD_BLOB"
           test "$(git rev-parse HEAD:acs/import_contract.py)" = "$IMPORT_CONTRACT_BLOB"
           test "$(git rev-parse HEAD:tools/qualify_fen_position_corpus.py)" = "$QUALIFIER_BLOB"
@@ -272,6 +276,7 @@ jobs:
           acs/notation.py
           acs/chesscore.py
           acs/position_editor.py
+          acs/version2_profile.py
           acs/epd.py
           acs/import_contract.py
           tools/qualify_fen_position_corpus.py
@@ -356,7 +361,6 @@ jobs:
   lawful-fen-corpus:
     runs-on: ubuntu-22.04
     timeout-minutes: 35
-
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -408,8 +412,8 @@ jobs:
           assert int(source["selected_games"]) >= 200
           assert entry["license_id"] == "CC0-1.0"
           assert entry["sha256"] == digest
-          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env:
-              env.write(f"LAWFUL_FEN_STARTER_SHA256={digest}\n")
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env_file:
+              env_file.write(f"LAWFUL_FEN_STARTER_SHA256={digest}\n")
           print("LAWFUL_FEN_CORPUS_PROVENANCE=PASS")
           PY
 
@@ -417,12 +421,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          PYTHONPATH="$PWD" python tools/qualify_fen_position_corpus.py \
-            .fen-lawful/starter_uk.pgn \
-            --min-games 200 \
-            --min-positions 5000 \
-            --require-edge-coverage \
-            --json-out .fen-lawful/fen_position_qualification.json
+          PYTHONPATH="$PWD" python tools/qualify_fen_position_corpus.py             .fen-lawful/starter_uk.pgn             --min-games 200             --min-positions 5000             --require-edge-coverage             --json-out .fen-lawful/fen_position_qualification.json
 
       - name: Bind report to the same lawful source bytes
         shell: bash
