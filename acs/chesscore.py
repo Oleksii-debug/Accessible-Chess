@@ -386,19 +386,41 @@ class Board:
         if self.norm_san(t)=='--':
             return self.push_null()
         return self.push(self.parse_move(t))
+    @staticmethod
+    def _validate_recovery_transition(before_fen, san, after_fen):
+        """Prove one stored history pair before undo/redo publication.
+
+        A stored target FEN is not sufficient recovery authority by itself:
+        its SAN must be exact passive text and must replay through canonical
+        Board move legality to the exact paired after-position.  This keeps
+        corrupted but individually valid FEN/SAN values from poisoning the
+        opposite history stack.
+        """
+        if type(before_fen) is not str or type(after_fen) is not str:
+            raise ValueError('Збережена позиція історії має бути FEN текстом')
+        if type(san) is not str:
+            raise ValueError('Збережений хід історії має бути текстом')
+        if len(san) > MAX_SAN_CHARS:
+            raise ValueError('Збережений хід історії занадто довгий')
+        probe=Board(before_fen)
+        replayed=probe.push_text(san)
+        if replayed != san or probe.fen() != after_fen:
+            raise ValueError('Збережений хід історії не відповідає позиції')
+
     def undo(self):
         if not self.undo_stack: return None
         current=self.fen(); before,san=self.undo_stack[-1]
-        # Stored history is recovery input. Validate and publish the target
-        # through the canonical FEN authority before transferring stack state,
-        # so a stale/corrupt target cannot partially consume undo history.
+        # Recovery metadata is one semantic pair. Prove both the target FEN and
+        # its canonical transition before publishing either board or stack state.
+        self._validate_recovery_transition(before,san,current)
         self.set_fen(before,clear_history=False)
         self.undo_stack.pop(); self.redo_stack.append((current,san)); return san
     def redo(self):
         if not self.redo_stack: return None
         current=self.fen(); target,san=self.redo_stack[-1]
-        # Keep redo failure-atomic for the same reason: canonical target
-        # rejection must leave both history stacks and the live board intact.
+        # Re-prove the same canonical transition in the forward direction
+        # before the target or either stack is changed.
+        self._validate_recovery_transition(current,san,target)
         self.set_fen(target,clear_history=False)
         self.redo_stack.pop(); self.undo_stack.append((current,san)); return san
     def square_description(self,sq):

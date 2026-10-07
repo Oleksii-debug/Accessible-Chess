@@ -197,6 +197,108 @@ class Dev2FenAtomicityTests(unittest.TestCase):
             redo_before,
         )
 
+    def test_undo_redo_bind_valid_targets_to_exact_canonical_san_atomically(self):
+        undo_board = Board()
+        self.assertEqual(undo_board.push_text("e4"), "e4")
+        undo_target, _ = undo_board.undo_stack[-1]
+        undo_board.undo_stack[-1] = (undo_target, "d4")
+        undo_before = (
+            undo_board.fen(),
+            tuple(undo_board.undo_stack),
+            tuple(undo_board.redo_stack),
+            undo_board.last_move,
+        )
+        with self.assertRaisesRegex(ValueError, "не відповідає позиції"):
+            undo_board.undo()
+        self.assertEqual(
+            (
+                undo_board.fen(),
+                tuple(undo_board.undo_stack),
+                tuple(undo_board.redo_stack),
+                undo_board.last_move,
+            ),
+            undo_before,
+        )
+
+        redo_board = Board()
+        self.assertEqual(redo_board.push_text("e4"), "e4")
+        self.assertEqual(redo_board.undo(), "e4")
+        redo_target, _ = redo_board.redo_stack[-1]
+        redo_board.redo_stack[-1] = (redo_target, "d4")
+        redo_before = (
+            redo_board.fen(),
+            tuple(redo_board.undo_stack),
+            tuple(redo_board.redo_stack),
+            redo_board.last_move,
+        )
+        with self.assertRaisesRegex(ValueError, "не відповідає позиції"):
+            redo_board.redo()
+        self.assertEqual(
+            (
+                redo_board.fen(),
+                tuple(redo_board.undo_stack),
+                tuple(redo_board.redo_stack),
+                redo_board.last_move,
+            ),
+            redo_before,
+        )
+
+        annotated = Board()
+        self.assertEqual(annotated.push_text("e4"), "e4")
+        annotated_target, _ = annotated.undo_stack[-1]
+        annotated.undo_stack[-1] = (annotated_target, "e4!")
+        annotated_before = (
+            annotated.fen(),
+            tuple(annotated.undo_stack),
+            tuple(annotated.redo_stack),
+            annotated.last_move,
+        )
+        with self.assertRaisesRegex(ValueError, "не відповідає позиції"):
+            annotated.undo()
+        self.assertEqual(
+            (
+                annotated.fen(),
+                tuple(annotated.undo_stack),
+                tuple(annotated.redo_stack),
+                annotated.last_move,
+            ),
+            annotated_before,
+        )
+
+        class ActiveSan(str):
+            def __len__(self):
+                raise AssertionError("active SAN length hook must not run")
+
+        active = Board()
+        self.assertEqual(active.push_text("e4"), "e4")
+        active_target, _ = active.undo_stack[-1]
+        active.undo_stack[-1] = (active_target, ActiveSan("e4"))
+        active_before = (
+            active.fen(),
+            tuple(active.undo_stack),
+            tuple(active.redo_stack),
+            active.last_move,
+        )
+        with self.assertRaisesRegex(ValueError, "має бути текстом"):
+            active.undo()
+        self.assertEqual(
+            (
+                active.fen(),
+                tuple(active.undo_stack),
+                tuple(active.redo_stack),
+                active.last_move,
+            ),
+            active_before,
+        )
+
+        # The canonical null-move recovery pair remains accepted.
+        null_board = Board()
+        self.assertEqual(null_board.push_text("--"), "--")
+        null_after = null_board.fen()
+        self.assertEqual(null_board.undo(), "--")
+        self.assertEqual(null_board.redo(), "--")
+        self.assertEqual(null_board.fen(), null_after)
+
     def test_move_text_and_square_scalar_coercion_fail_closed(self):
         board = Board()
         before = board.fen()

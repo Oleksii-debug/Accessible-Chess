@@ -556,3 +556,44 @@ Exact successor blobs:
 The exact #2346-relative Section-1 path union remains 45 paths. Section 0 and
 Section 1 remain not DONE until their required terminal qualification conditions
 are satisfied.
+
+### Board recovery-pair semantic integrity
+
+A canonical Board recovery audit found a remaining seam after target-FEN
+failure atomicity was added. An undo/redo entry contains both a target FEN and
+the SAN that is supposed to connect the two positions. The target could be a
+fully valid FEN while the paired SAN was wrong, noncanonical, or active text;
+the old recovery path validated only the target and could therefore transfer
+poisoned move metadata to the opposite stack while changing the live board.
+
+The same Board authority now validates each stored recovery pair before any
+publication:
+- target/source FEN values and SAN are exact passive text;
+- SAN remains inside the shared bounded SAN ingress;
+- replay starts from the stored before-position and uses canonical
+  `Board.push_text()` legality;
+- replayed SAN must equal the stored canonical SAN exactly;
+- replayed FEN must equal the stored/live after-position exactly.
+
+Undo and redo call this proof before `set_fen()` or stack transfer, so a valid
+FEN paired with wrong SAN, annotation-normalized SAN, or active text fails
+atomically. Focused regression coverage proves the board, undo stack, redo
+stack and `last_move` remain unchanged on those failures. The existing
+canonical null-move recovery pair remains accepted.
+
+Exact successor blobs:
+- `acs/chesscore.py=1aa84d1bf9a4fe0bb6b9027786da88393621d2f0`;
+- `tests/test_dev2_fen_atomicity.py=cec1c374b3aa06fc499774b7bf88e29630e050fb`.
+
+Compatibility decision: the concurrent semantic application-history work on
+`acs/webapp.py` / `tests/test_ui_analysis_webapp.py` is retained unchanged.
+This repair is a disjoint canonical Board recovery seam on the SAME #2356
+lineage and introduces no second legality, FEN, SAN, or history authority.
+
+`SECTION_0_DONE=NO_PENDING_TERMINAL_CI`
+
+`SECTION_1_DONE=NO_PENDING_SECTION0_ACCEPTANCE_AND_EXACT_HEAD_QUALIFICATION`
+
+`HUMAN_TESTED=NO`
+
+`NVDA_VERIFIED=NO`
