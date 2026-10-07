@@ -1,0 +1,89 @@
+name: Section 31 Accounts and Cloud Synchronization
+
+on:
+  pull_request:
+    branches:
+      - converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
+    paths:
+      - 'acs/account_cloud.py'
+      - 'tests/test_account_cloud.py'
+      - 'docs/automation/SECTION31_CLOSURE_AUDIT.md'
+      - '.github/workflows/section31-account-cloud.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: section31-account-cloud-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  section31:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove exact bounded Section 31 scope
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
+          git cat-file -e "$EVENT_BASE_SHA^{commit}"
+          git merge-base --is-ancestor "$EVENT_BASE_SHA" HEAD
+          test "$(git merge-base "$EVENT_BASE_SHA" HEAD)" = "$EVENT_BASE_SHA"
+          git diff --check "$EVENT_BASE_SHA...HEAD"
+          mapfile -t actual < <(git diff --name-only "$EVENT_BASE_SHA...HEAD" | LC_ALL=C sort)
+          expected=(
+            '.github/workflows/section31-account-cloud.yml'
+            'acs/account_cloud.py'
+            'docs/automation/SECTION31_CLOSURE_AUDIT.md'
+            'tests/test_account_cloud.py'
+          )
+          if [[ "${actual[*]}" != "${expected[*]}" ]]; then
+            printf 'Unexpected Section 31 scope.\nExpected:\n'
+            printf '  %s\n' "${expected[@]}"
+            printf 'Actual:\n'
+            printf '  %s\n' "${actual[@]}"
+            exit 1
+          fi
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+
+      - name: Compile Section 31 authority
+        run: python -m py_compile acs/account_cloud.py tests/test_account_cloud.py
+
+      - name: Run Section 31 contract
+        run: python -m unittest -v tests.test_account_cloud
+
+      - name: Prove no chess authority dependency
+        shell: bash
+        run: |
+          set -euo pipefail
+          ! grep -Eq '(^|[[:space:]])(from|import)[[:space:]]+acs\.(chesscore|pgn|gametree|board)' acs/account_cloud.py
+
+      - name: Prove public client config has no secret field
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from acs.account_cloud import PublicClientConfig
+          assert set(PublicClientConfig.__annotations__) == {"server_base_url", "public_client_id"}
+          print("SECTION31_PUBLIC_CONFIG_SECRET_FIELDS=NONE")
+          PY
