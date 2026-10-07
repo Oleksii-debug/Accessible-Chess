@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 import re, copy
-from .input_limits import MAX_FEN_CHARS
+from .input_limits import MAX_FEN_CHARS, MAX_SAN_CHARS
 from .squares import FILES, parse_square, square_name
 
 PIECE_UA={'P':'білий пішак','N':'білий кінь','B':'білий слон','R':'біла тура','Q':'білий ферзь','K':'білий король',
@@ -288,6 +288,8 @@ class Board:
     def norm_san(s):
         if type(s) is not str:
             raise ValueError('Хід має бути текстом')
+        if len(s) > MAX_SAN_CHARS:
+            raise ValueError('Хід занадто довгий')
         return s.strip().replace('0','O').replace('–','-').replace('—','-').replace(' ','').rstrip('!?')
     def parse_move(self,text):
         if type(text) is not str:

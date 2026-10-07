@@ -1,0 +1,97 @@
+name: Section 1 SAN Transition Contract
+
+on:
+  pull_request:
+    branches:
+      - 'converge/fen-history-section1-20261007-sol56a1'
+    paths:
+      - '.github/workflows/section1-san-transition-contract.yml'
+      - 'acs/input_limits.py'
+      - 'acs/notation.py'
+      - 'acs/chesscore.py'
+      - 'tests/test_section1_san_transition_contract.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: section1-san-transition-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+env:
+  EXPECTED_BASE_SHA: 5d22793c9908831b144b3c62394424f8231738fe
+  INPUT_LIMITS_BLOB: 11972e4b4a949b9e6a8075b62656a9fa6d299ea6
+  NOTATION_BLOB: eed13c31993fa9979b6a2cbd608cce63c1ce74df
+  CHESSCORE_BLOB: bf45e9380cde8aef547908e569101637f74ed05f
+  CONTRACT_TEST_BLOB: b6a438fffa9fd0e97a23aab29a9a8c7cedce5706
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Prove exact child geometry
+        shell: bash
+        env:
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
+          if [ -n "${EVENT_BASE_SHA:-}" ]; then
+            test "$EVENT_BASE_SHA" = "$EXPECTED_BASE_SHA"
+          fi
+          test "$(git merge-base "$EXPECTED_BASE_SHA" HEAD)" = "$EXPECTED_BASE_SHA"
+          git diff --check "$EXPECTED_BASE_SHA"...HEAD
+          changed="$(git diff --name-only "$EXPECTED_BASE_SHA"...HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/section1-san-transition-contract.yml' \
+            'acs/chesscore.py' \
+            'acs/input_limits.py' \
+            'acs/notation.py' \
+            'tests/test_section1_san_transition_contract.py' | sort)"
+          test "$changed" = "$expected"
+
+      - name: Bind exact SAN authorities
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:acs/input_limits.py)" = "$INPUT_LIMITS_BLOB"
+          test "$(git rev-parse HEAD:acs/notation.py)" = "$NOTATION_BLOB"
+          test "$(git rev-parse HEAD:acs/chesscore.py)" = "$CHESSCORE_BLOB"
+          test "$(git rev-parse HEAD:tests/test_section1_san_transition_contract.py)" = "$CONTRACT_TEST_BLOB"
+
+      - name: Compile Section 1 SAN slice
+        run: >-
+          python -m py_compile
+          acs/input_limits.py
+          acs/notation.py
+          acs/chesscore.py
+          tests/test_section1_san_transition_contract.py
+
+      - name: Execute SAN and transition contracts
+        run: >-
+          python -m unittest -v
+          tests.test_section1_san_transition_contract
+          tests.test_notation
+          tests.test_qualify_fen_position_corpus
+          tests.test_fen_position_editor_complete_user_flow
+
+      - name: Core chess selftest
+        run: python -m acs.selftest
