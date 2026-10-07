@@ -1213,3 +1213,32 @@ qualification proves a gating failure.
 `SECTION_1_DONE=NO_PENDING_EXACT_SHA_QUALIFICATION_AND_INTEGRATION`
 `HUMAN_TESTED=NO`
 `NVDA_VERIFIED=NO`
+
+
+### PROVEN GATE REPAIR — canonical-legality lawful corpus curation
+
+Exact-head lawful-corpus qualification previously failed on selected game 9 because
+strict structural PGN parsing admitted source move `Rd1d2`, while the existing
+canonical `acs.gametree_legality.validate_game_legality` authority correctly rejected
+that move. This is a Section 1.5 acceptance failure: a corpus advertised for canonical
+FEN/Position qualification must itself be completely projectable by the canonical
+chess authority.
+
+Bounded child #2367 is consumed. The repair:
+- keeps `parse_pgn_text(strict=True)` as the structural parser;
+- additionally requires one complete, issue-free canonical GameTree legality report
+  before a source record may enter the curated lawful sample;
+- records and validates the exact canonical legality authority in curation evidence;
+- adds a regression proving a strict-parser-accepted `Rd1d2` record is rejected as
+  `canonical_legality_failure`, rather than expanding Board/SAN into a second notation
+  dialect.
+
+The accepted-predecessor product delta is therefore now exactly 47 paths, adding only
+`tools/p0f_lawful_starter_bundle.py` and
+`tests/test_p0f_lawful_starter_bundle.py` to the prior 45-path candidate.
+Both Section-1 gates must bind these exact blobs, execute the focused legality
+regression, and rebuild/requalify the pinned CC0 corpus before terminal closure.
+
+`SECTION_1_DONE=NO_PENDING_REBOUND_EXACT_SHA_QUALIFICATION_AND_INTEGRATION`
+`HUMAN_TESTED=NO`
+`NVDA_VERIFIED=NO`
