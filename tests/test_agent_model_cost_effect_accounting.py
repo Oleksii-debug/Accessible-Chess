@@ -142,8 +142,10 @@ class AgentModelCostEffectAccountingTests(unittest.TestCase):
         budget = ModelCostBudget("1.00")
         runtime = _runtime(_SelfCancellingProvider(), budget)
 
-        with self.assertRaises(asyncio.CancelledError):
+        with self.assertRaises(ModelGatewayError) as caught:
             asyncio.run(runtime.run(run_id="cancelled", user_text="go"))
+        self.assertEqual(caught.exception.code, ModelErrorCode.CANCELLED)
+        self.assertIs(caught.exception.failure_effect, ModelFailureEffect.UNKNOWN)
 
         snapshot = budget.snapshot()
         self.assertEqual(snapshot.reserved, Decimal("0"))
