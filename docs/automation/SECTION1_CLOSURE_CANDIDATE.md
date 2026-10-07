@@ -101,6 +101,42 @@ Exact repaired evidence:
 
 This changes no product code, chess rule, FEN grammar, SAN grammar, or predecessor-relative path geometry. The historical focused child workflow is not promoted into a second current-apex closure authority.
 
+## Exact-SHA attempt-2 gating repair
+
+Frozen candidate `c3e05acf8c8dbcaa694665e94255bef5390d0726` produced concrete acceptance-gating failures, so the Terminal Section Closure Protocol authorizes one bounded same-finisher successor.
+
+### Lawful-corpus regression oracle
+
+Source/corpus attempt 2 run `37635721281` failed on both source-boundary operating systems in `test_quality_evidence_rejects_strictly_parsed_but_canonically_illegal_game`. The test's raw regular expression had double-escaped metacharacters, so it matched literal backslashes rather than the first PGN ply and the synthetic illegal record remained byte-identical to the finished fixture. The repair uses one spacing-tolerant first-ply substitution and requires exactly one replacement before exercising the existing canonical-legality rejection. The corpus builder, PGN parser, legality authority, source bytes and license claims are unchanged.
+
+Exact repaired evidence:
+- `tests/test_p0f_lawful_starter_bundle.py = 5a658f1459e55905970976c4180bdd7833639602`
+- `.github/workflows/section1-fen-corpus-source-snapshot.yml = a355e13aa3ddfba2ece315d4c090a104acf8b453`
+
+### Current failure-domain oracle alignment
+
+Whole attempt 2 run `37635721041`, Windows job `112842018709`, proved two retained assertions still expected superseded lower-level error text:
+- huge-counter publication now fails at the stable whole-FEN budget as `FEN занадто довгий`;
+- corrupt undo/redo entries are rejected by the stronger exact stored-FEN+SAN transition check as `не відповідає позиції`.
+
+Only the assertions were aligned; failure atomicity and exact state/stack preservation remain mandatory.
+
+Exact repaired evidence:
+- `tests/test_dev2_fen_atomicity.py = 14d4dfe7a4a2dc684691a9aa2a17bc66a6e81739`
+
+### Invalid-editor representation oracle
+
+The same Whole run proved one composed UI regression still called strict playable `Board.fen()` while deliberately holding an adjacent-kings editor representation. It now snapshots the public editor representation from `get_state()["fen"]`, matching the already-accepted PositionState-vs-playable-Board boundary without weakening gameplay publication.
+
+Exact repaired evidence:
+- `tests/test_ui_analysis_webapp.py = b07c222f8e5129599f752f69b4d1d8c31bf19c19`
+
+### Whole-gate acceptance-boundary correction
+
+The prior Whole command executed complete later-product modules for Library, Books and Training. Those modules exposed unrelated current-product failures (for example Library import lifecycle, Book return durability and a missing test-only `mock` import) that do not belong to canonical Section 1. The successor gate keeps the exact Section-1 source/negative/recovery suites and retains targeted Version2/native-menu tests that prove FEN read/copy/new-PGN-from-visible-position reachability. Broad later-product modules are no longer allowed to enlarge the fixed Section-1 acceptance contract.
+
+This is evidence/gate scoping, not a waiver of any Section-1 failure. Every failure inside the Section-1 boundary remains blocking. No product runtime, chess rule, FEN/SAN grammar or PositionState schema is changed by this attempt-2 repair.
+
 ## Exact predecessor-relative geometry
 
 Accepted predecessor: `dfdd077247e82e45596a044e5a606ec6c39ba17a`
