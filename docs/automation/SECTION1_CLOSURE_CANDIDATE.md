@@ -948,7 +948,7 @@ repinned to the exact current ancestor.
 
 `SECTION_1_DONE=NO_PENDING_SECTION0_ACCEPTANCE_AND_EXACT_HEAD_QUALIFICATION`
 
-### CURRENT LIVE AUTHORITY — reconvergence on bounded Section-0 metadata predecessor
+### PREVIOUS LIVE AUTHORITY — reconvergence on bounded Section-0 metadata predecessor
 
 Canonical Section 0 PR #2346 is now `ada59caab1365b1fc90cdc99071cd36acdd780d8`.
 That same six-path lineage adds a raw 256-character importer `format_name`
@@ -969,3 +969,21 @@ terminal qualification remains required after the final pin update.
 
 `SECTION_1_DONE=NO_PENDING_SECTION0_ACCEPTANCE_AND_EXACT_HEAD_QUALIFICATION`
 
+
+
+### CURRENT LIVE AUTHORITY — reconvergence on corrected six-path Section-0 evidence
+
+Canonical Section 0 PR #2346 advanced on the same lineage to `17de5b9cd6e512bbc8a979dc189fe223c977f826`.
+The delta after `ada59caab1365b1fc90cdc99071cd36acdd780d8` is acceptance-evidence/gate binding only: the Section-0 closure receipt now consistently says six-path geometry and Whole V3 exact-pins that corrected receipt. No Section-0 runtime/import/chess behavior changed in this predecessor advance.
+
+Prepared Section 1 remains PR #2356. It inherits the corrected Section-0 receipt and Whole V3 workflow verbatim, repins its predecessor-aware source/corpus and whole gates to `17de5b9cd6e512bbc8a979dc189fe223c977f826`, and records that exact predecessor as an ancestor without rebasing, squashing or replaying the existing 45-path Section-1 runtime/test delta.
+
+Fresh exact-head lawful-corpus plus Ubuntu/Windows qualification is mandatory. Section 0 remains not DONE while its exact-head gates are nonterminal; Section 1 remains dependency-safe preparation only.
+
+`SECTION0_ACCEPTED=NO_PENDING_TERMINAL_CI`
+
+`SECTION_1_DONE=NO_PENDING_SECTION0_ACCEPTANCE_AND_EXACT_HEAD_QUALIFICATION`
+
+`HUMAN_TESTED=NO`
+
+`NVDA_VERIFIED=NO`
