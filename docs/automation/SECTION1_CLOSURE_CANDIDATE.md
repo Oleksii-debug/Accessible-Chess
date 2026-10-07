@@ -704,3 +704,29 @@ succeed, so this reconvergence is dependency-safe preparation only.
 `HUMAN_TESTED=NO`
 
 `NVDA_VERIFIED=NO`
+
+### Re-convergence after Section-0 per-source path-ingress isolation
+
+Section 0 advanced on canonical PR #2346 to
+`e91315e53d93830240a5989005a7238df8849e76` by moving raw Path/PathLike coercion inside the per-source batch
+failure boundary. Ordinary malformed path values can no longer abort the whole
+batch or hide later independent sources; direct process-control remains
+unswallowed. This is Section-0-only host/import recovery work.
+
+Prepared Section 1 is history-preservingly reconverged onto exact predecessor
+`e91315e53d93830240a5989005a7238df8849e76` with a two-parent merge. No Section-1 runtime commit is replayed,
+rebased, squashed or dropped; the predecessor's five Section-0 paths are merely
+inherited. Relative to this exact predecessor, Section 1 must remain the same
+45-path effective delta.
+
+The predecessor-aware source/corpus and whole gates are repinned and require
+fresh exact-head lawful/Ubuntu/Windows terminal qualification. Neither Section
+is DONE while those gates remain nonterminal.
+
+`SECTION_0_DONE=NO_PENDING_TERMINAL_CI`
+
+`SECTION_1_DONE=NO_PENDING_SECTION0_ACCEPTANCE_AND_EXACT_HEAD_QUALIFICATION`
+
+`HUMAN_TESTED=NO`
+
+`NVDA_VERIFIED=NO`
