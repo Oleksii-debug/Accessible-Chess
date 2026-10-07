@@ -1195,3 +1195,21 @@ The remaining internally controlled closure work is qualification binding only: 
 `SECTION_1_DONE=NO_PENDING_EXACT_HEAD_QUALIFICATION`
 `HUMAN_TESTED=NO`
 `NVDA_VERIFIED=NO`
+
+
+### TERMINAL FREEZE — accepted Section 0 / exact 45-path candidate
+
+The fixed Section 1.1–1.5 acceptance surface has been audited against the accepted
+Section-0 source `dfdd077247e82e45596a044e5a606ec6c39ba17a`. The one acceptance-critical child residual
+(#2365, bounded FEN counter publication before decimal rendering) is consumed.
+Coordination-only `AGENTS.md` drift is removed from the product delta, restoring
+the exact 45 paths required by both canonical qualification gates.
+
+The commit carrying this receipt and the repinned gates is the terminal candidate
+once post-write geometry confirms ahead-only / behind=0 / exact merge-base /
+45 paths. No further Section-1 mutation is allowed unless its exact-SHA
+qualification proves a gating failure.
+
+`SECTION_1_DONE=NO_PENDING_EXACT_SHA_QUALIFICATION_AND_INTEGRATION`
+`HUMAN_TESTED=NO`
+`NVDA_VERIFIED=NO`

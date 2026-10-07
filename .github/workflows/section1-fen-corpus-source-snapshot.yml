@@ -52,6 +52,8 @@ on:
       - 'web/index.html'
   workflow_dispatch:
 
+# TERMINAL_SECTION1_FREEZE_MARKER: accepted predecessor + exact 45-path candidate
+
 permissions:
   contents: read
 
