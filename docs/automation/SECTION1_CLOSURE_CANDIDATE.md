@@ -254,3 +254,22 @@ The prepared predecessor-aware line additionally history-preservingly converges 
 All three EPD paths are new relative to the previous 42-path predecessor-aware union, so exact #2346-relative geometry is now **45 paths**. The source/corpus gate current blob after adding #2357 ancestry/geometry is `c836fa1573396fbc8314c53961207be9d19ab885`.
 
 The EPD repair remains representation/publication hardening only. It does not create a second chess-legality authority, and its exact runtime/test/workflow blobs must be pinned by the whole-Section gate before any acceptance claim.
+
+
+### Re-convergence after Section-0 route containment
+
+Section 0 advanced on the SAME #2346 lineage to
+`42309b84e76942c73af86a13cc950d862ea6973c` to contain importer registry route mutation before a batch can
+continue. Prepared Section 1 was therefore no longer exact-predecessor-aware.
+
+The existing branches were history-preservingly reconverged through merge-only
+PR #2358, producing merge commit
+`7f80c73fd67f6c0edd940829cb94cec411348c6d` on the existing
+`prepare/section1-on-section0-20261007-sol56` branch. No Section-1 runtime
+change was replayed or rewritten.
+
+Fresh geometry from exact #2346 `42309b84e76942c73af86a13cc950d862ea6973c` is ahead-only / behind=0 with
+exact merge-base and exactly 45 Section-1 paths. The predecessor-aware source
+and whole gates are repinned to this exact predecessor and must receive fresh
+terminal attributable qualification. Section 1 remains OPEN until Section 0 is
+honestly accepted and those exact descendant gates are GREEN.
