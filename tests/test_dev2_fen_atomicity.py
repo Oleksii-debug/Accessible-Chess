@@ -1,6 +1,7 @@
 import unittest
 
 from acs.chesscore import Board
+from acs.input_limits import MAX_FEN_CHARS
 
 
 class Dev2FenAtomicityTests(unittest.TestCase):
@@ -11,12 +12,12 @@ class Dev2FenAtomicityTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     Board(value)
 
-    def test_abbreviated_fen_compatibility_preserves_stage1_defaults(self):
+    def test_abbreviated_fen_compatibility_is_four_field_only(self):
         four = Board("7k/8/8/8/8/8/8/K7 w - -")
         self.assertEqual(four.fen(), "7k/8/8/8/8/8/8/K7 w - - 0 1")
 
-        five = Board("7k/8/8/8/8/8/8/K7 b - - 17")
-        self.assertEqual(five.fen(), "7k/8/8/8/8/8/8/K7 b - - 17 1")
+        with self.assertRaisesRegex(ValueError, "4 або 6 полів"):
+            Board("7k/8/8/8/8/8/8/K7 b - - 17")
 
         six = Board("7k/8/8/8/8/8/8/K7 w - - 17 23")
         self.assertEqual(six.fen(), "7k/8/8/8/8/8/8/K7 w - - 17 23")
@@ -47,6 +48,69 @@ class Dev2FenAtomicityTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     Board(fen)
 
+    def test_inactive_side_cannot_remain_in_check_but_side_to_move_may_be_checked(self):
+        valid_checked_side_to_move = (
+            "4k3/8/8/8/8/8/4r3/4K3 w - - 0 1",
+            "4k3/8/8/8/8/8/4R3/4K3 b - - 0 1",
+        )
+        for fen in valid_checked_side_to_move:
+            with self.subTest(valid=fen):
+                self.assertEqual(Board(fen).fen(), fen)
+
+        board = Board()
+        board.push_text("e4")
+        before = (
+            board.fen(),
+            tuple(board.undo_stack),
+            tuple(board.redo_stack),
+            board.last_move,
+        )
+        impossible = (
+            "4k3/8/8/8/8/8/4R3/4K3 w - - 0 1",
+            "4k3/4r3/8/8/8/8/8/4K3 b - - 0 1",
+        )
+        for fen in impossible:
+            with self.subTest(impossible=fen):
+                with self.assertRaisesRegex(ValueError, "залишається під шахом"):
+                    board.set_fen(fen)
+                self.assertEqual(
+                    (
+                        board.fen(),
+                        tuple(board.undo_stack),
+                        tuple(board.redo_stack),
+                        board.last_move,
+                    ),
+                    before,
+                )
+
+    def test_null_move_preserves_reloadable_legality_and_refuses_to_pass_check(self):
+        normal = Board()
+        self.assertEqual(normal.push_text("--"), "--")
+        after_null = normal.fen()
+        self.assertEqual(Board(after_null).fen(), after_null)
+        self.assertEqual(normal.undo(), "--")
+        self.assertEqual(normal.redo(), "--")
+        self.assertEqual(normal.fen(), after_null)
+
+        checked = Board("4k3/8/8/8/8/8/4r3/4K3 w - - 0 1")
+        before = (
+            checked.fen(),
+            tuple(checked.undo_stack),
+            tuple(checked.redo_stack),
+            checked.last_move,
+        )
+        with self.assertRaisesRegex(ValueError, "Нульовий хід"):
+            checked.push_text("--")
+        self.assertEqual(
+            (
+                checked.fen(),
+                tuple(checked.undo_stack),
+                tuple(checked.redo_stack),
+                checked.last_move,
+            ),
+            before,
+        )
+
     def test_rejected_fen_is_atomic_for_state_history_redo_and_last_move(self):
         board = Board()
         board.push_text("e4")
@@ -63,6 +127,7 @@ class Dev2FenAtomicityTests(unittest.TestCase):
             0,
             [],
             "7k/8/8/8/8/8/8/K7 w -",
+            "7k/8/8/8/8/8/8/K7 b - - 17",
             "7k/8/8/8/8/8/8/K7 w - - 0 1 extra",
             "7k/8/8/8/8/8/8/K7 w - - +0 1",
             "7k/8/8/8/8/8/8/K7 w - - 0 +1",
@@ -84,6 +149,517 @@ class Dev2FenAtomicityTests(unittest.TestCase):
                     ),
                     before,
                 )
+
+    def test_undo_redo_reject_corrupt_targets_without_mutating_history(self):
+        impossible = "4k3/8/8/8/8/8/4R3/4K3 w - - 0 1"
+
+        undo_board = Board()
+        undo_board.push_text("e4")
+        undo_san = undo_board.undo_stack[-1][1]
+        undo_board.undo_stack[-1] = (impossible, undo_san)
+        undo_before = (
+            undo_board.fen(),
+            tuple(undo_board.undo_stack),
+            tuple(undo_board.redo_stack),
+            undo_board.last_move,
+        )
+        with self.assertRaises(ValueError):
+            undo_board.undo()
+        self.assertEqual(
+            (
+                undo_board.fen(),
+                tuple(undo_board.undo_stack),
+                tuple(undo_board.redo_stack),
+                undo_board.last_move,
+            ),
+            undo_before,
+        )
+
+        redo_board = Board()
+        redo_board.push_text("e4")
+        redo_board.undo()
+        redo_san = redo_board.redo_stack[-1][1]
+        redo_board.redo_stack[-1] = (impossible, redo_san)
+        redo_before = (
+            redo_board.fen(),
+            tuple(redo_board.undo_stack),
+            tuple(redo_board.redo_stack),
+            redo_board.last_move,
+        )
+        with self.assertRaises(ValueError):
+            redo_board.redo()
+        self.assertEqual(
+            (
+                redo_board.fen(),
+                tuple(redo_board.undo_stack),
+                tuple(redo_board.redo_stack),
+                redo_board.last_move,
+            ),
+            redo_before,
+        )
+
+    def test_undo_redo_bind_valid_targets_to_exact_canonical_san_atomically(self):
+        undo_board = Board()
+        self.assertEqual(undo_board.push_text("e4"), "e4")
+        undo_target, _ = undo_board.undo_stack[-1]
+        undo_board.undo_stack[-1] = (undo_target, "d4")
+        undo_before = (
+            undo_board.fen(),
+            tuple(undo_board.undo_stack),
+            tuple(undo_board.redo_stack),
+            undo_board.last_move,
+        )
+        with self.assertRaisesRegex(ValueError, "не відповідає позиції"):
+            undo_board.undo()
+        self.assertEqual(
+            (
+                undo_board.fen(),
+                tuple(undo_board.undo_stack),
+                tuple(undo_board.redo_stack),
+                undo_board.last_move,
+            ),
+            undo_before,
+        )
+
+        redo_board = Board()
+        self.assertEqual(redo_board.push_text("e4"), "e4")
+        self.assertEqual(redo_board.undo(), "e4")
+        redo_target, _ = redo_board.redo_stack[-1]
+        redo_board.redo_stack[-1] = (redo_target, "d4")
+        redo_before = (
+            redo_board.fen(),
+            tuple(redo_board.undo_stack),
+            tuple(redo_board.redo_stack),
+            redo_board.last_move,
+        )
+        with self.assertRaisesRegex(ValueError, "не відповідає позиції"):
+            redo_board.redo()
+        self.assertEqual(
+            (
+                redo_board.fen(),
+                tuple(redo_board.undo_stack),
+                tuple(redo_board.redo_stack),
+                redo_board.last_move,
+            ),
+            redo_before,
+        )
+
+        annotated = Board()
+        self.assertEqual(annotated.push_text("e4"), "e4")
+        annotated_target, _ = annotated.undo_stack[-1]
+        annotated.undo_stack[-1] = (annotated_target, "e4!")
+        annotated_before = (
+            annotated.fen(),
+            tuple(annotated.undo_stack),
+            tuple(annotated.redo_stack),
+            annotated.last_move,
+        )
+        with self.assertRaisesRegex(ValueError, "не відповідає позиції"):
+            annotated.undo()
+        self.assertEqual(
+            (
+                annotated.fen(),
+                tuple(annotated.undo_stack),
+                tuple(annotated.redo_stack),
+                annotated.last_move,
+            ),
+            annotated_before,
+        )
+
+        class ActiveSan(str):
+            def __len__(self):
+                raise AssertionError("active SAN length hook must not run")
+
+        active = Board()
+        self.assertEqual(active.push_text("e4"), "e4")
+        active_target, _ = active.undo_stack[-1]
+        active.undo_stack[-1] = (active_target, ActiveSan("e4"))
+        active_before = (
+            active.fen(),
+            tuple(active.undo_stack),
+            tuple(active.redo_stack),
+            active.last_move,
+        )
+        with self.assertRaisesRegex(ValueError, "має бути текстом"):
+            active.undo()
+        self.assertEqual(
+            (
+                active.fen(),
+                tuple(active.undo_stack),
+                tuple(active.redo_stack),
+                active.last_move,
+            ),
+            active_before,
+        )
+
+        # The canonical null-move recovery pair remains accepted.
+        null_board = Board()
+        self.assertEqual(null_board.push_text("--"), "--")
+        null_after = null_board.fen()
+        self.assertEqual(null_board.undo(), "--")
+        self.assertEqual(null_board.redo(), "--")
+        self.assertEqual(null_board.fen(), null_after)
+
+    def test_undo_redo_reject_active_or_noncanonical_recovery_containers_before_hooks(self):
+        class ActivePair(tuple):
+            touched = False
+
+            def __iter__(self):
+                type(self).touched = True
+                raise AssertionError("active recovery pair iterator must not run")
+
+            def __len__(self):
+                type(self).touched = True
+                raise AssertionError("active recovery pair length hook must not run")
+
+        class ActiveStack(list):
+            touched = False
+
+            def __len__(self):
+                type(self).touched = True
+                raise AssertionError("active recovery stack length hook must not run")
+
+            def __getitem__(self, key):
+                type(self).touched = True
+                raise AssertionError("active recovery stack item hook must not run")
+
+            def __iter__(self):
+                type(self).touched = True
+                raise AssertionError("active recovery stack iterator must not run")
+
+        malformed_undo = Board()
+        self.assertEqual(malformed_undo.push_text("e4"), "e4")
+        target, san = malformed_undo.undo_stack[-1]
+        malformed_undo.undo_stack[-1] = [target, san]
+        undo_before = (malformed_undo.fen(), malformed_undo.last_move)
+        with self.assertRaisesRegex(ValueError, "неправильний формат"):
+            malformed_undo.undo()
+        self.assertEqual((malformed_undo.fen(), malformed_undo.last_move), undo_before)
+        self.assertIsInstance(malformed_undo.undo_stack[-1], list)
+
+        active_pair = Board()
+        self.assertEqual(active_pair.push_text("e4"), "e4")
+        active_pair.undo_stack[-1] = ActivePair(active_pair.undo_stack[-1])
+        pair_before = (active_pair.fen(), active_pair.last_move)
+        ActivePair.touched = False
+        with self.assertRaisesRegex(ValueError, "неправильний формат"):
+            active_pair.undo()
+        self.assertFalse(ActivePair.touched)
+        self.assertEqual((active_pair.fen(), active_pair.last_move), pair_before)
+
+        active_undo_stack = Board()
+        self.assertEqual(active_undo_stack.push_text("e4"), "e4")
+        active_undo_stack.undo_stack = ActiveStack(active_undo_stack.undo_stack)
+        stack_before = (active_undo_stack.fen(), active_undo_stack.last_move)
+        ActiveStack.touched = False
+        with self.assertRaisesRegex(ValueError, "неправильний формат"):
+            active_undo_stack.undo()
+        self.assertFalse(ActiveStack.touched)
+        self.assertEqual((active_undo_stack.fen(), active_undo_stack.last_move), stack_before)
+
+        malformed_redo = Board()
+        self.assertEqual(malformed_redo.push_text("e4"), "e4")
+        self.assertEqual(malformed_redo.undo(), "e4")
+        target, san = malformed_redo.redo_stack[-1]
+        malformed_redo.redo_stack[-1] = [target, san]
+        redo_before = (malformed_redo.fen(), malformed_redo.last_move)
+        with self.assertRaisesRegex(ValueError, "неправильний формат"):
+            malformed_redo.redo()
+        self.assertEqual((malformed_redo.fen(), malformed_redo.last_move), redo_before)
+        self.assertIsInstance(malformed_redo.redo_stack[-1], list)
+
+        active_redo_stack = Board()
+        self.assertEqual(active_redo_stack.push_text("e4"), "e4")
+        self.assertEqual(active_redo_stack.undo(), "e4")
+        active_redo_stack.redo_stack = ActiveStack(active_redo_stack.redo_stack)
+        redo_stack_before = (active_redo_stack.fen(), active_redo_stack.last_move)
+        ActiveStack.touched = False
+        with self.assertRaisesRegex(ValueError, "неправильний формат"):
+            active_redo_stack.redo()
+        self.assertFalse(ActiveStack.touched)
+        self.assertEqual((active_redo_stack.fen(), active_redo_stack.last_move), redo_stack_before)
+
+    def test_undo_redo_validate_destination_stack_before_publication(self):
+        class ActiveDestination(list):
+            touched = False
+
+            def _touch(self):
+                type(self).touched = True
+                raise AssertionError("active destination stack hook must not run")
+
+            def append(self, value):
+                self._touch()
+
+            def __len__(self):
+                self._touch()
+
+            def __getitem__(self, key):
+                self._touch()
+
+            def __iter__(self):
+                self._touch()
+
+        # A passive but noncanonical destination must fail before undo changes
+        # the board or consumes its source entry.
+        undo_tuple = Board()
+        self.assertEqual(undo_tuple.push_text("e4"), "e4")
+        undo_tuple.redo_stack = ()
+        undo_before = (
+            undo_tuple.fen(),
+            tuple(undo_tuple.undo_stack),
+            undo_tuple.last_move,
+        )
+        with self.assertRaisesRegex(ValueError, "неправильний формат"):
+            undo_tuple.undo()
+        self.assertEqual(
+            (undo_tuple.fen(), tuple(undo_tuple.undo_stack), undo_tuple.last_move),
+            undo_before,
+        )
+        self.assertEqual(undo_tuple.redo_stack, ())
+
+        # An active list subclass must be rejected by exact type without
+        # invoking append/len/item/iteration hooks.
+        undo_active = Board()
+        self.assertEqual(undo_active.push_text("e4"), "e4")
+        active_redo = ActiveDestination()
+        undo_active.redo_stack = active_redo
+        undo_active_before = (
+            undo_active.fen(),
+            tuple(undo_active.undo_stack),
+            undo_active.last_move,
+        )
+        ActiveDestination.touched = False
+        with self.assertRaisesRegex(ValueError, "неправильний формат"):
+            undo_active.undo()
+        self.assertFalse(ActiveDestination.touched)
+        self.assertIs(undo_active.redo_stack, active_redo)
+        self.assertEqual(
+            (undo_active.fen(), tuple(undo_active.undo_stack), undo_active.last_move),
+            undo_active_before,
+        )
+
+        # Redo has the symmetric destination-stack requirement.
+        redo_tuple = Board()
+        self.assertEqual(redo_tuple.push_text("e4"), "e4")
+        self.assertEqual(redo_tuple.undo(), "e4")
+        redo_before = (
+            redo_tuple.fen(),
+            tuple(redo_tuple.redo_stack),
+            redo_tuple.last_move,
+        )
+        redo_tuple.undo_stack = ()
+        with self.assertRaisesRegex(ValueError, "неправильний формат"):
+            redo_tuple.redo()
+        self.assertEqual(
+            (redo_tuple.fen(), tuple(redo_tuple.redo_stack), redo_tuple.last_move),
+            redo_before,
+        )
+        self.assertEqual(redo_tuple.undo_stack, ())
+
+        redo_active = Board()
+        self.assertEqual(redo_active.push_text("e4"), "e4")
+        self.assertEqual(redo_active.undo(), "e4")
+        active_undo = ActiveDestination()
+        redo_active.undo_stack = active_undo
+        redo_active_before = (
+            redo_active.fen(),
+            tuple(redo_active.redo_stack),
+            redo_active.last_move,
+        )
+        ActiveDestination.touched = False
+        with self.assertRaisesRegex(ValueError, "неправильний формат"):
+            redo_active.redo()
+        self.assertFalse(ActiveDestination.touched)
+        self.assertIs(redo_active.undo_stack, active_undo)
+        self.assertEqual(
+            (redo_active.fen(), tuple(redo_active.redo_stack), redo_active.last_move),
+            redo_active_before,
+        )
+
+    def test_move_publication_rejects_counter_growth_beyond_fen_budget_atomically(self):
+        quiet_prefix = "7k/8/8/8/8/8/6N1/K7 w - - "
+        quiet_suffix = " 1"
+        quiet_digits = MAX_FEN_CHARS - len(quiet_prefix) - len(quiet_suffix)
+        self.assertGreater(quiet_digits, 0)
+        quiet_fen = quiet_prefix + ("9" * quiet_digits) + quiet_suffix
+        self.assertEqual(len(quiet_fen), MAX_FEN_CHARS)
+
+        quiet = Board(quiet_fen)
+        quiet_before = (
+            quiet.fen(),
+            tuple(quiet.undo_stack),
+            tuple(quiet.redo_stack),
+            quiet.last_move,
+        )
+        with self.assertRaisesRegex(ValueError, "FEN занадто довгий"):
+            quiet.push_text("Nf4")
+        self.assertEqual(
+            (
+                quiet.fen(),
+                tuple(quiet.undo_stack),
+                tuple(quiet.redo_stack),
+                quiet.last_move,
+            ),
+            quiet_before,
+        )
+
+        null_prefix = "7k/8/8/8/8/8/8/K7 b - - 0 "
+        null_digits = MAX_FEN_CHARS - len(null_prefix)
+        self.assertGreater(null_digits, 0)
+        null_fen = null_prefix + ("9" * null_digits)
+        self.assertEqual(len(null_fen), MAX_FEN_CHARS)
+
+        null_board = Board(null_fen)
+        null_before = (
+            null_board.fen(),
+            tuple(null_board.undo_stack),
+            tuple(null_board.redo_stack),
+            null_board.last_move,
+        )
+        with self.assertRaisesRegex(ValueError, "FEN занадто довгий"):
+            null_board.push_null()
+        self.assertEqual(
+            (
+                null_board.fen(),
+                tuple(null_board.undo_stack),
+                tuple(null_board.redo_stack),
+                null_board.last_move,
+            ),
+            null_before,
+        )
+
+    def test_moves_reject_noncanonical_history_stacks_before_publication(self):
+        class ActiveHistory(list):
+            touched = False
+
+            def _touch(self):
+                type(self).touched = True
+                raise AssertionError("active history container hook must not run")
+
+            def append(self, value):
+                self._touch()
+
+            def clear(self):
+                self._touch()
+
+            def __len__(self):
+                self._touch()
+
+            def __getitem__(self, key):
+                self._touch()
+
+            def __iter__(self):
+                self._touch()
+
+        def assert_rejected(*, null_move, stack_name, bad_stack):
+            board = Board()
+            move = None if null_move else board.parse_move("e4")
+            other_name = "redo_stack" if stack_name == "undo_stack" else "undo_stack"
+            other_before = tuple(getattr(board, other_name))
+            before = (board.fen(), board.last_move)
+            setattr(board, stack_name, bad_stack)
+            if type(bad_stack) is ActiveHistory:
+                ActiveHistory.touched = False
+
+            with self.assertRaisesRegex(ValueError, "неправильний формат"):
+                if null_move:
+                    board.push_null()
+                else:
+                    board.push(move)
+
+            self.assertEqual((board.fen(), board.last_move), before)
+            self.assertEqual(tuple(getattr(board, other_name)), other_before)
+            self.assertIs(getattr(board, stack_name), bad_stack)
+            if type(bad_stack) is ActiveHistory:
+                self.assertFalse(ActiveHistory.touched)
+
+        for null_move in (False, True):
+            for stack_name in ("undo_stack", "redo_stack"):
+                assert_rejected(null_move=null_move, stack_name=stack_name, bad_stack=())
+                assert_rejected(
+                    null_move=null_move,
+                    stack_name=stack_name,
+                    bad_stack=ActiveHistory(),
+                )
+
+    def test_fen_publication_revalidates_mutable_state_without_active_hooks(self):
+        class ActiveBoard(list):
+            touched = False
+
+            def _touch(self):
+                type(self).touched = True
+                raise AssertionError("active board container hook must not run")
+
+            def __len__(self):
+                self._touch()
+
+            def __iter__(self):
+                self._touch()
+
+            def __getitem__(self, key):
+                self._touch()
+
+        class ActiveText(str):
+            touched = False
+
+            def __str__(self):
+                type(self).touched = True
+                raise AssertionError("active scalar hook must not run")
+
+        active_board = Board()
+        hostile_board = ActiveBoard(active_board.board)
+        active_board.board = hostile_board
+        ActiveBoard.touched = False
+        with self.assertRaisesRegex(ValueError, "формат дошки"):
+            active_board.fen()
+        self.assertFalse(ActiveBoard.touched)
+        self.assertIs(active_board.board, hostile_board)
+
+        active_turn = Board()
+        hostile_turn = ActiveText("w")
+        active_turn.turn = hostile_turn
+        ActiveText.touched = False
+        with self.assertRaisesRegex(ValueError, "хід має бути"):
+            active_turn.fen()
+        self.assertFalse(ActiveText.touched)
+        self.assertIs(active_turn.turn, hostile_turn)
+
+        for attr, value, message in (
+            ("turn", "x", "хід має бути"),
+            ("castling", "QK", "права рокіровки"),
+            ("ep", True, "en passant"),
+            ("halfmove", True, "halfmove"),
+            ("fullmove", 0, "fullmove"),
+        ):
+            board = Board()
+            setattr(board, attr, value)
+            with self.subTest(attr=attr, value=value):
+                with self.assertRaisesRegex(ValueError, message):
+                    board.fen()
+                self.assertIs(getattr(board, attr), value)
+
+        missing_king = Board()
+        missing_king.board[60] = None
+        with self.assertRaisesRegex(ValueError, "по одному королю"):
+            missing_king.fen()
+        self.assertIsNone(missing_king.board[60])
+
+        # This magnitude exceeds CPython's normal decimal int-to-string safety
+        # limit by a wide margin. Board.fen() must reject it numerically before
+        # attempting to render either counter into the candidate FEN.
+        for attr in ("halfmove", "fullmove"):
+            huge_counter = Board()
+            setattr(huge_counter, attr, 10 ** (MAX_FEN_CHARS * 4))
+            with self.subTest(attr=attr):
+                with self.assertRaisesRegex(ValueError, "занадто довгий"):
+                    huge_counter.fen()
+
+        valid = Board()
+        published = valid.fen()
+        self.assertEqual(
+            published,
+            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+        )
 
     def test_move_text_and_square_scalar_coercion_fail_closed(self):
         board = Board()

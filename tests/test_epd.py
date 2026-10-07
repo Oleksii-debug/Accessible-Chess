@@ -175,15 +175,15 @@ class EpdFormatTests(unittest.TestCase):
         )
         self.assertEqual(parse_epd(record.to_epd()), record)
 
-    def test_serializer_rejects_enormous_direct_counters_before_string_conversion(self):
-        base = PositionState.from_fen(START_FEN)
-        position = PositionState(
-            base.pieces,
-            turn=base.turn,
-            castling=base.castling,
-            en_passant=base.en_passant,
-            halfmove=10 ** (MAX_EPD_CHARS + 1),
-            fullmove=1,
+    def test_serializer_rejects_enormous_low_level_counter_before_string_conversion(self):
+        position = PositionState.from_fen(START_FEN)
+        # PositionState now rejects this value at normal construction. Preserve
+        # the EPD serializer hardening check by simulating corrupted internal
+        # state without weakening the canonical PositionState constructor.
+        object.__setattr__(
+            position,
+            "halfmove",
+            10 ** (MAX_EPD_CHARS + 1),
         )
         record = EpdRecord(position=position)
 
@@ -194,6 +194,67 @@ class EpdFormatTests(unittest.TestCase):
         ):
             with self.assertRaisesRegex(EpdParseError, "^serialized EPD is too long$"):
                 serialize_epd(record)
+
+    def test_record_operation_budget_precedes_nested_semantic_inspection(self):
+        position = PositionState.from_fen(START_FEN)
+        oversized = (object(),) * (MAX_EPD_OPERATIONS + 1)
+        with self.assertRaisesRegex(EpdParseError, "^EPD contains too many operations$"):
+            EpdRecord(position=position, operations=oversized)  # type: ignore[arg-type]
+
+    def test_serializer_revalidates_low_level_operation_grammar(self):
+        position = PositionState.from_fen(START_FEN)
+
+        opcode = EpdOperation("id", '"safe"')
+        opcode_record = EpdRecord(position=position, operations=(opcode,))
+        object.__setattr__(opcode, "opcode", "id;noop")
+        with self.assertRaisesRegex(EpdParseError, "^invalid EPD opcode$"):
+            serialize_epd(opcode_record)
+
+        operand = EpdOperation("id", "safe")
+        operand_record = EpdRecord(position=position, operations=(operand,))
+        object.__setattr__(operand, "operand", "safe; noop")
+        with self.assertRaisesRegex(EpdParseError, "unquoted semicolon"):
+            serialize_epd(operand_record)
+
+        first = EpdOperation("id", '"one"')
+        second = EpdOperation("Xtag", "two")
+        duplicate_record = EpdRecord(position=position, operations=(first, second))
+        object.__setattr__(second, "opcode", "id")
+        with self.assertRaisesRegex(EpdParseError, "^duplicate EPD id operation$"):
+            serialize_epd(duplicate_record)
+
+    def test_serializer_rejects_low_level_record_shape_corruption(self):
+        position = PositionState.from_fen(START_FEN)
+        record = EpdRecord(position=position)
+        object.__setattr__(record, "operations", [])
+        with self.assertRaisesRegex(TypeError, "immutable tuple"):
+            serialize_epd(record)
+
+        record = EpdRecord(position=position)
+        object.__setattr__(record, "position", object())
+        with self.assertRaisesRegex(TypeError, "PositionState"):
+            serialize_epd(record)
+
+    def test_serializer_rejects_active_operation_text_before_hooks(self):
+        class HostileText(str):
+            touched = False
+
+            def __len__(self):
+                type(self).touched = True
+                raise AssertionError("hostile length hook must not execute")
+
+            def __hash__(self):
+                type(self).touched = True
+                raise AssertionError("hostile hash hook must not execute")
+
+        position = PositionState.from_fen(START_FEN)
+        operation = EpdOperation("id", '"safe"')
+        record = EpdRecord(position=position, operations=(operation,))
+        object.__setattr__(operation, "opcode", HostileText("id"))
+
+        with self.assertRaisesRegex(TypeError, "^EPD opcode must be text$"):
+            serialize_epd(record)
+        self.assertFalse(HostileText.touched)
 
     def test_serializer_enforces_total_epd_line_budget(self):
         record = EpdRecord(

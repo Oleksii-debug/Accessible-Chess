@@ -1,0 +1,144 @@
+from __future__ import annotations
+
+import unittest
+from unittest.mock import patch
+
+from acs.chesscore import Board, Move, parse_sq
+
+
+class Section1KingCaptureBoundaryTests(unittest.TestCase):
+    @staticmethod
+    def _snapshot(board: Board):
+        """Snapshot malformed analysis state without publishing it as FEN."""
+        return (
+            tuple(board.board),
+            board.turn,
+            board.castling,
+            board.ep,
+            board.halfmove,
+            board.fullmove,
+            tuple(board.undo_stack),
+            tuple(board.redo_stack),
+            board.last_move,
+        )
+
+    @staticmethod
+    def _unchecked_clone(board: Board) -> Board:
+        """Test-only clone for the low-level legal-move filter.
+
+        Canonical Board.clone() intentionally republishes through strict FEN and
+        must reject these historically impossible fixtures.  This helper keeps
+        the fixture below that publication boundary so the king-capture filter
+        itself can still be exercised without weakening product ingress.
+        """
+        clone = object.__new__(Board)
+        clone.board = list(board.board)
+        clone.turn = board.turn
+        clone.castling = board.castling
+        clone.ep = board.ep
+        clone.halfmove = board.halfmove
+        clone.fullmove = board.fullmove
+        clone.undo_stack = list(board.undo_stack)
+        clone.redo_stack = list(board.redo_stack)
+        clone.last_move = board.last_move
+        return clone
+
+    def test_slider_attack_remains_check_but_never_becomes_king_capture_move(self) -> None:
+        # Black-to-move while checked is a canonical playable ingress state.
+        checked = "4k3/8/8/8/8/8/4R3/4K3 b - - 0 1"
+        board = Board(checked)
+
+        # Flipping the turn makes the same representation historically
+        # impossible: Black would be the side that just moved and still be in
+        # check. Canonical FEN ingress/publication must reject that state.
+        impossible = checked.replace(" b ", " w ")
+        with self.assertRaises(ValueError):
+            Board(impossible)
+        board.turn = "w"
+
+        king_square = parse_sq("e8")
+        before = self._snapshot(board)
+        self.assertTrue(board.attacked(king_square, "w"))
+        self.assertTrue(board.in_check("b"))
+        self.assertTrue(any(move.to == king_square for move in board.pseudo_moves()))
+
+        with self.assertRaises(ValueError):
+            board.fen()
+
+        # Exercise the low-level legal-move filter without asking canonical
+        # clone()/FEN publication to accept the intentionally malformed fixture.
+        with patch.object(Board, "clone", new=self._unchecked_clone):
+            self.assertFalse(
+                any(move.to == king_square for move in board.legal_moves())
+            )
+
+        # Every public move/publication path still fails closed and preserves
+        # the malformed fixture exactly; no king-capture transition can escape.
+        with self.assertRaises(ValueError):
+            board.parse_move("Rxe8")
+        self.assertEqual(self._snapshot(board), before)
+
+        with self.assertRaises(ValueError):
+            board.parse_move("e2e8")
+        self.assertEqual(self._snapshot(board), before)
+
+        with self.assertRaises(ValueError):
+            board.push(Move(parse_sq("e2"), king_square))
+        self.assertEqual(self._snapshot(board), before)
+
+    def test_knight_and_pawn_cannot_capture_opposing_king(self) -> None:
+        cases = (
+            (
+                "8/8/8/5k2/8/4N3/8/4K3 b - - 0 1",
+                "e3",
+                "f5",
+            ),
+            (
+                "8/8/8/3k4/4P3/8/8/4K3 b - - 0 1",
+                "e4",
+                "d5",
+            ),
+        )
+        for checked, source, king in cases:
+            with self.subTest(source=source, king=king):
+                impossible = checked.replace(" b ", " w ")
+                with self.assertRaises(ValueError):
+                    Board(impossible)
+
+                board = Board(checked)
+                board.turn = "w"
+                source_square = parse_sq(source)
+                king_square = parse_sq(king)
+                before = self._snapshot(board)
+
+                self.assertTrue(board.attacked(king_square, "w"))
+                self.assertTrue(
+                    any(
+                        move.frm == source_square and move.to == king_square
+                        for move in board.pseudo_moves()
+                    )
+                )
+                with patch.object(Board, "clone", new=self._unchecked_clone):
+                    self.assertFalse(
+                        any(
+                            move.frm == source_square and move.to == king_square
+                            for move in board.legal_moves()
+                        )
+                    )
+                with self.assertRaises(ValueError):
+                    board.fen()
+                self.assertEqual(self._snapshot(board), before)
+
+    def test_normal_check_and_checkmate_san_paths_are_unchanged(self) -> None:
+        board = Board()
+        for token in ("f3", "e5", "g4"):
+            board.push_text(token)
+
+        mate = board.parse_move("Qh4#")
+        self.assertEqual(board.san(mate), "Qh4#")
+        self.assertEqual(board.push(mate), "Qh4#")
+        self.assertEqual(board.legal_moves(), [])
+
+
+if __name__ == "__main__":
+    unittest.main()
