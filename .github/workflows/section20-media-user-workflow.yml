@@ -150,3 +150,5 @@ jobs:
           node tests/js/media_accessible_restore_dom_test.js
           node tests/js/version2_media_restore_bootstrap_dom_test.js
           node tests/js/version2_media_user_workflow_dom_test.js
+
+# Qualification repair rerun marker v2: immutable accepted-byte binding.
