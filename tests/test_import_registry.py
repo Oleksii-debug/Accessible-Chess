@@ -7,6 +7,7 @@ from acs.import_contract import (
     ImportReport,
     ImportedRecord,
     SourceFingerprint,
+    SourceReadCancelledError,
     fingerprint,
 )
 from acs.import_registry import (
@@ -203,6 +204,26 @@ class NamelessStringImporter:
 
     def inspect(self, path: Path) -> ImportReport:
         raise NamelessStringError()
+
+
+class CooperativeCancelImporter:
+    format_name = 'Cooperative source cancellation'
+    suffixes = ('.cancel-source',)
+
+    def inspect(self, path: Path) -> ImportReport:
+        raise SourceReadCancelledError('source read cancelled')
+
+
+class ObservedAfterCancelImporter:
+    format_name = 'Must not run after cancel'
+    suffixes = ('.after-cancel',)
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def inspect(self, path: Path) -> ImportReport:
+        self.calls += 1
+        return ImportReport(source=fingerprint(path), format_name=self.format_name)
 
 
 class ProcessControlImporter:
@@ -568,6 +589,32 @@ class ImportRegistryTests(unittest.TestCase):
             # adapter exception instead of converting it to batch evidence.
             with self.assertRaises(BrokenStringError):
                 registry.inspect(broken)
+
+    def test_batch_propagates_cooperative_source_cancellation_without_later_work(self):
+        registry = ImportRegistry()
+        cancelled = CooperativeCancelImporter()
+        later = ObservedAfterCancelImporter()
+        registry.register(cancelled)
+        registry.register(later)
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            stop = root / 'stop.cancel-source'
+            after = root / 'after.after-cancel'
+            stop.write_bytes(b'cancel-source')
+            after.write_bytes(b'must-not-be-inspected')
+
+            with self.assertRaises(SourceReadCancelledError) as batch_ctx:
+                registry.inspect_batch([stop, after])
+
+            self.assertEqual(str(batch_ctx.exception), 'source read cancelled')
+            self.assertEqual(later.calls, 0)
+            self.assertEqual(after.read_bytes(), b'must-not-be-inspected')
+
+            # The strict API also preserves the exact cooperative cancellation
+            # signal after proving the source was left unchanged.
+            with self.assertRaises(SourceReadCancelledError) as strict_ctx:
+                registry.inspect(stop)
+            self.assertEqual(str(strict_ctx.exception), 'source read cancelled')
 
     def test_batch_does_not_swallow_process_control_exceptions(self):
         registry = ImportRegistry()

@@ -85,6 +85,7 @@ The composed stack now requires:
 - failed batch items to carry a non-empty diagnostic even when an exception has empty text;
 - strict single-source `inspect()` to remain strict and expose the original ordinary adapter exception;
 - process-control exceptions derived directly from BaseException to remain unswallowed;
+- trusted cooperative `SourceReadCancelledError` to remain control flow rather than per-source batch evidence, so Cancel stops later source inspection;
 - no warning/recovery path may authorize publication of fabricated chess state.
 
 The batch-exception repair changes only the shared import routing boundary and its tests. It does not claim proprietary decoder compatibility.

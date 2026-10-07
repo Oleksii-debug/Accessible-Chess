@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
-from .import_contract import ImportReport, ReadOnlyImporter, SourceFingerprint, fingerprint
+from .import_contract import (\n    ImportReport,\n    ReadOnlyImporter,\n    SourceFingerprint,\n    SourceReadCancelledError,\n    fingerprint,\n)
 
 
 class ImportRegistryError(ValueError):
@@ -203,6 +203,12 @@ class ImportRegistry:
             source = Path(raw_path)
             try:
                 report = self.inspect(source)
+            except SourceReadCancelledError:
+                # Cooperative source-read cancellation is a trusted control
+                # signal even though it intentionally subclasses RuntimeError.
+                # Do not turn Cancel into ordinary per-source batch evidence or
+                # continue inspecting later sources after the caller stopped.
+                raise
             except Exception as exc:
                 # Batch preflight is deliberately non-aborting for ordinary
                 # adapter/parser failures. Process-control exceptions such as
