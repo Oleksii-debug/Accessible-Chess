@@ -112,7 +112,11 @@ def _batch_error_text(exc: Exception, source: Path) -> str:
         return str(exc)
     if isinstance(exc, OSError):
         names: list[str] = []
-        for candidate in (getattr(exc, "filename", None), getattr(exc, "filename2", None)):
+        for attribute in ("filename", "filename2"):
+            try:
+                candidate = getattr(exc, attribute, None)
+            except Exception:
+                candidate = None
             if candidate is None:
                 continue
             try:
@@ -124,7 +128,10 @@ def _batch_error_text(exc: Exception, source: Path) -> str:
         if not names:
             names.append(report_safe_name(source))
 
-        errno = getattr(exc, "errno", None)
+        try:
+            errno = getattr(exc, "errno", None)
+        except Exception:
+            errno = None
         context = "Filesystem error"
         if isinstance(errno, int) and not isinstance(errno, bool):
             context += f" (errno {errno})"
