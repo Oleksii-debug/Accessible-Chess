@@ -807,7 +807,7 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
         self.assertIn("'set_clock_sound_last_seconds'", text)
         self.assertIn("'set_low_time_policy'", text)
         self.assertIn("'set_low_time_seconds'", text)
-        self.assertIn("'set_move_error_announcements'", text)
+        self.assertIn("a.set_move_error_announcements", text)
         self.assertNotIn("sound-preview", text)
         self.assertNotIn("a.preview_sound", text)
         self.assertIn("mate:'Мат'", text)
