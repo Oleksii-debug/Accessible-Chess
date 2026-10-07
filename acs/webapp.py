@@ -15,6 +15,13 @@ from typing import Any
 
 from .chesscore import Board, parse_sq, sq_name, color_of
 from .history import HistoryError, ReviewHistory
+from .game_lifecycle import (
+    EndReason,
+    GameLifecycle,
+    GameStatus,
+    LifecycleError,
+    POSITION_DERIVED_REASONS,
+)
 from .input_limits import MAX_FEN_CHARS
 from .move_entry import MAX_MOVE_ENTRY_CHARS
 from .notation import format_accessible_compact_san
@@ -64,6 +71,7 @@ class AccessibleChessAPI:
         self.review_history = ReviewHistory(self.start_fen)
         self.review_adapter = ReviewPresentationAdapter(self.review_history, language=self.lang)
         self.live_history_node = self.review_history.cursor_node_id
+        self.game_lifecycle = GameLifecycle()
 
     @property
     def review_cursor(self) -> int:
@@ -191,6 +199,85 @@ class AccessibleChessAPI:
                 move_no += 1
                 i += 1
         return "\n".join(out)
+
+    def _local_game_mode_active(self) -> bool:
+        """Whether ordinary local-play lifecycle owns the live Board.
+
+        Release subclasses with a separate gameplay coordinator (for example the
+        Stockfish session in Section 13) override this hook while that coordinator
+        owns the Board. This keeps one lifecycle authority active at a time.
+        """
+        return True
+
+    def _clone_local_lifecycle(self) -> GameLifecycle:
+        candidate = GameLifecycle()
+        candidate.restore_checkpoint(self.game_lifecycle.snapshot())
+        return candidate
+
+    def _local_game_finished_message(self) -> str:
+        snapshot = self.game_lifecycle.snapshot()
+        outcome = snapshot.outcome
+        if snapshot.status is not GameStatus.FINISHED or outcome is None:
+            return ""
+        reason = {
+            EndReason.RESIGNATION: ("здача", "resignation"),
+            EndReason.DRAW_AGREEMENT: ("нічия за згодою", "draw by agreement"),
+            EndReason.CHECKMATE: ("мат", "checkmate"),
+            EndReason.STALEMATE: ("пат", "stalemate"),
+            EndReason.INSUFFICIENT_MATERIAL: ("недостатньо матеріалу", "insufficient material"),
+            EndReason.THREEFOLD_REPETITION: ("триразове повторення", "threefold repetition"),
+            EndReason.FIFTY_MOVE_RULE: ("правило 50 ходів", "fifty-move rule"),
+            EndReason.TIMEOUT: ("час вичерпано", "timeout"),
+        }[outcome.reason]
+        label = reason[0] if self.lang == "uk" else reason[1]
+        return (
+            f"Партію завершено: {outcome.result}, {label}."
+            if self.lang == "uk"
+            else f"Game finished: {outcome.result}, {label}."
+        )
+
+    def _local_game_mutation_error(self) -> dict[str, Any] | None:
+        if not self._local_game_mode_active():
+            return None
+        if self.game_lifecycle.snapshot().status is GameStatus.FINISHED:
+            return self._error(
+                "Партію завершено. Почніть нову партію."
+                if self.lang == "uk"
+                else "The game is finished. Start a new game."
+            )
+        return None
+
+    @staticmethod
+    def _record_position_outcome_for(
+        candidate_board: Board,
+        candidate_lifecycle: GameLifecycle,
+    ) -> None:
+        """Commit only Board-derived terminal states; chess legality stays in Board."""
+        if candidate_lifecycle.snapshot().status is GameStatus.FINISHED:
+            return
+        if candidate_board.board.count("K") != 1 or candidate_board.board.count("k") != 1:
+            return
+        legal = candidate_board.legal_moves()
+        if legal:
+            return
+        if candidate_board.in_check(candidate_board.turn):
+            winner = "b" if candidate_board.turn == "w" else "w"
+            candidate_lifecycle.record_position_outcome(
+                "1-0" if winner == "w" else "0-1",
+                EndReason.CHECKMATE,
+                winner=winner,
+            )
+        else:
+            candidate_lifecycle.record_position_outcome(
+                "1/2-1/2",
+                EndReason.STALEMATE,
+            )
+
+    def _candidate_lifecycle_after_move(self, candidate_board: Board) -> GameLifecycle:
+        candidate = self._clone_local_lifecycle()
+        candidate.on_move_committed()
+        self._record_position_outcome_for(candidate_board, candidate)
+        return candidate
 
     def _game_status(self, board: Board | None = None) -> str:
         b = board or self._display_board()
@@ -428,6 +515,12 @@ class AccessibleChessAPI:
             if visible else self._t("no_last")
         )
         status = self._game_status(display_board)
+        if self._at_history_end() and self._local_game_mode_active():
+            finished = self._local_game_finished_message()
+            if finished:
+                status = finished
+        lifecycle = self.game_lifecycle.snapshot()
+        lifecycle_outcome = lifecycle.outcome
         engine_status = (
             "Stockfish увімкнено." if self.lang == "uk" else "Stockfish enabled."
         ) if self.engine_enabled else (
@@ -449,6 +542,13 @@ class AccessibleChessAPI:
             "positionComplete": self._position_complete(display_board),
             "reviewCursor": display_view.ply, "historyLength": len(self.sans),
             "reviewStatus": display_view.status, "atHistoryEnd": self._at_history_end(),
+            "localGame": {
+                "status": lifecycle.status.value,
+                "result": None if lifecycle_outcome is None else lifecycle_outcome.result,
+                "reason": None if lifecycle_outcome is None else lifecycle_outcome.reason.value,
+                "winner": None if lifecycle_outcome is None else lifecycle_outcome.winner,
+                "drawOfferedBy": lifecycle.draw_offered_by,
+            },
         }
 
     def _ok(self, message: str) -> dict[str, Any]:
@@ -470,6 +570,7 @@ class AccessibleChessAPI:
         except Exception:
             return self._error(self._t("editor_history_failed"))
         self._publish_root_state(candidate_board, prepared)
+        self.game_lifecycle = GameLifecycle()
         return self._ok("Стандартну позицію встановлено." if self.lang == "uk" else "Standard position loaded.")
 
     def clear_board(self) -> dict[str, Any]:
@@ -485,6 +586,7 @@ class AccessibleChessAPI:
         except Exception:
             return self._error(self._t("editor_history_failed"))
         self._publish_root_state(candidate_board, prepared)
+        self.game_lifecycle = GameLifecycle()
         return self._ok("Дошку очищено. Введіть позицію в редакторі." if self.lang == "uk"
                         else "Board cleared. Enter a position in the editor.")
 
@@ -515,6 +617,7 @@ class AccessibleChessAPI:
             return self._error(self._t("position_history_failed"))
 
         self._publish_root_state(candidate_board, prepared)
+        self.game_lifecycle = GameLifecycle()
         return self._ok("Позицію завантажено з текстового редактора." if self.lang == "uk"
                         else "Position loaded from text editor.")
 
@@ -543,6 +646,9 @@ class AccessibleChessAPI:
             return commands[text]()
         if not self._at_history_end():
             return self._error(self._t("review_before_move"))
+        blocked = self._local_game_mutation_error()
+        if blocked is not None:
+            return blocked
         if not self._position_complete(self.board):
             return self._error(self._t("setup_incomplete"))
         side = self.board.turn
@@ -576,6 +682,14 @@ class AccessibleChessAPI:
                 raise RuntimeError("candidate move cursor mismatch")
         except Exception:
             return self._error(self._t("move_history_failed"))
+        try:
+            candidate_lifecycle = (
+                self._candidate_lifecycle_after_move(candidate_board)
+                if self._local_game_mode_active()
+                else None
+            )
+        except LifecycleError:
+            return self._error(self._t("move_history_failed"))
         self._publish_live_transaction(
             candidate_board,
             candidate_history,
@@ -585,14 +699,21 @@ class AccessibleChessAPI:
             move_sides=candidate_sides,
             redo_meta=[],
         )
-        return self._ok(
+        if candidate_lifecycle is not None:
+            self.game_lifecycle = candidate_lifecycle
+        message = (
             ("Зіграно: " if self.lang == "uk" else "Played: ")
             + format_accessible_compact_san(san, self.lang)
         )
+        finished = self._local_game_finished_message() if candidate_lifecycle is not None else ""
+        return self._ok(f"{message} {finished}".strip())
 
     def activate_square(self, square: str) -> dict[str, Any]:
         if not self._at_history_end():
             return self._error(self._t("review_before_move"))
+        blocked = self._local_game_mutation_error()
+        if blocked is not None:
+            return blocked
         try:
             target = parse_sq(square)
         except ValueError as exc:
@@ -652,6 +773,14 @@ class AccessibleChessAPI:
                 raise RuntimeError("candidate move cursor mismatch")
         except Exception:
             return self._error(self._t("move_history_failed"))
+        try:
+            candidate_lifecycle = (
+                self._candidate_lifecycle_after_move(candidate_board)
+                if self._local_game_mode_active()
+                else None
+            )
+        except LifecycleError:
+            return self._error(self._t("move_history_failed"))
         self._publish_live_transaction(
             candidate_board,
             candidate_history,
@@ -661,10 +790,14 @@ class AccessibleChessAPI:
             move_sides=candidate_sides,
             redo_meta=[],
         )
-        return self._ok(
+        if candidate_lifecycle is not None:
+            self.game_lifecycle = candidate_lifecycle
+        message = (
             ("Зіграно: " if self.lang == "uk" else "Played: ")
             + format_accessible_compact_san(san, self.lang)
         )
+        finished = self._local_game_finished_message() if candidate_lifecycle is not None else ""
+        return self._ok(f"{message} {finished}".strip())
 
     def cancel_selection(self) -> dict[str, Any]:
         self.selected_source = None
@@ -673,6 +806,18 @@ class AccessibleChessAPI:
     def undo(self) -> dict[str, Any]:
         if not self._at_history_end():
             return self._error(self._t("review_before_move"))
+        if self._local_game_mode_active():
+            snapshot = self.game_lifecycle.snapshot()
+            if (
+                snapshot.status is GameStatus.FINISHED
+                and snapshot.outcome is not None
+                and snapshot.outcome.reason not in POSITION_DERIVED_REASONS
+            ):
+                return self._error(
+                    "Партію завершено вручну. Почніть нову партію."
+                    if self.lang == "uk"
+                    else "The game was ended manually. Start a new game."
+                )
         if not self.sans:
             return self._error(self._t("undo_none"))
         try:
@@ -717,6 +862,8 @@ class AccessibleChessAPI:
             move_sides=candidate_sides,
             redo_meta=candidate_redo,
         )
+        if self._local_game_mode_active():
+            self.game_lifecycle = GameLifecycle()
         return self._ok(
             ("Скасовано: " if self.lang == "uk" else "Undone: ")
             + format_accessible_compact_san(san, self.lang)
@@ -761,6 +908,13 @@ class AccessibleChessAPI:
                 raise RuntimeError("candidate redo cursor mismatch")
         except Exception:
             return self._error(self._t("move_history_failed"))
+        try:
+            candidate_lifecycle = GameLifecycle()
+            if self._local_game_mode_active():
+                candidate_lifecycle.on_move_committed()
+                self._record_position_outcome_for(candidate_board, candidate_lifecycle)
+        except LifecycleError:
+            return self._error(self._t("move_history_failed"))
         self._publish_live_transaction(
             candidate_board,
             candidate_history,
@@ -770,9 +924,15 @@ class AccessibleChessAPI:
             move_sides=candidate_sides,
             redo_meta=candidate_redo,
         )
+        if self._local_game_mode_active():
+            self.game_lifecycle = candidate_lifecycle
+        finished = self._local_game_finished_message() if self._local_game_mode_active() else ""
         return self._ok(
-            ("Повторено: " if self.lang == "uk" else "Redone: ")
-            + format_accessible_compact_san(meta_san, self.lang)
+            (
+                ("Повторено: " if self.lang == "uk" else "Redone: ")
+                + format_accessible_compact_san(meta_san, self.lang)
+                + ((" " + finished) if finished else "")
+            )
         )
 
     def set_turn(self, color: str) -> dict[str, Any]:
@@ -789,6 +949,7 @@ class AccessibleChessAPI:
         # Changing side-to-move is an editor operation, so the edited position
         # becomes a new live root rather than rewriting an immutable history node.
         self._publish_root_state(candidate_board, prepared)
+        self.game_lifecycle = GameLifecycle()
         return self._ok(self._t("white_turn") if color == "w" else self._t("black_turn"))
 
     def set_fen(self, fen: str) -> dict[str, Any]:
@@ -809,7 +970,110 @@ class AccessibleChessAPI:
             return self._error(self._t("fen_history_failed"))
 
         self._publish_root_state(candidate_board, prepared)
+        self.game_lifecycle = GameLifecycle()
         return self._ok("FEN завантажено." if self.lang == "uk" else "FEN loaded.")
+
+    def offer_draw(self) -> dict[str, Any]:
+        if not self._at_history_end():
+            return self._error(self._t("review_before_move"))
+        if not self._local_game_mode_active():
+            return self._error(
+                "Локальна партія зараз не керує дошкою."
+                if self.lang == "uk"
+                else "Local play does not currently own the board."
+            )
+        try:
+            snapshot = self.game_lifecycle.offer_draw(self.board.turn)
+        except LifecycleError:
+            return self._error(
+                "Неможливо запропонувати нічию в поточному стані."
+                if self.lang == "uk"
+                else "A draw cannot be offered in the current state."
+            )
+        side = "Білі" if snapshot.draw_offered_by == "w" else "Чорні"
+        side_en = "White" if snapshot.draw_offered_by == "w" else "Black"
+        return self._ok(
+            f"{side} запропонували нічию."
+            if self.lang == "uk"
+            else f"{side_en} offered a draw."
+        )
+
+    def accept_draw(self) -> dict[str, Any]:
+        if not self._at_history_end():
+            return self._error(self._t("review_before_move"))
+        if not self._local_game_mode_active():
+            return self._error(
+                "Локальна партія зараз не керує дошкою."
+                if self.lang == "uk"
+                else "Local play does not currently own the board."
+            )
+        pending = self.game_lifecycle.snapshot().draw_offered_by
+        if pending is None:
+            return self._error(
+                "Немає активної пропозиції нічиєї."
+                if self.lang == "uk"
+                else "There is no pending draw offer."
+            )
+        responder = "b" if pending == "w" else "w"
+        try:
+            self.game_lifecycle.accept_draw(responder)
+        except LifecycleError:
+            return self._error(
+                "Не вдалося прийняти нічию."
+                if self.lang == "uk"
+                else "The draw could not be accepted."
+            )
+        return self._ok(self._local_game_finished_message())
+
+    def decline_draw(self) -> dict[str, Any]:
+        if not self._at_history_end():
+            return self._error(self._t("review_before_move"))
+        if not self._local_game_mode_active():
+            return self._error(
+                "Локальна партія зараз не керує дошкою."
+                if self.lang == "uk"
+                else "Local play does not currently own the board."
+            )
+        pending = self.game_lifecycle.snapshot().draw_offered_by
+        if pending is None:
+            return self._error(
+                "Немає активної пропозиції нічиєї."
+                if self.lang == "uk"
+                else "There is no pending draw offer."
+            )
+        responder = "b" if pending == "w" else "w"
+        try:
+            self.game_lifecycle.decline_draw(responder)
+        except LifecycleError:
+            return self._error(
+                "Не вдалося відхилити нічию."
+                if self.lang == "uk"
+                else "The draw could not be declined."
+            )
+        return self._ok(
+            "Пропозицію нічиєї відхилено."
+            if self.lang == "uk"
+            else "The draw offer was declined."
+        )
+
+    def resign(self) -> dict[str, Any]:
+        if not self._at_history_end():
+            return self._error(self._t("review_before_move"))
+        if not self._local_game_mode_active():
+            return self._error(
+                "Локальна партія зараз не керує дошкою."
+                if self.lang == "uk"
+                else "Local play does not currently own the board."
+            )
+        try:
+            self.game_lifecycle.resign(self.board.turn)
+        except LifecycleError:
+            return self._error(
+                "Неможливо здатися в поточному стані."
+                if self.lang == "uk"
+                else "Resignation is unavailable in the current state."
+            )
+        return self._ok(self._local_game_finished_message())
 
     def set_language(self, lang: str) -> dict[str, Any]:
         if type(lang) is not str or lang not in ("uk", "en"):
@@ -877,6 +1141,11 @@ def _make_menu(webview: Any, api: AccessibleChessAPI, window_holder: dict[str, A
         Menu("Гра", [
             MenuAction("Скасувати хід", refresh_action(api.undo)),
             MenuAction("Повторити хід", refresh_action(api.redo)),
+            MenuSeparator(),
+            MenuAction("Запропонувати нічию", refresh_action(api.offer_draw)),
+            MenuAction("Прийняти нічию", refresh_action(api.accept_draw)),
+            MenuAction("Відхилити нічию", refresh_action(api.decline_draw)),
+            MenuAction("Здатися", refresh_action(api.resign)),
             MenuSeparator(),
             MenuAction("Попередня позиція в історії", refresh_action(api.review_previous)),
             MenuAction("Наступна позиція в історії", refresh_action(api.review_next)),
