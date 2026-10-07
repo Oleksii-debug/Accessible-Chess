@@ -729,9 +729,13 @@ jobs:
           assert 'CHILD_RUNNING_AFTER_STARTUP_OBSERVATION' not in source
           assert 'SetEnvironmentVariableW(L"LOCALAPPDATA"' in source
           assert 'L".accessible-chess-instance.lock"' in source
-          assert 'CREATE_UNICODE_ENVIRONMENT | CREATE_SUSPENDED' in source
-          assert 'DuplicateHandle(' in source
-          assert 'DUPLICATE_SAME_ACCESS' in source
+          assert 'static STARTUPINFOEXW g_startup;' in source
+          assert 'CREATE_UNICODE_ENVIRONMENT | CREATE_SUSPENDED | EXTENDED_STARTUPINFO_PRESENT' in source
+          assert 'PROC_THREAD_ATTRIBUTE_HANDLE_LIST' in source
+          assert 'InitializeProcThreadAttributeList(' in source
+          assert 'UpdateProcThreadAttribute(' in source
+          assert 'SetHandleInformation(' in source
+          assert 'DuplicateHandle(' not in source
           assert 'PACKAGE_DATA_OWNER: SINGLE_INSTANCE_GUARD_ACTIVE' in source
           assert '#define AC_TIMEOUT_CLEANUP_WAIT_MS 5000' in source
           assert 'TerminateProcess(g_process.hProcess, ERROR_TIMEOUT)' in source
