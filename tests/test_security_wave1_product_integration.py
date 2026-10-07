@@ -233,3 +233,10 @@ def test_real_shipping_main_runs_locked_shell_then_retries_authorized_product(mo
     shipping_release.main()
 
     assert events == ["create-1", "locked-shell", "create-2", "product-window"]
+
+
+def test_shipping_launcher_requires_private_runtime_in_compiled_package():
+    launcher = (Path(__file__).resolve().parents[1] / "run_accessible_chess_v2.py").read_text(
+        encoding="utf-8"
+    )
+    assert "--include-package=accessible_chess_protection_runtime" in launcher
