@@ -102,6 +102,7 @@ def _detached_speech(value: object) -> tuple[SpeechEvidence, ...]:
                     text=item.text,
                     is_final=item.is_final,
                     confidence=item.confidence,
+                    language=item.language,
                 )
             )
         except Exception:
@@ -167,6 +168,7 @@ def _speech_media_evidence(item: SpeechEvidence, index: int) -> MediaEvidence:
         "text": item.text,
         "is_final": item.is_final,
         "confidence": item.confidence,
+        "language": item.language,
         "index": index,
     }
     return MediaEvidence(
@@ -178,6 +180,7 @@ def _speech_media_evidence(item: SpeechEvidence, index: int) -> MediaEvidence:
         fields=(
             MediaEvidenceField("text", item.text),
             MediaEvidenceField("is_final", "true" if item.is_final else "false"),
+            MediaEvidenceField("language", item.language),
         ),
         confidence=item.confidence,
         source_authoritative=False,

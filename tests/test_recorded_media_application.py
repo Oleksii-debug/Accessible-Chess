@@ -47,8 +47,23 @@ def _frame(disposition=FrameDisposition.STABLE):
     )
 
 
-def _speech(source_id="media-1", source_revision="rev-1", *, text="Knight f3"):
-    return SpeechEvidence(source_id, source_revision, 1000, 1200, text, True, 0.8)
+def _speech(
+    source_id="media-1",
+    source_revision="rev-1",
+    *,
+    text="Хід кінь f3",
+    language="uk",
+):
+    return SpeechEvidence(
+        source_id,
+        source_revision,
+        1000,
+        1200,
+        text,
+        True,
+        0.8,
+        language=language,
+    )
 
 
 def _result(
@@ -115,6 +130,9 @@ class RecordedMediaApplicationAdapterTests(unittest.TestCase):
         self.assertEqual(evidence[1].kind, MediaEvidenceKind.SPEECH_CONTEXT)
         self.assertEqual(evidence[0].source_revision, "rev-1")
         self.assertEqual(evidence[1].source_revision, "rev-1")
+        speech_fields = {field.name: field.value for field in evidence[1].fields}
+        self.assertEqual(speech_fields["language"], "uk")
+        self.assertEqual(speech_fields["text"], "Хід кінь f3")
         self.assertFalse(evidence[0].source_authoritative)
         self.assertFalse(evidence[1].source_authoritative)
         self.assertEqual(evidence[0].raw_candidate_ref, "vision-observation:17")
@@ -135,6 +153,13 @@ class RecordedMediaApplicationAdapterTests(unittest.TestCase):
         ids1=tuple(item.evidence_id for item in app1.calls[0][1])
         ids2=tuple(item.evidence_id for item in app2.calls[0][1])
         self.assertEqual(ids1,ids2)
+
+        app3 = DynamicApplication()
+        CanonicalRecordedFrameApplicationAdapter(app3).resolve_recorded_frame(
+            frame=_frame(), speech_context=(_speech(language="en"),)
+        )
+        ids3 = tuple(item.evidence_id for item in app3.calls[0][1])
+        self.assertNotEqual(ids1[1], ids3[1])
 
     def test_canonical_states_remain_standard_media_reconciliation_results(self):
         for state,chess_ref,candidates in (
@@ -266,7 +291,7 @@ class RecordedMediaApplicationAdapterTests(unittest.TestCase):
         )
         self.assertTrue(app.assertion)
         self.assertEqual(frame.source_id,"media-1")
-        self.assertEqual(speech[0].text,"Knight f3")
+        self.assertEqual(speech[0].text,"Хід кінь f3")
 
     def test_adapter_contains_no_chess_parser_or_rules_authority(self):
         source=Path(

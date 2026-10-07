@@ -1,0 +1,122 @@
+name: Section 19 Media Intelligence Whole Contract
+
+on:
+  push:
+    branches:
+      - section19/media-intelligence-closure-20261007-sol56
+      - converge/section19-media-intelligence-20261007-sol56
+  pull_request:
+    branches:
+      - converge/section19-media-intelligence-20261007-sol56
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: section19-media-intelligence-${{ github.event.pull_request.number || github.ref }}-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact Section 19 candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Prove accepted Section 17 parent and bounded Section 19 scope
+        shell: bash
+        env:
+          EXPECTED_PARENT: 7ae3b6364eee0d62bf125641406aafec326521e0
+          EXPECTED_PARENT_BRANCH: converge/section17-recorded-media-youtube-20261007-sol56
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          git fetch --no-tags origin "+refs/heads/$EXPECTED_PARENT_BRANCH:refs/remotes/origin/section17-parent"
+          live_parent="$(git rev-parse refs/remotes/origin/section17-parent)"
+          test "$live_parent" = "$EXPECTED_PARENT" || {
+            printf 'SECTION19_PARENT_MOVED expected=%s live=%s\n' "$EXPECTED_PARENT" "$live_parent" >&2
+            exit 1
+          }
+          test "$(git merge-base "$EXPECTED_PARENT" HEAD)" = "$EXPECTED_PARENT"
+          git diff --check "$EXPECTED_PARENT"...HEAD
+          changed="$(git diff --name-only "$EXPECTED_PARENT"...HEAD | LC_ALL=C sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/section19-media-intelligence-whole.yml' \
+            'acs/media_preprocess.py' \
+            'acs/media_truth_corpus.py' \
+            'acs/recorded_media_application.py' \
+            'tests/fixtures/recorded_media_truth/ambiguous.svg' \
+            'tests/fixtures/recorded_media_truth/manifest.json' \
+            'tests/fixtures/recorded_media_truth/occluded.svg' \
+            'tests/fixtures/recorded_media_truth/stable-black.svg' \
+            'tests/fixtures/recorded_media_truth/stable-white.svg' \
+            'tests/fixtures/recorded_media_truth/transition.svg' \
+            'tests/test_media_preprocess.py' \
+            'tests/test_recorded_media_application.py' \
+            'tests/test_recorded_media_truth_corpus.py' | LC_ALL=C sort)"
+          test "$changed" = "$expected" || {
+            printf 'SECTION19_SCOPE_DRIFT\n%s\n' "$changed" >&2
+            exit 1
+          }
+
+      - name: Compile Section 19 boundaries
+        run: >-
+          python -m py_compile
+          acs/media_preprocess.py
+          acs/media_truth_corpus.py
+          acs/recorded_media_application.py
+          acs/recorded_media_sync.py
+          tests/test_media_preprocess.py
+          tests/test_recorded_media_application.py
+          tests/test_recorded_media_truth_corpus.py
+
+      - name: Run Section 19 and retained recorded-media regressions
+        run: >-
+          python -m unittest -v
+          tests.test_media_core
+          tests.test_media_preprocess
+          tests.test_media_preprocess_executor
+          tests.test_recorded_media_sync
+          tests.test_recorded_media_application
+          tests.test_recorded_media_accessibility
+          tests.test_recorded_media_truth_corpus
+
+      - name: Enforce passive evidence and confidential-resolver boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          public = "\n".join(
+              Path(path).read_text(encoding="utf-8")
+              for path in (
+                  "acs/media_preprocess.py",
+                  "acs/media_truth_corpus.py",
+                  "acs/recorded_media_application.py",
+              )
+          ).lower()
+          forbidden = (
+              "fenshot",
+              "known_game_resolver",
+              "known-game-resolver",
+              "candidate_ranker_private",
+          )
+          for token in forbidden:
+              if token in public:
+                  raise SystemExit(f"confidential/research resolver token leaked into public Section 19 source: {token}")
+          PY
