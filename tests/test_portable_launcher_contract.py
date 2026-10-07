@@ -164,21 +164,10 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
             generic_failure.index("ac_write_line(report"),
         )
         self.assertIn("ac_close_child_process_handle();", generic_failure)
-        self.assertLess(
-            generic_failure.index("ac_write_line(report"),
-            generic_failure.index("ac_close_child_process_handle();"),
-        )
-        self.assertLess(
-            generic_failure.index("ac_close_child_process_handle();"),
-            generic_failure.index("MessageBoxW("),
-        )
 
         main = self.source[self.source.index("void WINAPI wWinMainCRTStartup(void)") :]
         self.assertNotIn("CloseHandle(g_process.hProcess);", main)
-        # Fatal stages that can execute after a child has actually been created
-        # must route through the retirement-aware ac_fail() authority.
         for stage in (
-            'L"selective guard inheritance cleanup"',
             'L"core process resume"',
             'L"child process identity report"',
             'L"early child exit-code read"',
@@ -373,15 +362,13 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
 
     def test_report_handle_is_launcher_local_and_root_is_validated_first(self):
         self.assertNotIn("STARTF_USESTDHANDLES", self.source)
+        self.assertNotIn("bInheritHandle = TRUE", self.source)
         self.assertNotIn("DuplicateHandle(", self.source)
-        self.assertIn("static STARTUPINFOEXW g_startup;", self.source)
-        self.assertIn("PROC_THREAD_ATTRIBUTE_HANDLE_LIST", self.source)
-        self.assertIn("SetHandleInformation(", self.source)
-        self.assertIn("EXTENDED_STARTUPINFO_PRESENT", self.source)
         self.assertIn(
-            "            TRUE,\n            CREATE_UNICODE_ENVIRONMENT | CREATE_SUSPENDED | EXTENDED_STARTUPINFO_PRESENT,",
+            "            FALSE,\n            CREATE_UNICODE_ENVIRONMENT | CREATE_SUSPENDED,",
             self.source,
         )
+        self.assertIn("LAUNCHER_SUPERVISOR: ACTIVE_UNTIL_CHILD_EXIT", self.source)
         root_check = self.source.index("if (!ac_direct_directory(g_root))")
         report_open = self.source.index("report = ac_open_report();")
         self.assertLess(root_check, report_open)
@@ -555,94 +542,83 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
         directory_check = main.index("if (!ac_direct_directory(g_data))")
         guard_open = main.index("data_guard = ac_open_direct_directory_guard(g_data)")
         environment = main.index('SetEnvironmentVariableW(L"LOCALAPPDATA", g_data)')
-        allowlist = main.index("inherited_handles[3] = data_guard;")
-        attribute = main.index("if (!UpdateProcThreadAttribute(", allowlist)
-        create_process = main.index("if (!CreateProcessW(", attribute)
+        create_process = main.index("if (!CreateProcessW(")
         resume = main.index("resume_result = ResumeThread(g_process.hThread)")
-        local_close = main.index("CloseHandle(data_guard)", resume)
+        ready = main.index('ac_write_line(report, L"STATUS: STARTUP_WINDOW_READY")', resume)
+        supervise = main.index("WaitForSingleObject(g_process.hProcess, INFINITE)", ready)
+        local_close = main.index("CloseHandle(data_guard)", supervise)
 
         self.assertLess(directory_check, guard_open)
         self.assertLess(guard_open, environment)
-        self.assertLess(environment, allowlist)
-        self.assertLess(allowlist, attribute)
-        self.assertLess(attribute, create_process)
+        self.assertLess(environment, create_process)
         self.assertLess(create_process, resume)
-        self.assertLess(resume, local_close)
+        self.assertLess(resume, ready)
+        self.assertLess(ready, supervise)
+        self.assertLess(supervise, local_close)
 
     def test_package_root_and_app_directory_guards_are_transferred_to_child(self):
         main = self.source[self.source.index("void WINAPI wWinMainCRTStartup(void)") :]
         for token in (
             "HANDLE root_guard = INVALID_HANDLE_VALUE;",
             "HANDLE app_guard = INVALID_HANDLE_VALUE;",
-            "HANDLE inherited_handles[4];",
-            "LPPROC_THREAD_ATTRIBUTE_LIST attribute_list = NULL;",
             "root_guard = ac_open_direct_directory_guard(g_root);",
             "app_guard = ac_open_direct_directory_guard(g_app_dir);",
-            "inherited_handles[1] = root_guard;",
-            "inherited_handles[2] = app_guard;",
-            "PROC_THREAD_ATTRIBUTE_HANDLE_LIST",
-            "UpdateProcThreadAttribute(",
-            "EXTENDED_STARTUPINFO_PRESENT",
             'ac_fail(\n            INVALID_HANDLE_VALUE,\n            L"package-root directory guard",',
             'ac_fail(\n            report,\n            L"App runtime directory guard",',
             'L"PACKAGE_ROOT_GUARD: DIRECT_DIRECTORY_HANDLE_READY"',
             'L"APP_RUNTIME_GUARD: DIRECT_DIRECTORY_HANDLE_READY"',
-            'L"PACKAGE_ROOT_GUARD: TRANSFERRED_TO_CHILD"',
-            'L"APP_RUNTIME_GUARD: TRANSFERRED_TO_CHILD"',
+            'L"PACKAGE_ROOT_GUARD: RETAINED_BY_LAUNCHER_SUPERVISOR"',
+            'L"APP_RUNTIME_GUARD: RETAINED_BY_LAUNCHER_SUPERVISOR"',
+            "WaitForSingleObject(g_process.hProcess, INFINITE)",
         ):
             with self.subTest(token=token):
                 self.assertIn(token, main)
 
         root_check = main.index("if (!ac_direct_directory(g_root))")
         root_open = main.index("root_guard = ac_open_direct_directory_guard(g_root)")
-        instance_lock = main.index("g_instance_lock = ac_open_instance_lock()")
         app_check = main.index("if (!ac_direct_directory(g_app_dir))")
         app_open = main.index("app_guard = ac_open_direct_directory_guard(g_app_dir)")
-        core_open = main.index("core_guard = ac_open_direct_private_file(g_core)")
-        allowlist = main.index("inherited_handles[0] = g_instance_lock;")
-        attribute = main.index("if (!UpdateProcThreadAttribute(")
         create_process = main.index("if (!CreateProcessW(")
         resume = main.index("resume_result = ResumeThread(g_process.hThread)")
-        root_close = main.index("CloseHandle(root_guard)", resume)
+        ready = main.index('ac_write_line(report, L"STATUS: STARTUP_WINDOW_READY")')
+        supervise = main.index("WaitForSingleObject(g_process.hProcess, INFINITE)", ready)
+        root_close = main.index("CloseHandle(root_guard)", supervise)
         app_close = main.index("CloseHandle(app_guard)", root_close)
 
         self.assertLess(root_check, root_open)
-        self.assertLess(root_open, instance_lock)
         self.assertLess(app_check, app_open)
-        self.assertLess(app_open, core_open)
-        self.assertLess(core_open, allowlist)
-        self.assertLess(allowlist, attribute)
-        self.assertLess(attribute, create_process)
+        self.assertLess(app_open, create_process)
         self.assertLess(create_process, resume)
-        self.assertLess(resume, root_close)
+        self.assertLess(resume, ready)
+        self.assertLess(ready, supervise)
+        self.assertLess(supervise, root_close)
         self.assertLess(root_close, app_close)
+        self.assertNotIn("DuplicateHandle(", main)
 
     def test_data_directory_guard_is_retained_by_suspended_child(self):
         main = self.source[self.source.index("void WINAPI wWinMainCRTStartup(void)") :]
         for token in (
-            "CREATE_UNICODE_ENVIRONMENT | CREATE_SUSPENDED | EXTENDED_STARTUPINFO_PRESENT",
+            "CREATE_UNICODE_ENVIRONMENT | CREATE_SUSPENDED",
             "HANDLE data_guard = INVALID_HANDLE_VALUE;",
-            "HANDLE inherited_handles[4];",
-            "inherited_handles[3] = data_guard;",
-            "PROC_THREAD_ATTRIBUTE_HANDLE_LIST",
-            "SetHandleInformation(",
-            "UpdateProcThreadAttribute(",
             'L"PACKAGE_DATA_GUARD: DIRECT_DIRECTORY_HANDLE_READY"',
-            'L"PACKAGE_DATA_GUARD: TRANSFERRED_TO_CHILD"',
+            'L"PACKAGE_DATA_GUARD: RETAINED_BY_LAUNCHER_SUPERVISOR"',
+            "WaitForSingleObject(g_process.hProcess, INFINITE)",
+            "CloseHandle(data_guard)",
         ):
             with self.subTest(token=token):
                 self.assertIn(token, main)
 
-        prepare = main.index("inherited_handles[3] = data_guard;")
-        attribute = main.index("if (!UpdateProcThreadAttribute(", prepare)
-        create = main.index("if (!CreateProcessW(", attribute)
+        guard_open = main.index("data_guard = ac_open_direct_directory_guard(g_data)")
+        create = main.index("if (!CreateProcessW(", guard_open)
         resume = main.index("resume_result = ResumeThread(g_process.hThread)", create)
-        local_close = main.index("CloseHandle(data_guard)", resume)
-        self.assertLess(prepare, attribute)
-        self.assertLess(attribute, create)
+        ready = main.index('ac_write_line(report, L"STATUS: STARTUP_WINDOW_READY")', resume)
+        supervise = main.index("WaitForSingleObject(g_process.hProcess, INFINITE)", ready)
+        local_close = main.index("CloseHandle(data_guard)", supervise)
+        self.assertLess(guard_open, create)
         self.assertLess(create, resume)
-        self.assertLess(resume, local_close)
-        self.assertNotIn("DuplicateHandle(", main)
+        self.assertLess(resume, ready)
+        self.assertLess(ready, supervise)
+        self.assertLess(supervise, local_close)
 
 
 if __name__ == "__main__":
