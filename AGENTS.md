@@ -15,7 +15,7 @@ This root file is the highest-priority repository instruction for autonomous wor
 - A worker does not need to wait for a designated human or designated integration worker merely because an older document says so.
 - Dependency or merge order constrains final integration order only. It must not stop independent implementation, testing, research, hardening, documentation, fixtures, adapters, accessibility work, packaging work, or other non-conflicting work.
 - A queued, pending, slow, or unavailable CI run is never by itself a reason to terminate the worker. Record the pending qualification state and immediately continue with another valuable independent task.
-- A blocked first workline is never by itself a reason to terminate the worker. Preserve the blocker and continue with the next useful unblocked workline.
+- A blocked primary closure front may be left only after all safe internally controllable residual work is exhausted and the blocker is durably recorded; later work must remain dependency-safe.
 - STATUS: BLOCKED is allowed only when the worker has exhausted all reasonably available safe independent work that can materially advance the product in the current run.
 - Do not idle merely because another pull request, branch, worker, check, or review is active.
 - If another worker is touching the same area, prefer a non-conflicting task; if overlap is unavoidable, reconcile/rebase rather than abandoning the run.
