@@ -71,7 +71,9 @@ class PgnCommandsTests(unittest.TestCase):
         commands = Version2PgnCommands(lambda: session)
 
         def mutate_after_validation(_session, _destination):
-            session.workspace.current_game().line.moves[0].san = "d4"
+            # Deliberately bypass the public detached-copy boundary to simulate
+            # a canonical mutation after selection validation but before write.
+            session.workspace._current_game_ref().line.moves[0].san = "d4"
             return None
 
         with tempfile.TemporaryDirectory() as folder:
