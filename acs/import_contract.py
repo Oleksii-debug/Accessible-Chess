@@ -109,10 +109,12 @@ class ImportedRecord:
         if len(self.warnings) > _MAX_IMPORT_WARNINGS_PER_RECORD:
             raise ValueError("warnings contain too many entries")
         for item in self.warnings:
-            if type(item) is not str or not item.strip():
+            if type(item) is not str:
                 raise ValueError("warnings must contain non-empty exact text")
             if len(item) > _MAX_IMPORT_WARNING_CHARS:
                 raise ValueError("warning text is too long")
+            if not item.strip():
+                raise ValueError("warnings must contain non-empty exact text")
         if (
             self.quality is not ImportQuality.FULL
             and not self.message.strip()
@@ -157,10 +159,12 @@ class ImportReport:
         if len(self.global_warnings) > _MAX_IMPORT_GLOBAL_WARNINGS:
             raise ValueError("global_warnings contains too many entries")
         for warning in self.global_warnings:
-            if type(warning) is not str or not warning.strip():
+            if type(warning) is not str:
                 raise ValueError("global_warnings must contain non-empty exact text")
             if len(warning) > _MAX_IMPORT_WARNING_CHARS:
                 raise ValueError("global warning text is too long")
+            if not warning.strip():
+                raise ValueError("global_warnings must contain non-empty exact text")
 
     def add(self, record: ImportedRecord) -> None:
         if type(record) is not ImportedRecord:
