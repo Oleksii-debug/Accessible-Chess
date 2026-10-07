@@ -892,3 +892,23 @@ This prepared Section-1 branch inherits the corrected Section-0 workflow/receipt
 `SECTION_0_DONE=NO_PENDING_TERMINAL_CI`
 
 `SECTION_1_DONE=NO_PENDING_SECTION0_ACCEPTANCE_AND_EXACT_HEAD_QUALIFICATION`
+
+
+### Reconvergence on passive batch-iterator/diagnostic predecessor
+
+Canonical Section 0 PR #2346 advanced to `f94df7def9d2e365b96e5a5da16fca021f721b7c` on the same
+six-path lineage to close two host-routing residuals: provider-owned outer batch
+iterators can no longer establish a mutated routing baseline, and custom
+adapter-owned OSError subclasses are no longer introspected through active
+diagnostic properties.
+
+Prepared Section 1 remains on canonical PR #2356 and is reconverged
+history-preservingly onto that exact predecessor. The five newly changed
+Section-0 paths are inherited verbatim; no Section-1 runtime/FEN/SAN commit is
+rebased, replayed, squashed or dropped. The predecessor-aware source/corpus and
+whole gates are repinned to the exact new Section-0 head and require fresh
+exact-head qualification.
+
+`SECTION0_ACCEPTED=NO_PENDING_TERMINAL_CI`
+
+`SECTION_1_DONE=NO_PENDING_SECTION0_ACCEPTANCE_AND_EXACT_HEAD_QUALIFICATION`

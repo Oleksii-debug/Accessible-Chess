@@ -414,3 +414,28 @@ gates exact-pin, compile and execute this retained QA module.
 The honest #2346 successor geometry therefore expands from five to exactly six
 paths; this is test/evidence convergence only and does not change runtime
 semantics.
+
+
+### Passive batch-iterator and diagnostic-exception boundary
+
+The latest Section-0.5 adversarial pass closed two remaining provider-code
+entry points around non-aborting batch preflight.
+
+First, `inspect_batch()` no longer lets the outer `Iterable` become a new
+routing baseline. Iterator creation and every `next()` advance run under a
+host-owned registration snapshot. Re-entrant route changes are restored and
+fail closed as registration-authority evidence; a direct process-control value
+still propagates only after canonical routing is restored.
+
+Second, adapter-owned custom `OSError` subclasses are no longer introspected
+for `filename`, `filename2` or `errno` while rendering bounded batch
+diagnostics. Those attributes may be active provider properties. Only exact
+built-in OSError-family instances may contribute bounded errno/safe-name
+context; custom subclasses receive the stable source-scoped rejection message.
+
+Regressions prove iterator creation mutation, iterator-advance mutation,
+process-control restoration, and zero execution of hostile OSError attribute
+hooks while a later independent source remains inspectable.
+
+This remains the same six-path PR #2346 successor and introduces no parser,
+decoder, report, format or chess authority.
