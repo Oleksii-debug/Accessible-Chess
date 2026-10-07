@@ -185,6 +185,9 @@ FULL_PRODUCT_ACTIONS: tuple[ActionDefinition, ...] = (
     _action("remote.connect", BindingContext.DOCUMENT, "Connect shared lesson"),
     _action("remote.reconnect", BindingContext.DOCUMENT, "Reconnect shared lesson"),
     _action("remote.leave", BindingContext.DOCUMENT, "Leave shared lesson"),
+    _action("release.status", BindingContext.GLOBAL, "Release and update status"),
+    _action("release.check_update", BindingContext.GLOBAL, "Check for verified updates"),
+    _action("release.apply_update", BindingContext.GLOBAL, "Install verified update"),
 )
 
 

@@ -125,6 +125,8 @@ _TEXT = {
         "teacher_coordinates": "Toggle coordinates", "teacher_orientation": "Toggle orientation",
         "teacher_event": "Read latest student event", "classes_screen": "Classes and students",
         "settings_screen": "Settings", "help_screen": "Keyboard and help",
+        "release_status": "Release and update status", "release_check": "Check for verified updates",
+        "release_apply": "Install verified update",
     },
     UILanguage.UA: {
         "top.file": "&Файл", "top.game": "&Гра", "top.position": "&Позиція",
@@ -165,6 +167,8 @@ _TEXT = {
         "teacher_coordinates": "Перемкнути координати", "teacher_orientation": "Перевернути дошку",
         "teacher_event": "Прочитати останню дію учня", "classes_screen": "Класи та учні",
         "settings_screen": "Налаштування", "help_screen": "Клавіатура і довідка",
+        "release_status": "Стан випуску та оновлень", "release_check": "Перевірити наявність перевірених оновлень",
+        "release_apply": "Встановити перевірене оновлення",
     },
 }
 
@@ -240,7 +244,13 @@ def build_full_product_menu_spec(
         "training": (action("training_screen", "screen.training"), action("training_hint", "training.hint"), action("training_reveal", "training.reveal_solution"), action("training_retry", "training.retry"), action("training_reset", "training.reset")),
         "teacher": (action("teacher_screen", "screen.teacher"), action("teacher_pointer_clear", "teacher.pointer_clear"), action("teacher_coordinates", "teacher.coordinates_toggle"), action("teacher_orientation", "teacher.orientation_toggle"), action("teacher_event", "teacher.read_student_event"), action("classes_screen", "screen.classes")),
         "settings": (action("settings_screen", "screen.settings"),),
-        "help": (action("help_screen", "screen.help"),),
+        "help": (
+            action("help_screen", "screen.help"),
+            separator,
+            action("release_status", "release.status"),
+            action("release_check", "release.check_update"),
+            action("release_apply", "release.apply_update"),
+        ),
     }
     return tuple(
         NativeTopMenuSpec(menu_id, text[f"top.{menu_id}"], tuple(rows[menu_id]))

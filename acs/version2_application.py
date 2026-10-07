@@ -42,6 +42,7 @@ from .pgn_workspace import PgnWorkspace
 from .pgn_webview_bridge import PgnWebViewBridge
 from .pgn_workspace_webview_adapter import PgnWorkspaceWebViewProjection
 from .report_paths import report_safe_name
+from .release_update_center import ReleaseUpdateCenter, ReleaseUpdateError
 from .search_service import GameSearchQuery
 from .version2_book_workspace import build_version2_book_webview
 from .version2_pgn_commands import Version2PgnCommands
@@ -169,7 +170,7 @@ class Version2Application:
     def __init__(self, database: AcsDatabase, *, progress_store: BookProgressStore,
                  engine_assistance: EngineAssistedWorkflowService, board_dispatch,
                  board_position_projector=None, copy_text=lambda _: None,
-                 language=UILanguage.UA):
+                 language=UILanguage.UA, release_update_center=None):
         self._thread = threading.get_ident()
         self.database = database
         self.progress_store = progress_store
@@ -179,6 +180,9 @@ class Version2Application:
         if not callable(copy_text):
             raise TypeError("copy_text must be callable")
         self._copy_text = copy_text
+        if release_update_center is not None and not isinstance(release_update_center, ReleaseUpdateCenter):
+            raise TypeError("release_update_center must be ReleaseUpdateCenter or None")
+        self.release_update_center = release_update_center
         if board_position_projector is not None and not callable(board_position_projector):
             raise TypeError("board_position_projector must be callable or None")
         self._board_position_projector = board_position_projector
@@ -1535,6 +1539,49 @@ class Version2Application:
         return canonical
 
     def _delegate(self, action, payload):
+        if action in {"release.status", "release.check_update", "release.apply_update"}:
+            if payload:
+                raise ValueError("Release update actions accept no payload")
+            language = "en" if self.shell.language is UILanguage.EN else "uk"
+            center = self.release_update_center
+            if action == "release.status":
+                if center is None:
+                    message = (
+                        "Release security is available. This build has no configured update channel."
+                        if language == "en"
+                        else "Захист випуску доступний. Для цієї збірки канал оновлень не налаштовано."
+                    )
+                    result = {
+                        "state": "channel-not-configured",
+                        "current_version": "",
+                        "target_version": None,
+                        "announcement": message,
+                    }
+                else:
+                    result = center.snapshot(language=language).to_mapping()
+            else:
+                if center is None:
+                    raise ValueError(
+                        "The update channel is not configured for this build."
+                        if language == "en"
+                        else "Канал оновлень не налаштовано для цієї збірки."
+                    )
+                try:
+                    snapshot = (
+                        center.check(language=language)
+                        if action == "release.check_update"
+                        else center.apply(language=language)
+                    )
+                except ReleaseUpdateError as exc:
+                    raise ValueError(str(exc)) from None
+                result = snapshot.to_mapping()
+            announcement = result.get("announcement")
+            if type(announcement) is not str or not announcement:
+                raise RuntimeError("release update result has no accessible announcement")
+            self._events.append(
+                {"kind": "status", "payload": {"announcement": announcement}}
+            )
+            return result
         if action == "board.read_fen":
             if payload:
                 raise ValueError("Read FEN accepts no payload")
