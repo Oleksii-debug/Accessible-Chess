@@ -68,9 +68,21 @@ The review-blocking regression also now snapshots the review tree after the curs
 
 Exact repaired blobs:
 - `acs/webapp.py = 18e41885299bc05e03d8a3419bbad838fc2bfd68`
-- `tests/test_fen_position_editor_complete_user_flow.py = 77e6b6a3925d3af9fb065862acb6435826afef6e`
+- `tests/test_fen_position_editor_complete_user_flow.py = 071790b39970418c3565d6faf8d01cc505511163`
 
 This changes no FEN grammar, move legality, SAN authority, PositionState schema, or 48-path predecessor-relative geometry.
+
+
+### Adjacent-kings board activation test-oracle repair
+
+Fresh exact-SHA source/corpus run `37634398144`, Windows job `112837126679`, passed predecessor geometry, exact source binding and compilation, then failed in `test_editor_state_with_adjacent_kings_blocks_gameplay` because the regression called a nonexistent `AccessibleChessAPI.click_square()` method.
+
+The existing canonical keyboard/board activation boundary is `AccessibleChessAPI.activate_square()`; it already performs the required fail-closed `_position_playable()` check before selection or move publication. The repair changes only the stale regression call from `click_square("e1")` to `activate_square("e1")`. No runtime API, chess rule, FEN/SAN authority, or product behavior changes.
+
+Exact repaired regression blob:
+- `tests/test_fen_position_editor_complete_user_flow.py = 071790b39970418c3565d6faf8d01cc505511163`
+
+The affected exact-SHA gates must be rerun on the successor candidate before DONE.
 
 ### Strict-FEN king-capture fixture alignment
 
