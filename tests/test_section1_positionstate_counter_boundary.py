@@ -40,6 +40,20 @@ class Section1PositionStateCounterBoundaryTests(unittest.TestCase):
         with self.assertRaisesRegex(PositionValidationError, "halfmove clock is too large"):
             state.to_fen()
 
+    def test_to_fen_revalidates_low_level_counter_minima_and_types(self) -> None:
+        cases = (
+            ("halfmove", -1, "halfmove clock must be non-negative"),
+            ("fullmove", 0, "fullmove number must be at least 1"),
+            ("halfmove", True, "halfmove clock must be an integer"),
+            ("fullmove", False, "fullmove number must be an integer"),
+        )
+        for field, value, message in cases:
+            with self.subTest(field=field, value=value):
+                state = standard_position()
+                object.__setattr__(state, field, value)
+                with self.assertRaisesRegex(PositionValidationError, message):
+                    state.to_fen()
+
     def test_unknown_piece_diagnostic_is_bounded_through_accessible_surface(self) -> None:
         bad_piece = "Z" * 2048
         payload = f"W: {bad_piece} a1 B: K e8"

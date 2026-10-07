@@ -76,8 +76,8 @@ class PositionState:
             raise PositionValidationError("halfmove clock must be non-negative")
         if self.fullmove < 1:
             raise PositionValidationError("fullmove number must be at least 1")
-        _counter_text(self.halfmove, label="halfmove clock")
-        _counter_text(self.fullmove, label="fullmove number")
+        _counter_text(self.halfmove, label="halfmove clock", minimum=0)
+        _counter_text(self.fullmove, label="fullmove number", minimum=1)
         if len(self.to_fen()) > MAX_FEN_CHARS:
             raise PositionValidationError("FEN is too long")
 
@@ -191,8 +191,8 @@ class PositionState:
             if empty:
                 parts.append(str(empty))
             ranks.append("".join(parts))
-        halfmove_text = _counter_text(self.halfmove, label="halfmove clock")
-        fullmove_text = _counter_text(self.fullmove, label="fullmove number")
+        halfmove_text = _counter_text(self.halfmove, label="halfmove clock", minimum=0)
+        fullmove_text = _counter_text(self.fullmove, label="fullmove number", minimum=1)
         return f"{'/'.join(ranks)} {self.turn} {self.castling} {self.en_passant} {halfmove_text} {fullmove_text}"
 
     @classmethod
@@ -366,13 +366,15 @@ def _fill_coordinate_section(
         used.add(square)
     return result
 
-def _counter_text(value: int, *, label: str) -> str:
+def _counter_text(value: int, *, label: str, minimum: int) -> str:
     """Render a validated FEN counter without leaking runtime conversion errors."""
 
     if type(value) is not int:
         raise PositionValidationError(f"{label} must be an integer")
-    if value < 0:
-        raise PositionValidationError(f"{label} must be non-negative")
+    if value < minimum:
+        if minimum == 0:
+            raise PositionValidationError(f"{label} must be non-negative")
+        raise PositionValidationError(f"{label} must be at least {minimum}")
     if value >= _MAX_FEN_COUNTER_EXCLUSIVE:
         raise PositionValidationError(f"{label} is too large")
     try:
