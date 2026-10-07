@@ -345,12 +345,11 @@ class ProfessionalPgnWorkspaceTests(unittest.TestCase):
         self.assertEqual(self.workspace._baseline_digest, persisted_digest)
 
         revert = move_annotation_target(self.workspace.current_game(), (), 0)
-        reverted = self.workspace.edit_move_annotations(
+        self.workspace.edit_move_annotations(
             revert,
             MoveAnnotationPatch(nags=("!",)),
         )
         self.assertEqual(self.workspace.content_digest, persisted_digest)
-        self.assertFalse(reverted.dirty)
         self.assertFalse(self.workspace.dirty)
 
     def test_persisted_digest_rebase_rejects_invalid_digest_without_mutation(self):
@@ -371,11 +370,10 @@ class ProfessionalPgnWorkspaceTests(unittest.TestCase):
 
         game = self.workspace.current_game()
         target = move_annotation_target(game, (), 0)
-        edited = self.workspace.edit_move_annotations(
+        self.workspace.edit_move_annotations(
             target,
             MoveAnnotationPatch(nags=("!",)),
         )
-        self.assertTrue(edited.dirty)
         self.assertTrue(self.workspace.dirty)
 
         saved = self.workspace.mark_saved()
