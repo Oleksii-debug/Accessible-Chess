@@ -1,6 +1,7 @@
 import unittest
 
 from acs.chesscore import Board
+from acs.input_limits import MAX_FEN_CHARS
 
 
 class Dev2FenAtomicityTests(unittest.TestCase):
@@ -473,6 +474,58 @@ class Dev2FenAtomicityTests(unittest.TestCase):
         self.assertEqual(
             (redo_active.fen(), tuple(redo_active.redo_stack), redo_active.last_move),
             redo_active_before,
+        )
+
+    def test_move_publication_rejects_counter_growth_beyond_fen_budget_atomically(self):
+        quiet_prefix = "7k/8/8/8/8/8/6N1/K7 w - - "
+        quiet_suffix = " 1"
+        quiet_digits = MAX_FEN_CHARS - len(quiet_prefix) - len(quiet_suffix)
+        self.assertGreater(quiet_digits, 0)
+        quiet_fen = quiet_prefix + ("9" * quiet_digits) + quiet_suffix
+        self.assertEqual(len(quiet_fen), MAX_FEN_CHARS)
+
+        quiet = Board(quiet_fen)
+        quiet_before = (
+            quiet.fen(),
+            tuple(quiet.undo_stack),
+            tuple(quiet.redo_stack),
+            quiet.last_move,
+        )
+        with self.assertRaisesRegex(ValueError, "перевищує допустиму довжину"):
+            quiet.push_text("Nf4")
+        self.assertEqual(
+            (
+                quiet.fen(),
+                tuple(quiet.undo_stack),
+                tuple(quiet.redo_stack),
+                quiet.last_move,
+            ),
+            quiet_before,
+        )
+
+        null_prefix = "7k/8/8/8/8/8/8/K7 b - - 0 "
+        null_digits = MAX_FEN_CHARS - len(null_prefix)
+        self.assertGreater(null_digits, 0)
+        null_fen = null_prefix + ("9" * null_digits)
+        self.assertEqual(len(null_fen), MAX_FEN_CHARS)
+
+        null_board = Board(null_fen)
+        null_before = (
+            null_board.fen(),
+            tuple(null_board.undo_stack),
+            tuple(null_board.redo_stack),
+            null_board.last_move,
+        )
+        with self.assertRaisesRegex(ValueError, "перевищує допустиму довжину"):
+            null_board.push_null()
+        self.assertEqual(
+            (
+                null_board.fen(),
+                tuple(null_board.undo_stack),
+                tuple(null_board.redo_stack),
+                null_board.last_move,
+            ),
+            null_before,
         )
 
     def test_moves_reject_noncanonical_history_stacks_before_publication(self):
