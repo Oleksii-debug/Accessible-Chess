@@ -10,6 +10,7 @@ on:
       - 'acs/notation.py'
       - 'acs/chesscore.py'
       - 'tests/test_section1_san_transition_contract.py'
+      - 'docs/automation/SECTION1_CLOSURE_CANDIDATE.md'
   workflow_dispatch:
 
 permissions:
@@ -30,6 +31,7 @@ env:
   P0F_PROVENANCE_BLOB: 3298aed00ca000d27f607cd861abbba9483ff358
   P0F_BUILDER_BLOB: b7b96a661652a17cb16e8ca4cabba3b8b373e483
   PINNED_CORPUS_SHA256: aa40b3671fa3cf1072eb182892cd90b0e1e003a4a5943492f64b77e7f3fd1635
+  CLOSURE_DOC_BLOB: e619d2ae53981a4852d944ce2ec4bb858c654ec8
 
 jobs:
   qualify:
@@ -70,6 +72,7 @@ jobs:
             'acs/chesscore.py' \
             'acs/input_limits.py' \
             'acs/notation.py' \
+            'docs/automation/SECTION1_CLOSURE_CANDIDATE.md' \
             'tests/test_section1_san_transition_contract.py' | sort)"
           test "$changed" = "$expected"
 
@@ -83,6 +86,7 @@ jobs:
           test "$(git rev-parse HEAD:tests/test_section1_san_transition_contract.py)" = "$CONTRACT_TEST_BLOB"
           test "$(git rev-parse HEAD:tools/qualify_fen_position_corpus.py)" = "$FEN_CORPUS_QUALIFIER_BLOB"
           test "$(git rev-parse HEAD:tests/test_qualify_fen_position_corpus.py)" = "$FEN_CORPUS_TEST_BLOB"
+          test "$(git rev-parse HEAD:docs/automation/SECTION1_CLOSURE_CANDIDATE.md)" = "$CLOSURE_DOC_BLOB"
 
       - name: Compile Section 1 SAN slice
         run: >-
