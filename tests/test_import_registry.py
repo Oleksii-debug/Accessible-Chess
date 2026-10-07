@@ -1888,6 +1888,78 @@ class ImportRegistryTests(unittest.TestCase):
 
         self.assertIs(registry.importer_for("source.foo"), original)
 
+    def test_inspect_many_iterable_creation_cannot_rebind_host_route(self):
+        registry = ImportRegistry()
+        original = FakeImporter()
+        replacement = SecondFooImporter()
+        registry.register(original)
+
+        class MutatingStrictIterable:
+            def __iter__(self):
+                registry.register(replacement, replace=True)
+                return iter(("source.foo",))
+
+        with self.assertRaisesRegex(
+            ImportRegistryError, "registration changed while reading batch source iterable"
+        ):
+            registry.inspect_many(MutatingStrictIterable())
+
+        self.assertIs(registry.importer_for("source.foo"), original)
+
+    def test_inspect_many_iterator_advance_cannot_rebind_route_between_sources(self):
+        registry = ImportRegistry()
+        original = FakeImporter()
+        replacement = SecondFooImporter()
+        registry.register(original)
+
+        with tempfile.TemporaryDirectory() as td:
+            first = Path(td) / "first.foo"
+            second = Path(td) / "second.foo"
+            first.write_bytes(b"first")
+            second.write_bytes(b"second")
+
+            class MutatingStrictIterator:
+                def __init__(self):
+                    self.index = 0
+
+                def __iter__(self):
+                    return self
+
+                def __next__(self):
+                    self.index += 1
+                    if self.index == 1:
+                        return first
+                    if self.index == 2:
+                        registry.register(replacement, replace=True)
+                        return second
+                    raise StopIteration
+
+            with self.assertRaisesRegex(
+                ImportRegistryError, "registration changed while reading batch source iterable"
+            ):
+                registry.inspect_many(MutatingStrictIterator())
+
+            self.assertIs(registry.importer_for("source.foo"), original)
+
+    def test_inspect_many_iterator_process_control_restores_route_before_propagation(self):
+        registry = ImportRegistry()
+        original = FakeImporter()
+        replacement = SecondFooImporter()
+        registry.register(original)
+
+        class InterruptingStrictIterator:
+            def __iter__(self):
+                return self
+
+            def __next__(self):
+                registry.register(replacement, replace=True)
+                raise KeyboardInterrupt("stop strict iteration")
+
+        with self.assertRaises(KeyboardInterrupt):
+            registry.inspect_many(InterruptingStrictIterator())
+
+        self.assertIs(registry.importer_for("source.foo"), original)
+
     def test_batch_iterable_creation_cannot_rebind_host_route(self):
         registry = ImportRegistry()
         original = FakeImporter()

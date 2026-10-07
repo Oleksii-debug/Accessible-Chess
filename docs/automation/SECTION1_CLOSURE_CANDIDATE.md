@@ -930,3 +930,20 @@ must qualify the exact descendant before any acceptance claim.
 `SECTION0_ACCEPTED=NO_PENDING_TERMINAL_CI`
 
 `SECTION_1_DONE=NO_PENDING_SECTION0_ACCEPTANCE_AND_EXACT_HEAD_QUALIFICATION`
+
+
+### Reconvergence on strict multi-source iterator-fenced predecessor
+
+Canonical Section 0 PR #2346 advanced to `3f5d33ba7ab54d67e85ea951beede188e3626454` on the same six-path
+lineage so strict `inspect_many()`, not only non-aborting batch inspection,
+holds host-owned routing authority across provider-owned iterable creation and
+each iterator advance.
+
+Prepared Section 1 remains PR #2356 and is reconverged history-preservingly
+onto that exact predecessor. No Section-1 FEN/SAN/runtime source is replayed,
+rebased or squashed. Predecessor-aware source/corpus and whole gates are
+repinned to the exact current ancestor.
+
+`SECTION0_ACCEPTED=NO_PENDING_TERMINAL_CI`
+
+`SECTION_1_DONE=NO_PENDING_SECTION0_ACCEPTANCE_AND_EXACT_HEAD_QUALIFICATION`

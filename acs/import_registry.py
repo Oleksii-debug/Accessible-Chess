@@ -505,8 +505,14 @@ class ImportRegistry:
         return report
 
     def inspect_many(self, paths: Iterable[str | Path]) -> list[ImportReport]:
-        """Strict multi-source inspection; aborts on the first source error."""
-        return [self.inspect(path) for path in paths]
+        """Strict multi-source inspection; aborts on the first source error.
+
+        The outer iterable is provider-owned input too. Reuse the same
+        host-authority iterator fence as non-aborting batch preflight so
+        iterator creation/advance cannot silently replace canonical routing
+        between otherwise strict source inspections.
+        """
+        return [self.inspect(path) for path in self._iter_batch_paths(paths)]
 
     def _iter_batch_paths(
         self, paths: Iterable[str | Path]
