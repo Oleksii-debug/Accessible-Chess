@@ -56,3 +56,12 @@ Accessibility is intentionally absent from the entitlement feature catalog. Keyb
 Section 35 does not own OAuth/OIDC cryptographic trust, secret storage, payment-processor implementation, pricing, tax/VAT calculation or organization procurement workflow. Those are infrastructure/deployment concerns behind the provider-neutral ports and do not alter the Section-35 product contract.
 
 Manual owner/NVDA evidence remains final whole-product acceptance under Simplified Section Closure Protocol v3.
+
+
+## Post-merge qualification receipt
+
+Integrated Product authority: `2b8bcd1285511a4732e49be9fe37627ca85bb8ce`.
+
+Post-merge readback preserved eight of nine candidate blobs byte-identically. The ninth path, `tests/test_section35_subscription_closure.py`, differs only by two syntax repairs to Python string quoting in assertions for `tabindex="-1" role="button"` and `credentials: "same-origin"`; the acceptance assertions themselves are unchanged. This qualification branch starts from the integrated Product so the Section-35 gate evaluates the corrected shipping authority rather than the historical PR head.
+
+The exact reused entitlement authority remains supported by completed successful Entitlement Policy Contract run `36265233672`. No known executed Section-35 product RED exists on the integrated authority.
