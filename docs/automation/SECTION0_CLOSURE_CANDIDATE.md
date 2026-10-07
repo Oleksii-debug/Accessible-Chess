@@ -509,3 +509,37 @@ Exact successor blobs:
 This remains the same six-path PR #2346 Section-0 lineage and introduces no new
 parser, decoder, report model, format authority or chess authority.
 
+
+
+### Cross-thread registry-authority serialization
+
+A concurrency audit found that the existing registration snapshot/restore contract
+contained re-entrant adapter mutation but did not linearize a genuinely parallel
+host call. Another thread could complete `register()` while an inspection was
+running; the inspection would then detect drift and restore its older snapshot,
+silently erasing a registration that had already returned success to the other
+caller.
+
+Canonical `ImportRegistry` now serializes all public routing-authority
+operations with one re-entrant host lock. Inspection (single, strict multi-source
+and non-aborting batch), registration/unregistration, lookup and public
+registration projections share that authority. Adapter code may still call back
+into the registry on the same thread; the re-entrant lock preserves the existing
+drift-detection/restore behavior for those hostile callbacks. A different thread
+cannot publish a route change until the active inspection transaction finishes,
+so a successful concurrent registration cannot later be rolled back invisibly.
+
+A deterministic threaded regression holds an inspection open, starts a parallel
+registration, proves that registration remains blocked while inspection owns the
+routing transaction, then releases inspection and proves both the original and
+new routes are present. The inspection report remains bound to the original
+route and source bytes.
+
+Exact successor blobs:
+- `acs/import_registry.py`: `8734852047bdc9540ea79c5d062c340a5258a45f`;
+- `tests/test_import_registry.py`: `b1061a06a4f61ccfdcde89742a99730d87c6e33e`.
+
+This remains the same exact six-path canonical PR #2346 lineage. It adds no
+parser, decoder, ImportReport, format capability or chess authority.
+
+`SECTION_0_DONE=NO_PENDING_TERMINAL_CI_AND_LIVE_REVALIDATION`
