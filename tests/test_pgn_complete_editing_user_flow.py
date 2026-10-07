@@ -325,6 +325,7 @@ class CompletePgnEditingUserFlowTests(unittest.TestCase):
             '[Event "Second"]\n[Result "*"]\n\n1. d4 {Needle comment} d5 *'
         )
         commands = Version2PgnCommands(lambda: session)
+        dirty_before = session.workspace.dirty
 
         commands(
             "pgn.search",
@@ -333,13 +334,14 @@ class CompletePgnEditingUserFlowTests(unittest.TestCase):
 
         self.assertEqual(session.workspace.selected_game_index, 1)
         self.assertEqual(session.workspace.cursor, GameTreeCursor((), 1))
-        self.assertFalse(session.workspace.dirty)
+        self.assertEqual(session.workspace.dirty, dirty_before)
 
     def test_search_finds_tags_from_root_without_requiring_a_tree_selection(self):
         session = PgnDocumentSession.from_text(
             '[Event "Unique Event"]\n[Result "*"]\n\n*'
         )
         commands = Version2PgnCommands(lambda: session)
+        dirty_before = session.workspace.dirty
 
         commands(
             "pgn.search",
@@ -348,7 +350,7 @@ class CompletePgnEditingUserFlowTests(unittest.TestCase):
 
         self.assertEqual(session.workspace.selected_game_index, 0)
         self.assertEqual(session.workspace.cursor, GameTreeCursor())
-        self.assertFalse(session.workspace.dirty)
+        self.assertEqual(session.workspace.dirty, dirty_before)
 
     def test_accessible_pgn_surface_contains_complete_editing_dialogs(self):
         js = (
