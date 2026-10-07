@@ -18,6 +18,8 @@ from . import version2_release_ui as _release_ui
 from .full_product_ui_shell import UILanguage
 from .media_accessibility import MediaAccessibilityBridge
 from .media_application import MediaApplicationService
+from .media_user_workflow import MediaUserWorkflowError, MediaUserWorkflowService
+from .recorded_media_accessibility import RecordedMediaAccessibilityBridge
 from .version2_final_product_application import Version2FinalProductApplication
 from .version2_final_product_profile import (
     FINAL_PRODUCT_ACTION_IDS,
@@ -36,7 +38,10 @@ def _final_product_resource_sources() -> tuple[tuple[str, str], ...]:
         ("V2 Teacher surface", root / "full_product_teacher.js"),
         ("V2 Education surface", root / "full_product_education.js"),
         ("Media accessible Restore Position surface", root / "media_accessible_restore.js"),
+        ("Recorded Media accessible player", root / "recorded_media_accessible_player.js"),
+        ("YouTube IFrame playback adapter", root / "youtube_iframe_playback_adapter.js"),
         ("V2 final-product bootstrap", root / "version2_final_product_bootstrap.js"),
+        ("V2 Media user workflow bootstrap", root / "version2_media_user_workflow.js"),
         ("V2 Media Restore Position bootstrap", root / "version2_media_restore_bootstrap.js"),
         # The final bootstrap creates #v2-workspace synchronously, then starts an
         # asynchronous snapshot refresh. Load P0 after that DOM owner exists so
@@ -123,6 +128,200 @@ def _media_restore_position_api(api: Any) -> dict[str, object]:
     return api._invoke_ui(restore)
 
 
+def _media_workflow_unavailable(
+    language: str,
+    *,
+    announcement: str | None = None,
+) -> dict[str, object]:
+    bridge = RecordedMediaAccessibilityBridge(language=language)
+    player = bridge.error_state()
+    if announcement:
+        player["announcement"] = announcement
+    return {
+        "ok": False,
+        "providerKind": None,
+        "sourceTitle": "",
+        "revision": 0,
+        "player": player,
+    }
+
+
+def _media_workflow(api: Any) -> MediaUserWorkflowService | None:
+    workflow = getattr(api, "_final_product_media_workflow", None)
+    if workflow is None:
+        return None
+    if not isinstance(workflow, MediaUserWorkflowService):
+        raise TypeError("final Product Media workflow is invalid")
+    language = getattr(api, "lang", "en")
+    if workflow.language != language:
+        workflow.set_language(language)
+    return workflow
+
+
+def _workflow_failure(api: Any, message_en: str, message_uk: str) -> dict[str, object]:
+    language = getattr(api, "lang", "en")
+    return _media_workflow_unavailable(
+        language,
+        announcement=message_uk if language == "uk" else message_en,
+    )
+
+
+def _media_workflow_snapshot_api(api: Any) -> dict[str, object]:
+    def read() -> dict[str, object]:
+        workflow = _media_workflow(api)
+        if workflow is None:
+            return _workflow_failure(
+                api,
+                "Media workflow is currently unavailable.",
+                "Media workflow зараз недоступний.",
+            )
+        try:
+            return dict(workflow.snapshot())
+        except MediaUserWorkflowError:
+            return _workflow_failure(
+                api,
+                "Media playback state is not available yet.",
+                "Стан відтворення медіа ще недоступний.",
+            )
+
+    return api._invoke_ui(read)
+
+
+def _media_workflow_open_pasted_api(api: Any, source_text: str) -> dict[str, object]:
+    def open_source() -> dict[str, object]:
+        workflow = _media_workflow(api)
+        if workflow is None:
+            return _workflow_failure(
+                api,
+                "Media workflow is currently unavailable.",
+                "Media workflow зараз недоступний.",
+            )
+        try:
+            return dict(workflow.open_pasted(source_text))
+        except Exception:
+            return _workflow_failure(
+                api,
+                "The pasted media source could not be opened.",
+                "Не вдалося відкрити вставлене джерело медіа.",
+            )
+
+    return api._invoke_ui(open_source)
+
+
+def _media_workflow_open_local_api(api: Any) -> dict[str, object]:
+    def open_source() -> dict[str, object]:
+        workflow = _media_workflow(api)
+        if workflow is None:
+            return _workflow_failure(
+                api,
+                "Local media opening is currently unavailable.",
+                "Відкриття локального медіа зараз недоступне.",
+            )
+        try:
+            return dict(workflow.open_local())
+        except Exception:
+            return _workflow_failure(
+                api,
+                "The local media source could not be opened.",
+                "Не вдалося відкрити локальне джерело медіа.",
+            )
+
+    return api._invoke_ui(open_source)
+
+
+def _media_workflow_sync_playback_api(
+    api: Any,
+    source_id: str,
+    position_ms: int,
+    duration_ms: int | None,
+    playback_state: str,
+) -> dict[str, object]:
+    def synchronize() -> dict[str, object]:
+        workflow = _media_workflow(api)
+        if workflow is None:
+            return _workflow_failure(
+                api,
+                "Media workflow is currently unavailable.",
+                "Media workflow зараз недоступний.",
+            )
+        try:
+            return dict(
+                workflow.sync_browser_playback(
+                    source_id=source_id,
+                    position_ms=position_ms,
+                    duration_ms=duration_ms,
+                    playback_state=playback_state,
+                )
+            )
+        except Exception:
+            return _workflow_failure(
+                api,
+                "Media playback could not be synchronized safely.",
+                "Не вдалося безпечно синхронізувати відтворення медіа.",
+            )
+
+    return api._invoke_ui(synchronize)
+
+
+def _media_workflow_command_api(
+    api: Any,
+    action: str,
+    position_ms: int | None = None,
+) -> dict[str, object]:
+    def command() -> dict[str, object]:
+        workflow = _media_workflow(api)
+        if workflow is None:
+            return _workflow_failure(
+                api,
+                "Media workflow is currently unavailable.",
+                "Media workflow зараз недоступний.",
+            )
+        try:
+            return dict(workflow.command(action, position_ms=position_ms))
+        except Exception:
+            return _workflow_failure(
+                api,
+                "The media command could not be completed safely.",
+                "Не вдалося безпечно виконати команду медіа.",
+            )
+
+    return api._invoke_ui(command)
+
+
+def _bind_api_media_workflow(
+    api: Any,
+    workflow: MediaUserWorkflowService | None,
+) -> None:
+    if workflow is not None and not isinstance(workflow, MediaUserWorkflowService):
+        raise TypeError(
+            "media_user_workflow_service must be MediaUserWorkflowService or None"
+        )
+    setattr(api, "_final_product_media_workflow", workflow)
+    setattr(api, "media_workflow_snapshot", MethodType(_media_workflow_snapshot_api, api))
+    setattr(
+        api,
+        "media_workflow_open_pasted",
+        MethodType(_media_workflow_open_pasted_api, api),
+    )
+    setattr(api, "media_workflow_open_local", MethodType(_media_workflow_open_local_api, api))
+    setattr(
+        api,
+        "media_workflow_sync_playback",
+        MethodType(_media_workflow_sync_playback_api, api),
+    )
+    setattr(api, "media_workflow_command", MethodType(_media_workflow_command_api, api))
+
+
+_WORKFLOW_API_METHODS = {
+    "media_workflow_snapshot": _media_workflow_snapshot_api,
+    "media_workflow_open_pasted": _media_workflow_open_pasted_api,
+    "media_workflow_open_local": _media_workflow_open_local_api,
+    "media_workflow_sync_playback": _media_workflow_sync_playback_api,
+    "media_workflow_command": _media_workflow_command_api,
+}
+_MISSING_API_METHOD = object()
+
+
 def _bind_api_media(
     api: Any,
     service: MediaApplicationService | None,
@@ -157,6 +356,10 @@ def _final_product_bindings() -> Iterator[Callable[[Any, UILanguage], None]]:
     had_media_restore = "media_restore_position" in api_type.__dict__
     previous_media_snapshot = api_type.__dict__.get("media_restore_snapshot")
     previous_media_restore = api_type.__dict__.get("media_restore_position")
+    previous_workflow_methods = {
+        name: api_type.__dict__.get(name, _MISSING_API_METHOD)
+        for name in _WORKFLOW_API_METHODS
+    }
 
     _release_app.Version2Application = Version2FinalProductApplication
     _release_ui.VERSION2_FULL_PRODUCT_ACTION_IDS = FINAL_PRODUCT_ACTION_IDS
@@ -173,6 +376,8 @@ def _final_product_bindings() -> Iterator[Callable[[Any, UILanguage], None]]:
     # these methods on that one API instance through _bind_api_media().
     setattr(api_type, "media_restore_snapshot", _media_restore_snapshot_api)
     setattr(api_type, "media_restore_position", _media_restore_position_api)
+    for name, method in _WORKFLOW_API_METHODS.items():
+        setattr(api_type, name, method)
     _release_ui._resource_sources = _final_product_resource_sources
     try:
         yield previous_sync
@@ -186,6 +391,11 @@ def _final_product_bindings() -> Iterator[Callable[[Any, UILanguage], None]]:
             setattr(api_type, "media_restore_snapshot", previous_media_snapshot)
         else:
             delattr(api_type, "media_restore_snapshot")
+        for name, previous in previous_workflow_methods.items():
+            if previous is _MISSING_API_METHOD:
+                delattr(api_type, name)
+            else:
+                setattr(api_type, name, previous)
         setattr(api_type, "_sync_version2_language", previous_sync_descriptor)
         _release_ui.Version2NativeMenuController = previous_controller
         _release_ui.VERSION2_FULL_PRODUCT_ACTION_IDS = previous_action_ids
@@ -210,6 +420,13 @@ def create_version2_release_application(*args: Any, **kwargs: Any):
     media_service = kwargs.pop("media_application_service", None)
     if media_service is not None and not isinstance(media_service, MediaApplicationService):
         raise TypeError("media_application_service must be MediaApplicationService or None")
+    media_workflow = kwargs.pop("media_user_workflow_service", None)
+    if media_workflow is not None and not isinstance(
+        media_workflow, MediaUserWorkflowService
+    ):
+        raise TypeError(
+            "media_user_workflow_service must be MediaUserWorkflowService or None"
+        )
 
     defer_ui = kwargs.get("defer_ui", False) is True
     with _final_product_bindings() as base_sync:
@@ -217,6 +434,7 @@ def create_version2_release_application(*args: Any, **kwargs: Any):
         api = composed[0]
         _bind_api_language_sync(api, base_sync)
         _bind_api_media(api, media_service)
+        _bind_api_media_workflow(api, media_workflow)
 
     if not defer_ui:
         return composed
