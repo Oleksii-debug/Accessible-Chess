@@ -97,6 +97,7 @@ def _fake_curation_evidence(starter_pgn: str) -> dict[str, object]:
     return {
         "policy_id": CURATION_POLICY_ID,
         "parser": "acs.pgn_roundtrip.parse_pgn_text(strict=True)",
+        "legality": "acs.gametree_legality.validate_game_legality",
         "criteria": {
             "minimum_plies": CURATION_MIN_PLIES,
             "valid_results": sorted(CURATION_VALID_RESULTS),
@@ -142,6 +143,18 @@ def test_quality_evidence_rejects_unfinished_and_accepts_strict_finished_game():
     assert evidence["plies"] >= CURATION_MIN_PLIES
     assert len(evidence["opening_prefix"]) == 4
     assert len(evidence["record_sha256"]) == 64
+
+
+def test_quality_evidence_rejects_strictly_parsed_but_canonically_illegal_game():
+    record = next(_iter_complete_game_records(io.StringIO(build_starter_pgn(1))))
+    finished = _finished_record(record)
+    illegal = re.sub(r"(1\\.\\s+)\\S+", r"\\1Rd1d2", finished, count=1)
+    assert illegal != finished
+
+    evidence, reason = _candidate_evidence(illegal, 9)
+
+    assert evidence is None
+    assert reason == "canonical_legality_failure"
 
 
 def test_representative_selector_makes_each_floor_mandatory():
