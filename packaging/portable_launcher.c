@@ -607,7 +607,12 @@ static void ac_prepare_paths(void) {
     if (!ac_path_join(g_instance_lock_path, AC_PATH_CAP, g_root, L".accessible-chess-instance.lock")) ExitProcess(ERROR_BUFFER_OVERFLOW);
 }
 
-static void ac_fail_startup_timeout(HANDLE report) {
+static void ac_fail_startup_timeout(
+    HANDLE report,
+    HANDLE root_guard,
+    HANDLE app_guard,
+    HANDLE data_guard
+) {
     DWORD cleanup_error = ERROR_SUCCESS;
     DWORD cleanup_wait = WAIT_FAILED;
     BOOL child_stopped = FALSE;
@@ -635,6 +640,23 @@ static void ac_fail_startup_timeout(HANDLE report) {
         }
     }
 
+    /*
+     * Only after the timed-out child is confirmed stopped may this launcher
+     * release package ownership. Release before publishing retry-ready
+     * diagnostics so a blind user can immediately launch again even while the
+     * native error dialog remains open.
+     */
+    if (child_stopped) {
+        ac_close_child_process_handle();
+        if (g_instance_lock != INVALID_HANDLE_VALUE) {
+            CloseHandle(g_instance_lock);
+            g_instance_lock = INVALID_HANDLE_VALUE;
+        }
+        if (root_guard != INVALID_HANDLE_VALUE) CloseHandle(root_guard);
+        if (app_guard != INVALID_HANDLE_VALUE) CloseHandle(app_guard);
+        if (data_guard != INVALID_HANDLE_VALUE) CloseHandle(data_guard);
+    }
+
     ac_write_line(report, L"STATUS: FAILED_STARTUP_TIMEOUT");
     ac_write_line(report, L"USER_WINDOW_PROVEN: NO");
     ac_write_line(report, L"USER_NVDA_PROVEN: NO");
@@ -657,6 +679,8 @@ static void ac_fail_startup_timeout(HANDLE report) {
     }
     ac_write_line(report, L"DETAIL: Accessible Chess did not expose a stable responsive visible application window before the startup deadline.");
     ac_flush_report(report);
+    CloseHandle(report);
+    report = INVALID_HANDLE_VALUE;
 
     if (child_stopped) {
         ac_copy(
@@ -678,7 +702,6 @@ static void ac_fail_startup_timeout(HANDLE report) {
     ac_append(g_message, AC_PATH_CAP + 2048, g_report_path);
     MessageBoxW(NULL, g_message, L"Accessible Chess — вікно не готове", MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
     ac_close_child_process_handle();
-    CloseHandle(report);
     ExitProcess(ERROR_TIMEOUT);
 }
 
@@ -900,7 +923,7 @@ void WINAPI wWinMainCRTStartup(void) {
         window_ready = ac_has_ready_window(g_process.dwProcessId);
         now = GetTickCount64();
         if (now - startup_started >= AC_STARTUP_WINDOW_TIMEOUT_MS) {
-            ac_fail_startup_timeout(report);
+            ac_fail_startup_timeout(report, root_guard, app_guard, data_guard);
         }
 
         if (window_ready) {
