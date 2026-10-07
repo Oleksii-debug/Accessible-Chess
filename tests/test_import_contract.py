@@ -6,6 +6,7 @@ from acs.import_contract import (
     ImportQuality,
     ImportedRecord,
     ImportReport,
+    SourceFingerprint,
     SourceReadCancelledError,
     UnsupportedChessBaseImporter,
     fingerprint,
@@ -52,6 +53,48 @@ class ImportContractTests(unittest.TestCase):
             path.write_bytes(b'abc')
             with self.assertRaisesRegex(TypeError, 'must return a boolean'):
                 fingerprint(path, cancel_check=lambda: 1)
+
+    def test_source_fingerprint_rejects_non_passive_or_noncanonical_fields(self):
+        valid = SourceFingerprint(
+            path='C:/fixtures/source.pgn',
+            size=0,
+            sha256='0' * 64,
+            suffix='.pgn',
+        )
+        valid.validate()
+
+        invalid_values = (
+            dict(path='', size=0, sha256='0' * 64, suffix='.pgn'),
+            dict(path='bad\x00path.pgn', size=0, sha256='0' * 64, suffix='.pgn'),
+            dict(path='source.pgn', size=True, sha256='0' * 64, suffix='.pgn'),
+            dict(path='source.pgn', size=-1, sha256='0' * 64, suffix='.pgn'),
+            dict(path='source.pgn', size=0, sha256='A' * 64, suffix='.pgn'),
+            dict(path='source.pgn', size=0, sha256='0' * 63, suffix='.pgn'),
+            dict(path='source.pgn', size=0, sha256='g' * 64, suffix='.pgn'),
+            dict(path='source.pgn', size=0, sha256='0' * 64, suffix='pgn'),
+            dict(path='source.pgn', size=0, sha256='0' * 64, suffix='.PGN'),
+        )
+        for fields in invalid_values:
+            with self.subTest(fields=fields):
+                with self.assertRaises((TypeError, ValueError)):
+                    SourceFingerprint(**fields)
+
+        with self.assertRaises((TypeError, ValueError)):
+            SourceFingerprint(
+                path=object(),  # type: ignore[arg-type]
+                size=0,
+                sha256='0' * 64,
+                suffix='.pgn',
+            )
+
+    def test_report_revalidates_source_fingerprint_before_observation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'source.pgn'
+            path.write_bytes(b'x')
+            source = fingerprint(path)
+            object.__setattr__(source, 'sha256', 'invalid')
+            with self.assertRaisesRegex(ValueError, 'sha256'):
+                ImportReport(source=source, format_name='test')
 
     def test_chessbase_placeholder_never_claims_full_import(self):
         with tempfile.TemporaryDirectory() as tmp:
