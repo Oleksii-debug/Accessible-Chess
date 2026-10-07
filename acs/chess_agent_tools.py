@@ -1,0 +1,759 @@
+from __future__ import annotations
+
+"""Concrete chess/media tools exposed to the Universal Chess Agent.
+
+The agent does not scrape Accessible Chess UI. Every tool calls the existing
+canonical Board, AnalysisService, GameSearchService or media timeline boundary.
+"""
+
+import asyncio
+from collections.abc import Callable, Mapping
+from dataclasses import asdict
+from typing import Protocol
+
+from .agent_books_training_tools import AgentBooksTrainingTools
+from .agent_speech_context_tools import AgentSpeechContextTools
+from .agent_tactile_tools import AgentTactileTools
+from .agent_gametree_tools import register_gametree_tools
+from .agent_library_tools import register_library_open_game_tool
+from .agent_tools import ToolExecutor, ToolRisk, ToolSpec
+from .analysis_service import AnalysisService
+from .board_service import BoardCommandService
+from .chessbase_adapter import (
+    component_extensions,
+    primary_extensions,
+    recognized_extensions,
+)
+from .chessbase_decoder import PROTOCOL_ID as CHESSBASE_DECODER_PROTOCOL_ID
+from .chesscore import Board
+from .continuous_analysis import ContinuousAnalysisService
+from .format_import_report_service import FormatImportReportService
+from .media_foundation import MediaClock, MediaContractError, MediaPositionTimeline
+from .pgn_workspace import PgnWorkspace
+from .squares import square_name
+from .search_service import GameSearchQuery, GameSearchService
+
+
+class MediaPlaybackPort(Protocol):
+    def play(self) -> None: ...
+    def pause(self) -> None: ...
+    def seek(self, position_ms: int) -> None: ...
+
+
+class ChessAgentToolsError(ValueError):
+    pass
+
+
+def _exact_int(value: object, *, name: str, minimum: int, maximum: int) -> int:
+    if type(value) is not int:
+        raise ChessAgentToolsError(f"{name} must be an integer")
+    if not minimum <= value <= maximum:
+        raise ChessAgentToolsError(
+            f"{name} must be between {minimum} and {maximum}"
+        )
+    return value
+
+
+def _optional_text(arguments: Mapping[str, object], name: str) -> str | None:
+    value = arguments.get(name)
+    if value is None:
+        return None
+    if type(value) is not str:
+        raise ChessAgentToolsError(f"{name} must be text")
+    value = value.strip()
+    return value or None
+
+
+def _canonical_extension(arguments: Mapping[str, object]) -> str:
+    if frozenset(arguments) != frozenset({"extension"}):
+        raise ChessAgentToolsError(
+            "formats.chessbase_extension requires exactly the extension argument"
+        )
+    value = arguments.get("extension")
+    if type(value) is not str:
+        raise ChessAgentToolsError("extension must be text")
+    value = value.strip().lower()
+    if not value:
+        raise ChessAgentToolsError("extension must not be empty")
+    if not value.startswith("."):
+        value = "." + value
+    body = value[1:]
+    if (
+        len(value) > 16
+        or not body
+        or not body.isascii()
+        or not body.isalnum()
+    ):
+        raise ChessAgentToolsError("extension is invalid")
+    return value
+
+
+class MediaAgentBridge:
+    """Bind the media timeline to agent tools without making it chess truth."""
+
+    def __init__(
+        self,
+        *,
+        clock: MediaClock,
+        timeline: MediaPositionTimeline,
+        board_set_fen: Callable[[str], None],
+        playback: MediaPlaybackPort | None = None,
+    ) -> None:
+        if type(clock) is not MediaClock:
+            raise TypeError("clock must be MediaClock")
+        if type(timeline) is not MediaPositionTimeline:
+            raise TypeError("timeline must be MediaPositionTimeline")
+        if not callable(board_set_fen):
+            raise TypeError("board_set_fen must be callable")
+        self.clock = clock
+        self.timeline = timeline
+        self.board_set_fen = board_set_fen
+        self.playback = playback
+
+    def status(self) -> dict[str, object]:
+        state = self.clock.state
+        binding = self.timeline.at(state.position_ms)
+        return {
+            "sessionId": state.session_id,
+            "sourceId": state.source_id,
+            "sourceKind": state.source_kind.value,
+            "positionMs": state.position_ms,
+            "durationMs": state.duration_ms,
+            "playbackState": state.playback_state.value,
+            "playbackRate": state.playback_rate,
+            "revision": state.revision,
+            "synchronizedFen": None if binding is None else binding.fen,
+            "synchronizedTreePath": (
+                None if binding is None else list(binding.tree_path)
+            ),
+            "qualification": None if binding is None else binding.state.value,
+        }
+
+    def restore(self) -> dict[str, object]:
+        state = self.clock.state
+        fen = self.timeline.restore_fen(state.position_ms)
+        canonical = Board(fen).fen()
+        self.board_set_fen(canonical)
+        binding = self.timeline.at(state.position_ms)
+        assert binding is not None
+        return {
+            "restored": True,
+            "positionMs": state.position_ms,
+            "fen": canonical,
+            "treePath": list(binding.tree_path),
+            "qualification": binding.state.value,
+        }
+
+    def play(self) -> dict[str, object]:
+        if self.playback is None:
+            raise MediaContractError("no playback provider is attached")
+        self.playback.play()
+        return {"requested": "play"}
+
+    def pause(self) -> dict[str, object]:
+        if self.playback is None:
+            raise MediaContractError("no playback provider is attached")
+        self.playback.pause()
+        return {"requested": "pause"}
+
+    def seek(self, position_ms: int) -> dict[str, object]:
+        if self.playback is None:
+            raise MediaContractError("no playback provider is attached")
+        self.playback.seek(position_ms)
+        return {"requested": "seek", "positionMs": position_ms}
+
+
+class ChessAgentToolRegistry:
+    """Register typed real-product tools on an Agent ToolExecutor."""
+
+    def __init__(
+        self,
+        *,
+        executor: ToolExecutor,
+        board_provider: Callable[[], Board],
+        board_commands_provider: Callable[[], BoardCommandService],
+        analysis_service: AnalysisService | None = None,
+        continuous_analysis: ContinuousAnalysisService | None = None,
+        search_service: GameSearchService | None = None,
+        format_report_service: FormatImportReportService | None = None,
+        media: MediaAgentBridge | None = None,
+        application_snapshot_provider: Callable[[], Mapping[str, object]] | None = None,
+        workspace_provider: Callable[[], PgnWorkspace] | None = None,
+        library_open_game_command: Callable[[Mapping[str, int]], object] | None = None,
+        speech_context_tools: AgentSpeechContextTools | None = None,
+        tactile_tools: AgentTactileTools | None = None,
+    ) -> None:
+        if type(executor) is not ToolExecutor:
+            raise TypeError("executor must be ToolExecutor")
+        if not callable(board_provider):
+            raise TypeError("board_provider must be callable")
+        if not callable(board_commands_provider):
+            raise TypeError("board_commands_provider must be callable")
+        self.executor = executor
+        self.board_provider = board_provider
+        self.board_commands_provider = board_commands_provider
+        if continuous_analysis is not None and not isinstance(
+            continuous_analysis, ContinuousAnalysisService
+        ):
+            raise TypeError(
+                "continuous_analysis must be ContinuousAnalysisService or None"
+            )
+        self.analysis_service = analysis_service
+        self.continuous_analysis = continuous_analysis
+        self.search_service = search_service
+        if format_report_service is not None and not isinstance(
+            format_report_service, FormatImportReportService
+        ):
+            raise TypeError(
+                "format_report_service must be FormatImportReportService or None"
+            )
+        self.format_report_service = format_report_service
+        self.media = media
+        if application_snapshot_provider is not None and not callable(
+            application_snapshot_provider
+        ):
+            raise TypeError("application_snapshot_provider must be callable or None")
+        self.application_snapshot_provider = application_snapshot_provider
+        if workspace_provider is not None and not callable(workspace_provider):
+            raise TypeError("workspace_provider must be callable or None")
+        self.workspace_provider = workspace_provider
+        if library_open_game_command is not None and not callable(
+            library_open_game_command
+        ):
+            raise TypeError("library_open_game_command must be callable or None")
+        self.library_open_game_command = library_open_game_command
+        if speech_context_tools is not None and type(speech_context_tools) is not AgentSpeechContextTools:
+            raise TypeError("speech_context_tools must be AgentSpeechContextTools or None")
+        if tactile_tools is not None and type(tactile_tools) is not AgentTactileTools:
+            raise TypeError("tactile_tools must be AgentTactileTools or None")
+        self.speech_context_tools = speech_context_tools
+        self.tactile_tools = tactile_tools
+
+    def register_all(self) -> tuple[ToolSpec, ...]:
+        self._register_board()
+        if self.workspace_provider is not None:
+            register_gametree_tools(self.executor, self.workspace_provider)
+        if self.analysis_service is not None:
+            self._register_engine()
+        if self.continuous_analysis is not None:
+            self._register_continuous_analysis()
+        if self.search_service is not None:
+            self._register_library()
+        if self.library_open_game_command is not None:
+            register_library_open_game_tool(
+                self.executor, self.library_open_game_command
+            )
+        self._register_formats()
+        if self.media is not None:
+            self._register_media()
+        if self.speech_context_tools is not None:
+            self.speech_context_tools.register(self.executor)
+        if self.tactile_tools is not None:
+            self.tactile_tools.register(self.executor)
+        if self.application_snapshot_provider is not None:
+            AgentBooksTrainingTools(self.application_snapshot_provider).register(
+                self.executor
+            )
+        return self.executor.specs()
+
+    def _board(self) -> Board:
+        board = self.board_provider()
+        if type(board) is not Board:
+            raise TypeError(
+                "board_provider must return canonical chesscore.Board"
+            )
+        return board
+
+    def _board_commands(self) -> BoardCommandService:
+        service = self.board_commands_provider()
+        if type(service) is not BoardCommandService:
+            raise TypeError(
+                "board_commands_provider must return BoardCommandService"
+            )
+        return service
+
+    def _register_board(self) -> None:
+        async def current(_arguments: Mapping[str, object]) -> object:
+            board = self._board()
+            service = self._board_commands()
+            last_move = service.last_move()
+            return {
+                "fen": board.fen(),
+                "turn": service.board.turn,
+                "inCheck": board.in_check(),
+                "legalMoveCount": len(service.board.legal_moves),
+                "lastMove": (
+                    None
+                    if last_move is None
+                    else {
+                        "from": last_move.frm,
+                        "to": last_move.to,
+                        "san": last_move.san,
+                        "capture": last_move.is_capture,
+                    }
+                ),
+            }
+
+        async def square(arguments: Mapping[str, object]) -> object:
+            raw = arguments.get("square")
+            if type(raw) is not str:
+                raise ChessAgentToolsError(
+                    "square must be algebraic text"
+                )
+            name = raw.strip().lower()
+            service = self._board_commands()
+            view = service.current(name)
+            return {
+                "square": view.square,
+                "piece": view.piece,
+                "attackers": [
+                    {"square": item.square, "piece": item.piece}
+                    for item in service.attackers(name)
+                ],
+                "defenders": [
+                    {"square": item.square, "piece": item.piece}
+                    for item in service.defenders(name)
+                ],
+            }
+
+        async def legal_moves(
+            _arguments: Mapping[str, object],
+        ) -> object:
+            service = self._board_commands()
+            moves = service.board.legal_moves
+            labels = [
+                move.san or f"{square_name(move.frm)}-{square_name(move.to)}"
+                for move in moves
+            ]
+            return {
+                "moves": labels,
+                "count": len(moves),
+            }
+
+        async def material(
+            _arguments: Mapping[str, object],
+        ) -> object:
+            view = self._board_commands().material()
+            return {
+                "white": dict(view.white),
+                "black": dict(view.black),
+                "whitePoints": view.white_points,
+                "blackPoints": view.black_points,
+                "balance": view.balance,
+            }
+
+        self.executor.register(
+            ToolSpec(
+                "board.current",
+                "Read the current canonical board position.",
+            ),
+            current,
+        )
+        self.executor.register(
+            ToolSpec(
+                "board.square",
+                "Describe one square using canonical board-command data.",
+                input_schema={"square": "a1-h8"},
+            ),
+            square,
+        )
+        self.executor.register(
+            ToolSpec(
+                "board.legal_moves",
+                "List canonical legal SAN moves from the current position.",
+            ),
+            legal_moves,
+        )
+        self.executor.register(
+            ToolSpec(
+                "board.material",
+                "Read the canonical material summary.",
+            ),
+            material,
+        )
+
+    def _register_engine(self) -> None:
+        service = self.analysis_service
+        assert service is not None
+
+        async def analyze(arguments: Mapping[str, object]) -> object:
+            board = self._board()
+            multipv = _exact_int(
+                arguments.get("multipv", 3),
+                name="multipv",
+                minimum=1,
+                maximum=10,
+            )
+            depth = _exact_int(
+                arguments.get("depth", 16),
+                name="depth",
+                minimum=1,
+                maximum=40,
+            )
+            result = await asyncio.to_thread(
+                service.analyze,
+                board.fen(),
+                multipv,
+                depth,
+            )
+            return result.as_dict()
+
+        self.executor.register(
+            ToolSpec(
+                "engine.analyze",
+                "Analyze the current canonical position with the configured engine.",
+                timeout_seconds=120.0,
+                input_schema={"multipv": "1-10", "depth": "1-40"},
+            ),
+            analyze,
+        )
+
+    def _register_continuous_analysis(self) -> None:
+        service = self.continuous_analysis
+        assert service is not None
+
+        def snapshot() -> dict[str, object]:
+            state = service.state()
+            current_fen = self._board().fen()
+            position_current = state.fen == current_fen
+            result = state.last_result
+            if (
+                result is None
+                or not position_current
+                or result.fen != current_fen
+                or result.stale
+            ):
+                result_payload = None
+            else:
+                result_payload = result.as_dict()
+            return {
+                "running": state.running,
+                "revision": state.revision,
+                "requestedFen": state.fen,
+                "currentFen": current_fen,
+                "positionCurrent": position_current,
+                "multipv": state.multipv,
+                "depth": state.depth,
+                "result": result_payload,
+            }
+
+        async def request_analysis(
+            arguments: Mapping[str, object],
+        ) -> object:
+            allowed = frozenset({"multipv", "depth"})
+            if not frozenset(arguments).issubset(allowed):
+                raise ChessAgentToolsError(
+                    "engine.request_analysis received an unsupported argument"
+                )
+            multipv = _exact_int(
+                arguments.get("multipv", 5),
+                name="multipv",
+                minimum=1,
+                maximum=10,
+            )
+            depth = _exact_int(
+                arguments.get("depth", 16),
+                name="depth",
+                minimum=1,
+                maximum=40,
+            )
+            board = self._board()
+            service.start(board.fen(), multipv=multipv, depth=depth)
+            return snapshot()
+
+        async def analysis_status(
+            arguments: Mapping[str, object],
+        ) -> object:
+            if arguments:
+                raise ChessAgentToolsError(
+                    "engine.analysis_status accepts no arguments"
+                )
+            return snapshot()
+
+        async def cancel_analysis(
+            arguments: Mapping[str, object],
+        ) -> object:
+            if arguments:
+                raise ChessAgentToolsError(
+                    "engine.cancel_analysis accepts no arguments"
+                )
+            service.stop()
+            return snapshot()
+
+        self.executor.register(
+            ToolSpec(
+                "engine.request_analysis",
+                "Request coalescing analysis for the current canonical board position.",
+                risk=ToolRisk.LOCAL_WRITE,
+                input_schema={
+                    "multipv": "optional 1-10",
+                    "depth": "optional 1-40",
+                },
+            ),
+            request_analysis,
+        )
+        self.executor.register(
+            ToolSpec(
+                "engine.analysis_status",
+                "Read continuous-analysis state and only current-position results.",
+            ),
+            analysis_status,
+        )
+        self.executor.register(
+            ToolSpec(
+                "engine.cancel_analysis",
+                "Cancel the current continuous-analysis request.",
+                risk=ToolRisk.LOCAL_WRITE,
+            ),
+            cancel_analysis,
+        )
+
+    def _register_library(self) -> None:
+        service = self.search_service
+        assert service is not None
+
+        async def search(arguments: Mapping[str, object]) -> object:
+            limit = _exact_int(
+                arguments.get("limit", 20),
+                name="limit",
+                minimum=1,
+                maximum=200,
+            )
+            query = GameSearchQuery(
+                player=_optional_text(arguments, "player"),
+                event=_optional_text(arguments, "event"),
+                eco=_optional_text(arguments, "eco"),
+                opening=_optional_text(arguments, "opening"),
+                game_date=_optional_text(arguments, "game_date"),
+                date_from=_optional_text(arguments, "date_from"),
+                date_to=_optional_text(arguments, "date_to"),
+                result=_optional_text(arguments, "result"),
+                source_name=_optional_text(arguments, "source_name"),
+                limit=limit,
+            )
+            # GameSearchService owns a thread-affine ACSDB connection. The host
+            # must create and execute this registry on the service owner thread;
+            # moving only the query to a worker thread violates that contract.
+            page = service.search(query)
+            return {
+                "items": [asdict(item) for item in page.items],
+                "hasMore": page.has_more,
+                "nextAfterGameId": page.next_after_game_id,
+            }
+
+        self.executor.register(
+            ToolSpec(
+                "library.search",
+                "Search canonical ACSDB/Library game metadata.",
+                timeout_seconds=30.0,
+                input_schema={
+                    "player": "optional text",
+                    "event": "optional text",
+                    "eco": "optional text",
+                    "opening": "optional text",
+                    "game_date": "optional source date",
+                    "date_from": "optional YYYY.MM.DD",
+                    "date_to": "optional YYYY.MM.DD",
+                    "result": "optional game result",
+                    "source_name": "optional text",
+                    "limit": "1-200",
+                },
+            ),
+            search,
+        )
+
+    def _register_formats(self) -> None:
+        recognized = recognized_extensions()
+        primaries = primary_extensions()
+        components = component_extensions()
+        recognized_set = frozenset(recognized)
+        primary_set = frozenset(primaries)
+        component_set = frozenset(components)
+
+        async def capabilities(arguments: Mapping[str, object]) -> object:
+            if arguments:
+                raise ChessAgentToolsError(
+                    "formats.capabilities accepts no arguments"
+                )
+            return {
+                "chessBase": {
+                    "recognizedExtensions": list(recognized),
+                    "primaryExtensions": list(primaries),
+                    "componentExtensions": list(components),
+                    "recognitionAuthority": "filename_and_component_layout_only",
+                    "sourceReadOnly": True,
+                    "decoderProtocol": CHESSBASE_DECODER_PROTOCOL_ID,
+                    "decoderBackend": "external_not_bundled",
+                    "neutralOutputRequired": True,
+                }
+            }
+
+        async def chessbase_extension(arguments: Mapping[str, object]) -> object:
+            extension = _canonical_extension(arguments)
+            return {
+                "extension": extension,
+                "recognized": extension in recognized_set,
+                "primarySource": extension in primary_set,
+                "componentOnly": extension in component_set,
+                "recognitionAuthority": "filename_and_component_layout_only",
+                "sourceReadOnly": True,
+                "decoderProtocol": CHESSBASE_DECODER_PROTOCOL_ID,
+                "decoderBackend": "external_not_bundled",
+                "builtInSafeToImport": False,
+            }
+
+        self.executor.register(
+            ToolSpec(
+                "formats.capabilities",
+                "Read canonical format-family capability metadata without reading a user file.",
+            ),
+            capabilities,
+        )
+        self.executor.register(
+            ToolSpec(
+                "formats.chessbase_extension",
+                "Classify one ChessBase-family extension using the canonical read-only adapter contract.",
+                input_schema={"extension": "extension such as .cbh or cbv"},
+            ),
+            chessbase_extension,
+        )
+
+        reports = self.format_report_service
+        if reports is None:
+            return
+
+        async def import_report(arguments: Mapping[str, object]) -> object:
+            if frozenset(arguments) != frozenset({"attempt_id"}):
+                raise ChessAgentToolsError(
+                    "formats.import_report requires exactly attempt_id"
+                )
+            attempt_id = _exact_int(
+                arguments.get("attempt_id"),
+                name="attempt_id",
+                minimum=1,
+                maximum=(1 << 63) - 1,
+            )
+            report = reports.get(attempt_id)
+            return {
+                "attemptId": attempt_id,
+                "found": report is not None,
+                "report": None if report is None else report.as_dict(),
+            }
+
+        async def import_reports(arguments: Mapping[str, object]) -> object:
+            allowed = frozenset({"status", "before_id", "limit"})
+            if not frozenset(arguments).issubset(allowed):
+                raise ChessAgentToolsError(
+                    "formats.import_reports received an unsupported argument"
+                )
+            status = arguments.get("status")
+            if status is not None and type(status) is not str:
+                raise ChessAgentToolsError("status must be text")
+            before_id = arguments.get("before_id")
+            if before_id is not None:
+                before_id = _exact_int(
+                    before_id,
+                    name="before_id",
+                    minimum=1,
+                    maximum=(1 << 63) - 1,
+                )
+            limit = _exact_int(
+                arguments.get("limit", 20),
+                name="limit",
+                minimum=1,
+                maximum=100,
+            )
+            return reports.list(
+                status=status,
+                before_id=before_id,
+                limit=limit,
+            ).as_dict()
+
+        self.executor.register(
+            ToolSpec(
+                "formats.import_report",
+                "Read one persisted canonical Library import report by attempt id.",
+                input_schema={"attempt_id": "positive import attempt id"},
+            ),
+            import_report,
+        )
+        self.executor.register(
+            ToolSpec(
+                "formats.import_reports",
+                "List bounded persisted Library import reports newest-first.",
+                input_schema={
+                    "status": "optional pending/full/warning/damaged/failed",
+                    "before_id": "optional positive keyset cursor",
+                    "limit": "1-100",
+                },
+            ),
+            import_reports,
+        )
+
+    def _register_media(self) -> None:
+        media = self.media
+        assert media is not None
+
+        async def status(_arguments: Mapping[str, object]) -> object:
+            return media.status()
+
+        async def restore(_arguments: Mapping[str, object]) -> object:
+            return media.restore()
+
+        async def play(_arguments: Mapping[str, object]) -> object:
+            return media.play()
+
+        async def pause(_arguments: Mapping[str, object]) -> object:
+            return media.pause()
+
+        async def seek(arguments: Mapping[str, object]) -> object:
+            position = _exact_int(
+                arguments.get("position_ms"),
+                name="position_ms",
+                minimum=0,
+                maximum=24 * 60 * 60 * 1000,
+            )
+            return media.seek(position)
+
+        self.executor.register(
+            ToolSpec(
+                "media.status",
+                "Read media playback and synchronized-board state.",
+            ),
+            status,
+        )
+        self.executor.register(
+            ToolSpec(
+                "media.restore_position",
+                "Restore the board to the current media timeline position.",
+                risk=ToolRisk.LOCAL_WRITE,
+            ),
+            restore,
+        )
+        self.executor.register(
+            ToolSpec(
+                "media.play",
+                "Request playback from the attached media provider.",
+                risk=ToolRisk.LOCAL_WRITE,
+            ),
+            play,
+        )
+        self.executor.register(
+            ToolSpec(
+                "media.pause",
+                "Pause the attached media provider.",
+                risk=ToolRisk.LOCAL_WRITE,
+            ),
+            pause,
+        )
+        self.executor.register(
+            ToolSpec(
+                "media.seek",
+                "Seek the attached media provider to an exact timestamp.",
+                risk=ToolRisk.LOCAL_WRITE,
+                input_schema={
+                    "position_ms": "non-negative integer milliseconds"
+                },
+            ),
+            seek,
+        )

@@ -1,0 +1,60 @@
+name: Sections 23-24 Agent Coach Reliability Closure
+
+on:
+  pull_request:
+    branches:
+      - work/media-agent-crossrepo-intake-20261005
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sections23-24-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  closure:
+    name: ${{ matrix.os }} exact-head closure
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install exact test dependencies
+        run: python -m pip install pytest==8.4.2 httpx==0.28.1
+
+      - name: Compile Section 23-24 surface
+        run: >-
+          python -m py_compile
+          acs/universal_chess_agent.py
+          acs/chess_agent_tools.py
+          acs/agent_gametree_tools.py
+          acs/agent_books_training_tools.py
+          acs/agent_coach.py
+          acs/agent_reliability.py
+          acs/agent_voice.py
+
+      - name: Run Section 23-24 closure regressions
+        run: python -m unittest tests.test_sections23_24_agent_closure
+
+      - name: Run retained qualified GameTree and Books Training regressions
+        run: python -m unittest tests.test_agent_gametree_tools tests.test_agent_books_training_tools
+
+      - name: Run retained Universal Agent and chess-tool contracts
+        run: python -m unittest tests.test_universal_chess_agent_crossrepo tests.test_chess_agent_tools_crossrepo
+
+      - name: Core selftest
+        run: python -m acs.selftest
