@@ -47,7 +47,7 @@ The following are **active required product scope now**, not distant backlog:
 - the Universal Chess Agent over typed Accessible Chess application tools;
 - simplified Classroom/teaching core where it delivers concrete value.
 
-These are parallel implementation lanes, not a mandatory serial queue. If a worker's original lane is complete or genuinely blocked, it should refresh live ownership and take another highest-value unowned active lane rather than stop.
+These remain required product scope, but they are subordinate to the Sequential closure authority below. They do not authorize skipping the earliest unfinished Section. If work on the primary front is complete or genuinely non-actionable, refresh live state and take only dependency-safe work consistent with the ordered frontier.
 
 Any older repository text that says the AI Coach/Agent or media intelligence must not be implemented yet is superseded by the 2026-10-05 owner amendment.
 
