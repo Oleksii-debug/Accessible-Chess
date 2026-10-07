@@ -20,6 +20,7 @@ from .teacher_presentation import (
     TeacherPresentationState,
 )
 from .teaching_session import TeachingSessionState
+from .visual_board_contract import build_visual_board_contract
 
 _ALLOWED_PERMISSIONS = frozenset({"locked", "select_only", "move_allowed"})
 _ALLOWED_ENGINE_VISIBILITY = frozenset(
@@ -70,6 +71,7 @@ class TeacherWebViewProjection:
         *,
         position_fen_provider: Callable[[], str] | None = None,
         teaching_state_provider: Callable[[], TeachingSessionState] | None = None,
+        visual_snapshot_provider: Callable[[bool], Mapping[str, object]] | None = None,
     ) -> None:
         if not isinstance(teacher, TeacherPresentationState):
             raise TypeError("teacher must be TeacherPresentationState")
@@ -77,11 +79,14 @@ class TeacherWebViewProjection:
             raise TypeError("position_fen_provider must be callable or None")
         if teaching_state_provider is not None and not callable(teaching_state_provider):
             raise TypeError("teaching_state_provider must be callable or None")
+        if visual_snapshot_provider is not None and not callable(visual_snapshot_provider):
+            raise TypeError("visual_snapshot_provider must be callable or None")
         if position_fen_provider is not None and teaching_state_provider is not None:
             raise ValueError("choose one canonical teaching-position provider")
         self._teacher = teacher
         self._position_fen_provider = position_fen_provider
         self._teaching_state_provider = teaching_state_provider
+        self._visual_snapshot_provider = visual_snapshot_provider
 
     @classmethod
     def from_teaching_session(
@@ -90,6 +95,7 @@ class TeacherWebViewProjection:
         state_provider: Callable[[], TeachingSessionState],
         *,
         feedback_limit: int = 50,
+        visual_snapshot_provider: Callable[[bool], Mapping[str, object]] | None = None,
     ) -> "TeacherWebViewProjection":
         """Compose the WebView surface directly over canonical teaching state.
 
@@ -113,7 +119,11 @@ class TeacherWebViewProjection:
             presentation_provider,
             feedback_limit=feedback_limit,
         )
-        return cls(teacher, teaching_state_provider=state_provider)
+        return cls(
+            teacher,
+            teaching_state_provider=state_provider,
+            visual_snapshot_provider=visual_snapshot_provider,
+        )
 
     @staticmethod
     def _read_teaching_state(
@@ -233,7 +243,14 @@ class TeacherWebViewProjection:
             return "No teaching annotations." if language == "en" else "Навчальних позначок немає."
         return ". ".join(parts) + "."
 
-    def snapshot(self, *, language: str = "uk") -> dict[str, object]:
+    def snapshot(
+        self,
+        *,
+        language: str = "uk",
+        include_visual_assets: bool = True,
+    ) -> dict[str, object]:
+        if type(include_visual_assets) is not bool:
+            raise TypeError("include_visual_assets must be boolean")
         # The canonical TeachingSession path reads exactly one immutable state
         # revision, so pieces and presentation overlays cannot tear across
         # concurrent session updates.
@@ -305,7 +322,7 @@ class TeacherWebViewProjection:
         highlight_items = tuple(highlights)
         arrow_items = tuple(arrows)
         piece_items = self._piece_items(language=lang, fen=fen)
-        return {
+        result: dict[str, object] = {
             "board": {
                 "orientation": self._teacher.orientation.value,
                 "coordinates_visible": coordinates_visible,
@@ -328,6 +345,33 @@ class TeacherWebViewProjection:
                 for event in self._teacher.feedback_events(limit=10)
             ),
         }
+        if self._visual_snapshot_provider is not None:
+            visual = self._visual_snapshot_provider(include_visual_assets)
+            if not isinstance(visual, Mapping) or any(
+                type(key) is not str for key in visual
+            ):
+                raise TypeError("visual snapshot provider must return a text-key mapping")
+            legal_squares = tuple(
+                str(item["square"])
+                for item in highlight_items
+                if str(item.get("purpose") or "").strip().lower() in {
+                    "legal", "legal-move", "legal_move", "legal move"
+                }
+            )
+            contract = build_visual_board_contract(
+                "teacher",
+                visual,
+                selected_square=(
+                    str(pointer_item["square"])
+                    if pointer_item is not None
+                    else None
+                ),
+                legal_squares=legal_squares,
+            )
+            result["visualBoard"] = contract
+            # Compatibility alias used by the already accepted Teacher renderer.
+            result["visual"] = contract["visual"]
+        return result
 
     def type_pointer_text(self, text: str) -> TeacherWebViewEvent:
         value = str(text)
@@ -345,7 +389,10 @@ class TeacherWebViewProjection:
         orientation = self._teacher.toggle_orientation()
         return TeacherWebViewEvent(
             "render",
-            {"orientation": orientation.value, "snapshot": self.snapshot()},
+            {
+                "orientation": orientation.value,
+                "snapshot": self.snapshot(include_visual_assets=False),
+            },
         )
 
     def record_student_event(
