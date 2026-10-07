@@ -18,6 +18,7 @@ MAX_COORDINATE_POSITION_CHARS = 4096
 # Python integer-to-string conversion amplification.
 _MAX_FEN_COUNTER_EXCLUSIVE = 10 ** MAX_FEN_CHARS
 _MAX_SQUARE_DIAGNOSTIC_CHARS = 16
+_MAX_PIECE_DIAGNOSTIC_CHARS = 16
 _MAX_CASTLING_TEXT_CHARS = 256
 _POSITION_SECTIONS_RE = re.compile(
     r"(?is)^\s*W\s*:\s*(?P<white>.*?)\s*\bB\s*:\s*(?P<black>.*?)\s*$"
@@ -340,10 +341,15 @@ def _fill_coordinate_section(
 
     result = position
     for index in range(0, len(tokens), 2):
-        piece = tokens[index].upper()
+        raw_piece = tokens[index]
+        piece = raw_piece.upper()
         square = tokens[index + 1].lower()
         if piece not in "KQRBNP":
-            raise ValueError(f"unknown piece symbol: {tokens[index]}")
+            if len(raw_piece) <= _MAX_PIECE_DIAGNOSTIC_CHARS:
+                diagnostic = raw_piece
+            else:
+                diagnostic = raw_piece[:_MAX_PIECE_DIAGNOSTIC_CHARS] + "…"
+            raise ValueError(f"unknown piece symbol: {diagnostic}")
         if square in used:
             raise ValueError(f"square {square} is specified more than once")
         try:
