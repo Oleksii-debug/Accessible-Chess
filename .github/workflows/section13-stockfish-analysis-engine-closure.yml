@@ -1,0 +1,69 @@
+name: Section 13 Stockfish Analysis Engine Closure
+
+on:
+  pull_request:
+    branches:
+      - prepare/section1-on-section0-20261007-sol56
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  section13:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12.10"
+      - name: Prove bounded closure evidence branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          parent=cc379e0de20512303e6dbcbd9c6d135cf59d4363
+          git cat-file -e "$parent^{commit}"
+          test "$(git merge-base "$parent" HEAD)" = "$parent"
+          mapfile -t paths < <(git diff --name-only "$parent"...HEAD | sort)
+          test "${#paths[@]}" -eq 1
+          test "${paths[0]}" = ".github/workflows/section13-stockfish-analysis-engine-closure.yml"
+          git diff --check "$parent"...HEAD
+      - name: Compile Section 13 authorities
+        run: >-
+          python -m py_compile
+          acs/engine.py
+          acs/stockfish_runtime.py
+          acs/analysis_service.py
+          acs/continuous_analysis.py
+          acs/ui_analysis_adapter.py
+          acs/engine_play_service.py
+          acs/engine_game_session.py
+      - name: Execute Section 13 contract suites
+        run: >-
+          python -m unittest -v
+          tests.test_stockfish_runtime
+          tests.test_d03_stockfish_hard_shutdown
+          tests.test_analysis_service
+          tests.test_continuous_analysis
+          tests.test_ui_analysis_adapter
+          tests.test_ui_analysis_webapp
+          tests.test_analysis_webview_bridge
+          tests.test_engine_play_service
+          tests.test_engine_play_service_concurrency
+          tests.test_engine_game_session
+          tests.test_engine_game_timeout_ownership
+          tests.test_stage1_engine_play_ui
+          tests.test_release_stockfish_composition
+          tests.test_current_product_engine_status_user_copy
+          tests.test_stage1_release_composition_ui
+      - name: Core selftest
+        run: python -m acs.selftest
