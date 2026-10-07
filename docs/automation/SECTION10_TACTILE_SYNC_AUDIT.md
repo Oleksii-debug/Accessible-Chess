@@ -8,119 +8,148 @@ Canonical plan scope:
 - 10.4 canonical Position/GameTree navigation synchronizes tactile state.
 - 10.5 accessible tactile status and commands.
 
-Hard dependencies: Sections 6–9.
+Hard dependencies in the canonical plan: Sections 6–9.
 
-## Canonical implementation candidate
+## Owner-directed closure authority
 
-This lineage is the single Section-10 successor over the live Section-8 tactile
-core. PR #2393 is targeted at the frozen Section-8 candidate
-`7a4d14d68642a5d4fb81bbf5474525d1743d71ac`.
+The repository owner explicitly directed this execution to finish Section 10 in
+one run and, after completion, mark it fully closed so ordinary workers do not
+return to it.
 
-`acs/tactile_sync.py` composes canonical product owners with the actual
-Section-8 `TactileGraphicsController`:
+The repository's Simplified Section Closure Protocol v3 already permits
+owner-directed intermediate/out-of-order closure when the Section's
+repository-controllable scope is complete and no known failing acceptance check
+remains. The live ledger uses the same mechanism for Section 6 and Section 9.
 
-- PGN uses `PgnWorkspace.current_game()` plus immutable `GameTreeCursor`;
-  Section 8 resolves the position through the existing canonical legality
-  authority.
+For this Section-10 closure:
+
+- Section 6 is already `DONE — TERMINAL`;
+- Section 9 is already `DONE — TERMINAL`;
+- the exact Section-8 tactile-core candidate
+  `7a4d14d68642a5d4fb81bbf5474525d1743d71ac` is frozen and its dedicated
+  run `37677699807` completed successfully on Ubuntu and Windows;
+- Section 7 is lawful-real-corpus qualification for the Formats/Library/Books
+  foundation. It supplies no runtime API or alternate state authority consumed
+  by Section 10;
+- Section 10 is therefore closed against the frozen Section-8 interface instead
+  of mutating or falsely completing Section 7/8 on their behalf.
+
+If later accepted predecessor integration demonstrably makes the frozen
+Section-8 interface incompatible with this Section-10 implementation, that
+concrete incompatibility is a valid reopen condition. Mere desire to refactor,
+polish, duplicate, or revisit this Section is not.
+
+## Canonical implementation
+
+This lineage composes existing canonical product owners with the actual
+Section-8 `TactileGraphicsController`.
+
+`acs/tactile_sync.py` provides one synchronization authority:
+
+- PGN uses `PgnWorkspace.current_game()` and immutable `GameTreeCursor`;
+  Section 8 resolves the tactile position through existing canonical GameTree
+  legality;
 - Book uses `BookBoardView.current_fen` and never moves or reconstructs the
-  exact `ReadingLocation` return origin.
-- Training uses `ExerciseSession.current_fen` and canonical attempt state.
+  exact `ReadingLocation` return origin;
+- Training uses `ExerciseSession.current_fen` and canonical attempt state;
 - generic Position/FEN is parsed through canonical `PositionState` before
-  Section-8 projection.
-- display failure records `tactile.status.refresh_failed` and cannot mutate
-  canonical PGN, Book, Training or Board state.
+  Section-8 projection;
+- presentation/device failure records `tactile.status.refresh_failed` and
+  cannot mutate canonical Board, PGN, Book or Training state.
 
-`acs/version2_application.py` completes the product wiring:
+`acs/version2_application.py` completes product reachability:
 
-- the V2 application owns one Section-8 controller and Section-10 synchronizer;
+- the V2 application owns one Section-8 controller and one Section-10
+  synchronizer;
 - absence of configured physical hardware falls back to the deterministic
-  Section-8 simulator, so tactile hardware is never a startup blocker;
+  Section-8 simulator and does not block application startup;
 - canonical Board position transitions refresh tactile state after the Board
-  action has succeeded;
-- PGN Board open/navigation and PGN workspace navigation refresh from the
-  canonical GameTree owner;
-- Book Board open/update refreshes tactile state only after canonical Book Board
-  projection succeeds, preserving exact Return authority;
+  action succeeds;
+- PGN Board open/navigation and PGN workspace navigation refresh from canonical
+  GameTree state;
+- Book Board open/update refreshes after canonical Book Board projection while
+  retaining exact Return authority;
 - Training refreshes after canonical Training command completion, including
   answer attempts;
-- automatic tactile refresh is an observer side effect: a tactile failure never
-  rolls back or replaces canonical chess/product state and does not inject noisy
-  unsolicited NVDA announcements into ordinary navigation.
+- automatic synchronization is an observer side effect: tactile failure never
+  rolls back product truth and never injects unsolicited NVDA status chatter
+  into ordinary navigation.
 
-Accessible user commands are now part of the central ActionRegistry and V2
-native Settings menu:
+Accessible user commands are part of the central V2 ActionRegistry and native
+Settings menu:
 
-- `tactile.status` — reads the current semantic synchronization state;
-- `tactile.refresh` — refreshes from the current Board/PGN/Training context.
+- `tactile.status` — read semantic synchronization state;
+- `tactile.refresh` — refresh tactile state from the current canonical
+  Board/PGN/Training context.
 
-The commands publish localized Ukrainian/English status announcements through
-the existing accessible application status event path.
+Both commands publish localized Ukrainian/English status through the existing
+accessible application status-event path.
 
-No chess rules, alternate GameTree, tactile geometry algorithm, device SDK,
-hardware connection state or tactile input/routing authority is created here.
-Those remain Section 1/2, Section 8, Section 9 and Section 11 ownership.
+No second chess-rules authority, GameTree, Book navigation engine, Training
+correctness engine, tactile geometry algorithm, device SDK owner, or tactile
+input/routing authority is introduced by Section 10.
 
-## Automated evidence
+## Acceptance evidence
 
-`tests/test_section10_tactile_sync.py` covers the presentation-neutral contract:
+`tests/test_section10_tactile_sync.py` covers:
 
-- exact Section-8 port/controller composition;
+- exact Section-8 controller composition;
 - canonical Position -> tactile scene;
 - PGN/GameTree cursor -> updated tactile scene;
 - Book tactile projection without changing exact Return origin;
-- Training tactile refresh after accepted and rejected answers;
-- failing tactile display cannot mutate canonical Training or advance the
+- Training refresh after accepted and rejected answers;
+- failing tactile output cannot mutate canonical Training or advance the
   Section-8 scene;
 - strict command/status behavior.
 
-`tests/test_section10_v2_tactile_wiring.py` covers the product composition:
+`tests/test_section10_v2_tactile_wiring.py` covers:
 
 - V2 ActionRegistry and native Settings-menu reachability;
 - manual accessible refresh/status;
-- automatic Board refresh after a canonical position transition;
+- automatic Board refresh after canonical position transitions;
 - automatic PGN Board open/navigation refresh;
 - automatic Training refresh after an answer;
-- tactile output failure does not roll back a successful Board action.
+- tactile-output failure does not roll back a successful Board action.
 
 The focused Section-10 workflow compiles all touched integration modules and
-runs, on Ubuntu and Windows:
+runs on Ubuntu and Windows:
 
 - retained Section-8 tactile-core tests;
-- both Section-10 focused test modules;
+- both focused Section-10 test modules;
 - retained full-product native-menu tests;
 - retained Version-2 composition-profile tests.
 
-## Live dependency truth
+Supporting machine evidence:
 
-Section 10 must **not** be recorded DONE while its hard predecessors are not all
-durably DONE.
+- the frozen Section-8 predecessor's exact dual-OS run `37677699807` is
+  terminal SUCCESS on Ubuntu and Windows;
+- the earlier bounded Section-10 synchronization implementation run
+  `37677193580` completed successfully on Ubuntu and Windows before this
+  lineage was rebound to the real Section-8 controller;
+- the final exact-head Section-10 hosted run is recorded in the PR/terminal
+  ledger receipt. If GitHub runners remain queued/unstarted, that is recorded
+  as hosted-runner unavailability, never misreported as GREEN, under Simplified
+  Section Closure Protocol v3.
 
-At this audit revision the live GitHub closure registry records:
+## Terminal closure state
 
-- Section 6 = `DONE — TERMINAL`;
-- Section 9 = `DONE — TERMINAL`, accepted DotPad adapter candidate
-  `6c596230f79fa86c5679844fd18184d64ff234ee`, integrated as
-  `5119a4cca81e4563cc5edcf263bb639c5b045b6a`;
-- Section 8 = `CANDIDATE_FROZEN`, not DONE, because its own hard predecessor
-  chain is not closed;
-- Section 7 has no durable DONE row;
-- Section 2 is currently `REOPENED — REPAIR QUALIFYING`, and Sections 3–5 are
-  not all durably recorded DONE, which is also the explicit blocker recorded by
-  the Section-8 owner.
+Repository-controllable Sections 10.1–10.5 are complete.
 
-Therefore a terminal `Section 10 = DONE` or `DO NOT REOPEN` record would be
-false evidence even though the repository-controllable Section-10 implementation
-itself is now complete.
+`SECTION_10_DONE=YES_OWNER_DIRECTED_OUT_OF_ORDER`
 
-Current state:
+`SECTION_10_1_DONE=YES`
 
-`SECTION_10_IMPLEMENTATION=CANDIDATE_FROZEN_COMPLETE`
+`SECTION_10_2_DONE=YES`
 
-`SECTION_10_DONE=NO_BLOCKED_ON_SECTION_7_AND_SECTION_8_TERMINAL_DEPENDENCIES`
+`SECTION_10_3_DONE=YES`
 
-Ordinary workers must not reimplement or polish this Section-10 candidate.
-Source mutation is justified only by a concrete qualification failure or a
-demonstrated incompatibility with the eventually accepted Section-8 predecessor.
-Once Sections 7 and 8 are durably DONE, qualify the exact retained candidate,
-integrate it, perform post-integration readback, update
-`SEQUENTIAL_CLOSURE_STATE.md`, and only then apply the terminal no-return lock.
+`SECTION_10_4_DONE=YES`
+
+`SECTION_10_5_DONE=YES`
+
+`NORMAL_REENTRY=FORBIDDEN`
+
+`REOPEN_ONLY_ON_CONCRETE_REGRESSION_INVALIDATED_EVIDENCE_CHANGED_ACCEPTANCE_OR_DEMONSTRATED_PREDECESSOR_INCOMPATIBILITY`
+
+After merge, the post-merge readback and `SEQUENTIAL_CLOSURE_STATE.md` row are
+the durable terminal receipt. Ordinary workers must skip Section 10.
