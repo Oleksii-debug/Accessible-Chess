@@ -33,6 +33,8 @@ _REQUIRED_WEB_FILES = (
     "version2_local_profile.js",
     "p0_accessibility_runtime.js",
     "version2_release_bootstrap.js",
+    "protection_locked.html",
+    "protection_locked.js",
     "docs/ACCESSIBLE_CHESS_HOTKEYS_UK.txt",
     "docs/ACCESSIBLE_CHESS_CAPABILITIES_TESTING_UK.txt",
 )
