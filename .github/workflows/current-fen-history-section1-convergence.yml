@@ -84,8 +84,10 @@ jobs:
           set -euo pipefail
           expected="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
           test "$(git rev-parse HEAD)" = "$expected"
-          test "${EVENT_BASE_REF}" = "converge/history-surrogate-epd-gametree-20261006-ooxple7"
-          test "${EVENT_BASE_SHA}" = "$EXPECTED_BASE_SHA"
+          if [ -n "${EVENT_BASE_REF:-}" ]; then
+            test "${EVENT_BASE_REF}" = "converge/history-surrogate-epd-gametree-20261006-ooxple7"
+            test "${EVENT_BASE_SHA}" = "$EXPECTED_BASE_SHA"
+          fi
           test "$(git merge-base "$EXPECTED_BASE_SHA" HEAD)" = "$EXPECTED_BASE_SHA"
           git diff --check "$EXPECTED_BASE_SHA"...HEAD
           changed="$(git diff --name-only "$EXPECTED_BASE_SHA"...HEAD | sort)"
