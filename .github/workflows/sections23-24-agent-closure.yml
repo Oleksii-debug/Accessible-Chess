@@ -19,7 +19,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, windows-2025]
+        os: [ubuntu-24.04, windows-2025]
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout exact candidate
@@ -32,6 +32,9 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
+      - name: Install exact test dependencies
+        run: python -m pip install pytest==8.4.2 httpx==0.28.1
 
       - name: Compile Section 23-24 surface
         run: >-
