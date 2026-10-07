@@ -3,6 +3,7 @@ name: Security Wave 1 Product Integration
 on:
   pull_request:
     paths:
+      - 'run_accessible_chess_v2.py'
       - 'acs/protection_boundary.py'
       - 'acs/protection_locked_ui.py'
       - 'acs/version2_release_app.py'
@@ -44,6 +45,7 @@ jobs:
       - name: Compile public integration boundary
         run: >-
           python -m py_compile
+          run_accessible_chess_v2.py
           acs/protection_boundary.py
           acs/protection_locked_ui.py
           acs/version2_release_app.py
