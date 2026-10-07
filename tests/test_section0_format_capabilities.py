@@ -44,6 +44,14 @@ class CanonicalFormatCapabilityContractTests(unittest.TestCase):
             "acs.format_capabilities.FORMAT_CAPABILITIES",
         )
         self.assertEqual(
+            set(payload["operation_semantics"]),
+            {"read", "edit", "write", "round_trip"},
+        )
+        self.assertIn(
+            "canonical text",
+            payload["operation_semantics"]["write"],
+        )
+        self.assertEqual(
             [item["id"] for item in payload["formats"]],
             [item.format_id for item in FORMAT_CAPABILITIES],
         )
@@ -128,6 +136,7 @@ class CanonicalFormatCapabilityContractTests(unittest.TestCase):
         for format_id in (
             "chessbase-cbf-cbi",
             "chessbase-2cbh",
+            "chessbase-2cbv",
             "chessbase-cbone",
             "chessbase-cbz",
         ):
@@ -169,6 +178,11 @@ class CanonicalFormatCapabilityContractTests(unittest.TestCase):
             self.assertFalse(report.has_damage)
 
     def test_unknown_capability_and_operation_fail_closed(self) -> None:
+        two_cbv = capability_by_id("chessbase-2cbv")
+        self.assertEqual(two_cbv.extensions, (".2cbv",))
+        self.assertIs(two_cbv.read, CapabilityStatus.BLOCKED)
+        self.assertIn("no qualified semantic decoder", two_cbv.boundary)
+
         with self.assertRaises(KeyError):
             capability_by_id("invented-format")
         with self.assertRaises(TypeError):
