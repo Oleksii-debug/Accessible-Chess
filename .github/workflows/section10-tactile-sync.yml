@@ -32,4 +32,4 @@ jobs:
       - name: Compile tactile integration
         run: python -m py_compile acs/tactile_graphics.py acs/tactile_sync.py acs/version2_application.py acs/version2_profile.py acs/full_product_actions.py acs/full_product_native_menu.py tests/test_section10_tactile_sync.py tests/test_section10_v2_tactile_wiring.py
       - name: Execute retained Section 8 and focused Section 10 contracts
-        run: python -m unittest -v tests.test_section8_tactile_graphics_core tests.test_section10_tactile_sync tests.test_section10_v2_tactile_wiring
+        run: python -m unittest -v tests.test_section8_tactile_graphics_core tests.test_section10_tactile_sync tests.test_section10_v2_tactile_wiring tests.test_full_product_native_menu tests.test_version2_windows_composition_profile
