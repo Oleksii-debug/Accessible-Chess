@@ -294,3 +294,19 @@ descendant head before Section 1 can be accepted.
 Section 0 remains OPEN until its own exact-head terminal qualification succeeds,
 so this re-convergence is dependency-safe preparation only and is not a DONE
 claim.
+
+
+
+### Re-convergence after Section-0 cooperative cancellation recovery
+
+Section 0 advanced again on the SAME #2346 lineage to
+`dbbe1c88f399e458df0417ef43ece4a9e32db12d` so a cancelling adapter cannot turn
+`SourceReadCancelledError` into ordinary batch evidence after mutating registry
+routes. The complete route snapshot is restored, source integrity is checked,
+the exact Cancel signal is propagated, and later batch sources remain untouched.
+
+Prepared Section 1 was history-preservingly reconverged through merge-only #2359
+without rebasing or replaying Section-1 source. Relative to exact Section-0
+predecessor `dbbe1c88f399e458df0417ef43ece4a9e32db12d`, the effective Section-1 delta remains the existing
+45-path union. Section 1 remains OPEN until Section 0 is accepted and fresh
+exact-head source/corpus plus whole qualification is terminal GREEN.
