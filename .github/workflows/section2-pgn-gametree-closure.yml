@@ -19,7 +19,7 @@ env:
   PGN_ROUNDTRIP_BLOB: 76e10f5035e55cc413632dcb3829f698a70b41ca
   GAMETREE_BLOB: 565afa84260d5b8dc2ee8979bb0538b495516f97
   GAMETREE_LEGALITY_BLOB: d8cf74e17f5b7b5f23dfbbe522df23ab0cea7ff9
-  PGN_WORKSPACE_BLOB: cc10d63d6ffdb4e6844f6cb01fb54d7f12044fde
+  PGN_WORKSPACE_BLOB: 7978337169b53a3490bc5e675b6ae20189648057
   PGN_DOCUMENT_BLOB: 77ec72c4852e47a3722c981c54236143ecb0dde2
   STREAMING_IMPORT_BLOB: 73e9a3d689f1853f40ce402f16d859987d7d6d0e
   STREAMING_EXPORT_BLOB: 913a74348f1323887d9d880285814a7680869ae1
@@ -51,6 +51,9 @@ env:
   PGN_KEYBINDINGS_TEST_BLOB: e5b969c6c0f1c2c66a21c59432792e9285ab30bf
   PGN_TREE_KEYBINDINGS_TEST_BLOB: 104cd19bab8e361ff301d2d5fb3b5854f92c0f79
   PGN_WEB_BLOB: cd7c1da9ccb0285b26bed733da4d64ba2da61a5f
+  PGN_WORKSPACE_TEST_BLOB: eb7f9d4ba7eaa50ea2142c5c76df43b69a98c066
+  VERSION2_PGN_COMMANDS_TEST_BLOB: cccf94bf327641dc040af3fc7c8de780b72947b1
+  SECTION2_AUDIT_BLOB: 8b173273e308233f88108cd9b567ffcf19f3a1fd
 
   OFFLINE_QUALIFIER_BLOB: b2c387f1f14074bd368035678c03fe78edb9877e
   OFFLINE_REPORT_BLOB: 04421cdedef8c31c72c7d759e398d56e69dffda3
@@ -75,14 +78,14 @@ jobs:
         with:
           python-version: '3.12.10'
 
-      - name: Prove accepted predecessor ancestry and evidence-only scope
+      - name: Prove accepted predecessor ancestry and bounded Section-2 scope
         shell: bash
         run: |
           set -euo pipefail
           test "$(git merge-base "$SECTION1_PREDECESSOR_SHA" HEAD)" = "$SECTION1_PREDECESSOR_SHA"
           git diff --check "$SECTION1_PREDECESSOR_SHA"...HEAD
           changed="$(git diff --name-only "$SECTION1_PREDECESSOR_SHA"...HEAD | sort)"
-          expected="$(printf '%s\n'             '.github/workflows/section2-pgn-gametree-closure.yml'             'docs/automation/SECTION2_CLOSURE_AUDIT.md' | sort)"
+          expected="$(printf '%s\n'             '.github/workflows/section2-pgn-gametree-closure.yml'             'acs/pgn_workspace.py'             'docs/automation/SECTION2_CLOSURE_AUDIT.md'             'tests/test_pgn_workspace.py'             'tests/test_version2_pgn_commands.py' | sort)"
           test "$changed" = "$expected"
 
       - name: Bind exact inherited PGN GameTree authorities
@@ -124,6 +127,9 @@ jobs:
           test "$(git rev-parse HEAD:tests/test_full_product_pgn_keybindings.py)" = "$PGN_KEYBINDINGS_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_pgn_tree_remaining_keybindings.py)" = "$PGN_TREE_KEYBINDINGS_TEST_BLOB"
           test "$(git rev-parse HEAD:web/full_product_pgn.js)" = "$PGN_WEB_BLOB"
+          test "$(git rev-parse HEAD:tests/test_pgn_workspace.py)" = "$PGN_WORKSPACE_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_version2_pgn_commands.py)" = "$VERSION2_PGN_COMMANDS_TEST_BLOB"
+          test "$(git rev-parse HEAD:docs/automation/SECTION2_CLOSURE_AUDIT.md)" = "$SECTION2_AUDIT_BLOB"
 
           test "$(git rev-parse HEAD:scripts/qualify_pgn_conversion_corpus.py)" = "$OFFLINE_QUALIFIER_BLOB"
           test "$(git rev-parse HEAD:docs/PGN_CONVERSION_REAL_CORPUS_20261005.json)" = "$OFFLINE_REPORT_BLOB"
