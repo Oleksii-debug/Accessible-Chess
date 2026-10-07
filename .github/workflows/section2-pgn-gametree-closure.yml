@@ -45,7 +45,7 @@ env:
   SETUP_FEN_INTEGRITY_TEST_BLOB: 9b72b134abd1bce43d88e020eb9da58bdadad034
   NEW_GAME_POSITION_INTEGRITY_TEST_BLOB: 02d3c829576698dc7a1da70be1052d454651cd46
   PASSIVE_INGRESS_TEST_BLOB: 47c4f6711bd1229e0d1a61b14c4f328b7b509494
-  PGN_DOM_TEST_BLOB: d751388dc98e0f5218cfc7029f9af113b4bc751c
+  PGN_DOM_TEST_BLOB: f0264db70f18591fde16b16dd2c98ced88c81a60
   PGN_TREE_KEYBOARD_DOM_BLOB: 3ec326e766110eba04228bcda92cc1d3dfea011a
   PGN_TREE_KEY_OWNERSHIP_BLOB: ab47179b52be5744053a842f992902ecf4f978b1
   PGN_REMAINING_KEYBINDINGS_JS_BLOB: f5d1e6082672721d62444539c4cd1bfb6a916f20
@@ -54,7 +54,7 @@ env:
   PGN_WEB_BLOB: cd7c1da9ccb0285b26bed733da4d64ba2da61a5f
   PGN_WORKSPACE_TEST_BLOB: a1bdab52d57c8dc7d32e304f0429c8ac82cf0330
   VERSION2_PGN_COMMANDS_TEST_BLOB: cccf94bf327641dc040af3fc7c8de780b72947b1
-  SECTION2_AUDIT_BLOB: c8a655e1368ce8eebd5c7b3920ca1aaa728a9770
+  SECTION2_AUDIT_BLOB: 65be28fd5e6647b7b372229d31137e21e4a55441
   PGN_WEBVIEW_PROJECTION_BLOB: 5327c3c89da28f9150a09eff4cc15131cc80cc76
   FULL_PRODUCT_PRESENTERS_BLOB: aa9c7c10a03fbe85bfa9a3b542188a5b31fee655
   PGN_WEBVIEW_PROJECTION_TEST_BLOB: 1488fd39957bb412c0e551252a4364629f816481
@@ -94,7 +94,8 @@ jobs:
           test "$(git merge-base "$SECTION1_PREDECESSOR_SHA" HEAD)" = "$SECTION1_PREDECESSOR_SHA"
           git diff --check "$SECTION1_PREDECESSOR_SHA"...HEAD
           changed="$(git diff --name-only "$SECTION1_PREDECESSOR_SHA"...HEAD | sort)"
-          expected="$(printf '%s\n'             '.github/workflows/section2-pgn-gametree-closure.yml'             'acs/pgn_save_snapshot.py'             'acs/pgn_workspace.py'             'docs/automation/SECTION2_CLOSURE_AUDIT.md'             'tests/test_dev1_pgn_webview_projection.py'             'tests/test_pgn_complete_editing_user_flow.py'             'tests/test_pgn_document_new_game_position_integrity.py'             'tests/test_pgn_document_passive_ingress.py'             'tests/test_pgn_save_snapshot.py'             'tests/test_pgn_workspace.py'             'tests/test_version2_pgn_commands.py' | sort)"
+          expected="$(printf '%s\n'             '.github/workflows/section2-pgn-gametree-closure.yml'             'acs/pgn_save_snapshot.py'             'acs/pgn_workspace.py'             'docs/automation/SECTION2_CLOSURE_AUDIT.md'             'tests/test_dev1_pgn_webview_projection.py'             'tests/test_pgn_complete_editing_user_flow.py'             'tests/test_pgn_document_new_game_position_integrity.py'             'tests/test_pgn_document_passive_ingress.py'             'tests/test_pgn_save_snapshot.py'             'tests/test_pgn_workspace.py'             'tests/test_version2_pgn_commands.py' \
+            'tests/js/pgn_surface_dom_test.js' | sort)"
           test "$changed" = "$expected"
 
       - name: Bind exact inherited PGN GameTree authorities
