@@ -432,3 +432,26 @@ unchanged.
 This remains Section-1 work on the existing predecessor-aware #2356 lineage.
 Section 0 remains a hard dependency, and terminal exact-head whole/corpus CI is
 still required before any DONE claim.
+
+
+### Null-move reloadability after FEN legality hardening
+
+The inactive-side legality fence exposed one adjacent invariant in the existing
+format/analysis null-move primitive. A null move from a position where the side
+to move is in check would leave that same king checked after flipping the turn,
+creating a state that canonical `Board.set_fen` correctly refuses on reload.
+
+`Board.push_null` now fails atomically in that circumstance before touching
+history or counters. Ordinary supported null moves remain available: the focused
+regression proves a normal `--` transition still serializes through FEN,
+reconstructs through a fresh `Board`, and survives undo/redo back to the exact
+same null-move position. A checked-side null attempt raises without changing FEN,
+undo/redo history or `last_move`.
+
+Exact successor blobs:
+- `acs/chesscore.py=d40d049670f0261673f206bc8bd0e13e9c7f852c`;
+- `tests/test_dev2_fen_atomicity.py=1d2090a5edaa99634f89fe7c98acd1f3b047023f`.
+
+This is compatibility hardening caused by the same canonical-legality residual;
+it does not expose null moves to ordinary user gameplay and does not create a new
+format or chess authority.
