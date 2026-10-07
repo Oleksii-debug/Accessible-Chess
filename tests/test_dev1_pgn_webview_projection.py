@@ -332,12 +332,30 @@ class PgnWebViewProjectionTests(unittest.TestCase):
         self.projection.select(move.node_id)
         snapshot = self.projection.snapshot()
         self.assertEqual(2, len(next(item for item in snapshot["tree"] if item["node_id"] == move.node_id)["comments"]))
-        self.assertFalse(snapshot["comment_editor"]["enabled"])
-        self.assertIn("multiple comments", snapshot["comment_editor"]["message"].lower())
+        editor = snapshot["comment_editor"]
+        self.assertTrue(editor["enabled"])
+        selected_entries = [
+            entry
+            for entry in editor["entries"]
+            if not entry["main"] and entry["slot"] == "after"
+        ]
+        self.assertEqual([0, 1], [entry["index"] for entry in selected_entries])
+
         before = list(self.calls)
         with self.assertRaises(ValueError):
             self.projection.edit_comment("must not merge")
         self.assertEqual(before, self.calls)
+
+        event = self.projection.edit_comment(
+            "replace only second",
+            slot="after",
+            index=1,
+        )
+        self.assertEqual("delegated", event.kind)
+        self.assertEqual("pgn.comment_edit", self.calls[-1][0])
+        self.assertEqual("after", self.calls[-1][1]["slot"])
+        self.assertEqual(1, self.calls[-1][1]["index"])
+        self.assertEqual("replace only second", self.calls[-1][1]["text"])
 
     def test_comment_delete_requires_exactly_one_comment(self) -> None:
         first = self.presenter.selected()
