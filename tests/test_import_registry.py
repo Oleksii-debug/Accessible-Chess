@@ -60,6 +60,26 @@ class FalseProvenanceImporter:
         return ImportReport(source=false_source, format_name=self.format_name)
 
 
+class MislabelledFormatImporter:
+    format_name = 'Canonical fake format'
+    suffixes = ('.mislabel',)
+
+    def inspect(self, path: Path) -> ImportReport:
+        return ImportReport(
+            source=fingerprint(path),
+            format_name='Different format label',
+            records=[ImportedRecord('1', ImportQuality.FULL)],
+        )
+
+
+class InvalidFormatNameImporter:
+    format_name = ''
+    suffixes = ('.invalid-format-name',)
+
+    def inspect(self, path: Path) -> ImportReport:
+        return ImportReport(source=fingerprint(path), format_name='fallback')
+
+
 class ActiveFakeReport:
     @property
     def source(self):
@@ -210,6 +230,24 @@ class ImportRegistryTests(unittest.TestCase):
             self.assertIn('provenance does not match', batch.items[1].error)
             self.assertEqual(len(batch.reports), 1)
             self.assertEqual(batch.reports[0].source.sha256, fingerprint(valid).sha256)
+
+    def test_registration_rejects_missing_canonical_format_identity(self):
+        registry = ImportRegistry()
+        with self.assertRaisesRegex(ImportRegistryError, 'format_name'):
+            registry.register(InvalidFormatNameImporter())
+
+    def test_registry_rejects_report_with_different_format_identity(self):
+        registry = ImportRegistry()
+        registry.register(MislabelledFormatImporter())
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / 'source.mislabel'
+            original = b'format-identity-source'
+            path.write_bytes(original)
+
+            with self.assertRaisesRegex(ImportRegistryError, 'format identity'):
+                registry.inspect(path)
+
+            self.assertEqual(path.read_bytes(), original)
 
     def test_registry_rejects_non_report_before_active_field_access(self):
         registry = ImportRegistry()
