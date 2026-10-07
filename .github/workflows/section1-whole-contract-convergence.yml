@@ -160,6 +160,7 @@ jobs:
           tests.test_section1_positionstate_counter_boundary
           tests.test_fen_edge_corpus
           tests.test_qualify_fen_position_corpus
+          tests.test_import_contract
           tests.test_stage1_fen_history_atomicity_current
           tests.test_stage1_move_history_atomicity_current
           tests.test_stage1_engine_play_ui
