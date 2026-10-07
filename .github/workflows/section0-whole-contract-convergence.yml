@@ -1,40 +1,40 @@
-name: Section 0 Whole Contract Convergence
+name: Section 0 Whole Contract Convergence V2
 
 on:
   pull_request:
     branches:
-      - 'section0/import-report-passive-revalidation-20261007-sol56'
+      - 'section0/import-report-format-identity-20261007-sol56'
     paths:
       - '.github/workflows/section0-whole-contract-convergence.yml'
-      - 'acs/format_capabilities.py'
-      - 'docs/automation/CANONICAL_FORMAT_CAPABILITY_MATRIX.md'
       - 'docs/automation/SECTION0_CLOSURE_CANDIDATE.md'
-      - 'tests/test_section0_format_capabilities.py'
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: section0-whole-contract-${{ github.event.pull_request.head.sha || github.sha }}
+  group: section0-whole-contract-v2-${{ github.event.pull_request.head.sha || github.sha }}
   cancel-in-progress: true
 
 env:
+  EXPECTED_BASE_SHA: f087ee53a1b47faee1a517e52aea79fcacba65e0
+  PREVIOUS_WHOLE_HEAD: e9e0dceb21c1dc002b844c4e60563b3552f72744
   IMPORT_PARENT_SHA: c80772e40d783694d3931768e66d246236f61aad
   CAPABILITY_PARENT_SHA: 6f8ae8547dfe7c0f15ed124bc0f44a6c660c0056
   PREVIOUS_CONVERGENCE_SHA: b1df7ad557d9adf0e1d73f173d05735f0ab8e050
   DUPLICATE_CONVERGENCE_SHA: 8a39f849950020e59f815b9315b2640dc394ca31
 
+  FORMAT_IDENTITY_WORKFLOW_BLOB: ec13eb5748f515c43955dd6d99ea321c49105861
   AUTHORITY_DOC_BLOB: a1f7680f120c1a397e323dc9e633018a59adc711
   AUTHORITY_TEST_BLOB: ca8cc57fa0ca5c6888004239100390f136d43ac8
   IMPORT_CONTRACT_BLOB: d9855d173f8c73440e190482a107299be28949c5
-  IMPORT_REGISTRY_BLOB: c8c1e403bc0d46ac520fefb3d403bd66a4a714c2
+  IMPORT_REGISTRY_BLOB: c64f32d058d79c9f88b9b3fa35b691bd0ae3a146
   IMPORT_CONTRACT_TEST_BLOB: 69439b421e7957caa7262704510b3211110b4e40
-  IMPORT_REGISTRY_TEST_BLOB: 75affff3489f05ce3157bfa6a5d7ea18f395b9fb
+  IMPORT_REGISTRY_TEST_BLOB: 019acdf6b00115d9b23091d0c00f75cbd23dfdfd
   CAPABILITY_BLOB: c3fb75120d71b7cf26b71f22961e9caa82a55b3c
   CAPABILITY_DOC_BLOB: 965eff8a7f9d24094318b7e14680d42ff9098cb7
   CAPABILITY_TEST_BLOB: 852aba2d3d8ba62064289f7dc76bc6430ac2e5b8
-  CLOSURE_DOC_BLOB: 7a11816352d2153a30bb1eb68ea7187164fb7aad
+  CLOSURE_DOC_BLOB: 3a197c665c127f8f72a84170a29726b5fafbcf46
 
   CHESSCORE_BLOB: e04982c2de52394c2c9f5e5725d6267cbc55ce3d
   POSITION_EDITOR_BLOB: fd48b517c4489fe70e4ecb102e2615027be8f098
@@ -64,39 +64,41 @@ jobs:
         with:
           python-version: '3.12.10'
 
-      - name: Prove exact convergence topology and geometry
+      - name: Prove exact successor topology and geometry
         shell: bash
         env:
           EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: |
           set -euo pipefail
           expected_head="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
           test "$(git rev-parse HEAD)" = "$expected_head"
-          if [ -n "${EVENT_BASE_SHA:-}" ]; then
-            test "$EVENT_BASE_SHA" = "$IMPORT_PARENT_SHA"
+
+          if [ -n "${EVENT_BASE_REF:-}" ]; then
+            test "$EVENT_BASE_REF" = "section0/import-report-format-identity-20261007-sol56"
+            test "$EVENT_BASE_SHA" = "$EXPECTED_BASE_SHA"
           fi
 
+          git merge-base --is-ancestor "$EXPECTED_BASE_SHA" HEAD
+          git merge-base --is-ancestor "$PREVIOUS_WHOLE_HEAD" HEAD
           git merge-base --is-ancestor "$IMPORT_PARENT_SHA" HEAD
           git merge-base --is-ancestor "$CAPABILITY_PARENT_SHA" HEAD
-
           git merge-base --is-ancestor "$PREVIOUS_CONVERGENCE_SHA" HEAD
           git merge-base --is-ancestor "$DUPLICATE_CONVERGENCE_SHA" HEAD
 
-          git diff --check "$IMPORT_PARENT_SHA"...HEAD
-          changed="$(git diff --name-only "$IMPORT_PARENT_SHA"...HEAD | sort)"
+          git diff --check "$EXPECTED_BASE_SHA"...HEAD
+          changed="$(git diff --name-only "$EXPECTED_BASE_SHA"...HEAD | sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/section0-whole-contract-convergence.yml' \
-            'acs/format_capabilities.py' \
-            'docs/automation/CANONICAL_FORMAT_CAPABILITY_MATRIX.md' \
-            'docs/automation/SECTION0_CLOSURE_CANDIDATE.md' \
-            'tests/test_section0_format_capabilities.py' | sort)"
+            'docs/automation/SECTION0_CLOSURE_CANDIDATE.md' | sort)"
           test "$changed" = "$expected"
 
       - name: Bind exact Section 0 authorities
         shell: bash
         run: |
           set -euo pipefail
+          test "$(git rev-parse HEAD:.github/workflows/section0-import-report-format-identity.yml)" = "$FORMAT_IDENTITY_WORKFLOW_BLOB"
           test "$(git rev-parse HEAD:docs/FORMAT_AUTHORITY_BOUNDARIES.md)" = "$AUTHORITY_DOC_BLOB"
           test "$(git rev-parse HEAD:tests/test_section0_format_authority_contract.py)" = "$AUTHORITY_TEST_BLOB"
           test "$(git rev-parse HEAD:acs/import_contract.py)" = "$IMPORT_CONTRACT_BLOB"
