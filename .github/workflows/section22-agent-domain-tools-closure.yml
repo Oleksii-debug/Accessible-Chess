@@ -1,0 +1,51 @@
+name: Section 22 Agent Domain Tools Closure
+
+on:
+  pull_request:
+    paths:
+      - "acs/chess_agent_tools.py"
+      - "acs/agent_*_tools.py"
+      - "acs/format_import_report_service.py"
+      - "acs/media_subtitles.py"
+      - "tests/test_agent_*"
+      - "tests/test_section22_scope.py"
+      - "docs/automation/SECTION22_CLOSURE_AUDIT.md"
+      - ".github/workflows/section22-agent-domain-tools-closure.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  section22:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile Section 22 surface
+        run: python -m compileall -q acs
+      - name: Run Section 21 retained authority tests
+        run: >
+          python -m unittest
+          tests.test_agent_tool_result_authority
+          tests.test_chess_agent_tools_crossrepo
+          tests.test_universal_chess_agent_crossrepo
+      - name: Run Section 22 domain tool tests
+        run: >
+          python -m unittest
+          tests.test_agent_books_training_tools
+          tests.test_agent_continuous_analysis
+          tests.test_agent_format_capabilities
+          tests.test_agent_gametree_tools
+          tests.test_agent_library_open_game
+          tests.test_agent_speech_context_tools
+          tests.test_agent_tactile_tools
+          tests.test_section22_scope
+      - name: Core selftest
+        run: python -m acs.selftest
