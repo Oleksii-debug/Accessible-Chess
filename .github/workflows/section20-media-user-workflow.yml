@@ -44,7 +44,10 @@ jobs:
           git merge-base --is-ancestor "$INTEGRATED_SECTION20" HEAD
           git diff --check "$INTEGRATED_SECTION20"...HEAD
           changed="$(git diff --name-only "$INTEGRATED_SECTION20"...HEAD | LC_ALL=C sort)"
-          test "$changed" = '.github/workflows/section20-media-user-workflow.yml' || {
+          expected_repair_scope="$(printf '%s\n' \
+            '.github/workflows/section20-media-user-workflow.yml' \
+            'tests/js/recorded_media_accessible_player_dom_test.js' | LC_ALL=C sort)"
+          test "$changed" = "$expected_repair_scope" || {
             printf 'UNEXPECTED_SECTION20_REPAIR_SCOPE\n%s\n' "$changed" >&2
             exit 1
           }
@@ -70,7 +73,6 @@ jobs:
             tests/fixtures/recorded_media_truth/stable-black.svg \
             tests/fixtures/recorded_media_truth/stable-white.svg \
             tests/fixtures/recorded_media_truth/transition.svg \
-            tests/js/recorded_media_accessible_player_dom_test.js \
             tests/js/version2_media_user_workflow_dom_test.js \
             tests/js/youtube_iframe_playback_adapter_test.js \
             tests/test_media_preprocess.py \
