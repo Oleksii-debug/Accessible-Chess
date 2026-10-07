@@ -1,0 +1,89 @@
+name: Section 0 Import Report Format Identity
+
+on:
+  pull_request:
+    branches:
+      - 'converge/section0-whole-contract-20261007-sol56'
+    paths:
+      - '.github/workflows/section0-import-report-format-identity.yml'
+      - 'acs/import_registry.py'
+      - 'tests/test_import_registry.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: section0-import-report-format-identity-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+env:
+  EXPECTED_BASE_SHA: e9e0dceb21c1dc002b844c4e60563b3552f72744
+  IMPORT_REGISTRY_BLOB: 03a14e94518aa32291280005355d21002c4032cb
+  IMPORT_REGISTRY_TEST_BLOB: 7aed0dff9055f314820757edde7238bb3b1e2fab
+  IMPORT_CONTRACT_BLOB: d9855d173f8c73440e190482a107299be28949c5
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Prove exact stacked geometry
+        shell: bash
+        env:
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
+          test "${EVENT_BASE_REF}" = "converge/section0-whole-contract-20261007-sol56"
+          test "${EVENT_BASE_SHA}" = "$EXPECTED_BASE_SHA"
+          test "$(git merge-base "$EXPECTED_BASE_SHA" HEAD)" = "$EXPECTED_BASE_SHA"
+          git diff --check "$EXPECTED_BASE_SHA"...HEAD
+          changed="$(git diff --name-only "$EXPECTED_BASE_SHA"...HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/section0-import-report-format-identity.yml' \
+            'acs/import_registry.py' \
+            'tests/test_import_registry.py' | sort)"
+          test "$changed" = "$expected"
+
+      - name: Bind exact shared import authorities
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:acs/import_registry.py)" = "$IMPORT_REGISTRY_BLOB"
+          test "$(git rev-parse HEAD:tests/test_import_registry.py)" = "$IMPORT_REGISTRY_TEST_BLOB"
+          test "$(git rev-parse HEAD:acs/import_contract.py)" = "$IMPORT_CONTRACT_BLOB"
+
+      - name: Compile Section 0.5 repair
+        run: >-
+          python -m py_compile
+          acs/import_registry.py
+          tests/test_import_registry.py
+
+      - name: Execute shared import contract regressions
+        run: >-
+          python -m unittest -v
+          tests.test_import_registry
+          tests.test_import_contract
+          tests.test_section0_format_authority_contract
+          tests.test_section0_format_capabilities
+
+      - name: Core chess selftest
+        run: python -m acs.selftest
