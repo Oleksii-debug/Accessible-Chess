@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from unittest import mock
 
+from acs.pgn_roundtrip import MAX_PGN_SOURCE_BYTES
 from tools.qualify_fen_position_corpus import (
     FenCorpusQualificationError,
     qualify_pgn_position_corpus,
@@ -83,7 +84,7 @@ class FenPositionCorpusQualifierTests(unittest.TestCase):
                 min_positions=5,
             )
 
-        reader.assert_called_once_with(path, max_bytes=16 * 1024 * 1024)
+        reader.assert_called_once_with(path, max_bytes=MAX_PGN_SOURCE_BYTES)
         self.assertEqual(report.source_sha256, "canonical-source-digest")
         self.assertEqual(report.game_count, 1)
         self.assertEqual(report.position_count, 5)
