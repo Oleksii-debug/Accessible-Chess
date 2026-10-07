@@ -212,7 +212,7 @@ class Section35SubscriptionTests(unittest.TestCase):
             self.assertIn(token, lowered)
         self.assertIn("Експорт і відновлення", html)
         self.assertNotIn("onclick=", lowered)
-        self.assertNotIn("tabindex="-1" role="button"", lowered)
+        self.assertNotIn('tabindex="-1" role="button"', lowered)
 
     def test_subscription_javascript_uses_native_events_and_no_popup_checkout(self):
         script = (ROOT / "web" / "accessible_chess_subscription.js").read_text(
@@ -220,7 +220,7 @@ class Section35SubscriptionTests(unittest.TestCase):
         )
         lowered = script.lower()
         self.assertIn("addeventlistener", lowered)
-        self.assertIn("credentials: "same-origin"", lowered)
+        self.assertIn('credentials: "same-origin"', lowered)
         self.assertNotIn("window.open", lowered)
         self.assertNotIn("onclick", lowered)
         for vendor in ("stripe", "paypal", "adyen", "braintree", "paddle"):
