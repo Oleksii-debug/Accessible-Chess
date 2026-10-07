@@ -22,7 +22,7 @@ class Stage1LocalizedValidationCurrentTests(unittest.TestCase):
         result = api.make_move("definitely-not-a-chess-move")
 
         self.assertFalse(result["ok"])
-        self.assertEqual(result["announcement"], "Move is unrecognized or illegal.")
+        self.assertEqual(result["announcement"], api._t("move_invalid"))
         self.assertEnglishOnly(result["announcement"])
         self.assertEqual(api.get_state()["fen"], before["fen"])
         self.assertEqual(api.sans, [])
@@ -86,7 +86,7 @@ class Stage1LocalizedValidationCurrentTests(unittest.TestCase):
     def test_unexpected_internal_exceptions_do_not_enter_live_region_text(self) -> None:
         api = AccessibleChessAPI(lang="en")
 
-        with patch("acs.webapp.Board", side_effect=RuntimeError("private FEN implementation detail")):
+        with patch("acs.webapp.Board.__init__", side_effect=RuntimeError("private FEN implementation detail")):
             fen_result = api.set_fen("8/8/8/8/8/8/8/K6k w - - 0 1")
         self.assertFalse(fen_result["ok"])
         self.assertEqual(fen_result["announcement"], "Invalid FEN.")
