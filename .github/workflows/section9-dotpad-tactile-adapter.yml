@@ -1,0 +1,28 @@
+name: Section 9 DotPad Tactile Adapter
+on:
+  pull_request:
+    paths:
+      - "acs/tactile_dotpad_*.py"
+      - "tests/test_section9_dotpad_tactile_adapter.py"
+      - "docs/automation/SECTION9_CLOSURE_AUDIT.md"
+      - ".github/workflows/section9-dotpad-tactile-adapter.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  section9-contract:
+    name: Section 9 contract (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile Section 9
+        run: python -m py_compile acs/tactile_dotpad_contract.py acs/tactile_dotpad_sdk.py acs/tactile_dotpad_adapter.py tests/test_section9_dotpad_tactile_adapter.py
+      - name: Run Section 9 contract tests
+        run: python -m unittest -v tests/test_section9_dotpad_tactile_adapter.py
