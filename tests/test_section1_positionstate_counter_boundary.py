@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 import unittest
 
 from acs.input_limits import MAX_FEN_CHARS
@@ -81,6 +82,32 @@ class Section1PositionStateCounterBoundaryTests(unittest.TestCase):
         self.assertLess(len(result["announcement"]), 80)
         self.assertNotIn(bad_piece, result["announcement"])
         self.assertEqual(api.board.fen(), before)
+
+    def test_from_fen_normalizes_runtime_integer_digit_limit(self) -> None:
+        if not hasattr(sys, "set_int_max_str_digits"):
+            self.skipTest("runtime does not expose integer digit-limit controls")
+
+        original_limit = sys.get_int_max_str_digits()
+        try:
+            sys.set_int_max_str_digits(640)
+            long_counter = "1" * 641
+            cases = (
+                (
+                    f"8/8/8/8/8/8/8/8 w - - {long_counter} 1",
+                    "FEN halfmove counter is too large",
+                ),
+                (
+                    f"8/8/8/8/8/8/8/8 w - - 0 {long_counter}",
+                    "FEN fullmove counter is too large",
+                ),
+            )
+            for fen, message in cases:
+                with self.subTest(message=message):
+                    self.assertLessEqual(len(fen), MAX_FEN_CHARS)
+                    with self.assertRaisesRegex(PositionValidationError, message):
+                        PositionState.from_fen(fen)
+        finally:
+            sys.set_int_max_str_digits(original_limit)
 
     def test_normal_counter_round_trip_is_unchanged(self) -> None:
         state = standard_position().with_counters(123, 456)
