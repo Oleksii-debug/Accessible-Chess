@@ -376,3 +376,21 @@ the snapshot.
 
 This remains the exact five-path #2346 Section-0.5 lineage and introduces no
 new parser, format, report or chess authority.
+
+### Passive registration projections
+
+The passive registration-container boundary also applies to the registry's public
+read-only projections. `registered_suffixes` and `registrations()` previously
+iterated private routing maps directly, so a pre-corrupted/rebound active mapping
+could execute provider `__iter__` / `items` hooks merely by asking the host to
+describe its registered routes.
+
+Both projections now derive exclusively from the same validated host-owned
+`_registration_snapshot()` used by inspection. Any non-exact/inconsistent
+routing container fails closed as `ImportRegistryError` before active mapping
+hooks can run. Regression coverage poisons both the route and token maps with a
+hostile dict subclass, proves zero hook execution, then proves canonical
+projection values are unchanged after restoration.
+
+This remains the exact five-path #2346 Section-0.5 lineage and adds no parser,
+decoder, report, format or chess authority.

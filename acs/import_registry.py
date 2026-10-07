@@ -526,11 +526,13 @@ class ImportRegistry:
 
     @property
     def registered_suffixes(self) -> tuple[str, ...]:
-        return tuple(sorted(self._by_suffix))
+        by_suffix, _, _ = self._registration_snapshot()
+        return tuple(sorted(by_suffix))
 
     def registrations(self) -> tuple[ImporterRegistration, ...]:
+        by_suffix, _, _ = self._registration_snapshot()
         grouped: dict[int, tuple[ReadOnlyImporter, list[str]]] = {}
-        for suffix, importer in self._by_suffix.items():
+        for suffix, importer in by_suffix.items():
             key = id(importer)
             if key not in grouped:
                 grouped[key] = (importer, [])
