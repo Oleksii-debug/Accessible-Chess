@@ -25,6 +25,7 @@ from .import_contract import (
     SourceReadCancelledError,
     fingerprint,
 )
+from .report_paths import report_safe_name
 
 
 class ImportRegistryError(ValueError):
@@ -87,6 +88,38 @@ def _same_source(left: SourceFingerprint, right: SourceFingerprint) -> bool:
     )
 
 
+def _batch_error_text(exc: Exception, source: Path) -> str:
+    """Render batch evidence without exposing workstation/importer path text."""
+
+    if isinstance(exc, ImportRegistryError):
+        # Registry-owned diagnostics are bounded below to suffix/format state
+        # or report-safe source names. Preserve those useful contract reasons.
+        return str(exc)
+    if isinstance(exc, OSError):
+        names: list[str] = []
+        for candidate in (getattr(exc, "filename", None), getattr(exc, "filename2", None)):
+            if candidate is None:
+                continue
+            try:
+                safe = report_safe_name(candidate)
+            except Exception:
+                continue
+            if safe and safe not in names:
+                names.append(safe)
+        if not names:
+            names.append(report_safe_name(source))
+
+        errno = getattr(exc, "errno", None)
+        context = "Filesystem error"
+        if isinstance(errno, int) and not isinstance(errno, bool):
+            context += f" (errno {errno})"
+        return f"{context}: {' -> '.join(names)}"
+
+    # Adapter exception text and __str__ implementations are untrusted. Strict
+    # inspect() still re-raises the original exception for internal callers.
+    return f"Importer rejected source: {report_safe_name(source)}"
+
+
 class ImportRegistry:
     def __init__(self) -> None:
         self._by_suffix: dict[str, ReadOnlyImporter] = {}
@@ -134,6 +167,7 @@ class ImportRegistry:
 
     def inspect(self, path: str | Path) -> ImportReport:
         source = Path(path)
+        safe_source = report_safe_name(source)
         source_suffix = source.suffix.lower()
         importer = self._by_suffix.get(source_suffix)
         if importer is None:
@@ -157,11 +191,11 @@ class ImportRegistry:
                 after = fingerprint(source)
             except Exception as verification_exc:
                 raise SourceMutationError(
-                    f"Read-only importer left source unverifiable after inspection: {source}"
+                    f"Read-only importer left source unverifiable after inspection: {safe_source}"
                 ) from verification_exc
             if not _same_source(before, after):
                 raise SourceMutationError(
-                    f"Read-only importer modified source bytes during inspection: {source}"
+                    f"Read-only importer modified source bytes during inspection: {safe_source}"
                 ) from exc
             if (
                 self._by_suffix.get(source_suffix) is not importer
@@ -177,12 +211,12 @@ class ImportRegistry:
             after = fingerprint(source)
         except Exception as exc:
             raise SourceMutationError(
-                f"Read-only importer left source unverifiable after inspection: {source}"
+                f"Read-only importer left source unverifiable after inspection: {safe_source}"
             ) from exc
 
         if not _same_source(before, after):
             raise SourceMutationError(
-                f"Read-only importer modified source bytes during inspection: {source}"
+                f"Read-only importer modified source bytes during inspection: {safe_source}"
             )
         if type(report) is not ImportReport:
             raise ImportRegistryError(
@@ -208,7 +242,7 @@ class ImportRegistry:
             )
         if not _same_source(before, report.source):
             raise SourceProvenanceError(
-                f"Importer report provenance does not match inspected source: {source}"
+                f"Importer report provenance does not match inspected source: {safe_source}"
             )
         return report
 
@@ -240,22 +274,10 @@ class ImportRegistry:
                 raise
             except Exception as exc:
                 # Batch preflight is deliberately non-aborting for ordinary
-                # adapter/parser failures. Process-control exceptions such as
-                # KeyboardInterrupt/SystemExit inherit BaseException and are
-                # intentionally not swallowed here.
-                try:
-                    message = str(exc).strip()
-                except Exception:
-                    # Exception rendering is adapter-controlled too: a hostile
-                    # or broken __str__ must not turn recovery into a second
-                    # batch-aborting failure.
-                    message = ""
-                if not message:
-                    try:
-                        fallback = type(exc).__name__.strip()
-                    except Exception:
-                        fallback = ""
-                    message = fallback or "Exception"
+                # failures, but adapter exception text is not a safe reporting
+                # channel: it can contain workstation or decoder-side paths.
+                # Process-control BaseException values remain unswallowed.
+                message = _batch_error_text(exc, source)
                 items.append(BatchInspectionItem(path=source, error=message))
             else:
                 items.append(BatchInspectionItem(path=source, report=report))
