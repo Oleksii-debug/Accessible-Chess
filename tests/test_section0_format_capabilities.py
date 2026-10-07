@@ -15,7 +15,9 @@ from acs.format_capabilities import (
     render_markdown,
     validate_format_capabilities,
 )
+from acs.epd import parse_epd, serialize_epd
 from acs.import_contract import ImportQuality, UnsupportedChessBaseImporter
+from acs.position_editor import PositionState
 
 
 ROOT = Path(__file__).parents[1]
@@ -79,6 +81,12 @@ class CanonicalFormatCapabilityContractTests(unittest.TestCase):
                 CapabilityStatus.PARTIAL,
             ),
         )
+
+        start_fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+        self.assertEqual(PositionState.from_fen(start_fen).to_fen(), start_fen)
+
+        epd_text = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq -"
+        self.assertEqual(serialize_epd(parse_epd(epd_text)), epd_text)
 
         epd = capability_by_id("epd")
         self.assertIs(epd.read, CapabilityStatus.SUPPORTED)
