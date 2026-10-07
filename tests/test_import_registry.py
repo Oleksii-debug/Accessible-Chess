@@ -176,6 +176,31 @@ class PrivateOSErrorImporter:
         )
 
 
+class HostileOSError(OSError):
+    @property
+    def filename(self):
+        raise RuntimeError('filename attribute hook must be contained')
+
+    @property
+    def filename2(self):
+        raise RuntimeError('filename2 attribute hook must be contained')
+
+    @property
+    def errno(self):
+        raise RuntimeError('errno attribute hook must be contained')
+
+
+class HostileOSErrorImporter:
+    format_name = 'Hostile filesystem failure'
+    suffixes = ('.hostile-oserror',)
+
+    def inspect(self, path: Path) -> ImportReport:
+        raise HostileOSError(
+            5,
+            r'private decoder strerror C:\\Users\\PrivateBackend\\secret.bin',
+        )
+
+
 class PrivateValueErrorImporter:
     format_name = 'Private value failure'
     suffixes = ('.private-value',)
@@ -905,6 +930,32 @@ class ImportRegistryTests(unittest.TestCase):
             self.assertNotIn('Documents', error)
             self.assertNotIn('PrivateBackend', error)
             self.assertNotIn('decoder failed', error)
+
+    def test_batch_hostile_oserror_attributes_cannot_abort_recovery(self):
+        registry = ImportRegistry()
+        registry.register(HostileOSErrorImporter())
+        registry.register(FakeImporter())
+        with tempfile.TemporaryDirectory() as td:
+            private = Path(td) / 'Users' / 'PrivateUser' / 'Documents'
+            private.mkdir(parents=True)
+            hostile = private / 'hostile.hostile-oserror'
+            valid = private / 'good.foo'
+            hostile.write_bytes(b'hostile')
+            valid.write_bytes(b'valid')
+
+            batch = registry.inspect_batch([hostile, valid])
+
+            self.assertEqual([item.ok for item in batch.items], [False, True])
+            self.assertEqual(
+                batch.items[0].error,
+                'Filesystem error: hostile.hostile-oserror',
+            )
+            self.assertNotIn('PrivateUser', batch.items[0].error)
+            self.assertNotIn('PrivateBackend', batch.items[0].error)
+            self.assertNotIn('secret.bin', batch.items[0].error)
+            self.assertEqual(len(batch.reports), 1)
+            self.assertEqual(batch.reports[0].format_name, FakeImporter.format_name)
+            self.assertEqual(valid.read_bytes(), b'valid')
 
     def test_batch_ordinary_adapter_text_is_not_a_reporting_channel(self):
         registry = ImportRegistry()
