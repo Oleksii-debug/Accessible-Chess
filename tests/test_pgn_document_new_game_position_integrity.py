@@ -141,8 +141,7 @@ class PgnDocumentNewGamePositionIntegrityTests(unittest.TestCase):
         canonical = standard_position()
 
         class ForgedPosition(PositionState):
-            def to_fen(self) -> str:
-                raise AssertionError("subclass method must never execute")
+            pass
 
         forged = ForgedPosition(
             canonical.pieces,
@@ -152,6 +151,11 @@ class PgnDocumentNewGamePositionIntegrityTests(unittest.TestCase):
             halfmove=canonical.halfmove,
             fullmove=canonical.fullmove,
         )
+
+        def forbidden_to_fen(self) -> str:
+            raise AssertionError("subclass method must never execute")
+
+        ForgedPosition.to_fen = forbidden_to_fen  # type: ignore[method-assign]
 
         with self.assertRaises(PgnDocumentError) as caught:
             PgnDocumentSession.new_game_from_position(
