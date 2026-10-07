@@ -1657,6 +1657,113 @@ class ImportRegistryTests(unittest.TestCase):
         with self.assertRaises(KeyboardInterrupt):
             registry.inspect_batch([InterruptingPathLike()])
 
+    def test_pathlike_cannot_rebind_route_before_strict_lookup_or_inspection(self):
+        registry = ImportRegistry()
+        original = FakeImporter()
+        replacement = SecondFooImporter()
+        registry.register(original)
+
+        class MutatingPathLike:
+            def __init__(self, value: str) -> None:
+                self.value = value
+
+            def __fspath__(self):
+                registry.register(replacement, replace=True)
+                return self.value
+
+        with self.assertRaisesRegex(
+            ImportRegistryError,
+            "registration changed while reading source path",
+        ):
+            registry.importer_for(MutatingPathLike("source.foo"))
+        self.assertIs(registry.importer_for("source.foo"), original)
+
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / "source.foo"
+            source.write_bytes(b"source")
+            with self.assertRaisesRegex(
+                ImportRegistryError,
+                "registration changed while reading source path",
+            ):
+                registry.inspect(MutatingPathLike(str(source)))
+            self.assertIs(registry.importer_for(source), original)
+            self.assertEqual(source.read_bytes(), b"source")
+
+    def test_batch_restores_pathlike_route_mutation_and_continues(self):
+        registry = ImportRegistry()
+        original = FakeImporter()
+        replacement = SecondFooImporter()
+        registry.register(original)
+
+        class MutatingPathLike:
+            def __init__(self, value: str) -> None:
+                self.value = value
+
+            def __fspath__(self):
+                registry.register(replacement, replace=True)
+                return self.value
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            poisoned = root / "poisoned.foo"
+            valid = root / "valid.foo"
+            poisoned.write_bytes(b"poisoned")
+            valid.write_bytes(b"valid")
+
+            batch = registry.inspect_batch([MutatingPathLike(str(poisoned)), valid])
+
+            self.assertEqual([item.ok for item in batch.items], [False, True])
+            self.assertEqual(batch.items[0].path, Path("<invalid-source>"))
+            self.assertEqual(
+                batch.items[0].error,
+                "Importer registration changed while reading source path",
+            )
+            self.assertIs(registry.importer_for(valid), original)
+            self.assertEqual(batch.items[1].report.format_name, original.format_name)
+            self.assertEqual(poisoned.read_bytes(), b"poisoned")
+            self.assertEqual(valid.read_bytes(), b"valid")
+
+    def test_batch_pathlike_route_mutation_and_error_is_restored_without_text_leak(self):
+        registry = ImportRegistry()
+        original = FakeImporter()
+        replacement = SecondFooImporter()
+        registry.register(original)
+
+        class MutatingBrokenPathLike:
+            def __fspath__(self):
+                registry.register(replacement, replace=True)
+                raise RuntimeError(
+                    r"private path conversion C:\Users\PrivateUser\secret"
+                )
+
+        batch = registry.inspect_batch([MutatingBrokenPathLike()])
+
+        self.assertEqual(len(batch.items), 1)
+        self.assertFalse(batch.items[0].ok)
+        self.assertEqual(batch.items[0].path, Path("<invalid-source>"))
+        self.assertEqual(
+            batch.items[0].error,
+            "Importer registration changed while reading source path",
+        )
+        self.assertNotIn("PrivateUser", batch.items[0].error)
+        self.assertIs(registry.importer_for("source.foo"), original)
+
+    def test_pathlike_process_control_restores_route_before_propagation(self):
+        registry = ImportRegistry()
+        original = FakeImporter()
+        replacement = SecondFooImporter()
+        registry.register(original)
+
+        class InterruptingPathLike:
+            def __fspath__(self):
+                registry.register(replacement, replace=True)
+                raise KeyboardInterrupt()
+
+        with self.assertRaises(KeyboardInterrupt):
+            registry.inspect_batch([InterruptingPathLike()])
+
+        self.assertIs(registry.importer_for("source.foo"), original)
+
     def test_batch_preflight_reports_every_source_in_order_without_aborting(self):
         registry = ImportRegistry()
         registry.register(FakeImporter())

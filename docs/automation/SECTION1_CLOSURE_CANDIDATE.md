@@ -755,3 +755,30 @@ plus its own exact-head terminal qualification.
 `HUMAN_TESTED=NO`
 
 `NVDA_VERIFIED=NO`
+
+### Re-convergence after source-path routing recovery
+
+Section 0 advanced on canonical #2346 to 616d99003e855424d960e0096c3b37f6972c4320. The five-path Section-0
+scope now also closes a source-ingress authority gap: custom PathLike conversion
+cannot install or preserve a replacement suffix route before strict lookup,
+inspection, batch preflight, or process-control propagation. Host-owned routing
+is restored before bounded failure evidence is published.
+
+Prepared Section 1 is history-preservingly reconverged onto that exact
+predecessor with a two-parent merge. No Section-1 runtime commit is replayed,
+rebased, squashed or dropped. The predecessor's five Section-0 paths are
+inherited, and the effective Section-1 delta remains required to be exactly
+45 paths.
+
+Fresh predecessor-aware source/corpus and whole qualification is required.
+Section 0 remains BLOCKED_EXTERNAL_CI until its exact-head gates are terminal
+successful. Section 1 remains blocked on Section 0 acceptance plus its own
+exact-head terminal qualification.
+
+`SECTION_0_DONE=NO_PENDING_TERMINAL_CI`
+
+`SECTION_1_DONE=NO_PENDING_SECTION0_ACCEPTANCE_AND_EXACT_HEAD_QUALIFICATION`
+
+`HUMAN_TESTED=NO`
+
+`NVDA_VERIFIED=NO`
