@@ -261,6 +261,25 @@ No parser grammar, GameTree structure, chess legality, or export publication
 authority was duplicated. These paths are now part of the bounded Section-2
 candidate scope and are exact-bound by the prepared closure gate.
 
+
+### PGN-specific bilingual, presentation-atomicity and NVDA projection binding
+
+The closure gate now reuses the current inherited PGN presentation authorities
+instead of relying on broad full-product localization suites that could leak
+unrelated later-section failures into Section 2.
+
+Exact inherited authorities added to qualification:
+- `acs/pgn_webview_projection.py = 5327c3c89da28f9150a09eff4cc15131cc80cc76`
+- `acs/full_product_presenters.py = aa9c7c10a03fbe85bfa9a3b542188a5b31fee655`
+- `tests/test_dev1_pgn_webview_projection.py = c58b9096bcccd8b5a09f2e8bdb9c09ebfe5bcc4b`
+- `tests/test_pgn_presenter_graph_safety_current.py = c66f1473f46f1595add938b27f9e8ea553e91348`
+
+The targeted PGN projection suite proves Ukrainian/English language switching,
+rollback on failed locale rebuild, accessible SAN labels, recursive tree semantics,
+focus preservation, bounded comments/tags and no mixed-state publication. Existing
+PGN keyboard DOM and key-ownership regressions remain in the same gate. No
+presentation runtime bytes changed for this evidence convergence.
+
 ### Live predecessor reconvergence — fce5c75c65cf9abd3d134086279f20a6f5d63ef1
 
 Section 1 moved after exact-SHA qualification exposed and repaired the editable
