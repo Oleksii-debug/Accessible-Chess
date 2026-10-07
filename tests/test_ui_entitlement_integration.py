@@ -1,5 +1,6 @@
 import unittest
 
+from acs.entitlement_runtime_security import SAFE_LOCKED_ACTION_IDS
 from acs.ui_entitlement import project_entitlement, semantic_contract
 
 
@@ -21,6 +22,7 @@ class AccessibleEntitlementIntegrationTests(unittest.TestCase):
                 self.assertTrue(view.preserve_user_data)
                 self.assertEqual(view.action_id, "account.login")
                 self.assertIn("preserved", view.summary)
+                self.assertEqual(view.safe_action_ids, SAFE_LOCKED_ACTION_IDS)
 
     def test_grace_period_is_semantic_non_destructive_recovery_state(self):
         view = project_entitlement({"state": "grace_period"}, lang="uk")
@@ -41,6 +43,9 @@ class AccessibleEntitlementIntegrationTests(unittest.TestCase):
         self.assertEqual(view.action_id, "app.update")
         self.assertTrue(view.preserve_user_data)
         self.assertFalse(contract["destructiveAction"])
+        self.assertTrue(contract["premiumLocked"])
+        self.assertEqual(contract["safeActionIds"], list(SAFE_LOCKED_ACTION_IDS))
+        self.assertEqual(contract["safeActionControl"], "buttons")
 
     def test_unknown_state_fails_closed_with_recovery_and_data_preservation(self):
         for payload in (None, {}, {"state": "provider-specific-value"}):
@@ -52,6 +57,7 @@ class AccessibleEntitlementIntegrationTests(unittest.TestCase):
                 self.assertTrue(view.preserve_user_data)
                 self.assertEqual(view.action_id, "entitlement.refresh")
                 self.assertIn("збережено", view.summary)
+                self.assertEqual(view.safe_action_ids, SAFE_LOCKED_ACTION_IDS)
 
     def test_all_issue_11_states_have_semantic_projection(self):
         states = {
