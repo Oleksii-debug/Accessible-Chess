@@ -185,7 +185,15 @@ class ImportRegistry:
                 # adapter/parser failures. Process-control exceptions such as
                 # KeyboardInterrupt/SystemExit inherit BaseException and are
                 # intentionally not swallowed here.
-                message = str(exc).strip() or type(exc).__name__
+                try:
+                    message = str(exc).strip()
+                except Exception:
+                    # Exception rendering is adapter-controlled too: a hostile
+                    # or broken __str__ must not turn recovery into a second
+                    # batch-aborting failure.
+                    message = ""
+                if not message:
+                    message = type(exc).__name__
                 items.append(BatchInspectionItem(path=source, error=message))
             else:
                 items.append(BatchInspectionItem(path=source, report=report))
