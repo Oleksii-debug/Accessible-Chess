@@ -7,6 +7,7 @@ on:
     paths:
       - '.github/workflows/section1-king-capture-boundary.yml'
       - 'acs/chesscore.py'
+      - 'tests/test_dev2_fen_atomicity.py'
       - 'tests/test_section1_king_capture_boundary.py'
 
 permissions:
@@ -19,6 +20,7 @@ concurrency:
 env:
   EXPECTED_PARENT_SHA: 494166904d75e534f02e0caa7c7a06c01066f024
   CHESSCORE_BLOB: ba3d4a2fdc56e93af3c88a4a73a8d98fdc0feb21
+  DEV2_FEN_ATOMICITY_TEST_BLOB: 1cc88c136b5a9b711b5e495d1752a67be310a7e0
   TEST_BLOB: 4c0facef788c2ace18cbed0fcaeee9195113ec9f
 
 jobs:
@@ -60,20 +62,23 @@ jobs:
           expected="$(printf '%s\n' \
             '.github/workflows/section1-king-capture-boundary.yml' \
             'acs/chesscore.py' \
+            'tests/test_dev2_fen_atomicity.py' \
             'tests/test_section1_king_capture_boundary.py' | sort)"
           test "$changed" = "$expected"
 
-      - name: Bind exact rules authority and regression
+      - name: Bind exact rules authority and regressions
         shell: bash
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD:acs/chesscore.py)" = "$CHESSCORE_BLOB"
+          test "$(git rev-parse HEAD:tests/test_dev2_fen_atomicity.py)" = "$DEV2_FEN_ATOMICITY_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_section1_king_capture_boundary.py)" = "$TEST_BLOB"
 
       - name: Compile focused contract
         run: >-
           python -m py_compile
           acs/chesscore.py
+          tests/test_dev2_fen_atomicity.py
           tests/test_section1_king_capture_boundary.py
 
       - name: Execute king-capture and adjacent Section 1 regressions
