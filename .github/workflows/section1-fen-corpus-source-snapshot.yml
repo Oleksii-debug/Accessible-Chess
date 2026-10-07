@@ -24,6 +24,7 @@ on:
       - 'acs/input_limits.py'
       - 'acs/notation.py'
       - 'acs/position_editor.py'
+      - 'acs/version2_profile.py'
       - 'acs/stage1_release_ui_core.py'
       - 'acs/ui_analysis_adapter.py'
       - 'acs/webapp.py'
@@ -54,7 +55,7 @@ on:
       - 'web/index.html'
   workflow_dispatch:
 
-# TERMINAL_SECTION1_FREEZE_MARKER: accepted predecessor + exact 45-path candidate
+# TERMINAL_SECTION1_FREEZE_MARKER: accepted predecessor + exact 48-path candidate
 
 permissions:
   contents: read
@@ -135,6 +136,7 @@ jobs:
           acs/input_limits.py
           acs/notation.py
           acs/position_editor.py
+          acs/version2_profile.py
           acs/stage1_release_ui_core.py
           acs/ui_analysis_adapter.py
           acs/webapp.py
