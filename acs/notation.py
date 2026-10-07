@@ -3,18 +3,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 import re
 
+from .input_limits import MAX_SAN_CHARS
+
 
 class NotationError(ValueError):
     """Raised when a notation profile or SAN token cannot be formatted."""
 
 
 PROFILES = {"san", "uk_literal", "en_literal"}
-
-# SAN is an intrinsically tiny grammar. Bound the raw representation before
-# strip()/regex work so pasted or hostile text cannot amplify allocation cost.
-# The supported grammar below needs at most 9 non-whitespace characters; 64
-# leaves ample compatibility headroom without turning notation into a text sink.
-MAX_SAN_CHARS = 64
 
 _PIECES = {
     "uk": {

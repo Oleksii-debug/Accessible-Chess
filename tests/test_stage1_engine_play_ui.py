@@ -101,6 +101,111 @@ class Stage1EnginePlayUiTests(unittest.TestCase):
         self.addCleanup(api.close_analysis)
         return api, selected
 
+    def test_position_piece_edit_commits_then_ends_active_engine_game(self) -> None:
+        api, _engine = self.make_api()
+        self.assertTrue(api.start_engine_game("white", 4, 0, 0)["ok"])
+        self.assertIsNotNone(api._engine_session)
+
+        edited = api.edit_position_piece("a3", "N")
+
+        self.assertTrue(edited["ok"])
+        self.assertEqual(api.board.board[16], "N")
+        self.assertIsNone(api._engine_session)
+        self.assertEqual(api._engine_game_phase, "idle")
+        self.assertFalse(edited["engineGame"]["active"])
+
+    def test_failed_clear_board_preserves_active_engine_game_and_board(self) -> None:
+        api, _engine = self.make_api()
+        self.assertTrue(api.start_engine_game("white", 4, 0, 0)["ok"])
+        prior_session = api._engine_session
+        prior_phase = api._engine_game_phase
+        prior_fen = api.board.fen()
+        original = api._prepare_root_state
+
+        def fail(*_args, **_kwargs):
+            raise RuntimeError("simulated clear-root failure")
+
+        api._prepare_root_state = fail
+        try:
+            result = api.clear_board()
+        finally:
+            api._prepare_root_state = original
+
+        self.assertFalse(result["ok"])
+        self.assertIs(api._engine_session, prior_session)
+        self.assertEqual(api._engine_game_phase, prior_phase)
+        self.assertEqual(api.board.fen(), prior_fen)
+
+    def test_failed_engine_game_restart_preserves_existing_session_lifecycle(self) -> None:
+        api, _engine = self.make_api()
+        started = api.start_engine_game("white", 4, 0, 0)
+        self.assertTrue(started["ok"])
+        prior_session = api._engine_session
+        prior_phase = api._engine_game_phase
+        prior_fen = api.board.fen()
+        original = api._prepare_root_state
+
+        def fail(*_args, **_kwargs):
+            raise RuntimeError("simulated replacement-root failure")
+
+        api._prepare_root_state = fail
+        try:
+            result = api.start_engine_game("black", 6, 0, 0)
+        finally:
+            api._prepare_root_state = original
+
+        self.assertFalse(result["ok"])
+        self.assertIs(api._engine_session, prior_session)
+        self.assertEqual(api._engine_game_phase, prior_phase)
+        self.assertEqual(api.board.fen(), prior_fen)
+
+    def test_engine_game_start_aborts_if_standard_position_reset_cannot_publish(self) -> None:
+        api, engine = self.make_api()
+        self.assertTrue(api.make_move("e4")["ok"])
+        before_fen = api.board.fen()
+        before_tree = api.review_history.export_tree()
+        original = api._prepare_root_state
+
+        def fail(*_args, **_kwargs):
+            raise RuntimeError("simulated root publication failure")
+
+        api._prepare_root_state = fail
+        try:
+            result = api.start_engine_game("white", 4, 0, 0)
+        finally:
+            api._prepare_root_state = original
+
+        self.assertFalse(result["ok"])
+        self.assertIn("стандартну позицію", result["announcement"])
+        self.assertEqual(api.board.fen(), before_fen)
+        self.assertEqual(api.review_history.export_tree(), before_tree)
+        self.assertIsNone(api._engine_session)
+        self.assertEqual(api._engine_game_phase, "idle")
+        self.assertEqual(engine.calls, [])
+
+    def test_engine_reply_history_failure_is_atomic_and_pauses_session(self) -> None:
+        api, engine = self.make_api()
+        standard_fen = api.board.fen()
+        standard_tree = api.review_history.export_tree()
+        original = api._prepare_live_presentation
+
+        def fail(*_args, **_kwargs):
+            raise RuntimeError("simulated engine history failure")
+
+        api._prepare_live_presentation = fail
+        try:
+            result = api.start_engine_game("black", 4, 0, 0)
+        finally:
+            api._prepare_live_presentation = original
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(api.board.fen(), standard_fen)
+        self.assertEqual(api.review_history.export_tree(), standard_tree)
+        self.assertEqual(api.sans, [])
+        self.assertEqual(api.move_sides, [])
+        self.assertEqual(len(engine.calls), 1)
+        self.assertEqual(api._engine_game_phase, "error")
+
     def test_human_white_move_gets_one_legal_engine_reply(self) -> None:
         api, engine = self.make_api()
 
@@ -119,6 +224,9 @@ class Stage1EnginePlayUiTests(unittest.TestCase):
         self.assertEqual(api.board.turn, "w")
         self.assertEqual(played["engineGame"]["turn"], "human")
         self.assertEqual(len(engine.calls), 1)
+        expected_after_e4 = Board()
+        expected_after_e4.push_text("e4")
+        self.assertEqual(engine.calls[0][0], expected_after_e4.fen())
         self.assertEqual(engine.calls[0][1:], (6, 325))
         self.assertIn("Stockfish зіграв", played["announcement"])
 
@@ -512,6 +620,42 @@ class Stage1EnginePlayUiTests(unittest.TestCase):
         self.assertIn("Stockfish переміг", resigned["engineGameStatus"])
         self.assertFalse(blocked["ok"])
         self.assertEqual(blocked["historyLength"], 0)
+
+    def test_engine_game_settings_reject_active_scalar_subclasses_without_hooks(self) -> None:
+        api, engine = self.make_api()
+        calls = []
+
+        class ActiveText(str):
+            def strip(self):
+                calls.append("strip")
+                raise AssertionError("active text hook must not run")
+
+            def __str__(self):
+                calls.append("str")
+                raise AssertionError("active text hook must not run")
+
+        for kwargs in (
+            {"human_side": ActiveText("white"), "level": 5, "initial_minutes": 0, "increment_seconds": 0},
+            {"human_side": "white", "level": ActiveText("5"), "initial_minutes": 0, "increment_seconds": 0},
+        ):
+            with self.subTest(kwargs=kwargs):
+                before = api.board.fen()
+                result = api.start_engine_game(**kwargs)
+                self.assertFalse(result["ok"])
+                self.assertEqual(api.board.fen(), before)
+                self.assertEqual(engine.calls, [])
+
+        self.assertEqual(calls, [])
+
+    def test_engine_game_numeric_text_requires_bounded_ascii_digits(self) -> None:
+        api, engine = self.make_api()
+
+        unicode_digits = api.start_engine_game("white", "５", 0, 0)
+        oversized = api.start_engine_game("white", "5" * 33, 0, 0)
+
+        self.assertFalse(unicode_digits["ok"])
+        self.assertFalse(oversized["ok"])
+        self.assertEqual(engine.calls, [])
 
     def test_invalid_time_configuration_is_atomic_and_concise(self) -> None:
         api, engine = self.make_api()
