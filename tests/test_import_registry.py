@@ -234,6 +234,14 @@ class PrivateRegistryErrorImporter:
         )
 
 
+class ActivePathRegistryError(ImportRegistryError):
+    str_calls = 0
+
+    def __str__(self):
+        type(self).str_calls += 1
+        raise KeyboardInterrupt("provider __str__ must never execute")
+
+
 class BrokenStringError(Exception):
     def __str__(self) -> str:
         raise RuntimeError('exception rendering failed')
@@ -1681,6 +1689,42 @@ class ImportRegistryTests(unittest.TestCase):
             with self.assertRaises(ImportRegistryError) as registry_ctx:
                 registry.inspect(registry_source)
             self.assertIn('decoder-secret.bin', str(registry_ctx.exception))
+
+    def test_batch_pathlike_exact_registry_error_is_provider_owned_and_sanitized(self):
+        registry = ImportRegistry()
+        registry.register(FakeImporter())
+
+        class RegistryErrorPathLike:
+            def __fspath__(self):
+                raise ImportRegistryError(
+                    r"provider path error at C:\\Users\\PrivateUser\\secret"
+                )
+
+        batch = registry.inspect_batch([RegistryErrorPathLike()])
+
+        self.assertEqual(len(batch.items), 1)
+        self.assertEqual(batch.items[0].path, Path("<invalid-source>"))
+        self.assertEqual(batch.items[0].error, "Invalid source path")
+        self.assertNotIn("PrivateUser", batch.items[0].error)
+
+        with self.assertRaises(ImportRegistryError) as strict_ctx:
+            registry.inspect(RegistryErrorPathLike())
+        self.assertIn("PrivateUser", str(strict_ctx.exception))
+
+    def test_batch_pathlike_active_registry_error_subclass_never_executes_str(self):
+        registry = ImportRegistry()
+        registry.register(FakeImporter())
+        ActivePathRegistryError.str_calls = 0
+
+        class ActiveRegistryErrorPathLike:
+            def __fspath__(self):
+                raise ActivePathRegistryError()
+
+        batch = registry.inspect_batch([ActiveRegistryErrorPathLike()])
+
+        self.assertEqual(len(batch.items), 1)
+        self.assertEqual(batch.items[0].error, "Invalid source path")
+        self.assertEqual(ActivePathRegistryError.str_calls, 0)
 
     def test_batch_invalid_path_scalar_is_isolated_and_later_sources_continue(self):
         registry = ImportRegistry()

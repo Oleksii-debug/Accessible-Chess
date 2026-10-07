@@ -439,3 +439,26 @@ hooks while a later independent source remains inspectable.
 
 This remains the same six-path PR #2346 successor and introduces no parser,
 decoder, report, format or chess authority.
+
+
+### Provider-owned PathLike registry-error sanitization
+
+A further Section-0.5 ingress audit found that a provider-owned `PathLike`
+could deliberately raise `ImportRegistryError` (or a subclass) from
+`__fspath__()`. Batch preflight previously caught that type as if it were
+host-owned registry evidence and called `str(exc)`, allowing private provider
+text or an active `__str__` hook to cross the reporting boundary.
+
+Batch path coercion now has an explicit provider-failure envelope. Ordinary
+conversion exceptions are sanitized to the stable `Invalid source path`
+evidence regardless of their class; host-owned route-drift errors remain
+distinct; direct BaseException process-control remains unswallowed. Strict
+single-source inspection preserves its existing fail-fast exception behavior.
+
+Regressions cover an exact provider-raised ImportRegistryError containing a
+private workstation path and an active subclass whose `__str__` raises
+KeyboardInterrupt. Batch evidence leaks neither and executes zero active string
+hooks.
+
+This remains the same six-path #2346 lineage and adds no parser, decoder,
+report, format or chess authority.
