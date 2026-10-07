@@ -7,6 +7,7 @@ on:
       - 'acs/protection_boundary.py'
       - 'acs/protection_locked_ui.py'
       - 'acs/version2_release_app.py'
+      - 'acs/version2_profile.py'
       - 'acs/version2_upgrade_status_release.py'
       - 'web/protection_locked.html'
       - 'web/protection_locked.js'
@@ -49,6 +50,7 @@ jobs:
           acs/protection_boundary.py
           acs/protection_locked_ui.py
           acs/version2_release_app.py
+          acs/version2_profile.py
           acs/version2_upgrade_status_release.py
           tests/test_security_wave1_product_integration.py
       - name: Parse locked-shell JavaScript
