@@ -229,16 +229,41 @@ class UniversalChessAgentRuntime:
         self._active: dict[str, asyncio.Task[AgentRunResult]] = {}
         self._active_lock = asyncio.Lock()
 
-    async def run(self, *, run_id: str, user_text: str) -> AgentRunResult:
+    async def run(
+        self,
+        *,
+        run_id: str,
+        user_text: str,
+        allowed_tool_ids: frozenset[str] | None = None,
+    ) -> AgentRunResult:
         if type(run_id) is not str or not run_id or run_id != run_id.strip():
             raise ValueError("run_id must be non-empty canonical text")
         if type(user_text) is not str or not user_text.strip():
             raise ValueError("user_text must be non-empty")
+        if allowed_tool_ids is not None:
+            if type(allowed_tool_ids) is not frozenset:
+                raise TypeError("allowed_tool_ids must be a frozenset or None")
+            registered = {spec.tool_id for spec in self.tools.specs()}
+            for tool_id in allowed_tool_ids:
+                if (
+                    type(tool_id) is not str
+                    or not tool_id
+                    or tool_id != tool_id.strip()
+                ):
+                    raise ValueError("allowed_tool_ids contains an invalid tool id")
+                if tool_id not in registered:
+                    raise ValueError("allowed_tool_ids contains an unregistered tool")
         async with self._active_lock:
             existing = self._active.get(run_id)
             if existing is not None and not existing.done():
                 raise RuntimeError("an agent run with this identity is already active")
-            task = asyncio.create_task(self._run_loop(run_id=run_id, user_text=user_text.strip()))
+            task = asyncio.create_task(
+                self._run_loop(
+                    run_id=run_id,
+                    user_text=user_text.strip(),
+                    allowed_tool_ids=allowed_tool_ids,
+                )
+            )
             self._active[run_id] = task
         try:
             return await task
@@ -277,7 +302,13 @@ class UniversalChessAgentRuntime:
             estimated_unbilled=reservation,
         )
 
-    async def _run_loop(self, *, run_id: str, user_text: str) -> AgentRunResult:
+    async def _run_loop(
+        self,
+        *,
+        run_id: str,
+        user_text: str,
+        allowed_tool_ids: frozenset[str] | None,
+    ) -> AgentRunResult:
         messages: list[ModelMessage] = [
             ModelMessage(role="system", content=self.system_prompt),
             ModelMessage(role="user", content=user_text),
@@ -342,6 +373,8 @@ class UniversalChessAgentRuntime:
                 )
 
             assert arguments is not None
+            if allowed_tool_ids is not None and value not in allowed_tool_ids:
+                raise AgentProtocolError("tool is not permitted for this run")
             tool_calls += 1
             call_id = f"{run_id}:tool:{tool_calls}"
             result = await self.tools.execute(
