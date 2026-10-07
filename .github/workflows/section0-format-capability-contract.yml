@@ -9,7 +9,6 @@ on:
       - 'acs/format_capabilities.py'
       - 'docs/automation/CANONICAL_FORMAT_CAPABILITY_MATRIX.md'
       - 'tests/test_section0_format_capabilities.py'
-  workflow_dispatch:
 
 permissions:
   contents: read
