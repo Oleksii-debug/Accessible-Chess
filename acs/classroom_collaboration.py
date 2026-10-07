@@ -412,7 +412,7 @@ class ClassroomCollaborationController:
             )
             if len(existing) != 1:
                 raise CollaborationError(
-                    "live mutable chat state requires an existing message identity"
+                    "live chat message cannot carry mutable state"
                 )
             prior = existing[0]
             immutable_fields = (
