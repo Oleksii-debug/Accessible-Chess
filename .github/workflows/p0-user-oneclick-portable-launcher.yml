@@ -420,8 +420,11 @@ jobs:
             'PROCESS_CREATED: YES',
             'PACKAGE_DATA_OWNER: SINGLE_INSTANCE_GUARD_ACTIVE',
             'PACKAGE_ROOT_GUARD: DIRECT_DIRECTORY_HANDLE_READY',
+            'PACKAGE_ROOT_GUARD: DELETE_SHARING_BLOCK_PROVEN',
             'APP_RUNTIME_GUARD: DIRECT_DIRECTORY_HANDLE_READY',
+            'APP_RUNTIME_GUARD: DELETE_SHARING_BLOCK_PROVEN',
             'PACKAGE_DATA_GUARD: DIRECT_DIRECTORY_HANDLE_READY',
+            'PACKAGE_DATA_GUARD: DELETE_SHARING_BLOCK_PROVEN',
             'PACKAGE_ROOT_GUARD: RETAINED_BY_LAUNCHER_SUPERVISOR',
             'APP_RUNTIME_GUARD: RETAINED_BY_LAUNCHER_SUPERVISOR',
             'PACKAGE_DATA_GUARD: RETAINED_BY_LAUNCHER_SUPERVISOR',
@@ -781,6 +784,13 @@ jobs:
           assert 'L".accessible-chess-instance.lock"' in source
           assert 'CREATE_UNICODE_ENVIRONMENT | CREATE_SUSPENDED' in source
           assert 'DuplicateHandle(' not in source
+          assert 'FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES' in source
+          assert 'static BOOL ac_directory_guard_blocks_delete(const WCHAR *path)' in source
+          assert 'FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE' in source
+          assert 'ERROR_SHARING_VIOLATION' in source
+          assert 'PACKAGE_ROOT_GUARD: DELETE_SHARING_BLOCK_PROVEN' in source
+          assert 'APP_RUNTIME_GUARD: DELETE_SHARING_BLOCK_PROVEN' in source
+          assert 'PACKAGE_DATA_GUARD: DELETE_SHARING_BLOCK_PROVEN' in source
           assert 'LAUNCHER_SUPERVISOR: ACTIVE_UNTIL_CHILD_EXIT' in source
           assert 'WaitForSingleObject(g_process.hProcess, INFINITE)' in source
           assert 'PACKAGE_ROOT_GUARD: RETAINED_BY_LAUNCHER_SUPERVISOR' in source
