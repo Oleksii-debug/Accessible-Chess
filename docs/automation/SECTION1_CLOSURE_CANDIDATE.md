@@ -401,3 +401,34 @@ fails without changing FEN, GameTree/history, SAN history or side metadata.
 
 This preserves one chess authority and prevents a format-only transition from
 becoming a user-visible legal move.
+
+
+### Inactive-side FEN legality and failure-atomic publication
+
+A final canonical-legality audit found a representation/playability seam that the
+existing structural FEN checks did not cover: a six-field FEN could place the
+king of the side that just moved under attack while giving the move to the
+opponent. Such a position is structurally representable but cannot be the result
+of a legal chess move.
+
+The canonical `Board.set_fen` boundary now validates the parsed candidate before
+publication using the existing Board attack/check authority. The side to move is
+still permitted to be in check, while the inactive side must not remain in
+check. This validation occurs on an unpublished candidate copy, so a rejected
+FEN cannot partially replace board state, side-to-move, counters, undo/redo
+history or `last_move`.
+
+Exact implementation/evidence blobs at this checkpoint:
+- `acs/chesscore.py=56dd09605a8f048b23a40676de2087fec84f3e78`;
+- `tests/test_dev2_fen_atomicity.py=f03b77f3329dc3f2ab8995cc156f0e4f7419e5c4`;
+- `tests/data/fen_edge_corpus_v1.json=11126036c582a37a3e0b7bb9a279889eaf96f6d3`.
+
+The deterministic corpus now covers both legal checked-side-to-move directions
+and both impossible inactive-side-in-check directions. The focused atomicity
+regression additionally starts from a non-empty move/undo history and proves
+that both rejected directions leave the complete live Board/history tuple
+unchanged.
+
+This remains Section-1 work on the existing predecessor-aware #2356 lineage.
+Section 0 remains a hard dependency, and terminal exact-head whole/corpus CI is
+still required before any DONE claim.
