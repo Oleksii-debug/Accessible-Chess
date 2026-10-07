@@ -6,6 +6,7 @@ on:
       - 'section1/fen-corpus-source-snapshot-20261007-sol56'
     paths:
       - '.github/workflows/current-fen-history-section1-convergence.yml'
+      - '.github/workflows/section1-fen-corpus-source-snapshot.yml'
       - '.github/workflows/section1-fen-edge-corpus.yml'
       - '.github/workflows/section1-positionstate-counter-boundary.yml'
       - '.github/workflows/section1-whole-contract-convergence.yml'
@@ -46,11 +47,11 @@ env:
   EDGE_CORPUS_BLOB: ed61ab2296d26727c4220c6e5abb437bb1e1ab5a
   EDGE_TEST_BLOB: d4beb33a0131cb4b748e8495f4cacb89ffefc9a5
 
-  RECEIPT_WORKFLOW_BLOB: 9fd45a5e3cd9a9b37df81fbae284b90cb41a637c
-  SOURCE_WORKFLOW_BLOB: 59dbcbd39bdade13a21ac3af547add247877a705
+  RECEIPT_WORKFLOW_BLOB: b8991a98b6c13118736907b7dce9e297b2b07ea2
+  SOURCE_WORKFLOW_BLOB: 509f0d6b96cf0c15c9863d6b23e62446762bd46d
   EDGE_WORKFLOW_BLOB: 84f4e41ac49b2f35e7556e99561b92956191b75d
   POSITION_WORKFLOW_BLOB: f0ac7cefcc5db28430680361b36a026c7d526dd2
-  CLOSURE_DOC_BLOB: 23ebf098cbbb763d84eb55023e3888e594455968
+  CLOSURE_DOC_BLOB: 83b3b14611cdb9b72621c2f0cac91652fc4b009f
 
   P0F_PROVENANCE_BLOB: 3298aed00ca000d27f607cd861abbba9483ff358
   P0F_BUILDER_BLOB: b7b96a661652a17cb16e8ca4cabba3b8b373e483
@@ -99,7 +100,7 @@ jobs:
 
           git diff --check "$BASE_2340_SHA"...HEAD
           changed="$(git diff --name-only "$BASE_2340_SHA"...HEAD | sort)"
-          expected="$(printf '%s\n'             '.github/workflows/current-fen-history-section1-convergence.yml'             '.github/workflows/section1-fen-edge-corpus.yml'             '.github/workflows/section1-positionstate-counter-boundary.yml'             '.github/workflows/section1-whole-contract-convergence.yml'             'acs/position_editor.py'             'docs/automation/SECTION1_CLOSURE_CANDIDATE.md'             'tests/data/fen_edge_corpus_v1.json'             'tests/test_fen_edge_corpus.py'             'tests/test_section1_positionstate_counter_boundary.py' | sort)"
+          expected="$(printf '%s\n'             '.github/workflows/current-fen-history-section1-convergence.yml'             '.github/workflows/section1-fen-corpus-source-snapshot.yml'             '.github/workflows/section1-fen-edge-corpus.yml'             '.github/workflows/section1-positionstate-counter-boundary.yml'             '.github/workflows/section1-whole-contract-convergence.yml'             'acs/position_editor.py'             'docs/automation/SECTION1_CLOSURE_CANDIDATE.md'             'tests/data/fen_edge_corpus_v1.json'             'tests/test_fen_edge_corpus.py'             'tests/test_section1_positionstate_counter_boundary.py' | sort)"
           test "$changed" = "$expected"
 
       - name: Bind exact canonical authorities and consumed residuals
