@@ -484,3 +484,28 @@ sources, and direct KeyboardInterrupt after route replacement. No new format,
 parser, decoder, report or chess authority is introduced.
 
 This remains the same exact six-path canonical PR #2346 lineage.
+
+### Bounded importer format-name metadata
+
+A further Section-0.5 resource audit found that registration validated
+`format_name` with `.strip()` before applying any raw size limit. Because the
+exact string is adapter-owned metadata, an arbitrarily large whitespace-heavy
+value could force unbounded linear host work before the registration boundary
+rejected it.
+
+The canonical registry now applies a 256-character raw format-name fence before
+whitespace normalization. Exact non-text values still fail closed, empty or
+whitespace-only names retain the existing rejection, and no route is published
+on failure.
+
+Regression coverage supplies a 257-character whitespace-only exact string and
+requires the size failure to occur before the empty-name normalization path,
+with the registry remaining empty afterward.
+
+Exact successor blobs:
+- `acs/import_registry.py`: `a6bf046fc2dbd53b06891d372cbfa7b476bc9836`
+- `tests/test_import_registry.py`: `acec064ede353d90c131f2e172a4ad5482c59010`
+
+This remains the same six-path PR #2346 Section-0 lineage and introduces no new
+parser, decoder, report model, format authority or chess authority.
+
