@@ -24,6 +24,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import stat
 import sys
 import tempfile
 from urllib.request import Request, urlopen
@@ -53,6 +54,12 @@ STARTER_REAL_GAME_COUNT = 240
 MINIMUM_REAL_GAME_COUNT = 200
 DOWNLOAD_LIMIT_BYTES = 32 * 1024 * 1024
 DOWNLOAD_CHUNK = 1024 * 1024
+BUNDLE_FILENAMES = (
+    "starter_uk.pgn",
+    "stress_uk.pgn",
+    "sample_library.acsdb",
+    "manifest.json",
+)
 
 CURATION_POLICY_ID = "accessible-chess-p0f-real-sample-v1"
 CURATION_MIN_PLIES = 20
@@ -73,14 +80,6 @@ CURATION_MAX_SCANNED_GAMES = 5_000
 
 def _sha256_bytes(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
-
-
-def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(DOWNLOAD_CHUNK), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _scan_comment_state(line: str, inside_brace: bool) -> bool:
@@ -367,16 +366,33 @@ def _download_verified(destination: Path) -> int:
     return total
 
 
-def _verify_local_source(path: Path) -> int:
-    if not path.is_file():
-        raise FileNotFoundError(path)
-    size = path.stat().st_size
-    if size > DOWNLOAD_LIMIT_BYTES:
+def _read_verified_compressed_payload(path: Path) -> bytes:
+    """Read and pin the exact bounded compressed bytes consumed by extraction."""
+
+    descriptor = -1
+    try:
+        # O_NONBLOCK prevents FIFO-like filesystem objects from hanging at open
+        # on platforms that expose it. O_BINARY preserves raw bytes on Windows.
+        flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NONBLOCK", 0)
+        descriptor = os.open(path, flags)
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise RuntimeError("compressed Lichess corpus source must be a regular file")
+        with os.fdopen(descriptor, "rb") as source:
+            descriptor = -1
+            payload = source.read(DOWNLOAD_LIMIT_BYTES + 1)
+    except OSError as exc:
+        raise RuntimeError(
+            f"compressed Lichess corpus could not be read: {type(exc).__name__}"
+        ) from exc
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+    if len(payload) > DOWNLOAD_LIMIT_BYTES:
         raise RuntimeError("compressed Lichess corpus exceeds qualified download bound")
-    actual = _sha256_file(path)
+    actual = _sha256_bytes(payload)
     if actual != CORPUS_SHA256:
         raise AssertionError(f"Lichess corpus digest mismatch: {actual}")
-    return size
+    return payload
 
 
 def _extract_curated_subset(
@@ -392,10 +408,14 @@ def _extract_curated_subset(
             "install the pinned qualification dependency zstandard==0.23.0"
         ) from exc
 
-    with compressed.open("rb") as source:
-        reader = zstandard.ZstdDecompressor().stream_reader(source)
-        with reader, io.TextIOWrapper(reader, encoding="utf-8", errors="strict", newline="") as text:
-            return _curate_complete_game_subset(text, destination, limit)
+    # Consume only the exact bounded byte snapshot whose digest was verified
+    # here. This closes the local-source verify -> copy -> extraction gap:
+    # pathname replacement or same-size mutation cannot turn separately
+    # verified source metadata into different decompressor input.
+    compressed_payload = _read_verified_compressed_payload(compressed)
+    reader = zstandard.ZstdDecompressor().stream_reader(io.BytesIO(compressed_payload))
+    with reader, io.TextIOWrapper(reader, encoding="utf-8", errors="strict", newline="") as text:
+        return _curate_complete_game_subset(text, destination, limit)
 
 
 def _write_text_atomic(path: Path, text: str, *, overwrite: bool) -> None:
@@ -411,6 +431,95 @@ def _write_text_atomic(path: Path, text: str, *, overwrite: bool) -> None:
     finally:
         if temp.exists():
             temp.unlink()
+
+
+
+def _publish_staged_bundle(
+    staging: Path,
+    destination: Path,
+    *,
+    overwrite: bool,
+) -> None:
+    """Publish one complete starter bundle, rolling back a partial replacement."""
+
+    staged = {name: staging / name for name in BUNDLE_FILENAMES}
+    missing = [name for name, path in staged.items() if not path.is_file()]
+    if missing:
+        raise RuntimeError(
+            "staged starter bundle is incomplete: " + ", ".join(sorted(missing))
+        )
+
+    if destination.exists() and not destination.is_dir():
+        raise NotADirectoryError(destination)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination_preexisted = destination.exists()
+    destination.mkdir(parents=True, exist_ok=True)
+
+    targets = {name: destination / name for name in BUNDLE_FILENAMES}
+    for name, target in targets.items():
+        if target.exists() and not target.is_file():
+            raise RuntimeError(f"starter bundle target is not a regular file: {name}")
+        if target.exists() and not overwrite:
+            raise FileExistsError(target)
+
+    backup = Path(
+        tempfile.mkdtemp(
+            prefix=f".{destination.name}.rollback-",
+            dir=str(destination.parent),
+        )
+    )
+    backed_up: list[str] = []
+    published: list[str] = []
+    cleanup_backup = True
+    try:
+        if overwrite:
+            for name in BUNDLE_FILENAMES:
+                target = targets[name]
+                if target.exists():
+                    os.replace(target, backup / name)
+                    backed_up.append(name)
+
+        for name in BUNDLE_FILENAMES:
+            os.replace(staged[name], targets[name])
+            published.append(name)
+    except BaseException as publish_error:
+        rollback_errors: list[BaseException] = []
+        for name in reversed(published):
+            try:
+                target = targets[name]
+                if target.exists():
+                    target.unlink()
+            except BaseException as exc:  # pragma: no cover - catastrophic filesystem failure.
+                rollback_errors.append(exc)
+
+        for name in backed_up:
+            previous = backup / name
+            if not previous.exists():
+                rollback_errors.append(
+                    RuntimeError(f"starter bundle rollback backup vanished: {name}")
+                )
+                continue
+            try:
+                os.replace(previous, targets[name])
+            except BaseException as exc:  # pragma: no cover - catastrophic filesystem failure.
+                rollback_errors.append(exc)
+
+        if not destination_preexisted:
+            try:
+                destination.rmdir()
+            except OSError:
+                pass
+
+        if rollback_errors:
+            cleanup_backup = False
+            raise RuntimeError(
+                "starter bundle publication failed and rollback was incomplete; "
+                "rollback recovery files were preserved"
+            ) from publish_error
+        raise
+    finally:
+        if cleanup_backup:
+            shutil.rmtree(backup, ignore_errors=True)
 
 
 def _licensed_file(payload: bytes, *, license_id: str) -> dict[str, object]:
@@ -476,26 +585,69 @@ def _validate_curation_manifest_evidence(
     }
     if criteria != expected_criteria:
         raise ValueError("curation evidence criteria do not match the qualified policy")
+
+    scanned_records = evidence.get("scanned_records")
+    if (
+        type(scanned_records) is not int
+        or scanned_records < starter_count
+        or scanned_records > CURATION_MAX_SCANNED_GAMES
+    ):
+        raise ValueError("curation evidence scanned_records is outside the qualified range")
+    eligible_records = evidence.get("eligible_records")
+    if (
+        type(eligible_records) is not int
+        or eligible_records < starter_count
+        or eligible_records > scanned_records
+    ):
+        raise ValueError("curation evidence eligible_records is inconsistent")
+    rejected_records = evidence.get("rejected_records")
+    if not isinstance(rejected_records, dict):
+        raise ValueError("curation evidence rejected_records are missing")
+    rejected_total = 0
+    for reason, count in rejected_records.items():
+        if type(reason) is not str or not reason:
+            raise ValueError("curation evidence has an invalid rejection reason")
+        if type(count) is not int or count < 0:
+            raise ValueError("curation evidence has an invalid rejection count")
+        rejected_total += count
+    if eligible_records + rejected_total != scanned_records:
+        raise ValueError("curation evidence scan accounting is inconsistent")
+
     selected = evidence.get("selected_games")
     if not isinstance(selected, list) or len(selected) != starter_count:
         raise ValueError("curation evidence selected_games count does not match starter_count")
-    aggregate = _selected_aggregate_evidence(selected)
-    for key, value in aggregate.items():
-        if evidence.get(key) != value:
-            raise ValueError(f"curation aggregate mismatch for {key}")
 
     records = list(_iter_complete_game_records(io.StringIO(starter_pgn)))
     if len(records) != starter_count:
-        raise ValueError("starter PGN record count does not match curation evidence")
-    expected_hashes = [
-        str(candidate.get("record_sha256", "")).lower()
-        for candidate in selected
-        if isinstance(candidate, dict)
-    ]
-    actual_hashes = [_sha256_bytes(record.encode("utf-8")) for record in records]
-    if expected_hashes != actual_hashes:
-        raise ValueError("curation evidence does not match selected starter PGN records")
+        raise ValueError("starter PGN complete-record count does not match starter_count")
 
+    rebuilt_selected: list[dict[str, object]] = []
+    previous_source_index = 0
+    for candidate, record in zip(selected, records):
+        if not isinstance(candidate, dict):
+            raise ValueError("curation evidence selected game is not a dictionary")
+        source_index = candidate.get("source_index")
+        if (
+            type(source_index) is not int
+            or source_index <= previous_source_index
+            or source_index > scanned_records
+        ):
+            raise ValueError("curation evidence source indexes are not strictly increasing")
+        rebuilt, reason = _candidate_evidence(record, source_index)
+        if rebuilt is None:
+            raise ValueError(
+                "selected starter PGN record is not eligible under the qualified policy: "
+                f"{reason or 'unknown'}"
+            )
+        if candidate != rebuilt:
+            raise ValueError("curation evidence does not match selected starter PGN records")
+        rebuilt_selected.append(rebuilt)
+        previous_source_index = source_index
+
+    aggregate = _selected_aggregate_evidence(rebuilt_selected)
+    for key, value in aggregate.items():
+        if evidence.get(key) != value:
+            raise ValueError(f"curation aggregate mismatch for {key}")
 
 def build_release_bundle_from_curated_pgn(
     destination: str | Path,
@@ -508,86 +660,107 @@ def build_release_bundle_from_curated_pgn(
     overwrite: bool = False,
     stress_count: int = STRESS_GAME_COUNT,
 ) -> dict[str, object]:
-    """Materialize the release four-file bundle from a verified curated lawful subset."""
+    """Materialize one verified release bundle without exposing partial output."""
 
     if type(starter_count) is not int or starter_count < MINIMUM_REAL_GAME_COUNT:
         raise ValueError(f"starter_count must be >= {MINIMUM_REAL_GAME_COUNT}")
-    if starter_pgn.count('[Event "') != starter_count:
-        raise ValueError("starter PGN complete-record count does not match starter_count")
-    if len(source_subset_sha256) != 64 or any(
+    if type(source_subset_sha256) is not str or len(source_subset_sha256) != 64 or any(
         character not in "0123456789abcdefABCDEF" for character in source_subset_sha256
     ):
         raise ValueError("source_subset_sha256 must be a SHA-256 hex digest")
+    if (
+        type(source_compressed_bytes) is not int
+        or source_compressed_bytes <= 0
+        or source_compressed_bytes > DOWNLOAD_LIMIT_BYTES
+    ):
+        raise ValueError("source_compressed_bytes is outside the qualified compressed-size range")
     if type(stress_count) is not int or stress_count <= starter_count:
         raise ValueError("stress_count must be greater than starter_count")
     _validate_curation_manifest_evidence(curation_evidence, starter_count, starter_pgn)
+    actual_subset_sha256 = _sha256_bytes(starter_pgn.encode("utf-8"))
+    if source_subset_sha256.lower() != actual_subset_sha256:
+        raise ValueError("source_subset_sha256 does not match starter PGN bytes")
 
     output = Path(destination)
-    output.mkdir(parents=True, exist_ok=True)
-    starter_path = output / "starter_uk.pgn"
-    stress_path = output / "stress_uk.pgn"
-    library_path = output / "sample_library.acsdb"
-    manifest_path = output / "manifest.json"
-
-    if not overwrite:
-        for path in (starter_path, stress_path, library_path, manifest_path):
+    if output.exists() and not output.is_dir():
+        raise NotADirectoryError(output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    if not overwrite and output.exists():
+        for name in BUNDLE_FILENAMES:
+            path = output / name
             if path.exists():
                 raise FileExistsError(path)
 
-    stress_pgn = build_stress_pgn(stress_count)
-    _write_text_atomic(starter_path, starter_pgn, overwrite=overwrite)
-    _write_text_atomic(stress_path, stress_pgn, overwrite=overwrite)
-    build_sample_library(library_path, starter_pgn=starter_pgn, overwrite=overwrite)
-    database_evidence = _prove_sample_database(library_path, starter_count)
-
-    starter_bytes = starter_path.read_bytes()
-    stress_bytes = stress_path.read_bytes()
-    library_bytes = library_path.read_bytes()
-    manifest: dict[str, object] = {
-        "schema_version": 3,
-        "bundle_kind": "lawful-curated-real-game-starter",
-        "runtime_network_required": False,
-        "starter_source": {
-            "name": CORPUS_NAME,
-            "url": CORPUS_URL,
-            "license_id": CORPUS_LICENSE_ID,
-            "published_games": CORPUS_PUBLISHED_GAMES,
-            "compressed_sha256": CORPUS_SHA256,
-            "compressed_bytes": source_compressed_bytes,
-            "selection": CURATION_POLICY_ID,
-            "subset_sha256": source_subset_sha256.lower(),
-            "selected_games": starter_count,
-            "curation": curation_evidence,
-        },
-        "licenses": {
-            CORPUS_LICENSE_ID: {
-                "type": "public-domain-dedication",
-                "url": CORPUS_LICENSE_URL,
-                "source": "Lichess standard database publication",
-            },
-            CONTENT_LICENSE_ID: {
-                "type": "project-owned-redistribution-grant",
-                "terms_uk": CONTENT_LICENSE_TERMS_UK,
-            },
-        },
-        "counts": {
-            "starter_games": starter_count,
-            "stress_games": stress_count,
-        },
-        "sample_library": database_evidence,
-        "files": {
-            "starter_uk.pgn": _licensed_file(starter_bytes, license_id=CORPUS_LICENSE_ID),
-            "stress_uk.pgn": _licensed_file(stress_bytes, license_id=CONTENT_LICENSE_ID),
-            "sample_library.acsdb": _licensed_file(library_bytes, license_id=CORPUS_LICENSE_ID),
-        },
-    }
-    _write_text_atomic(
-        manifest_path,
-        json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        overwrite=overwrite,
+    staging = Path(
+        tempfile.mkdtemp(
+            prefix=f".{output.name}.build-",
+            dir=str(output.parent),
+        )
     )
-    return manifest
+    starter_path = staging / "starter_uk.pgn"
+    stress_path = staging / "stress_uk.pgn"
+    library_path = staging / "sample_library.acsdb"
+    manifest_path = staging / "manifest.json"
 
+    try:
+        stress_pgn = build_stress_pgn(stress_count)
+        _write_text_atomic(starter_path, starter_pgn, overwrite=False)
+        _write_text_atomic(stress_path, stress_pgn, overwrite=False)
+        build_sample_library(library_path, starter_pgn=starter_pgn, overwrite=False)
+        database_evidence = _prove_sample_database(library_path, starter_count)
+
+        starter_bytes = starter_path.read_bytes()
+        stress_bytes = stress_path.read_bytes()
+        library_bytes = library_path.read_bytes()
+        manifest: dict[str, object] = {
+            "schema_version": 3,
+            "bundle_kind": "lawful-curated-real-game-starter",
+            "runtime_network_required": False,
+            "starter_source": {
+                "name": CORPUS_NAME,
+                "url": CORPUS_URL,
+                "license_id": CORPUS_LICENSE_ID,
+                "published_games": CORPUS_PUBLISHED_GAMES,
+                "compressed_sha256": CORPUS_SHA256,
+                "compressed_bytes": source_compressed_bytes,
+                "selection": CURATION_POLICY_ID,
+                "subset_sha256": source_subset_sha256.lower(),
+                "selected_games": starter_count,
+                "curation": curation_evidence,
+            },
+            "licenses": {
+                CORPUS_LICENSE_ID: {
+                    "type": "public-domain-dedication",
+                    "url": CORPUS_LICENSE_URL,
+                    "source": "Lichess standard database publication",
+                },
+                CONTENT_LICENSE_ID: {
+                    "type": "project-owned-redistribution-grant",
+                    "terms_uk": CONTENT_LICENSE_TERMS_UK,
+                },
+            },
+            "counts": {
+                "starter_games": starter_count,
+                "stress_games": stress_count,
+            },
+            "sample_library": database_evidence,
+            "files": {
+                "starter_uk.pgn": _licensed_file(starter_bytes, license_id=CORPUS_LICENSE_ID),
+                "stress_uk.pgn": _licensed_file(stress_bytes, license_id=CONTENT_LICENSE_ID),
+                "sample_library.acsdb": _licensed_file(
+                    library_bytes, license_id=CORPUS_LICENSE_ID
+                ),
+            },
+        }
+        _write_text_atomic(
+            manifest_path,
+            json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            overwrite=False,
+        )
+        _publish_staged_bundle(staging, output, overwrite=overwrite)
+        return manifest
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
 
 def build_from_pinned_lichess(
     destination: str | Path,
@@ -608,8 +781,13 @@ def build_from_pinned_lichess(
             compressed_bytes = _download_verified(compressed)
         else:
             source = Path(source_zst)
-            compressed_bytes = _verify_local_source(source)
-            shutil.copyfile(source, compressed)
+            # Snapshot the local archive through the same bounded digest authority
+            # used by extraction.  Never perform an unbounded pathname copy after
+            # a separate verify step: the source may be replaced between those
+            # operations, turning a qualified small file into unbounded disk I/O.
+            compressed_payload = _read_verified_compressed_payload(source)
+            compressed_bytes = len(compressed_payload)
+            compressed.write_bytes(compressed_payload)
 
         curation_evidence = _extract_curated_subset(compressed, subset, starter_count)
         selected = curation_evidence["selected_games"]
