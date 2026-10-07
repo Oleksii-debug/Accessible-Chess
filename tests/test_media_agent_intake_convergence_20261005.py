@@ -38,14 +38,14 @@ class MediaAgentIntakeConvergenceTests(unittest.TestCase):
             "1190dd7e39a88692f3de5dfcba92c698913e711c",
             "682bd87b21a3f440e563965a0cbb07c63b29d5c8",
             "816f35f3baca039115d8d9db33adb3d9bb1d31bf",
-            "11c1f5aad3a2fdbae62417d477f2d0b3a390b8cb",
+            "cf73c95d3f26c1ad4ae3ec255ef012ba52d35637",
             "0ab21c0b8529e8ece4b722392a2f907a65672763",
-            "647d431c7e079f0e9b716d9fe80fca2289bc243b",
+            "ab749959f1ebd55522c3b2a07ef44224d857c526",
             "ec501c7facf9723d8696b6cf88b9680e26c7f44d",
             "1300eb8284692ef89bcda508d0aff579a45598cf",
             "b195a5d2866da4286b1ecbdaa681e960875c1612",
             "2d8aae760d3d7cda4d4f3a34139f069fdd1e4e78",
-            "a065506d150df96de97bba9b2b506a5b4ab9243b",
+            "5218aeda56f60d81875f52c7c07e45e1c192ae2f",
             "5d466ecdb39b49549f2183c4c04263ca427ee1c3",
         ):
             with self.subTest(token=token):
