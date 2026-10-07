@@ -334,6 +334,54 @@ jobs:
           Copy-Item build/AccessibleChess.exe $launcher
           Copy-Item build/SmokeChild.exe (Join-Path $app 'AccessibleChess.exe')
 
+          Add-Type -TypeDefinition @'
+          using System;
+          using System.Runtime.InteropServices;
+
+          public static class AccessibleChessDirectoryDeleteProbe {
+              private const uint DeleteAccess = 0x00010000;
+              private const uint ShareRead = 0x00000001;
+              private const uint ShareWrite = 0x00000002;
+              private const uint ShareDelete = 0x00000004;
+              private const uint OpenExisting = 3;
+              private const uint BackupSemantics = 0x02000000;
+              private const uint OpenReparsePoint = 0x00200000;
+              private static readonly IntPtr InvalidHandleValue = new IntPtr(-1);
+
+              [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+              private static extern IntPtr CreateFileW(
+                  string fileName,
+                  uint desiredAccess,
+                  uint shareMode,
+                  IntPtr securityAttributes,
+                  uint creationDisposition,
+                  uint flagsAndAttributes,
+                  IntPtr templateFile
+              );
+
+              [DllImport("kernel32.dll", SetLastError = true)]
+              private static extern bool CloseHandle(IntPtr handle);
+
+              public static int Probe(string path) {
+                  IntPtr handle = CreateFileW(
+                      path,
+                      DeleteAccess,
+                      ShareRead | ShareWrite | ShareDelete,
+                      IntPtr.Zero,
+                      OpenExisting,
+                      BackupSemantics | OpenReparsePoint,
+                      IntPtr.Zero
+                  );
+                  if (handle == InvalidHandleValue) {
+                      return Marshal.GetLastWin32Error();
+                  }
+                  CloseHandle(handle);
+                  return 0;
+              }
+          }
+          '@
+
+
           # The primary launcher remains as a windowless supervisor for the
           # child lifetime. A concurrent launcher must coalesce immediately.
           $first = Start-Process -FilePath $launcher -WorkingDirectory $root -PassThru
@@ -436,53 +484,12 @@ jobs:
           $data = Join-Path $root 'data'
           if (-not (Test-Path -LiteralPath $data -PathType Container)) { throw 'Package-local data directory was not created' }
 
-          Add-Type -TypeDefinition @'
-          using System;
-          using System.Runtime.InteropServices;
-
-          public static class AccessibleChessDirectoryDeleteProbe {
-              private const uint DeleteAccess = 0x00010000;
-              private const uint ShareRead = 0x00000001;
-              private const uint ShareWrite = 0x00000002;
-              private const uint ShareDelete = 0x00000004;
-              private const uint OpenExisting = 3;
-              private const uint BackupSemantics = 0x02000000;
-              private const uint OpenReparsePoint = 0x00200000;
-              private static readonly IntPtr InvalidHandleValue = new IntPtr(-1);
-
-              [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-              private static extern IntPtr CreateFileW(
-                  string fileName,
-                  uint desiredAccess,
-                  uint shareMode,
-                  IntPtr securityAttributes,
-                  uint creationDisposition,
-                  uint flagsAndAttributes,
-                  IntPtr templateFile
-              );
-
-              [DllImport("kernel32.dll", SetLastError = true)]
-              private static extern bool CloseHandle(IntPtr handle);
-
-              public static int Probe(string path) {
-                  IntPtr handle = CreateFileW(
-                      path,
-                      DeleteAccess,
-                      ShareRead | ShareWrite | ShareDelete,
-                      IntPtr.Zero,
-                      OpenExisting,
-                      BackupSemantics | OpenReparsePoint,
-                      IntPtr.Zero
-                  );
-                  if (handle == InvalidHandleValue) {
-                      return Marshal.GetLastWin32Error();
-                  }
-                  CloseHandle(handle);
-                  return 0;
-              }
+          if ($first.HasExited) {
+            throw "Launcher supervisor exited before directory-guard probe; exit=$($first.ExitCode)"
           }
-          '@
-
+          if ($reportedChild.HasExited) {
+            throw "Smoke child exited before directory-guard probe; exit=$($reportedChild.ExitCode)"
+          }
           foreach ($guardedDirectory in @($root, $app, $data)) {
             $probeError = [AccessibleChessDirectoryDeleteProbe]::Probe($guardedDirectory)
             if ($probeError -ne 32) {
