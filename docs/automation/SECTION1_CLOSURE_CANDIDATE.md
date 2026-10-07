@@ -868,3 +868,16 @@ required.
 `HUMAN_TESTED=NO`
 
 `NVDA_VERIFIED=NO`
+
+
+### Re-convergence after retained batch-runtime QA privacy closure
+
+Section 0 advanced again on canonical PR #2346 to `5a2f85c979d360693285c41c80fbe29c782ba3ce` by converging the retained batch-adapter QA with the current privacy-safe ImportRegistry contract. The predecessor delta is test/evidence-only: the two Section-0 qualification workflows now include and exact-pin `tests/test_dev4_import_batch_adapter_failure.py`, the Section-0 receipt records six-path geometry, and the retained QA rejects private/provider exception text while preserving later-source continuation.
+
+This prepared Section-1 lineage is reconverged history-preservingly onto that exact predecessor. The four Section-0-only changed paths are inherited verbatim; the Section-1 source/corpus and whole gates are repinned to the new predecessor; no Section-1 runtime behavior is replaced, rebased, squashed or dropped. A final two-parent merge records the exact Section-0 head as an ancestor so the effective Section-1 delta can again be qualified as ahead-only with exact merge-base.
+
+Fresh exact-head Section-1 qualification is mandatory after this convergence. Queued or pending Actions are not PASS.
+
+`SECTION_0_DONE=NO_PENDING_TERMINAL_CI`
+
+`SECTION_1_DONE=NO_PENDING_SECTION0_ACCEPTANCE_AND_EXACT_HEAD_QUALIFICATION`
