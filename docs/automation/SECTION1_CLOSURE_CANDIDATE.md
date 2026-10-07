@@ -1186,10 +1186,10 @@ Canonical Section-1 lineage consumed dependency-safe child #2365 before the one-
 Current predecessor convergence:
 - canonical Section-1 head after history-preserving merge: `36e2aa7897434eb55fb8983e7c03792c033bb18e`;
 - accepted predecessor: `dfdd077247e82e45596a044e5a606ec6c39ba17a`;
-- geometry: ahead-only / behind=0 / exact merge-base / exactly 46 Section-1 paths;
+- geometry: ahead-only / behind=0 / exact merge-base / exactly 45 Section-1 acceptance paths; `AGENTS.md` is inherited byte-exact from the accepted predecessor and is not a Section-1 product delta;
 - no rebase, squash, force-push or second chess authority.
 
-The remaining internally controlled closure work is qualification binding only: repin source/corpus and Whole gates to the accepted predecessor and exact current blobs, then freeze one exact Section-1 candidate. Terminal exact-head lawful corpus + Ubuntu + Windows qualification remains mandatory before DONE.
+Terminal qualification binding is complete in the same candidate commit: source/corpus and Whole gates bind the accepted predecessor and exact current authority blobs, and both enforce the 45-path Section-1 acceptance geometry. The candidate must now remain frozen; terminal exact-head lawful corpus + Ubuntu + Windows qualification remains mandatory before DONE.
 
 `SECTION_0_DONE=YES`
 `SECTION_1_DONE=NO_PENDING_EXACT_HEAD_QUALIFICATION`

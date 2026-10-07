@@ -127,7 +127,6 @@ jobs:
           .github/workflows/section1-san-internal-whitespace.yml
           .github/workflows/section1-san-transition-contract.yml
           .github/workflows/section1-whole-contract-convergence.yml
-          AGENTS.md
           acs/chesscore.py
           acs/epd.py
           acs/input_limits.py
