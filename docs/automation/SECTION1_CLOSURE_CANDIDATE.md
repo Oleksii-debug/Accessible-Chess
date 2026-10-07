@@ -1044,3 +1044,27 @@ adds no alternate FEN parser, SAN authority or chess-rules implementation.
 
 `SECTION_1_DONE=NO_PENDING_SECTION0_ACCEPTANCE_AND_EXACT_HEAD_QUALIFICATION`
 
+
+
+### CURRENT LIVE AUTHORITY — deterministic threaded Section-0 oracle predecessor
+
+Canonical Section 0 PR #2346 advanced from `ddda5a470967ee7482b9ddd7276c47d12b45dd87` to
+`1e56fbcfd907972d8de7d5092c99ce654e9cf9a6` on the same six-path lineage. Runtime registry semantics are
+unchanged from the threaded serialization repair; this successor strengthens
+acceptance evidence by deterministically proving that concurrent register
+metadata observation and unregister mutation-helper entry cannot occur while an
+inspection owns routing authority.
+
+The concurrent Section-1 FEN-budget hardening already present on PR #2356 is
+retained verbatim. This reconvergence updates only inherited Section-0 bytes and
+predecessor-aware gate bindings; it does not overwrite, rebase, squash or replay
+the current `acs/chesscore.py` / FEN atomicity owner work. Effective Section-1
+geometry must remain exactly 45 paths relative to `1e56fbcfd907972d8de7d5092c99ce654e9cf9a6`.
+
+`SECTION0_ACCEPTED=NO_PENDING_TERMINAL_CI`
+
+`SECTION_1_DONE=NO_PENDING_SECTION0_ACCEPTANCE_AND_EXACT_HEAD_QUALIFICATION`
+
+`HUMAN_TESTED=NO`
+
+`NVDA_VERIFIED=NO`
