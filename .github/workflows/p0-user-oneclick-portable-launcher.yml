@@ -875,6 +875,9 @@ jobs:
           assert 'TerminateProcess(g_process.hProcess, ERROR_TIMEOUT)' in source
           assert 'WaitForSingleObject(g_process.hProcess, AC_TIMEOUT_CLEANUP_WAIT_MS)' in source
           assert 'TIMEOUT_CHILD_CLEANUP: PASS' in source
+          assert 'ac_fail_startup_timeout(report, root_guard, app_guard, data_guard);' in source
+          assert 'g_instance_lock = INVALID_HANDLE_VALUE;' in source
+          assert 'report = INVALID_HANDLE_VALUE;' in source
           assert 'CHILD_LEFT_RUNNING: NO' in source
           assert 'STARTF_USESTDHANDLES' not in source
           assert 'bInheritHandle = TRUE' not in source
