@@ -30,6 +30,26 @@ from .report_paths import report_safe_name
 
 _MAX_IMPORT_SUFFIX_CHARS = 64
 _MAX_IMPORT_SUFFIXES = 64
+_PASSIVE_OSERROR_TYPES = frozenset(
+    {
+        OSError,
+        BlockingIOError,
+        ChildProcessError,
+        ConnectionError,
+        BrokenPipeError,
+        ConnectionAbortedError,
+        ConnectionRefusedError,
+        ConnectionResetError,
+        FileExistsError,
+        FileNotFoundError,
+        InterruptedError,
+        IsADirectoryError,
+        NotADirectoryError,
+        PermissionError,
+        ProcessLookupError,
+        TimeoutError,
+    }
+)
 
 
 class ImportRegistryError(ValueError):
@@ -106,7 +126,12 @@ def _batch_error_text(exc: Exception, source: Path) -> str:
     adapter_owned = isinstance(exc, _AdapterInspectionFailure)
     if adapter_owned:
         original = exc.error
-        if not isinstance(original, OSError):
+        # Adapter-owned exception subclasses are active objects. Never inspect
+        # custom OSError attributes while rendering bounded batch evidence:
+        # properties such as filename/errno may execute provider code, mutate
+        # host routing, or raise process-control values. Only exact built-in
+        # OSError families are passive enough to expose bounded errno/name data.
+        if type(original) not in _PASSIVE_OSERROR_TYPES:
             return f"Importer rejected source: {report_safe_name(source)}"
         exc = original
 
@@ -468,6 +493,58 @@ class ImportRegistry:
         """Strict multi-source inspection; aborts on the first source error."""
         return [self.inspect(path) for path in paths]
 
+    def _iter_batch_paths(
+        self, paths: Iterable[str | Path]
+    ) -> Iterable[str | Path]:
+        """Advance provider-owned batch iterables without surrendering routing authority."""
+
+        registration_snapshot = self._registration_snapshot()
+        try:
+            iterator = iter(paths)
+        except BaseException as exc:
+            registration_changed = not self._registration_matches(registration_snapshot)
+            if registration_changed:
+                self._restore_registration_snapshot(registration_snapshot)
+            if registration_changed and isinstance(exc, Exception):
+                raise ImportRegistryError(
+                    "Importer registration changed while reading batch source iterable"
+                ) from exc
+            raise
+
+        if not self._registration_matches(registration_snapshot):
+            self._restore_registration_snapshot(registration_snapshot)
+            raise ImportRegistryError(
+                "Importer registration changed while reading batch source iterable"
+            )
+
+        while True:
+            registration_snapshot = self._registration_snapshot()
+            try:
+                raw_path = next(iterator)
+            except StopIteration:
+                if not self._registration_matches(registration_snapshot):
+                    self._restore_registration_snapshot(registration_snapshot)
+                    raise ImportRegistryError(
+                        "Importer registration changed while reading batch source iterable"
+                    )
+                return
+            except BaseException as exc:
+                registration_changed = not self._registration_matches(registration_snapshot)
+                if registration_changed:
+                    self._restore_registration_snapshot(registration_snapshot)
+                if registration_changed and isinstance(exc, Exception):
+                    raise ImportRegistryError(
+                        "Importer registration changed while reading batch source iterable"
+                    ) from exc
+                raise
+
+            if not self._registration_matches(registration_snapshot):
+                self._restore_registration_snapshot(registration_snapshot)
+                raise ImportRegistryError(
+                    "Importer registration changed while reading batch source iterable"
+                )
+            yield raw_path
+
     def inspect_batch(self, paths: Iterable[str | Path]) -> BatchInspection:
         """Inspect every requested source without hiding later results.
 
@@ -480,7 +557,7 @@ class ImportRegistry:
         swallowed.
         """
         items: list[BatchInspectionItem] = []
-        for raw_path in paths:
+        for raw_path in self._iter_batch_paths(paths):
             try:
                 source = self._coerce_source_path(raw_path)
             except ImportRegistryError as exc:

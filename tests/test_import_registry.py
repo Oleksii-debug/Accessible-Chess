@@ -177,17 +177,22 @@ class PrivateOSErrorImporter:
 
 
 class HostileOSError(OSError):
+    hook_calls = 0
+
     @property
     def filename(self):
-        raise RuntimeError('filename attribute hook must be contained')
+        type(self).hook_calls += 1
+        raise KeyboardInterrupt('filename attribute hook must never execute')
 
     @property
     def filename2(self):
-        raise RuntimeError('filename2 attribute hook must be contained')
+        type(self).hook_calls += 1
+        raise KeyboardInterrupt('filename2 attribute hook must never execute')
 
     @property
     def errno(self):
-        raise RuntimeError('errno attribute hook must be contained')
+        type(self).hook_calls += 1
+        raise KeyboardInterrupt('errno attribute hook must never execute')
 
 
 class HostileOSErrorImporter:
@@ -1606,6 +1611,7 @@ class ImportRegistryTests(unittest.TestCase):
         registry = ImportRegistry()
         registry.register(HostileOSErrorImporter())
         registry.register(FakeImporter())
+        HostileOSError.hook_calls = 0
         with tempfile.TemporaryDirectory() as td:
             private = Path(td) / 'Users' / 'PrivateUser' / 'Documents'
             private.mkdir(parents=True)
@@ -1619,8 +1625,9 @@ class ImportRegistryTests(unittest.TestCase):
             self.assertEqual([item.ok for item in batch.items], [False, True])
             self.assertEqual(
                 batch.items[0].error,
-                'Filesystem error: hostile.hostile-oserror',
+                'Importer rejected source: hostile.hostile-oserror',
             )
+            self.assertEqual(HostileOSError.hook_calls, 0)
             self.assertNotIn('PrivateUser', batch.items[0].error)
             self.assertNotIn('PrivateBackend', batch.items[0].error)
             self.assertNotIn('secret.bin', batch.items[0].error)
@@ -1834,6 +1841,70 @@ class ImportRegistryTests(unittest.TestCase):
 
         with self.assertRaises(KeyboardInterrupt):
             registry.inspect_batch([InterruptingPathLike()])
+
+        self.assertIs(registry.importer_for("source.foo"), original)
+
+    def test_batch_iterable_creation_cannot_rebind_host_route(self):
+        registry = ImportRegistry()
+        original = FakeImporter()
+        replacement = SecondFooImporter()
+        registry.register(original)
+
+        class MutatingBatchIterable:
+            def __iter__(self):
+                registry.register(replacement, replace=True)
+                return iter(("source.foo",))
+
+        with self.assertRaisesRegex(
+            ImportRegistryError, "registration changed while reading batch source iterable"
+        ):
+            registry.inspect_batch(MutatingBatchIterable())
+
+        self.assertIs(registry.importer_for("source.foo"), original)
+
+    def test_batch_iterator_advance_cannot_rebind_host_route(self):
+        registry = ImportRegistry()
+        original = FakeImporter()
+        replacement = SecondFooImporter()
+        registry.register(original)
+
+        class MutatingBatchIterator:
+            def __init__(self):
+                self.done = False
+
+            def __iter__(self):
+                return self
+
+            def __next__(self):
+                if self.done:
+                    raise StopIteration
+                self.done = True
+                registry.register(replacement, replace=True)
+                return "source.foo"
+
+        with self.assertRaisesRegex(
+            ImportRegistryError, "registration changed while reading batch source iterable"
+        ):
+            registry.inspect_batch(MutatingBatchIterator())
+
+        self.assertIs(registry.importer_for("source.foo"), original)
+
+    def test_batch_iterator_process_control_restores_route_before_propagation(self):
+        registry = ImportRegistry()
+        original = FakeImporter()
+        replacement = SecondFooImporter()
+        registry.register(original)
+
+        class InterruptingBatchIterator:
+            def __iter__(self):
+                return self
+
+            def __next__(self):
+                registry.register(replacement, replace=True)
+                raise KeyboardInterrupt("stop batch iteration")
+
+        with self.assertRaises(KeyboardInterrupt):
+            registry.inspect_batch(InterruptingBatchIterator())
 
         self.assertIs(registry.importer_for("source.foo"), original)
 
