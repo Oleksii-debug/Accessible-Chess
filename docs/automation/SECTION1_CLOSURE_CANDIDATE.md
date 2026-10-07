@@ -28,9 +28,10 @@ parser, SAN legality engine, Position model, GameTree or chess-rules authority i
 introduced.
 
 Section 0 is a hard plan dependency and must be honestly DONE before Section 1
-can be marked DONE. At this convergence checkpoint Section 0 remains
-`OPEN — BLOCKED_EXTERNAL_CI` because its exact whole-contract run is
-nonterminal.
+can be marked DONE. At this convergence checkpoint the current Section 0
+successor is PR #2346; its internally controllable runtime/qualification
+residuals have been repaired, but its exact-head qualification is still
+nonterminal. Queued CI is not PASS.
 
 ## 1.1 — complete FEN read/create/copy/edit/validate
 
@@ -117,6 +118,29 @@ Lawful real corpus:
   `Board` and `PositionState`.
 
 Synthetic fixtures do not substitute for the real-corpus gate.
+
+## Qualification workflow recovery
+
+The Section 1 qualification surface also has to be executable through every
+entrypoint it advertises. On the current canonical #2344 lineage:
+
+- `.github/workflows/current-fen-history-section1-convergence.yml` preserves
+  exact pull-request base/ref checks when PR event fields exist, while manual
+  `workflow_dispatch` relies on the same exact checked-out head, expected-base
+  ancestry, path geometry and blob assertions instead of requiring absent
+  `pull_request.base.*` fields;
+- `.github/workflows/section1-positionstate-counter-boundary.yml` uses the
+  same dispatch-safe topology rule;
+- `.github/workflows/section1-fen-corpus-source-snapshot.yml` now uses the
+  same dispatch-safe topology rule;
+- because the source-snapshot workflow was inherited from #2340, changing it on
+  #2344 makes it an explicit member of the effective base-to-head convergence
+  geometry. The whole-Section gate must therefore include that path and pin the
+  exact current blobs of all repaired component workflows before its run can be
+  closure evidence.
+
+These are qualification-contract repairs only. They do not alter canonical
+FEN/SAN/Position behavior, chess legality, corpus bytes or test expectations.
 
 ## Closure gate
 
