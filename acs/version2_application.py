@@ -167,6 +167,26 @@ class Version2Application:
             BookProgressStoreErrorCode.STALE_WRITE,
         }
     )
+    _TACTILE_POSITION_ACTIONS = frozenset(
+        {
+            "file.new",
+            "edit.undo",
+            "edit.redo",
+            "history.previous",
+            "history.next",
+            "history.go_to_move",
+            "history.commit_go_to_move",
+            "board.activate",
+            "board.activate_alternative",
+            "board.play_best",
+            "move.submit",
+            "move.undo",
+            "move.redo",
+            "move.clear",
+            "move.standard",
+            "move.empty",
+        }
+    )
 
     def __init__(self, database: AcsDatabase, *, progress_store: BookProgressStore,
                  engine_assistance: EngineAssistedWorkflowService, board_dispatch,
@@ -2166,7 +2186,10 @@ class Version2Application:
                     self._file_event(result)
             return result
         result = self._board_dispatch(action, payload)
-        if self.shell.current_route.route_id == "board":
+        if (
+            self.shell.current_route.route_id == "board"
+            and action in self._TACTILE_POSITION_ACTIONS
+        ):
             self._sync_tactile_safely(
                 lambda: self.tactile_sync.sync_position(self._canonical_visible_fen())
             )
