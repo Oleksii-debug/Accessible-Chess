@@ -563,7 +563,13 @@ class PgnWorkspace:
         target: MoveAnnotationTarget,
         patch: MoveAnnotationPatch,
     ) -> AnnotationEditResult:
-        result = edit_move_annotations(self._current_game_ref(), target, patch)
+        try:
+            result = edit_move_annotations(self._current_game_ref(), target, patch)
+        except UnicodeError as exc:
+            raise _workspace_error(
+                "PGN annotation is not strict round-trip safe",
+                PgnWorkspaceErrorCode.INVALID_DOCUMENT,
+            ) from exc
         self._commit_current_game(result.game)
         return result
 
@@ -572,7 +578,13 @@ class PgnWorkspace:
         target: LineAnnotationTarget,
         patch: LineAnnotationPatch,
     ) -> AnnotationEditResult:
-        result = edit_line_annotations(self._current_game_ref(), target, patch)
+        try:
+            result = edit_line_annotations(self._current_game_ref(), target, patch)
+        except UnicodeError as exc:
+            raise _workspace_error(
+                "PGN annotation is not strict round-trip safe",
+                PgnWorkspaceErrorCode.INVALID_DOCUMENT,
+            ) from exc
         self._commit_current_game(result.game)
         return result
 
