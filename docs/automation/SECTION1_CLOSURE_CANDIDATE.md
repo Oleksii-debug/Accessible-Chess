@@ -528,3 +528,31 @@ qualification remain required.
 `HUMAN_TESTED=NO`
 
 `NVDA_VERIFIED=NO`
+
+### Complete redo-chain binding and unified incremental-mutation fence
+
+Follow-up recovery audit extended the semantic-history fix across the entire
+recoverable suffix rather than only the immediately executable redo entry.
+Multiple undo operations retain a reversed Board/metadata stack and a forward
+active History child chain; a deeper corruption must be rejected before the
+first apparently valid redo or before a new branch silently clears the evidence.
+
+The canonical application boundary now validates every redo entry, in execution
+order, against Board target FEN/SAN, alternating mover side, and the matching
+active History descendant. The chain must terminate exactly where the redo
+stacks terminate. A shared strong mutation predicate now requires both the
+validated live lineage and the complete redo-chain invariant before move entry,
+board activation, position editing, undo, or redo.
+
+A new negative regression performs two undos, corrupts only the deeper redo
+entry while leaving the top entry valid, and proves that redo, a replacement
+move, and position editing all fail without consuming or clearing any state.
+Explicit FEN root reset remains the recovery route.
+
+Exact successor blobs:
+- `acs/webapp.py=ff382335de37dee2e88754dda14a948f826504c4`;
+- `tests/test_ui_analysis_webapp.py=c529587bfc65fff315b3ca96c8f5a581ca7cab44`.
+
+The exact #2346-relative Section-1 path union remains 45 paths. Section 0 and
+Section 1 remain not DONE until their required terminal qualification conditions
+are satisfied.

@@ -536,6 +536,42 @@ class UIAnalysisWebAppTests(unittest.TestCase):
         self.assertEqual(api.sans, [])
         self.assertEqual(api.move_sides, [])
 
+    def test_deep_redo_corruption_blocks_redo_branch_and_editor_before_consumption(self):
+        api, _fake = self.make_api()
+        self.assertTrue(api.make_move("e4")["ok"])
+        self.assertTrue(api.make_move("e5")["ok"])
+        self.assertTrue(api.undo()["ok"])
+        self.assertTrue(api.undo()["ok"])
+
+        before_fen = api.board.fen()
+        before_tree = api.review_history.export_tree()
+        before_board_redo = list(api.board.redo_stack)
+        # Keep the top e4 entry valid while corrupting the deeper e5 side.
+        api.redo_meta[0] = ("e5", "w")
+        before_meta = list(api.redo_meta)
+
+        self.assertFalse(api.get_state()["canRedo"])
+        for operation in (
+            api.redo,
+            lambda: api.make_move("d4"),
+            lambda: api.edit_position_piece("a3", "N"),
+        ):
+            with self.subTest(operation=operation):
+                result = operation()
+                self.assertFalse(result["ok"])
+                self.assertEqual(api.board.fen(), before_fen)
+                self.assertEqual(api.review_history.export_tree(), before_tree)
+                self.assertEqual(api.board.redo_stack, before_board_redo)
+                self.assertEqual(api.redo_meta, before_meta)
+                self.assertEqual(api.sans, [])
+                self.assertEqual(api.move_sides, [])
+
+        recovered = api.set_fen(before_fen)
+        self.assertTrue(recovered["ok"])
+        self.assertTrue(recovered["historyProjectionValid"])
+        self.assertEqual(api.redo_meta, [])
+        self.assertEqual(api.board.redo_stack, [])
+
     def test_canonical_reset_releases_obsolete_locked_target(self):
         api, fake = self.make_api()
         api.toggle_engine()

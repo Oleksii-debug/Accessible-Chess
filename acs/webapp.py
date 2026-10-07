@@ -204,25 +204,19 @@ class AccessibleChessAPI:
                 return False
             if type(side) is not str or side not in {"w", "b"}:
                 return False
-        if not self.redo_meta:
-            return True
 
         # Redo metadata is recovery input, not an independent chess authority.
-        # Before advertising or executing the next redo, bind its top entry to
-        # the canonical Board stack and the preserved active History child.
+        # Bind the complete recoverable suffix to the canonical Board redo stack
+        # and preserved active History descendants before advertising or
+        # consuming even the first redo entry.
         try:
             if type(self.board.redo_stack) is not list:
                 return False
             if len(self.board.redo_stack) != len(self.redo_meta):
                 return False
-            target_fen, target_san = self.board.redo_stack[-1]
-            meta_san, side = self.redo_meta[-1]
-            if (
-                type(target_fen) is not str
-                or type(target_san) is not str
-                or target_san != meta_san
-                or side != self.board.turn
-            ):
+            if not self.redo_meta:
+                return True
+            if type(self.board.turn) is not str or self.board.turn not in {"w", "b"}:
                 return False
 
             records = {
@@ -230,19 +224,44 @@ class AccessibleChessAPI:
                 for record in self.review_history.tree_nodes()
             }
             live = records.get(self.live_history_node)
-            if live is None or live.active_child is None:
+            if live is None:
                 return False
-            child = records.get(live.active_child)
-            if child is None:
-                return False
-            snapshot = child.snapshot
-            if snapshot.fen != target_fen:
-                return False
-            if snapshot.san not in (None, meta_san):
-                return False
-            if snapshot.side not in (None, side):
-                return False
-            if snapshot.last_move not in (None, meta_san):
+            child_id = live.active_child
+            expected_side = self.board.turn
+
+            for board_entry, meta_entry in zip(
+                reversed(self.board.redo_stack),
+                reversed(self.redo_meta),
+            ):
+                if type(board_entry) is not tuple or len(board_entry) != 2:
+                    return False
+                target_fen, target_san = board_entry
+                meta_san, side = meta_entry
+                if (
+                    type(target_fen) is not str
+                    or type(target_san) is not str
+                    or target_san != meta_san
+                    or side != expected_side
+                ):
+                    return False
+
+                child = records.get(child_id)
+                if child is None:
+                    return False
+                snapshot = child.snapshot
+                if snapshot.fen != target_fen:
+                    return False
+                if snapshot.san not in (None, meta_san):
+                    return False
+                if snapshot.side not in (None, side):
+                    return False
+                if snapshot.last_move not in (None, meta_san):
+                    return False
+
+                child_id = child.active_child
+                expected_side = "b" if expected_side == "w" else "w"
+
+            if child_id is not None:
                 return False
         except Exception:
             return False
@@ -282,6 +301,15 @@ class AccessibleChessAPI:
             if snapshot.last_move is not None and snapshot.last_move != san:
                 return None
         return lineage
+
+    def _history_mutation_ready(self) -> bool:
+        """Require coherent live and redo history before incremental mutation."""
+
+        return (
+            self._validated_history_lineage() is not None
+            and self._redo_metadata_valid()
+        )
+
 
     def _visible_ply_count(self) -> int:
         lineage = self._validated_history_lineage()
@@ -793,7 +821,7 @@ class AccessibleChessAPI:
     def _commit_position_editor_state(self, state: PositionState, message_uk: str, message_en: str) -> dict[str, Any]:
         if not self._at_history_end():
             return self._error(self._t("review_before_move"))
-        if self._validated_history_lineage() is None:
+        if not self._history_mutation_ready():
             return self._error(self._t("history_metadata_invalid"))
         try:
             if len(state.to_fen()) > MAX_FEN_CHARS:
@@ -1047,7 +1075,7 @@ class AccessibleChessAPI:
             return self._error(self._t("move_invalid"))
         if not self._at_history_end():
             return self._error(self._t("review_before_move"))
-        if self._validated_history_lineage() is None:
+        if not self._history_mutation_ready():
             return self._error(self._t("history_metadata_invalid"))
         if not self._position_complete(self.board):
             return self._error(self._t("setup_incomplete"))
@@ -1066,7 +1094,7 @@ class AccessibleChessAPI:
     def activate_square(self, square: str) -> dict[str, Any]:
         if not self._at_history_end():
             return self._error(self._t("review_before_move"))
-        if self._validated_history_lineage() is None:
+        if not self._history_mutation_ready():
             return self._error(self._t("history_metadata_invalid"))
         try:
             target = parse_sq(square)
@@ -1150,7 +1178,7 @@ class AccessibleChessAPI:
     def undo(self) -> dict[str, Any]:
         if not self._at_history_end():
             return self._error(self._t("review_before_move"))
-        if self._validated_history_lineage() is None:
+        if not self._history_mutation_ready():
             return self._error(self._t("history_metadata_invalid"))
         if not self.sans:
             return self._error(self._t("undo_none"))
@@ -1204,9 +1232,7 @@ class AccessibleChessAPI:
     def redo(self) -> dict[str, Any]:
         if not self._at_history_end():
             return self._error(self._t("review_before_move"))
-        if self._validated_history_lineage() is None:
-            return self._error(self._t("history_metadata_invalid"))
-        if not self._redo_metadata_valid():
+        if not self._history_mutation_ready():
             return self._error(self._t("history_metadata_invalid"))
         if not self.redo_meta:
             return self._error(self._t("redo_none"))
