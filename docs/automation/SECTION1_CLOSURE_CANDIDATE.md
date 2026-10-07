@@ -881,3 +881,14 @@ Fresh exact-head Section-1 qualification is mandatory after this convergence. Qu
 `SECTION_0_DONE=NO_PENDING_TERMINAL_CI`
 
 `SECTION_1_DONE=NO_PENDING_SECTION0_ACCEPTANCE_AND_EXACT_HEAD_QUALIFICATION`
+
+
+### Re-convergence after Section-0 six-path receipt alignment
+
+Canonical Section 0 PR #2346 advanced to `3c43fed03145f0227d73b71b771f7d7ba43da6cb` solely to correct durable acceptance evidence: the closure receipt now consistently describes the live six-path successor geometry, and Whole V3 exact-pins that corrected receipt. No new Section-0 runtime behavior was introduced by this evidence repair.
+
+This prepared Section-1 branch inherits the corrected Section-0 workflow/receipt, repins both predecessor-aware qualification gates to `3c43fed03145f0227d73b71b771f7d7ba43da6cb`, and records that exact head as an ancestor in a history-preserving two-parent merge. Section-1 runtime/test payload remains the same effective delta relative to the corrected predecessor.
+
+`SECTION_0_DONE=NO_PENDING_TERMINAL_CI`
+
+`SECTION_1_DONE=NO_PENDING_SECTION0_ACCEPTANCE_AND_EXACT_HEAD_QUALIFICATION`
