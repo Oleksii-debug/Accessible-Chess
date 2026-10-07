@@ -240,3 +240,9 @@ def test_shipping_launcher_requires_private_runtime_in_compiled_package():
         encoding="utf-8"
     )
     assert "--include-package=accessible_chess_protection_runtime" in launcher
+
+
+def test_shipping_version2_profile_retains_copy_fen_action():
+    from acs.version2_profile import build_version2_action_registry
+    registry = build_version2_action_registry()
+    assert registry.definition("position.copy_fen").action_id == "position.copy_fen"
