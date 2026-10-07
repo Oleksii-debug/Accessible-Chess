@@ -727,3 +727,33 @@ This is test/evidence convergence only. It introduces no alternate EPD/FEN,
 PositionState, parser, format-capability, ImportReport or chess authority.
 
 `SECTION_0_DONE=NO_PENDING_TERMINAL_CI_AND_LIVE_REVALIDATION`
+
+
+### Control-safe importer format identity
+
+A final routing-metadata audit found that the bounded exact `format_name`
+field still accepted Unicode control, format and line/paragraph-separator
+characters. Because the registered format identity is reused as canonical
+ImportReport routing evidence, a short adapter-owned label containing a newline,
+bidi/format control, NUL, surrogate or Unicode line separator could cross the
+shared report boundary even though suffix and path diagnostics already fail
+closed on report-control text.
+
+Registration now rejects Unicode categories `Cc`, `Cf`, `Cs`, `Zl` and
+`Zp` after the existing 256-character raw bound and before whitespace
+normalization. The scan is therefore bounded, ordinary exact labels are
+unchanged, and no route is published for unsafe metadata.
+
+Regression coverage exercises newline, Unicode line separator, bidi-format
+control and NUL identities and requires fail-closed registration with an empty
+routing registry.
+
+Exact successor blobs:
+- `acs/import_registry.py`: `78a9137ef6163d24d825f307889a709016051006`;
+- `tests/test_import_registry.py`: `83164f1cb0621217e1db2322b94c85f4f8ae97e5`;
+- focused qualification workflow: `0d87915f0d7e48015d41b007837b631a54df0423`.
+
+This remains the same seven-path PR #2346 Section-0 lineage and adds no parser,
+decoder, ImportReport schema, format capability or chess authority.
+
+`SECTION_0_DONE=NO_PENDING_TERMINAL_CI_AND_LIVE_REVALIDATION`
