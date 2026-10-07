@@ -77,7 +77,11 @@ jobs:
         run: |
           set -euo pipefail
           git merge-base --is-ancestor "$LEGACY_RUNTIME_BASE" HEAD
-          git diff --check "$LEGACY_RUNTIME_BASE" HEAD
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            git diff --check "${{ github.event.pull_request.base.sha }}"...HEAD
+          else
+            git diff --check "$LEGACY_RUNTIME_BASE" HEAD
+          fi
           changed="$(git diff --name-only "$LEGACY_RUNTIME_BASE" HEAD | sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/w6-v2-package-preflight-current-runtime.yml' \
