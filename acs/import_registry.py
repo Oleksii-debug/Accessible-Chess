@@ -18,7 +18,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
-from .import_contract import (\n    ImportReport,\n    ReadOnlyImporter,\n    SourceFingerprint,\n    SourceReadCancelledError,\n    fingerprint,\n)
+from .import_contract import (
+    ImportReport,
+    ReadOnlyImporter,
+    SourceFingerprint,
+    SourceReadCancelledError,
+    fingerprint,
+)
 
 
 class ImportRegistryError(ValueError):
