@@ -44,6 +44,10 @@ _DIALOG_TEXT: dict[str, dict[str, str]] = {
         ),
         "export_pgn_title": "Export PGN selection",
         "open_book_title": "Open chess book",
+        "backup_user_data_title": "Back up Accessible Chess data",
+        "export_user_data_title": "Export Accessible Chess user data",
+        "restore_user_data_title": "Restore Accessible Chess backup",
+        "import_user_data_title": "Import Accessible Chess user data",
         "book_progress_recovery_title": "Recover saved reading progress",
         "book_progress_recovery_message": (
             "The saved reading-progress file is damaged. Restore the previous valid backup? "
@@ -76,6 +80,10 @@ _DIALOG_TEXT: dict[str, dict[str, str]] = {
         ),
         "export_pgn_title": "Експортувати вибране як PGN",
         "open_book_title": "Відкрити шахову книгу",
+        "backup_user_data_title": "Створити резервну копію даних Accessible Chess",
+        "export_user_data_title": "Експортувати дані користувача Accessible Chess",
+        "restore_user_data_title": "Відновити резервну копію Accessible Chess",
+        "import_user_data_title": "Імпортувати дані користувача Accessible Chess",
         "book_progress_recovery_title": "Відновити збережений прогрес читання",
         "book_progress_recovery_message": (
             "Файл збереженого прогресу читання пошкоджено. Відновити попередню справну "
