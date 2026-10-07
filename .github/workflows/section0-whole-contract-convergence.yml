@@ -11,6 +11,7 @@ on:
       - 'docs/automation/SECTION0_CLOSURE_CANDIDATE.md'
       - 'tests/test_import_registry.py'
       - 'tests/test_dev4_import_batch_adapter_failure.py'
+      - 'tests/test_epd.py'
   workflow_dispatch:
 
 permissions:
@@ -30,7 +31,7 @@ env:
   DUPLICATE_CONVERGENCE_SHA: 8a39f849950020e59f815b9315b2640dc394ca31
 
   FORMAT_IDENTITY_WORKFLOW_BLOB: ec13eb5748f515c43955dd6d99ea321c49105861
-  BATCH_ISOLATION_WORKFLOW_BLOB: 4dcafa3b0ef03da5b3d3e79812f58f6449242a5c
+  BATCH_ISOLATION_WORKFLOW_BLOB: f4a63b8e1ccf2f052614556829dd6e3864fa82b6
   AUTHORITY_DOC_BLOB: a1f7680f120c1a397e323dc9e633018a59adc711
   AUTHORITY_TEST_BLOB: ca8cc57fa0ca5c6888004239100390f136d43ac8
   IMPORT_CONTRACT_BLOB: d9855d173f8c73440e190482a107299be28949c5
@@ -39,10 +40,11 @@ env:
   IMPORT_CONTRACT_TEST_BLOB: 69439b421e7957caa7262704510b3211110b4e40
   IMPORT_REGISTRY_TEST_BLOB: ed0c9515977847700e19ce9ea298795a3c21512c
   BATCH_QA_TEST_BLOB: f0f1256f38fe32756f16f5fff748c5ed36a11a50
+  EPD_TEST_BLOB: a4c700389fbe9a3a82113feccd2065887b2718bb
   CAPABILITY_BLOB: c3fb75120d71b7cf26b71f22961e9caa82a55b3c
   CAPABILITY_DOC_BLOB: 965eff8a7f9d24094318b7e14680d42ff9098cb7
   CAPABILITY_TEST_BLOB: 852aba2d3d8ba62064289f7dc76bc6430ac2e5b8
-  CLOSURE_DOC_BLOB: 3d3bbfb99e1e24b818a11dd1a1abbbbc4a82db87
+  CLOSURE_DOC_BLOB: 4e0f5ad6d541d01a6927cc067bd26efd4eff8d4e
 
   CHESSCORE_BLOB: e04982c2de52394c2c9f5e5725d6267cbc55ce3d
   POSITION_EDITOR_BLOB: fd48b517c4489fe70e4ecb102e2615027be8f098
@@ -102,7 +104,8 @@ jobs:
             'acs/import_registry.py' \
             'docs/automation/SECTION0_CLOSURE_CANDIDATE.md' \
             'tests/test_import_registry.py' \
-            'tests/test_dev4_import_batch_adapter_failure.py' | sort)"
+            'tests/test_dev4_import_batch_adapter_failure.py' \
+            'tests/test_epd.py' | sort)"
           test "$changed" = "$expected"
 
       - name: Bind exact Section 0 authorities
@@ -119,6 +122,7 @@ jobs:
           test "$(git rev-parse HEAD:tests/test_import_contract.py)" = "$IMPORT_CONTRACT_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_import_registry.py)" = "$IMPORT_REGISTRY_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_dev4_import_batch_adapter_failure.py)" = "$BATCH_QA_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_epd.py)" = "$EPD_TEST_BLOB"
           test "$(git rev-parse HEAD:acs/format_capabilities.py)" = "$CAPABILITY_BLOB"
           test "$(git rev-parse HEAD:docs/automation/CANONICAL_FORMAT_CAPABILITY_MATRIX.md)" = "$CAPABILITY_DOC_BLOB"
           test "$(git rev-parse HEAD:tests/test_section0_format_capabilities.py)" = "$CAPABILITY_TEST_BLOB"
