@@ -1,0 +1,46 @@
+{
+  "source_sha256": "78d54a3eb536be06b6bb26f871edafebdf037c4c90af7fc1ccd4f4071048f6a5",
+  "games": 1000,
+  "conversions": [
+    {
+      "encoding": "utf-8",
+      "games": 1000,
+      "output_sha256": "a610ef67872295321ac649fb1bb07ceedd0b298f7f605d27ba6ecaaf4f3433c3"
+    },
+    {
+      "encoding": "utf-16-le",
+      "games": 1000,
+      "output_sha256": "a610ef67872295321ac649fb1bb07ceedd0b298f7f605d27ba6ecaaf4f3433c3"
+    },
+    {
+      "encoding": "utf-16-be",
+      "games": 1000,
+      "output_sha256": "a610ef67872295321ac649fb1bb07ceedd0b298f7f605d27ba6ecaaf4f3433c3"
+    },
+    {
+      "encoding": "windows-1251",
+      "games": 1000,
+      "output_sha256": "a610ef67872295321ac649fb1bb07ceedd0b298f7f605d27ba6ecaaf4f3433c3"
+    }
+  ],
+  "skipped_transports": [],
+  "library_restart_search_export": "PASS",
+  "sqlite_integrity": "ok",
+  "source_unchanged": true,
+  "independent_parser_oracle": false,
+  "HUMAN_TESTED": false,
+  "NVDA_VERIFIED": false,
+  "qualified_utc": "2026-10-05",
+  "product_base_sha": "c1b203dbb0cce877e1f48244e9379bfde6d3a3b0",
+  "corpus": {
+    "url": "https://database.lichess.org/standard/lichess_db_standard_rated_2013-01.pgn.zst",
+    "license": "CC0",
+    "archive_sha256": "aa40b3671fa3cf1072eb182892cd90b0e1e003a4a5943492f64b77e7f3fd1635",
+    "selection": "first 1000 complete Event-framed games; stop before Event header of game 1001",
+    "sample_bytes": 730269
+  },
+  "implementation_sha256": {
+    "acs/pgn_conversion.py": "d849d4cabe731d1e61881eb9e75577818075648e3419f9b92bd72adc794a594f",
+    "scripts/qualify_pgn_conversion_corpus.py": "2fe8ff99481b3db61094d728340ab5c3301f1fe14c614d2cf8e04428241d4db2"
+  }
+}

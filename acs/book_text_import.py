@@ -156,6 +156,7 @@ class _Builder:
         self.source_format = source_format
         self.blocks: list[object] = []
         self.warnings: list[str] = []
+        self._warnings_suppressed = False
         self.pgn_games = 0
         self.positions = 0
         self._identities: dict[str, int] = {}
@@ -176,10 +177,17 @@ class _Builder:
         self.blocks.append(block)
 
     def warning(self, text: str) -> None:
+        if self._warnings_suppressed:
+            return
         if len(self.warnings) < MAX_TEXT_WARNINGS:
             self.warnings.append(text)
-        elif len(self.warnings) == MAX_TEXT_WARNINGS:
-            self.warnings.append("additional text import warnings were suppressed")
+            return
+        # MAX_TEXT_WARNINGS is the complete publication budget, including the
+        # suppression marker. Preserve every warning when there is no overflow;
+        # on the first overflow replace only the final budget slot.
+        if MAX_TEXT_WARNINGS > 0:
+            self.warnings[-1] = "additional text import warnings were suppressed"
+        self._warnings_suppressed = True
 
     def paragraph(
         self,

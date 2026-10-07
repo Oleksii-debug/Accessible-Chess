@@ -4,16 +4,27 @@ from hashlib import sha256
 from io import BytesIO
 import stat
 import unittest
+from unittest.mock import patch
 import warnings
 import zipfile
 
 from acs.book_epub_import import (
     BookEpubImportError,
     BookEpubImportErrorCode,
+    MAX_EPUB_WARNINGS,
     SUPPORTED_EPUB_BOOK_CAPABILITY,
     import_epub_book,
+    _Warnings,
 )
-from acs.bookdocument import Diagram, Game, Heading, ListBlock, Note, Paragraph
+from acs.bookdocument import (
+    MAX_BOOK_DOCUMENT_WARNINGS,
+    Diagram,
+    Game,
+    Heading,
+    ListBlock,
+    Note,
+    Paragraph,
+)
 from acs.chesscore import Board
 
 
@@ -47,6 +58,42 @@ def _opf(*, manifest: str, spine: str, metadata: str | None = None) -> bytes:
 {spine}
   </spine>
 </package>'''.encode("utf-8")
+
+
+class EpubWarningBudgetTests(unittest.TestCase):
+    def test_warning_budget_includes_suppression_marker_and_stays_bookdocument_compatible(self) -> None:
+        self.assertEqual(MAX_EPUB_WARNINGS, MAX_BOOK_DOCUMENT_WARNINGS)
+
+        with patch("acs.book_epub_import.MAX_EPUB_WARNINGS", 3):
+            exact = _Warnings()
+            for index in range(3):
+                exact.add(f"warning {index}")
+            self.assertEqual(
+                exact.values,
+                ["warning 0", "warning 1", "warning 2"],
+            )
+
+            overflow = _Warnings()
+            for index in range(5):
+                overflow.add(f"warning {index}")
+            self.assertEqual(
+                overflow.values,
+                [
+                    "warning 0",
+                    "warning 1",
+                    "additional EPUB import warnings were suppressed",
+                ],
+            )
+
+        # The production EPUB cap equals BookDocument's warning-count cap; an
+        # overflow marker must therefore consume an existing slot, not add 4097.
+        from acs.bookdocument import BookDocument
+
+        BookDocument(
+            "EPUB warning budget",
+            blocks=[Paragraph(text="Readable")],
+            warnings=list(overflow.values),
+        )
 
 
 class _UnseekableBytesIO(BytesIO):

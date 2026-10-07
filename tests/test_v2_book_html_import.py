@@ -4,6 +4,7 @@ from io import BytesIO
 import tempfile
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 import zipfile
 
 from acs.book_epub_import import import_epub_book
@@ -14,6 +15,7 @@ from acs.book_html_import import (
     BookHtmlImportErrorCode,
     SUPPORTED_HTML_BOOK_CAPABILITY,
     import_html_book,
+    _SemanticHtmlParser,
 )
 from acs.book_progress_store import BookProgressStore
 from acs.bookdocument import Diagram, Game, Heading, Note, Paragraph, Position
@@ -59,6 +61,28 @@ def _html(*, fen: str | None = None, pgn: str = PGN) -> str:
 
 
 class BookHtmlImportTests(unittest.TestCase):
+    def test_warning_budget_includes_suppression_marker_without_losing_non_overflow_warnings(self) -> None:
+        with patch("acs.book_html_import.MAX_HTML_WARNINGS", 3):
+            exact = _SemanticHtmlParser(available_assets=None)
+            for index in range(3):
+                exact._warning(f"warning {index}")
+            self.assertEqual(
+                exact.warnings,
+                ["warning 0", "warning 1", "warning 2"],
+            )
+
+            overflow = _SemanticHtmlParser(available_assets=None)
+            for index in range(5):
+                overflow._warning(f"warning {index}")
+            self.assertEqual(
+                overflow.warnings,
+                [
+                    "warning 0",
+                    "warning 1",
+                    "additional HTML import warnings were suppressed",
+                ],
+            )
+
     def test_multilingual_structure_images_and_canonical_embedded_pgn(self) -> None:
         result = import_html_book(
             _html(),

@@ -6,7 +6,14 @@ from unittest import mock
 
 from acs.gametree import parse_games, serialize_games
 from acs.import_contract import ImportQuality
-from acs.pgn_service import PgnConcurrentWriteError, PgnFileImporter, export_game_atomic, open_pgn, save_pgn_atomic
+from acs.pgn_service import (
+    PgnConcurrentWriteError,
+    PgnFileImporter,
+    PgnUnsafePathError,
+    export_game_atomic,
+    open_pgn,
+    save_pgn_atomic,
+)
 
 
 RICH_PGN = '''[Event "Main"]
@@ -128,6 +135,44 @@ class PgnFileServiceTests(unittest.TestCase):
                 save_pgn_atomic(path, opened.games, overwrite=True, expected_sha256=opened.source.sha256)
             self.assertIn("Other editor", path.read_text(encoding="utf-8"))
 
+    def test_expected_hash_boundary_rejects_noncanonical_or_active_digest_before_mutation(self):
+        games = parse_games('[Event "Prepared"]\n[Result "*"]\n\n1. e4 *')
+
+        class HostileDigest(str):
+            touched = False
+
+            def __eq__(self, other):
+                type(self).touched = True
+                raise AssertionError("digest equality hook must not execute")
+
+            def __iter__(self):
+                type(self).touched = True
+                raise AssertionError("digest iteration hook must not execute")
+
+        invalid_values = (
+            HostileDigest("0" * 64),
+            True,
+            0,
+            "0" * 63,
+            "0" * 65,
+            "A" * 64,
+            "g" * 64,
+        )
+        for index, digest in enumerate(invalid_values):
+            with self.subTest(index=index, digest_type=type(digest).__name__):
+                with tempfile.TemporaryDirectory() as tmp:
+                    parent = Path(tmp) / "not-created"
+                    path = parent / "out.pgn"
+                    with self.assertRaises((TypeError, ValueError)):
+                        save_pgn_atomic(
+                            path,
+                            games,
+                            overwrite=True,
+                            expected_sha256=digest,  # type: ignore[arg-type]
+                        )
+                    self.assertFalse(parent.exists())
+        self.assertFalse(HostileDigest.touched)
+
     def test_expected_hash_preserves_writer_racing_at_replace_boundary(self):
         games = parse_games('[Event "Original"]\n[Result "*"]\n\n1. e4 *\n')
         with tempfile.TemporaryDirectory() as tmp:
@@ -170,6 +215,146 @@ class PgnFileServiceTests(unittest.TestCase):
                 with self.assertRaises(FileExistsError):
                     save_pgn_atomic(path, games, overwrite=False)
             self.assertIn("Created by another writer", path.read_text(encoding="utf-8"))
+
+    def test_export_parent_replacement_before_payload_fails_closed(self):
+        games = parse_games('[Event "Prepared"]\n[Result "*"]\n\n1. e4 *\n')
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            parent = root / "chosen"
+            parent.mkdir()
+            moved = root / "chosen-original"
+            path = parent / "out.pgn"
+            consumed = False
+            real_named_temporary_file = tempfile.NamedTemporaryFile
+
+            def guarded_games():
+                nonlocal consumed
+                consumed = True
+                yield from games
+
+            def replace_parent_before_temp_open(*args, **kwargs):
+                parent.rename(moved)
+                parent.mkdir()
+                return real_named_temporary_file(*args, **kwargs)
+
+            with mock.patch(
+                "acs.pgn_service.tempfile.NamedTemporaryFile",
+                side_effect=replace_parent_before_temp_open,
+            ):
+                with self.assertRaises(PgnUnsafePathError):
+                    save_pgn_atomic(path, guarded_games())
+
+            self.assertFalse(consumed)
+            self.assertFalse(path.exists())
+            self.assertFalse((moved / "out.pgn").exists())
+            self.assertEqual(list(parent.glob("*.tmp")), [])
+            self.assertEqual(list(moved.glob("*.tmp")), [])
+
+    def test_export_parent_replacement_after_commit_cannot_report_false_success(self):
+        games = parse_games('[Event "Prepared"]\n[Result "*"]\n\n1. e4 *\n')
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            parent = root / "chosen"
+            parent.mkdir()
+            moved = root / "chosen-original"
+            path = parent / "out.pgn"
+
+            import acs.pgn_service as pgn_service_module
+
+            real_fingerprint = pgn_service_module.fingerprint
+
+            def replace_parent_during_final_fingerprint(candidate, *args, **kwargs):
+                parent.rename(moved)
+                parent.mkdir()
+                path.write_text(
+                    '[Event "Replacement path"]\n[Result "*"]\n\n1. d4 *\n',
+                    encoding="utf-8",
+                )
+                return real_fingerprint(candidate, *args, **kwargs)
+
+            with mock.patch(
+                "acs.pgn_service.fingerprint",
+                side_effect=replace_parent_during_final_fingerprint,
+            ):
+                with self.assertRaises(PgnUnsafePathError):
+                    save_pgn_atomic(path, games)
+
+            self.assertIn(
+                "Prepared",
+                (moved / "out.pgn").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "Replacement path",
+                path.read_text(encoding="utf-8"),
+            )
+
+    def test_pre_publish_check_aborts_after_fsync_without_publication(self):
+        games = parse_games('[Event "Prepared"]\n[Result "*"]\n\n1. e4 *\n')
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "cancel-before-publish.pgn"
+            observed_sizes = []
+
+            def abort_after_fsync():
+                temps = list(Path(tmp).glob("*.tmp"))
+                self.assertEqual(len(temps), 1)
+                observed_sizes.append(temps[0].stat().st_size)
+                self.assertGreater(observed_sizes[-1], 0)
+                self.assertFalse(path.exists())
+                raise RuntimeError("cancel before publication")
+
+            with self.assertRaisesRegex(RuntimeError, "cancel before publication"):
+                save_pgn_atomic(
+                    path,
+                    games,
+                    pre_publish_check=abort_after_fsync,
+                )
+
+            self.assertTrue(observed_sizes)
+            self.assertFalse(path.exists())
+            self.assertEqual(list(Path(tmp).glob("*.tmp")), [])
+
+    def test_invalid_pre_publish_check_fails_before_filesystem_mutation(self):
+        games = parse_games('[Event "Prepared"]\n[Result "*"]\n\n1. e4 *\n')
+        with tempfile.TemporaryDirectory() as tmp:
+            parent = Path(tmp) / "not-created"
+            path = parent / "out.pgn"
+            with self.assertRaisesRegex(TypeError, "pre_publish_check must be callable"):
+                save_pgn_atomic(path, games, pre_publish_check=object())
+            self.assertFalse(parent.exists())
+
+    def test_publication_cas_workflow_qualifies_exact_absorbed_product_successor(self):
+        workflow = (
+            Path(__file__).resolve().parents[1]
+            / ".github"
+            / "workflows"
+            / "pgn-conversion-prepublish-cancel.yml"
+        ).read_text(encoding="utf-8")
+        required = (
+            "PINNED_PRODUCT_SHA: ee3fe93aa379284d8af0672ae0cafb9961e88152",
+            "PREDECESSOR_PGN_HEAD: 8ac3756564b4a2331df5af1062ebf5adc12e4499",
+            'test "$live_product" = "$PINNED_PRODUCT_SHA"',
+            'git merge-base --is-ancestor "$PREDECESSOR_PGN_HEAD" "$live_product"',
+            'git merge-base --is-ancestor "$live_product" HEAD',
+            'test "$(git merge-base "$live_product" HEAD)" = "$live_product"',
+            "PGN_PUBLICATION_CAS_SUPERSEDED",
+            "PGN_PUBLICATION_CAS_PRODUCT_MOVED",
+            "'.github/workflows/pgn-conversion-prepublish-cancel.yml'",
+            "'acs/pgn_service.py'",
+            "'tests/test_pgn_service.py'",
+            "PGN_PUBLICATION_CAS_SCOPE=PASS",
+        )
+        for fragment in required:
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, workflow)
+        self.assertNotIn("SOURCE_BASE_SHA:", workflow)
+        self.assertIn(
+            'test "$(git rev-parse HEAD:acs/pgn_conversion.py)" = "$(git rev-parse "$live_product:acs/pgn_conversion.py")"',
+            workflow,
+        )
+        self.assertIn(
+            'test "$(git rev-parse HEAD:acs/pgn_conversion_windows.py)" = "$(git rev-parse "$live_product:acs/pgn_conversion_windows.py")"',
+            workflow,
+        )
 
     def test_importer_reports_warning_and_blank_damage(self):
         with tempfile.TemporaryDirectory() as tmp:

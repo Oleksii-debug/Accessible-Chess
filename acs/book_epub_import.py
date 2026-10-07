@@ -123,13 +123,16 @@ class _Warnings:
 
     def add(self, message: str) -> None:
         text = " ".join(str(message).split())
-        if not text:
+        if not text or self._suppressed:
             return
         if len(self.values) < MAX_EPUB_WARNINGS:
             self.values.append(text)
-        elif not self._suppressed:
-            self.values.append("additional EPUB import warnings were suppressed")
-            self._suppressed = True
+            return
+        # BookDocument accepts at most MAX_EPUB_WARNINGS warnings. Keep that
+        # invariant even when overflow itself must be reported.
+        if MAX_EPUB_WARNINGS > 0:
+            self.values[-1] = "additional EPUB import warnings were suppressed"
+        self._suppressed = True
 
 
 class _ForbiddenXmlDeclaration(Exception):
