@@ -15,7 +15,7 @@ Operation meanings:
 | Format | Extensions | Read | Edit | Write | Round-trip | Availability | Boundary |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | FEN position | .fen | SUPPORTED | PARTIAL | SUPPORTED | PARTIAL | built_in | Read/write are built in and validated by the canonical chess core; current full-editor/corpus closure is still converging, so edit/round-trip remain PARTIAL. |
-| EPD position interchange | .epd | SUPPORTED | PARTIAL | SUPPORTED | PARTIAL | built_in | Four FEN position fields are canonical; unknown operations remain opaque. Arbitrary engine-command semantics are not claimed. |
+| EPD position interchange | .epd | SUPPORTED | PARTIAL | SUPPORTED | PARTIAL | built_in | Canonical position fields can be edited through PositionState; unknown operations remain opaque and operation editing/engine-command semantics are not claimed. |
 | PGN / GameTree | .pgn | SUPPORTED | SUPPORTED | SUPPORTED | PARTIAL | built_in | Representable valid GameTree semantics round-trip; malformed recovery may canonicalize syntax and must surface warnings instead of fabricating chess state. |
 | ACSDB Library database | .acsdb | PARTIAL | PARTIAL | PARTIAL | PARTIAL | built_in | Internal durable Library format; current open convergence/qualification work prevents a whole-product SUPPORTED closure claim. |
 | Plain-text chess book | .txt | SUPPORTED | UNSUPPORTED | UNSUPPORTED | UNSUPPORTED | built_in | Semantic import is supported; source-format editing/writeback is not claimed. |
