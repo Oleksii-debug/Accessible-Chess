@@ -273,3 +273,24 @@ exact merge-base and exactly 45 Section-1 paths. The predecessor-aware source
 and whole gates are repinned to this exact predecessor and must receive fresh
 terminal attributable qualification. Section 1 remains OPEN until Section 0 is
 honestly accepted and those exact descendant gates are GREEN.
+
+
+### Re-convergence after Section-0 process-control recovery
+
+Section 0 advanced again on the SAME #2346 lineage to
+`83f976e5f07a9e68c13bdb55925989221287fe71` so host-owned importer routing is restored before
+`KeyboardInterrupt` or another direct `BaseException` is propagated. The
+prepared Section-1 lineage was therefore reconverged history-preservingly onto
+that exact predecessor rather than treating the previous `42309b84e76942c73af86a13cc950d862ea6973c`
+checkpoint as accepted.
+
+The new merge retains all existing Section-1 runtime/corpus/EPD/serialization
+history and adopts the exact five-path Section-0 successor. Relative to
+`83f976e5f07a9e68c13bdb55925989221287fe71`, the effective Section-1 product delta remains exactly 45
+paths; no Section-1 runtime path is dropped or duplicated. The source/corpus
+and whole gates are repinned to the new predecessor and must qualify the final
+descendant head before Section 1 can be accepted.
+
+Section 0 remains OPEN until its own exact-head terminal qualification succeeds,
+so this re-convergence is dependency-safe preparation only and is not a DONE
+claim.
