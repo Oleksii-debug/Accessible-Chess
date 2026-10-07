@@ -252,3 +252,19 @@ other product runtime bytes are changed by this reconvergence.
 `SECTION_2_DONE=NO_PREPARATION_ONLY`
 `PRODUCT_MUTATION=NONE`
 `SECTION2_PREP_PREDECESSOR=cc379e0de20512303e6dbcbd9c6d135cf59d4363`
+
+
+### Static exact-binding readback — 36/36
+
+Against exact predecessor `cc379e0de20512303e6dbcbd9c6d135cf59d4363`, every one of the 36 current-path
+blob bindings consumed by the prepared Section-2 closure workflow was read back
+from GitHub and matched its pinned blob identity: 9 PGN/GameTree/runtime
+authorities plus 27 semantic/recovery/streaming/accessibility/corpus evidence
+files. Mismatches: **0**.
+
+This is static predecessor qualification only. It does not replace the required
+terminal dual-OS/corpus workflow after Section 1 is accepted and does not imply
+Section-2 DONE.
+
+`SECTION2_STATIC_BINDINGS=36/36_MATCH`
+`SECTION_2_DONE=NO_PREPARATION_ONLY`
