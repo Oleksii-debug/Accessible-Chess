@@ -84,6 +84,18 @@ class CorruptReportImporter:
         return report
 
 
+class ConstructionTypeErrorImporter:
+    format_name = 'Malformed construction report'
+    suffixes = ('.type-report',)
+
+    def inspect(self, path: Path) -> ImportReport:
+        return ImportReport(
+            source=fingerprint(path),
+            format_name=self.format_name,
+            records=(ImportedRecord('1', ImportQuality.FULL),),  # type: ignore[arg-type]
+        )
+
+
 class LowLevelMutatedRecordImporter:
     format_name = 'Low-level mutated exact report'
     suffixes = ('.mutated-record',)
@@ -218,6 +230,27 @@ class ImportRegistryTests(unittest.TestCase):
             with self.assertRaisesRegex(ImportRegistryError, 'invalid ImportReport'):
                 registry.inspect(path)
             self.assertEqual(path.read_bytes(), b'unchanged')
+
+    def test_batch_isolates_report_construction_type_error_and_continues(self):
+        registry = ImportRegistry()
+        registry.register(ConstructionTypeErrorImporter())
+        registry.register(FakeImporter())
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            malformed = root / 'bad.type-report'
+            valid = root / 'good.foo'
+            malformed.write_bytes(b'malformed-report-source')
+            valid.write_bytes(b'valid-source')
+
+            batch = registry.inspect_batch([malformed, valid])
+
+            self.assertEqual([item.ok for item in batch.items], [False, True])
+            self.assertIn('exact list', batch.items[0].error)
+            self.assertIsNone(batch.items[0].report)
+            self.assertIsNotNone(batch.items[1].report)
+            self.assertEqual(batch.items[1].report.counts['full'], 1)
+            self.assertEqual(malformed.read_bytes(), b'malformed-report-source')
+            self.assertEqual(valid.read_bytes(), b'valid-source')
 
     def test_registry_rejects_low_level_mutated_exact_record(self):
         registry = ImportRegistry()
