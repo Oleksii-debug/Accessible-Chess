@@ -167,6 +167,29 @@ The prepared gate:
 
 No Product PGN/GameTree source was modified by this preparation.
 
+### Section 2.4 closure-evidence hardening — cancellation and atomic writes
+
+The prepared closure gate previously described cancellation/atomic-write coverage but
+did not execute several already-existing canonical regressions that directly prove
+those Section 2.4 claims. The evidence-only gate now exact-binds and executes:
+
+- `tests/test_pgn_save_snapshot.py = 9e74c4c95644e55cb9eab4a74297152f31804baf`
+- `tests/test_pgn_save_snapshot_cancel.py = 1d96b67b6bd01fdcabc2055b6ec91ab2f59108c1`
+- `tests/test_pgn_concurrent_save.py = f342bace40ec1a0b11e1aee1f200493be994492c`
+- `tests/test_dev4_pgn_export_failure_recovery.py = 1a471a4d2bbbb2f4ded8e535fa62cda13a26b63e`
+- `tests/test_dev4_pgn_postcommit_cleanup_atomicity.py = 8fa8b78561db9a2d015c26cb42d587b670121214`
+
+These are reused regressions only: no parser, GameTree, serializer, workspace,
+Windows adapter, or product behavior changed. They strengthen exact qualification
+for cancellation, concurrent save, late export failure/recovery, snapshot identity,
+and post-commit cleanup atomicity without creating a second PGN authority.
+
+Prepared strengthened workflow blob:
+`.github/workflows/section2-pgn-gametree-closure.yml = 1729ca152c8c73f4a8f5e6a90b0d2881ef0138fa`
+
+The gate remains preparation-only and must still be repinned to the actually accepted
+Section-1 predecessor before any Section-2 DONE claim.
+
 `SECTION_2_DONE=NO_PENDING_SECTION1_ACCEPTANCE_REPIN_AND_TERMINAL_GATE`
 `PRODUCT_MUTATION=NONE`
 
