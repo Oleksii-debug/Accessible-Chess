@@ -190,6 +190,22 @@ Prepared strengthened workflow blob:
 The gate remains preparation-only and must still be repinned to the actually accepted
 Section-1 predecessor before any Section-2 DONE claim.
 
+### Section 2.4 restart/resume evidence hardening
+
+The same evidence-only gate now also exact-binds and executes the existing durable
+GameTree restart/persistence regressions:
+
+- `tests/test_d06_gametree_snapshot_resume.py = 2d10a947e0c353ca88c0c76a764932dd5511ce49`
+- `tests/test_d06_gametree_persistence_vertical.py = e3d1e1f5791f3fea799364d42ac69581987d3da5`
+- `tests/test_d06_v2_gametree_resume_reachability.py = 55714eb7c0cd307869f05f3d693963570e4346ff`
+
+This directly strengthens the Section 2.4 restart/resume requirement and the durable
+GameTree side of Section 2.2 without changing PGN/GameTree product code or creating
+a competing persistence authority.
+
+Strengthened prepared workflow blob:
+`.github/workflows/section2-pgn-gametree-closure.yml = 804aa177f30052249449e4677066de9d48e5f924`.
+
 `SECTION_2_DONE=NO_PENDING_SECTION1_ACCEPTANCE_REPIN_AND_TERMINAL_GATE`
 `PRODUCT_MUTATION=NONE`
 
