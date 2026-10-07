@@ -24,6 +24,11 @@ from typing import Any, Mapping
 
 from .classroom_domain import ClassroomSnapshot
 from .interaction_contracts import AnnotationCommand, AnnotationOperation, EngineVisibilityPolicy
+from .teaching_pointer_actions import (
+    apply_teacher_annotation,
+    clear_teacher_pointer,
+    commit_teacher_pointer_input,
+)
 from .teaching_session import (
     LessonSession,
     TeachingActivity,
@@ -355,10 +360,14 @@ def apply_teaching_action(
         if action_id == "teacher.pointer_input":
             _exact_keys(data, {"square"})
             square = _exact_text(data["square"], "square", maximum=2)
-            return set_teacher_pointer(plan, state, square, expected_revision)
+            return commit_teacher_pointer_input(
+                plan, state, square, expected_revision=expected_revision
+            )[0]
         if action_id == "teacher.pointer_clear":
             _exact_keys(data, set())
-            return set_teacher_pointer(plan, state, None, expected_revision)
+            return clear_teacher_pointer(
+                plan, state, expected_revision=expected_revision
+            )
         if action_id == "teacher.highlight":
             _exact_keys(data, {"square", "purpose"})
             command = AnnotationCommand(
@@ -366,7 +375,9 @@ def apply_teaching_action(
                 start_square=_exact_text(data["square"], "square", maximum=2),
                 tag=_exact_text(data["purpose"], "purpose", maximum=64),
             )
-            return apply_annotation(plan, state, command, expected_revision)
+            return apply_teacher_annotation(
+                plan, state, command, expected_revision=expected_revision
+            )
         if action_id == "teacher.arrow":
             _exact_keys(data, {"start_square", "end_square", "purpose"})
             command = AnnotationCommand(
@@ -378,11 +389,11 @@ def apply_teaching_action(
             return apply_annotation(plan, state, command, expected_revision)
         if action_id == "teacher.clear_annotations":
             _exact_keys(data, set())
-            return apply_annotation(
+            return apply_teacher_annotation(
                 plan,
                 state,
                 AnnotationCommand(AnnotationOperation.CLEAR),
-                expected_revision,
+                expected_revision=expected_revision,
             )
     except TeachingAdapterError:
         raise

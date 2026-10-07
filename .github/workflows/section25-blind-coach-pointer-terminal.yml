@@ -1,0 +1,29 @@
+name: Section 25 Blind Coach Pointer Terminal Gate
+
+on:
+  pull_request:
+    branches:
+      - work/full-product-teacher-education-reachability-20260911
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  section25:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile Section 25 boundary
+        run: python -m py_compile acs/teaching_pointer_actions.py acs/teaching_session_adapter.py tests/test_teaching_pointer_actions.py
+      - name: Pointer and annotation domain gates
+        run: python -m unittest -v tests.test_teaching_pointer_actions tests.test_teaching_session tests.test_teaching_visual_board tests.test_teacher_webview_bridge tests.test_d09_teacher_canonical_webview_composition tests.test_section15_visual_board_closure
+      - name: Teacher keyboard and pointer DOM contract
+        run: node tests/js/teacher_surface_dom_test.js
