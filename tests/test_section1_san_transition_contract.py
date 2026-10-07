@@ -95,6 +95,30 @@ class Section1SanTransitionContractTests(unittest.TestCase):
 
         self.assertTrue(all(saw.values()), saw)
 
+    def test_explicit_check_suffix_must_match_canonical_board_san(self) -> None:
+        board = Board()
+        before = board.fen()
+
+        # e4 is legal, but neither check nor mate.  A false semantic suffix
+        # must not be silently discarded by the canonical legality boundary.
+        for token in ("e4+", "e4#"):
+            with self.subTest(token=token):
+                with self.assertRaisesRegex(ValueError, "не вдалося|нелегальний"):
+                    board.parse_move(token)
+                with self.assertRaisesRegex(ValueError, "не вдалося|нелегальний"):
+                    board.push_text(token)
+                self.assertEqual(board.fen(), before)
+
+        # Missing suffix remains accepted as historical human-input
+        # convenience, while an explicitly wrong suffix is rejected.
+        for token in ("f3", "e5", "g4"):
+            board.push_text(token)
+        mate = board.parse_move("Qh4#")
+        self.assertEqual(board.san(mate), "Qh4#")
+        self.assertEqual(board.parse_move("Qh4"), mate)
+        with self.assertRaisesRegex(ValueError, "не вдалося|нелегальний"):
+            board.parse_move("Qh4+")
+
     def test_checkmate_suffix_is_canonical_and_replayable(self) -> None:
         board = Board()
         for token in ("f3", "e5", "g4"):

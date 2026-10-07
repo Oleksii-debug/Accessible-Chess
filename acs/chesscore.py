@@ -301,10 +301,20 @@ class Board:
                 if (m.frm,m.to,m.promotion)==(frm,to,pr): return m
             raise ValueError('Нелегальний координатний хід')
         candidates=[]
+        # Preserve the historical convenience that a human may omit a
+        # generated check/checkmate suffix, but never accept a suffix that
+        # contradicts canonical Board SAN.  Explicit +/# is a semantic claim.
+        explicit_suffix = t[-1] if t.endswith(('+', '#')) else ''
+        target = t[:-1] if explicit_suffix else t
         for m in self.legal_moves():
-            s=self.norm_san(self.san(m)).rstrip('+#')
-            target=t.rstrip('+#')
-            if s==target: candidates.append(m)
+            canonical=self.norm_san(self.san(m))
+            canonical_suffix = canonical[-1] if canonical.endswith(('+', '#')) else ''
+            canonical_core = canonical[:-1] if canonical_suffix else canonical
+            if canonical_core != target:
+                continue
+            if explicit_suffix and explicit_suffix != canonical_suffix:
+                continue
+            candidates.append(m)
         if len(candidates)==1: return candidates[0]
         if not candidates: raise ValueError('Не вдалося розпізнати або хід нелегальний: '+text)
         raise ValueError('Хід неоднозначний: '+text)
