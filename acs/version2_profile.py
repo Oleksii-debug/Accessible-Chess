@@ -71,7 +71,7 @@ VERSION2_ROUTES: tuple[ModuleRoute, ...] = tuple(
     _VERSION2_ROUTE_INDEX[route_id] for route_id in VERSION2_ROUTE_IDS
 )
 
-_VERSION2_DOMAIN_PREFIXES = ("pgn.", "library.", "book.", "training.", "toolbar.")
+_VERSION2_DOMAIN_PREFIXES = ("pgn.", "library.", "book.", "training.", "toolbar.", "release.")
 _VERSION2_SCREEN_ACTION_IDS = frozenset(route.open_action_id for route in VERSION2_ROUTES)
 VERSION2_FULL_PRODUCT_ACTIONS = tuple(
     definition
