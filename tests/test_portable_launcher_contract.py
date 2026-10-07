@@ -453,13 +453,16 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
             "$first = Start-Process -FilePath $launcher",
             "Start-Sleep -Milliseconds 100",
             "$second = Start-Process -FilePath $launcher",
-            "$first.WaitForExit(10000)",
             "$second.WaitForExit(10000)",
             "Overlapping second portable launcher smoke failed",
-            "Launch report missing after overlapping launchers",
+            "Primary launcher did not publish startup readiness",
+            "Primary launcher supervisor exited while child was still running",
             "PACKAGE_DATA_OWNER: SINGLE_INSTANCE_GUARD_ACTIVE",
+            "LAUNCHER_SUPERVISOR: ACTIVE_UNTIL_CHILD_EXIT",
+            "$third = Start-Process -FilePath $launcher",
+            "Post-readiness duplicate launcher did not coalesce",
             "$ownedChildren.Count -ne 1",
-            "Expected exactly one package-local child after overlapping launchers",
+            "Expected exactly one package-local child while supervisor is active",
             "Single package-local child PID mismatch",
             "AccessibleChessDirectoryDeleteProbe",
             "DeleteAccess = 0x00010000",
@@ -468,20 +471,27 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
             "OpenReparsePoint = 0x00200000",
             "foreach ($guardedDirectory in @($root, $app, $data))",
             "$probeError -ne 32",
-            "Transferred directory guard missing",
-            "$reportedChild.Kill()",
-            "$reportedChild.WaitForExit()",
+            "Supervisor directory guard missing",
+            "$reportedChild.WaitForExit(12000)",
+            "$first.WaitForExit(10000)",
             "$probeError -ne 0",
-            "Directory guard leaked after child exit",
-            "Start-Sleep -Seconds 7",
+            "Directory guard leaked after supervisor exit",
         ):
             with self.subTest(token=token):
                 self.assertIn(token, self.workflow)
         first_launch = self.workflow.index("$first = Start-Process -FilePath $launcher")
         second_launch = self.workflow.index("$second = Start-Process -FilePath $launcher")
+        second_wait = self.workflow.index("$second.WaitForExit(10000)")
+        readiness = self.workflow.index("Primary launcher did not publish startup readiness")
+        third_launch = self.workflow.index("$third = Start-Process -FilePath $launcher")
+        child_wait = self.workflow.index("$reportedChild.WaitForExit(12000)")
         first_wait = self.workflow.index("$first.WaitForExit(10000)")
         self.assertLess(first_launch, second_launch)
-        self.assertLess(second_launch, first_wait)
+        self.assertLess(second_launch, second_wait)
+        self.assertLess(second_wait, readiness)
+        self.assertLess(readiness, third_launch)
+        self.assertLess(third_launch, child_wait)
+        self.assertLess(child_wait, first_wait)
 
     def test_windows_workflow_executes_native_early_exit_reason_mapping(self):
         for token in (
