@@ -170,6 +170,22 @@ class InvalidStringImporter:
         raise InvalidStringError()
 
 
+class NamelessStringError(Exception):
+    def __str__(self) -> str:
+        return ''
+
+
+NamelessStringError.__name__ = ''
+
+
+class NamelessStringImporter:
+    format_name = 'Nameless exception rendering'
+    suffixes = ('.nameless-str',)
+
+    def inspect(self, path: Path) -> ImportReport:
+        raise NamelessStringError()
+
+
 class ProcessControlImporter:
     format_name = 'Process control passthrough'
     suffixes = ('.interrupt',)
@@ -456,26 +472,31 @@ class ImportRegistryTests(unittest.TestCase):
         registry = ImportRegistry()
         registry.register(BrokenStringImporter())
         registry.register(InvalidStringImporter())
+        registry.register(NamelessStringImporter())
         registry.register(FakeImporter())
 
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             broken = root / 'bad.broken-str'
             invalid = root / 'bad.invalid-str'
+            nameless = root / 'bad.nameless-str'
             valid = root / 'good.foo'
             broken.write_bytes(b'broken-str-source')
             invalid.write_bytes(b'invalid-str-source')
+            nameless.write_bytes(b'nameless-str-source')
             valid.write_bytes(b'valid-source')
 
-            batch = registry.inspect_batch([broken, invalid, valid])
+            batch = registry.inspect_batch([broken, invalid, nameless, valid])
 
-            self.assertEqual([item.ok for item in batch.items], [False, False, True])
+            self.assertEqual([item.ok for item in batch.items], [False, False, False, True])
             self.assertEqual(batch.items[0].error, 'BrokenStringError')
             self.assertEqual(batch.items[1].error, 'InvalidStringError')
+            self.assertEqual(batch.items[2].error, 'Exception')
             self.assertEqual(len(batch.reports), 1)
             self.assertEqual(batch.reports[0].format_name, FakeImporter.format_name)
             self.assertEqual(broken.read_bytes(), b'broken-str-source')
             self.assertEqual(invalid.read_bytes(), b'invalid-str-source')
+            self.assertEqual(nameless.read_bytes(), b'nameless-str-source')
             self.assertEqual(valid.read_bytes(), b'valid-source')
 
             # Strict single-source inspection keeps exposing the original
