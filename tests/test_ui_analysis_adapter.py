@@ -434,6 +434,51 @@ class AnalysisPresentationAdapterTests(unittest.TestCase):
         configured = adapter.snapshot(after_e4.fen())
         self.assertEqual((configured.multipv, configured.depth), (3, 24))
 
+    def test_temporary_exploration_restores_previous_follow_policy(self):
+        service = FakePresentationService()
+        adapter = AnalysisPresentationAdapter(service)
+        adapter.enable(START_FEN)
+        service.current.last_result = structural_result(
+            START_FEN,
+            (
+                SimpleNamespace(
+                    multipv=1,
+                    depth=18,
+                    score_kind="cp",
+                    score_value=34,
+                    pv=("e2e4", "e7e5"),
+                ),
+            ),
+        )
+        after_e4 = Board(START_FEN)
+        after_e4.push_text("e4")
+
+        adapter.begin_exploration(START_FEN)
+        self.assertTrue(adapter.target_locked)
+        adapter.begin_exploration(START_FEN)
+        self.assertTrue(adapter.target_locked)
+        adapter.return_from_exploration()
+        self.assertFalse(adapter.target_locked)
+        adapter.sync_position(after_e4.fen())
+        self.assertEqual(service.updates[-1], after_e4.fen())
+
+        service.current.last_result = structural_result(
+            after_e4.fen(),
+            (
+                SimpleNamespace(
+                    multipv=1,
+                    depth=18,
+                    score_kind="cp",
+                    score_value=20,
+                    pv=("e7e5",),
+                ),
+            ),
+        )
+        adapter.lock_target()
+        adapter.begin_exploration(after_e4.fen())
+        adapter.return_from_exploration()
+        self.assertTrue(adapter.target_locked)
+
     def test_provider_details_never_cross_user_bridge_or_spoken_text(self):
         service = FakePresentationService()
         adapter = AnalysisPresentationAdapter(service)
