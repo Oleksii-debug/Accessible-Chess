@@ -4,6 +4,7 @@
 # at process startup so the same modern ToolStrip UIA provider is selected.
 # nuitka-project-if: {OS} == "Windows":
 #    nuitka-project: --include-data-files={MAIN_DIRECTORY}/packaging/AccessibleChess.exe.config=AccessibleChess.exe.config
+#    nuitka-project: --include-package=accessible_chess_protection_runtime
 
 import json
 import os
