@@ -338,3 +338,17 @@ KeyboardInterrupt/SystemExit still propagate after routing recovery. Regression
 coverage exercises strict lookup, strict inspection, batch continuation,
 ordinary-error sanitization, and process-control restoration without adding a
 new format or chess authority.
+
+### Canonical gate queue hygiene
+
+The exact-head gates previously used the head SHA inside their concurrency key
+while also declaring cancel-in-progress. Every successor SHA therefore entered a
+different concurrency group, so superseded Section-0 runs could not be cancelled
+by GitHub's concurrency mechanism and continued accumulating in the runner
+queue.
+
+The canonical focused and Whole V3 gates now key concurrency by pull-request
+number (or ref for manual dispatch). Exact-head checkout, geometry, blob pins,
+tests and matrix semantics are unchanged. A later head can now cancel the older
+run for the same canonical PR instead of growing an obsolete exact-head backlog.
+This is CI/release control only; runtime/import semantics are unchanged.

@@ -782,3 +782,24 @@ exact-head terminal qualification.
 `HUMAN_TESTED=NO`
 
 `NVDA_VERIFIED=NO`
+
+### Re-convergence after canonical gate queue hygiene
+
+Section 0 advanced to 4fe389a813c44e681a98d28118b60e0c1bee25d1 without changing runtime/import semantics. Its two
+canonical exact-head gates now use PR/ref-stable concurrency keys, so future
+successor heads can cancel superseded gate runs instead of allocating one
+non-cancellable group per SHA.
+
+Prepared Section 1 is history-preservingly reconverged onto that exact
+predecessor. Its predecessor-aware source/corpus and whole gates adopt the same
+PR/ref-stable concurrency rule while retaining exact-head checkout, 45-path
+geometry, blob binding, lawful-corpus qualification, and Ubuntu/Windows
+qualification. No Section-1 runtime authority is changed.
+
+`SECTION_0_DONE=NO_PENDING_TERMINAL_CI`
+
+`SECTION_1_DONE=NO_PENDING_SECTION0_ACCEPTANCE_AND_EXACT_HEAD_QUALIFICATION`
+
+`HUMAN_TESTED=NO`
+
+`NVDA_VERIFIED=NO`

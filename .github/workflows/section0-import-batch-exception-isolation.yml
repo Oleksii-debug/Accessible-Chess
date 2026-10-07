@@ -14,7 +14,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: section0-import-batch-exception-isolation-${{ github.event.pull_request.head.sha || github.sha }}
+  group: section0-import-batch-exception-isolation-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 env:
