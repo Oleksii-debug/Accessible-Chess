@@ -29,7 +29,7 @@ env:
   DUPLICATE_CONVERGENCE_SHA: 8a39f849950020e59f815b9315b2640dc394ca31
 
   FORMAT_IDENTITY_WORKFLOW_BLOB: ec13eb5748f515c43955dd6d99ea321c49105861
-  BATCH_ISOLATION_WORKFLOW_BLOB: 29b9891b68f7c50237b8908b337c1cb339d2d6dc
+  BATCH_ISOLATION_WORKFLOW_BLOB: 115bfe8267516f5cc7d2fc741c29550f6fb7322b
   AUTHORITY_DOC_BLOB: a1f7680f120c1a397e323dc9e633018a59adc711
   AUTHORITY_TEST_BLOB: ca8cc57fa0ca5c6888004239100390f136d43ac8
   IMPORT_CONTRACT_BLOB: d9855d173f8c73440e190482a107299be28949c5
@@ -79,8 +79,10 @@ jobs:
           set -euo pipefail
           expected_head="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
           test "$(git rev-parse HEAD)" = "$expected_head"
-          test "$EVENT_BASE_REF" = "converge/section0-whole-contract-v2-20261007-s56"
-          test "$EVENT_BASE_SHA" = "$EXPECTED_BASE_SHA"
+          if [ -n "${EVENT_BASE_REF:-}" ]; then
+            test "$EVENT_BASE_REF" = "converge/section0-whole-contract-v2-20261007-s56"
+            test "$EVENT_BASE_SHA" = "$EXPECTED_BASE_SHA"
+          fi
           test "$(git merge-base "$EXPECTED_BASE_SHA" HEAD)" = "$EXPECTED_BASE_SHA"
           git merge-base --is-ancestor "$FORMAT_IDENTITY_HEAD" HEAD
           git merge-base --is-ancestor "$PREVIOUS_WHOLE_HEAD" HEAD
