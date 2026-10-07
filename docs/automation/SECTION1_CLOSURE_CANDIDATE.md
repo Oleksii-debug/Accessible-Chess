@@ -1134,3 +1134,37 @@ Ubuntu and Windows terminal qualification remains mandatory.
 `HUMAN_TESTED=NO`
 
 `NVDA_VERIFIED=NO`
+
+### CURRENT LIVE AUTHORITY — reconvergence after cooperative-cancel mutation precedence
+
+Canonical Section 0 PR #2346 advanced to
+`49caab36b92beb2d3fb2899e2c019a13150a979a` on the same exact six-path
+lineage. This successor composes cooperative `SourceReadCancelledError`
+control flow with source-mutation/deletion integrity failure instead of letting
+either boundary silently downgrade the other.
+
+Prepared Section 1 remains PR #2356. Exact two-parent merge
+`14ff83fef2ecd3aa8a55b71ebc81cdc808bee074` records the current
+Section-0 predecessor as first parent and prior Section-1 prepared head
+`be12eb7e84db3a519bdb3280764d58b185dc510f` as second parent.
+No Section-1 FEN/SAN/Position source was replayed, rebased, squashed or dropped.
+
+Current inherited Section-0 acceptance blobs include:
+- `acs/import_registry.py=bc4188937966d4bacdf56df98a6735bd505d7def`;
+- `tests/test_import_registry.py=878e00578f81f2a966e4949cdd4b2aded7cc9ab7`;
+- focused gate `5078455b4802367c62deae03dc02c11b727c7f1e`;
+- Whole V3 gate `c210e5faa47a2653af61850596312973d85b1ffb`;
+- Section-0 receipt `1ef83d20493c516dff11d9696ce52c0bad24c41f`.
+
+The predecessor-aware Section-1 gates are repinned to the exact current
+predecessor and the effective Section-1 delta remains required to be exactly
+45 paths. Fresh exact-head lawful-corpus, Ubuntu and Windows terminal
+qualification is mandatory.
+
+`SECTION0_ACCEPTED=NO_PENDING_TERMINAL_CI`
+
+`SECTION_1_DONE=NO_PENDING_SECTION0_ACCEPTANCE_AND_EXACT_HEAD_QUALIFICATION`
+
+`HUMAN_TESTED=NO`
+
+`NVDA_VERIFIED=NO`
