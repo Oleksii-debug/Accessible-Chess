@@ -56,12 +56,16 @@ class EpdRecord:
             raise TypeError("EPD position must be a PositionState")
         if type(self.operations) is not tuple:
             raise TypeError("EPD operations must be an immutable tuple")
-        if any(type(item) is not EpdOperation for item in self.operations):
-            raise TypeError("EPD operations must contain EpdOperation values")
         if len(self.operations) > MAX_EPD_OPERATIONS:
             raise EpdParseError("EPD contains too many operations")
+        if any(type(item) is not EpdOperation for item in self.operations):
+            raise TypeError("EPD operations must contain EpdOperation values")
         seen: set[str] = set()
         for operation in self.operations:
+            # A frozen nested operation can still be low-level mutated with
+            # object.__setattr__. Re-run its exact grammar/operand contract
+            # before this record trusts or republishes the current fields.
+            EpdOperation(operation.opcode, operation.operand)
             if operation.opcode in seen:
                 raise EpdParseError(f"duplicate EPD {operation.opcode} operation")
             seen.add(operation.opcode)
@@ -165,15 +169,27 @@ def serialize_epd(record: EpdRecord) -> str:
 
     if type(record) is not EpdRecord:
         raise TypeError("record must be an EpdRecord")
+    if type(record.position) is not PositionState:
+        raise TypeError("EPD position must be a PositionState")
+    if type(record.operations) is not tuple:
+        raise TypeError("EPD operations must be an immutable tuple")
     if (
-        record.position.halfmove > _MAX_EPD_COUNTER_VALUE
-        or record.position.fullmove > _MAX_EPD_COUNTER_VALUE
+        type(record.position.halfmove) is int
+        and type(record.position.fullmove) is int
+        and (
+            record.position.halfmove > _MAX_EPD_COUNTER_VALUE
+            or record.position.fullmove > _MAX_EPD_COUNTER_VALUE
+        )
     ):
-        # PositionState intentionally has no format-specific decimal ceiling.
-        # Stop here before Python attempts an enormous integer-to-string
-        # conversion that cannot fit inside one bounded EPD record anyway.
+        # Low-level mutation can bypass PositionState construction-time
+        # validation. Stop before integer-to-string conversion when the value
+        # cannot possibly fit in one bounded EPD record.
         raise EpdParseError("serialized EPD is too long")
+
     fields = record.position.to_fen().split()
+    # Re-run the record and nested-operation invariants over their current
+    # frozen fields before emitting any operation text.
+    EpdRecord(position=record.position, operations=record.operations)
     if len(fields) != 6:
         raise EpdParseError("canonical position did not produce six FEN fields")
 
