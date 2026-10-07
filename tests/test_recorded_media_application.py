@@ -291,7 +291,7 @@ class RecordedMediaApplicationAdapterTests(unittest.TestCase):
         )
         self.assertTrue(app.assertion)
         self.assertEqual(frame.source_id,"media-1")
-        self.assertEqual(speech[0].text,"Knight f3")
+        self.assertEqual(speech[0].text,"Хід кінь f3")
 
     def test_adapter_contains_no_chess_parser_or_rules_authority(self):
         source=Path(
