@@ -6,12 +6,30 @@ from acs.import_contract import (
     ImportQuality,
     ImportedRecord,
     ImportReport,
+    SourceFingerprint,
     SourceReadCancelledError,
     UnsupportedChessBaseImporter,
     fingerprint,
     summarize_reports,
     verify_source_unchanged,
 )
+
+
+class ActivePathCarrier:
+    def __init__(self):
+        self.called = False
+
+    def __fspath__(self):
+        self.called = True
+        raise AssertionError('SourceFingerprint must reject path carrier before __fspath__')
+
+
+class ActiveSuffix(str):
+    lower_called = False
+
+    def lower(self):
+        type(self).lower_called = True
+        raise AssertionError('SourceFingerprint must reject str subclass before lower')
 
 
 class ImportContractTests(unittest.TestCase):
@@ -52,6 +70,71 @@ class ImportContractTests(unittest.TestCase):
             path.write_bytes(b'abc')
             with self.assertRaisesRegex(TypeError, 'must return a boolean'):
                 fingerprint(path, cancel_check=lambda: 1)
+
+    def test_source_fingerprint_rejects_non_passive_or_noncanonical_fields(self):
+        valid = SourceFingerprint(
+            path='C:/fixtures/source.pgn',
+            size=0,
+            sha256='0' * 64,
+            suffix='.pgn',
+        )
+        valid.validate()
+
+        invalid_values = (
+            dict(path='', size=0, sha256='0' * 64, suffix='.pgn'),
+            dict(path='bad\x00path.pgn', size=0, sha256='0' * 64, suffix='.pgn'),
+            dict(path='source.pgn', size=True, sha256='0' * 64, suffix='.pgn'),
+            dict(path='source.pgn', size=-1, sha256='0' * 64, suffix='.pgn'),
+            dict(path='source.pgn', size=0, sha256='A' * 64, suffix='.pgn'),
+            dict(path='source.pgn', size=0, sha256='0' * 63, suffix='.pgn'),
+            dict(path='source.pgn', size=0, sha256='g' * 64, suffix='.pgn'),
+            dict(path='source.pgn', size=0, sha256='0' * 64, suffix='pgn'),
+            dict(path='source.pgn', size=0, sha256='0' * 64, suffix='.PGN'),
+        )
+        for fields in invalid_values:
+            with self.subTest(fields=fields):
+                with self.assertRaises((TypeError, ValueError)):
+                    SourceFingerprint(**fields)
+
+        carrier = ActivePathCarrier()
+        with self.assertRaises((TypeError, ValueError)):
+            SourceFingerprint(
+                path=carrier,  # type: ignore[arg-type]
+                size=0,
+                sha256='0' * 64,
+                suffix='.pgn',
+            )
+        self.assertFalse(carrier.called)
+
+        ActiveSuffix.lower_called = False
+        with self.assertRaises((TypeError, ValueError)):
+            SourceFingerprint(
+                path='source.pgn',
+                size=0,
+                sha256='0' * 64,
+                suffix=ActiveSuffix('.pgn'),
+            )
+        self.assertFalse(ActiveSuffix.lower_called)
+
+    def test_canonical_fingerprint_remains_valid_passive_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'source.PGN'
+            path.write_bytes(b'canonical')
+            source = fingerprint(path)
+            source.validate()
+            self.assertIs(type(source.path), str)
+            self.assertIs(type(source.size), int)
+            self.assertEqual(source.suffix, '.pgn')
+            self.assertEqual(len(source.sha256), 64)
+
+    def test_report_revalidates_source_fingerprint_before_observation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'source.pgn'
+            path.write_bytes(b'x')
+            source = fingerprint(path)
+            object.__setattr__(source, 'sha256', 'invalid')
+            with self.assertRaisesRegex(ValueError, 'sha256'):
+                ImportReport(source=source, format_name='test')
 
     def test_chessbase_placeholder_never_claims_full_import(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -131,7 +214,6 @@ class ImportContractTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'global_warnings'):
                 clean.validate()
 
-
     def test_report_revalidates_frozen_record_scalars_after_low_level_mutation(self):
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / 'mutated-record.pgn'
@@ -153,19 +235,8 @@ class ImportContractTests(unittest.TestCase):
             report = ImportReport(source, 'test')
 
             object.__setattr__(source, 'sha256', 'not-a-digest')
-            with self.assertRaisesRegex(ValueError, 'canonical lowercase hex'):
+            with self.assertRaisesRegex(ValueError, 'sha256'):
                 report.validate()
-
-    def test_source_fingerprint_rejects_ambiguous_scalar_shapes(self):
-        with self.assertRaises(ValueError):
-            from acs.import_contract import SourceFingerprint
-            SourceFingerprint(path='x', size=True, sha256='0' * 64, suffix='.pgn')
-        with self.assertRaises(ValueError):
-            from acs.import_contract import SourceFingerprint
-            SourceFingerprint(path='x', size=1, sha256='A' * 64, suffix='.pgn')
-        with self.assertRaises(ValueError):
-            from acs.import_contract import SourceFingerprint
-            SourceFingerprint(path='x', size=1, sha256='0' * 64, suffix='.PGN')
 
     def test_summary_keeps_categories_separate(self):
         with tempfile.TemporaryDirectory() as tmp:

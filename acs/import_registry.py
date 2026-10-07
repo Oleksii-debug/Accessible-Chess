@@ -167,7 +167,7 @@ class ImportRegistry:
             source = Path(raw_path)
             try:
                 report = self.inspect(source)
-            except (ImportRegistryError, OSError, ValueError, RuntimeError) as exc:
+            except (ImportRegistryError, OSError, TypeError, ValueError, RuntimeError) as exc:
                 items.append(BatchInspectionItem(path=source, error=str(exc)))
             else:
                 items.append(BatchInspectionItem(path=source, report=report))

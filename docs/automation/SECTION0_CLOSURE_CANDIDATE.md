@@ -9,13 +9,14 @@ This file is durable convergence evidence for the numerically earliest live plan
 - source formats/history apex: #2326 @ `5854b528fbd3632cfa69553a70973123eaf14b54`;
 - 0.1 / 0.2 / 0.4 authority-boundary lane: #2329, inherited by the ImportReport stack;
 - 0.5 shared ImportReport lane: #2330 current owner, plus #2331 passive-record revalidation successor;
-- 0.3 canonical capability matrix lane: #2328 @ `2ca2d3f78b0070ce7c0382c64729d3457136900e`.
+- 0.3 canonical capability matrix lane: #2328 @ `6f8ae8547dfe7c0f15ed124bc0f44a6c660c0056`.
 
-The convergence commit containing this file has two real history parents:
-1. #2331 @ `01e481954a31e7e9f808e46255add65c3d434bef`;
-2. #2328 @ `2ca2d3f78b0070ce7c0382c64729d3457136900e`.
+The current convergence branch is history-preservingly reconverged on both live owner heads:
+- #2331 @ `c80772e40d783694d3931768e66d246236f61aad`;
+- #2328 @ `6f8ae8547dfe7c0f15ed124bc0f44a6c660c0056`;
+- previous convergence candidate `b1df7ad557d9adf0e1d73f173d05735f0ab8e050` remains in ancestry.
 
-No force-push, parser rewrite, chess-rules fork, GameTree fork, Library fork, provenance fork or second report model is introduced.
+The convergence gate requires both current owner heads and the previous convergence candidate to remain ancestors while the effective delta against #2331 stays exactly six paths. No force-push, parser rewrite, chess-rules fork, GameTree fork, Library fork, provenance fork or second report model is introduced.
 
 ## Section contract mapping
 

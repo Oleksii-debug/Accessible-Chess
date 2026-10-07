@@ -21,16 +21,17 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  FIRST_PARENT_SHA: 01e481954a31e7e9f808e46255add65c3d434bef
-  CAPABILITY_PARENT_SHA: 2ca2d3f78b0070ce7c0382c64729d3457136900e
+  IMPORT_PARENT_SHA: c80772e40d783694d3931768e66d246236f61aad
+  CAPABILITY_PARENT_SHA: 6f8ae8547dfe7c0f15ed124bc0f44a6c660c0056
+  PREVIOUS_CONVERGENCE_SHA: b1df7ad557d9adf0e1d73f173d05735f0ab8e050
 
   AUTHORITY_DOC_BLOB: a1f7680f120c1a397e323dc9e633018a59adc711
   AUTHORITY_TEST_BLOB: ca8cc57fa0ca5c6888004239100390f136d43ac8
   IMPORT_CONTRACT_BLOB: d9855d173f8c73440e190482a107299be28949c5
-  IMPORT_REGISTRY_BLOB: 1703290c16e638850173a9f6b9cdeff2037d7b7e
-  IMPORT_CONTRACT_TEST_BLOB: 133184fee93d9741746000232ba9de006e056bc3
-  IMPORT_REGISTRY_TEST_BLOB: f6cf1dea52aba7a1289d59675f25dc22d3261776
-  CAPABILITY_BLOB: 0b8c408df6ad274ed3a37201dc2adea57d4db07d
+  IMPORT_REGISTRY_BLOB: c8c1e403bc0d46ac520fefb3d403bd66a4a714c2
+  IMPORT_CONTRACT_TEST_BLOB: 69439b421e7957caa7262704510b3211110b4e40
+  IMPORT_REGISTRY_TEST_BLOB: 75affff3489f05ce3157bfa6a5d7ea18f395b9fb
+  CAPABILITY_BLOB: 12c06149f85cf78cebfc8c88f3c9c60475d5b84e
   CAPABILITY_DOC_BLOB: cba9cc6b69073003263e4f0d3a3d517f43ecf569
   CAPABILITY_TEST_BLOB: 413af349e0ca77ece6b3cd9c61eed9e71ecb8599
 
@@ -72,20 +73,16 @@ jobs:
           expected_head="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
           test "$(git rev-parse HEAD)" = "$expected_head"
           if [ -n "${EVENT_BASE_SHA:-}" ]; then
-            test "$EVENT_BASE_SHA" = "$FIRST_PARENT_SHA"
+            test "$EVENT_BASE_SHA" = "$IMPORT_PARENT_SHA"
           fi
 
-          git merge-base --is-ancestor "$FIRST_PARENT_SHA" HEAD
+          git merge-base --is-ancestor "$IMPORT_PARENT_SHA" HEAD
           git merge-base --is-ancestor "$CAPABILITY_PARENT_SHA" HEAD
 
-          read -r merge_sha first_parent second_parent extra <<<"$(git rev-list --parents -n 1 HEAD)"
-          test "$merge_sha" = "$expected_head"
-          test "$first_parent" = "$FIRST_PARENT_SHA"
-          test "$second_parent" = "$CAPABILITY_PARENT_SHA"
-          test -z "${extra:-}"
+          git merge-base --is-ancestor "$PREVIOUS_CONVERGENCE_SHA" HEAD
 
-          git diff --check "$FIRST_PARENT_SHA"...HEAD
-          changed="$(git diff --name-only "$FIRST_PARENT_SHA"...HEAD | sort)"
+          git diff --check "$IMPORT_PARENT_SHA"...HEAD
+          changed="$(git diff --name-only "$IMPORT_PARENT_SHA"...HEAD | sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/section0-format-capability-contract.yml' \
             '.github/workflows/section0-whole-contract-convergence.yml' \
