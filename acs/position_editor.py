@@ -63,6 +63,13 @@ class PositionState:
         if len(self.castling) > _MAX_CASTLING_TEXT_CHARS:
             raise PositionValidationError("castling rights text is too long")
         _validate_castling(self.castling)
+        if (
+            self.castling != "-"
+            and self.castling != _canonical_castling_text(self.castling)
+        ):
+            raise PositionValidationError(
+                "castling rights must use canonical KQkq order"
+            )
         if type(self.en_passant) is not str:
             raise PositionValidationError("en-passant square must be text")
         if len(self.en_passant) > MAX_SQUARE_TEXT_CHARS:
@@ -405,14 +412,15 @@ def _square_index(square: str) -> int:
         raise PositionValidationError("invalid square") from exc
 
 
+def _canonical_castling_text(value: str) -> str:
+    return "".join(symbol for symbol in "KQkq" if symbol in value)
+
+
 def _validate_fen_castling_token(value: str) -> None:
     """Require the standard FEN KQkq relative order at text ingress."""
 
     _validate_castling(value)
-    if value == "-":
-        return
-    canonical = "".join(symbol for symbol in "KQkq" if symbol in value)
-    if value != canonical:
+    if value != "-" and value != _canonical_castling_text(value):
         raise PositionValidationError(
             "FEN castling rights must use canonical KQkq order"
         )
@@ -427,7 +435,7 @@ def _normalize_castling(value: str) -> str:
     if text in {"", "-"}:
         return "-"
     _validate_castling(text)
-    return "".join(symbol for symbol in "KQkq" if symbol in text)
+    return _canonical_castling_text(text)
 
 
 def _validate_castling(value: str) -> None:
