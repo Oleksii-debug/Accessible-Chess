@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 
 from acs.chesscore import Board
+from acs.move_entry import MoveEntryKind, parse_move_entry
 from acs.notation import NotationError, format_accessible_compact_san, format_san
 
 
@@ -63,6 +64,17 @@ class Section1SanInternalWhitespaceTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "не вдалося|нелегальний"):
                     board.parse_move(token)
                 self.assertEqual(self._snapshot(board), before)
+
+    def test_move_entry_preserves_internal_space_for_rules_boundary_to_reject(self) -> None:
+        intent = parse_move_entry("N f3")
+        self.assertEqual(intent.kind, MoveEntryKind.CHESS_MOVE)
+        self.assertEqual(intent.move_text, "N f3")
+
+        board = Board()
+        before = self._snapshot(board)
+        with self.assertRaises(ValueError):
+            board.parse_move(intent.move_text)
+        self.assertEqual(self._snapshot(board), before)
 
     def test_board_ingress_matches_strict_notation_whitespace_grammar(self) -> None:
         for token in ("N f3", "e 4", "N f 3"):
