@@ -72,7 +72,7 @@ class D07SearchScalarEquivalenceTests(unittest.TestCase):
         )
 
     def test_result_scalar_contract_is_identical(self) -> None:
-        for value in ("", "win", 1):
+        for value in ("", "win"):
             with self.subTest(value=value):
                 self._assert_same_error(
                     {"result": value},
@@ -80,6 +80,12 @@ class D07SearchScalarEquivalenceTests(unittest.TestCase):
                     ValueError,
                     "Unsupported chess result:",
                 )
+        self._assert_same_error(
+            {"result": 1},
+            {"result": 1},
+            TypeError,
+            "result must be text",
+        )
 
     def test_search_limit_contracts_remain_layer_specific_and_bounded(self) -> None:
         with self.assertRaisesRegex(TypeError, "limit must be an integer"):
