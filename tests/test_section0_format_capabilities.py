@@ -109,10 +109,23 @@ class CanonicalFormatCapabilityContractTests(unittest.TestCase):
         )
 
     def test_semantic_book_import_does_not_claim_source_writeback(self) -> None:
-        for format_id in ("book-txt", "book-markdown", "book-html", "book-epub"):
+        for format_id in ("book-txt", "book-html", "book-epub"):
             with self.subTest(format_id=format_id):
                 item = capability_by_id(format_id)
                 self.assertIs(item.read, CapabilityStatus.SUPPORTED)
+                self.assertIs(item.edit, CapabilityStatus.UNSUPPORTED)
+                self.assertIs(item.write, CapabilityStatus.UNSUPPORTED)
+                self.assertIs(item.round_trip, CapabilityStatus.UNSUPPORTED)
+
+        markdown = capability_by_id("book-markdown")
+        self.assertIs(markdown.read, CapabilityStatus.PARTIAL)
+        self.assertIn("lawful real Markdown chess-book corpus", markdown.boundary)
+
+        for format_id in ("book-docx", "book-pdf"):
+            with self.subTest(format_id=format_id):
+                item = capability_by_id(format_id)
+                self.assertEqual(item.availability, "not_approved")
+                self.assertIs(item.read, CapabilityStatus.UNSUPPORTED)
                 self.assertIs(item.edit, CapabilityStatus.UNSUPPORTED)
                 self.assertIs(item.write, CapabilityStatus.UNSUPPORTED)
                 self.assertIs(item.round_trip, CapabilityStatus.UNSUPPORTED)
@@ -145,6 +158,7 @@ class CanonicalFormatCapabilityContractTests(unittest.TestCase):
             "chessbase-cbf-cbi",
             "chessbase-2cbh",
             "chessbase-2cbv",
+            "chessbase-2cbz",
             "chessbase-cbone",
             "chessbase-cbz",
         ):
@@ -190,6 +204,11 @@ class CanonicalFormatCapabilityContractTests(unittest.TestCase):
         self.assertEqual(two_cbv.extensions, (".2cbv",))
         self.assertIs(two_cbv.read, CapabilityStatus.BLOCKED)
         self.assertIn("no qualified semantic decoder", two_cbv.boundary)
+
+        two_cbz = capability_by_id("chessbase-2cbz")
+        self.assertEqual(two_cbz.extensions, (".2cbz",))
+        self.assertIs(two_cbz.read, CapabilityStatus.BLOCKED)
+        self.assertIn("no qualified decryption", two_cbz.boundary)
 
         with self.assertRaises(KeyError):
             capability_by_id("invented-format")

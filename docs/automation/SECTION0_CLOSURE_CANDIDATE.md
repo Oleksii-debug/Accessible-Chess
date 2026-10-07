@@ -97,3 +97,18 @@ HUMAN_TESTED=NO
 NVDA_VERIFIED=NO
 
 Physical NVDA evidence is not a hard dependency for this data-contract Section, but these flags remain false because no human NVDA claim is being made.
+
+
+---
+
+## Capability projection repair override — 2026-10-07
+
+Parent whole-Section candidate: `12ef299f481f9b9938c8a561e4994a8d1603dd53`.
+
+This child closes a deterministic Section 0.3 projection inconsistency without replacing any format/chess authority:
+- preserves #2328 owner corrections: Markdown read is `PARTIAL`; DOCX and PDF/OCR are `UNSUPPORTED`;
+- adds missing 2CBZ as `BLOCKED` read with no edit/write/round-trip support, based on recognition/evidence lineage only;
+- regenerates the checked Markdown projection and aligns executable tests;
+- refreshes the inherited component-workflow blob pins so no stale capability oracle remains.
+
+The child is not a Section-0 DONE marker. Exact-head Ubuntu and Windows qualification is required; after intake, the whole-Section PR must re-run on its new exact head. Queued/pending is not PASS.
