@@ -12,6 +12,11 @@ VALID_PIECES = frozenset("PNBRQKpnbrqk")
 VALID_CASTLING = frozenset("KQkq")
 MAX_COORDINATE_POSITION_TOKENS = 64 * 2
 MAX_COORDINATE_POSITION_CHARS = 4096
+# Direct PositionState construction must never create a counter that cannot be
+# represented inside the shared FEN ingress budget. This numeric fence runs
+# before decimal rendering, so hostile/accidental huge ints cannot trigger
+# Python integer-to-string conversion amplification.
+_MAX_FEN_COUNTER_EXCLUSIVE = 10 ** MAX_FEN_CHARS
 _MAX_SQUARE_DIAGNOSTIC_CHARS = 16
 _MAX_CASTLING_TEXT_CHARS = 256
 _POSITION_SECTIONS_RE = re.compile(
@@ -70,6 +75,10 @@ class PositionState:
             raise PositionValidationError("halfmove clock must be non-negative")
         if self.fullmove < 1:
             raise PositionValidationError("fullmove number must be at least 1")
+        _counter_text(self.halfmove, label="halfmove clock")
+        _counter_text(self.fullmove, label="fullmove number")
+        if len(self.to_fen()) > MAX_FEN_CHARS:
+            raise PositionValidationError("FEN is too long")
 
     def piece_at(self, square: str) -> str | None:
         return self.pieces[_square_index(square)]
@@ -181,7 +190,9 @@ class PositionState:
             if empty:
                 parts.append(str(empty))
             ranks.append("".join(parts))
-        return f"{'/'.join(ranks)} {self.turn} {self.castling} {self.en_passant} {self.halfmove} {self.fullmove}"
+        halfmove_text = _counter_text(self.halfmove, label="halfmove clock")
+        fullmove_text = _counter_text(self.fullmove, label="fullmove number")
+        return f"{'/'.join(ranks)} {self.turn} {self.castling} {self.en_passant} {halfmove_text} {fullmove_text}"
 
     @classmethod
     def from_fen(cls, fen: str) -> "PositionState":
@@ -348,6 +359,23 @@ def _fill_coordinate_section(
             raise
         used.add(square)
     return result
+
+def _counter_text(value: int, *, label: str) -> str:
+    """Render a validated FEN counter without leaking runtime conversion errors."""
+
+    if type(value) is not int:
+        raise PositionValidationError(f"{label} must be an integer")
+    if value < 0:
+        raise PositionValidationError(f"{label} must be non-negative")
+    if value >= _MAX_FEN_COUNTER_EXCLUSIVE:
+        raise PositionValidationError(f"{label} is too large")
+    try:
+        return str(value)
+    except ValueError as exc:
+        # CPython may enforce a process-level integer-string conversion limit.
+        # Keep that implementation detail inside the Position domain.
+        raise PositionValidationError(f"{label} is too large") from exc
+
 
 def _square_index(square: str) -> int:
     try:
