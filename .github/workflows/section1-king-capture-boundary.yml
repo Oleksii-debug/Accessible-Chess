@@ -1,0 +1,91 @@
+name: Section 1 King Capture Boundary
+
+on:
+  pull_request:
+    branches:
+      - 'work/section1-fen-field-count-20261007-sol56'
+    paths:
+      - '.github/workflows/section1-king-capture-boundary.yml'
+      - 'acs/chesscore.py'
+      - 'tests/test_section1_king_capture_boundary.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: section1-king-capture-${{ github.event.pull_request.head.sha }}
+  cancel-in-progress: true
+
+env:
+  EXPECTED_PARENT_SHA: 494166904d75e534f02e0caa7c7a06c01066f024
+  CHESSCORE_BLOB: ba3d4a2fdc56e93af3c88a4a73a8d98fdc0feb21
+  TEST_BLOB: 4c0facef788c2ace18cbed0fcaeee9195113ec9f
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Prove exact descendant geometry
+        shell: bash
+        env:
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EVENT_HEAD_SHA"
+          test "$EVENT_BASE_REF" = "work/section1-fen-field-count-20261007-sol56"
+          if [ "$EVENT_BASE_SHA" != "$EXPECTED_PARENT_SHA" ]; then
+            git merge-base --is-ancestor "$EVENT_BASE_SHA" "$EXPECTED_PARENT_SHA"
+          fi
+          test "$(git merge-base "$EXPECTED_PARENT_SHA" HEAD)" = "$EXPECTED_PARENT_SHA"
+          git diff --check "$EXPECTED_PARENT_SHA"...HEAD
+          changed="$(git diff --name-only "$EXPECTED_PARENT_SHA"...HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/section1-king-capture-boundary.yml' \
+            'acs/chesscore.py' \
+            'tests/test_section1_king_capture_boundary.py' | sort)"
+          test "$changed" = "$expected"
+
+      - name: Bind exact rules authority and regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:acs/chesscore.py)" = "$CHESSCORE_BLOB"
+          test "$(git rev-parse HEAD:tests/test_section1_king_capture_boundary.py)" = "$TEST_BLOB"
+
+      - name: Compile focused contract
+        run: >-
+          python -m py_compile
+          acs/chesscore.py
+          tests/test_section1_king_capture_boundary.py
+
+      - name: Execute king-capture and adjacent Section 1 regressions
+        run: >-
+          python -m unittest -v
+          tests.test_section1_king_capture_boundary
+          tests.test_section1_fen_field_count
+          tests.test_d02_canonical_move_scalar_fail_closed
+          tests.test_dev2_fen_atomicity
+          tests.test_section1_san_transition_contract
+          tests.test_section1_fen_castling_order
+          tests.test_notation
+
+      - name: Core chess selftest
+        run: python -m acs.selftest
