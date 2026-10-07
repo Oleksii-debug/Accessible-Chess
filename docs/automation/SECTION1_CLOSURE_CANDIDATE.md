@@ -336,3 +336,24 @@ terminal qualification.
 Section 0 remains `BLOCKED_EXTERNAL_CI` and is not accepted. Section 1 remains
 OPEN pending Section-0 acceptance plus its own exact-descendant source/corpus and
 whole qualification.
+
+
+### Re-convergence after canonical suffix round-trip enforcement
+
+Section 0 advanced on the SAME #2346 lineage to
+`c185073927f17d51db8eb9f0893d4c6ed09af401` after proving that sanitized
+suffix declarations such as `.` / `..foo` are still unreachable routing keys
+unless they round-trip exactly through `Path.suffix`. The registry now rejects
+those keys before registration, with focused negative coverage and repinned
+Section-0 exact-head gates.
+
+Prepared Section 1 was reconverged through merge-only PR #2361, producing
+`c3e10fc2843ca4332cd2ab994f3e24df465562e4` on the existing prepared branch.
+The merge carries only the same five Section-0 paths relative to the previous
+predecessor; it does not replay or rewrite Section-1 semantic source.
+
+Relative to exact predecessor
+`c185073927f17d51db8eb9f0893d4c6ed09af401`, the effective Section-1 delta
+remains ahead-only / behind=0 / exact merge-base with exactly 45 Section-1
+paths. Fresh source/corpus and whole gates are required on the final descendant
+head. Section 0 is still BLOCKED_EXTERNAL_CI, so neither Section is DONE.
