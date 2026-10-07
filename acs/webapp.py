@@ -204,6 +204,67 @@ class AccessibleChessAPI:
                 return False
             if type(side) is not str or side not in {"w", "b"}:
                 return False
+
+        # Redo metadata is recovery input, not an independent chess authority.
+        # Bind the complete recoverable suffix to the canonical Board redo stack
+        # and preserved active History descendants before advertising or
+        # consuming even the first redo entry.
+        try:
+            if type(self.board.redo_stack) is not list:
+                return False
+            if len(self.board.redo_stack) != len(self.redo_meta):
+                return False
+            if not self.redo_meta:
+                return True
+            if type(self.board.turn) is not str or self.board.turn not in {"w", "b"}:
+                return False
+
+            records = {
+                record.node_id: record
+                for record in self.review_history.tree_nodes()
+            }
+            live = records.get(self.live_history_node)
+            if live is None:
+                return False
+            child_id = live.active_child
+            expected_side = self.board.turn
+
+            for board_entry, meta_entry in zip(
+                reversed(self.board.redo_stack),
+                reversed(self.redo_meta),
+            ):
+                if type(board_entry) is not tuple or len(board_entry) != 2:
+                    return False
+                target_fen, target_san = board_entry
+                meta_san, side = meta_entry
+                if (
+                    type(target_fen) is not str
+                    or type(target_san) is not str
+                    or target_san != meta_san
+                    or side != expected_side
+                ):
+                    return False
+
+                child = records.get(child_id)
+                if child is None:
+                    return False
+                snapshot = child.snapshot
+                if snapshot.fen != target_fen:
+                    return False
+                if snapshot.san not in (None, meta_san):
+                    return False
+                if snapshot.side not in (None, side):
+                    return False
+                if snapshot.last_move not in (None, meta_san):
+                    return False
+
+                child_id = child.active_child
+                expected_side = "b" if expected_side == "w" else "w"
+
+            if child_id is not None:
+                return False
+        except Exception:
+            return False
         return True
 
     def _validated_history_lineage(self) -> list[int] | None:
@@ -240,6 +301,15 @@ class AccessibleChessAPI:
             if snapshot.last_move is not None and snapshot.last_move != san:
                 return None
         return lineage
+
+    def _history_mutation_ready(self) -> bool:
+        """Require coherent live and redo history before incremental mutation."""
+
+        return (
+            self._validated_history_lineage() is not None
+            and self._redo_metadata_valid()
+        )
+
 
     def _visible_ply_count(self) -> int:
         lineage = self._validated_history_lineage()
@@ -729,6 +799,8 @@ class AccessibleChessAPI:
         return self._ok("Стандартну позицію встановлено." if self.lang == "uk" else "Standard position loaded.")
 
     def clear_board(self) -> dict[str, Any]:
+        if not self._at_history_end():
+            return self._error(self._t("review_before_move"))
         try:
             candidate_board = copy.deepcopy(self.board)
             candidate_board.board = [None] * 64
@@ -743,14 +815,13 @@ class AccessibleChessAPI:
         self._publish_root_state(candidate_board, prepared)
         return self._ok("Дошку очищено. Введіть позицію в редакторі." if self.lang == "uk"
                         else "Board cleared. Enter a position in the editor.")
-
     def _position_state_from_live_board(self) -> PositionState:
         return PositionState.from_fen(self.board.fen())
 
     def _commit_position_editor_state(self, state: PositionState, message_uk: str, message_en: str) -> dict[str, Any]:
         if not self._at_history_end():
             return self._error(self._t("review_before_move"))
-        if not self._history_metadata_valid():
+        if not self._history_mutation_ready():
             return self._error(self._t("history_metadata_invalid"))
         try:
             if len(state.to_fen()) > MAX_FEN_CHARS:
@@ -863,6 +934,8 @@ class AccessibleChessAPI:
         return self._ok("Позиція коректна і готова до гри." if self.lang == "uk" else "Position is valid and ready to play.")
 
     def set_position_text(self, text: str, turn: str | None = None) -> dict[str, Any]:
+        if not self._at_history_end():
+            return self._error(self._t("review_before_move"))
         epd_input = looks_like_epd(text)
         try:
             side = self.board.turn if turn is None else turn
@@ -895,7 +968,6 @@ class AccessibleChessAPI:
                             else "EPD position loaded.")
         return self._ok("Позицію завантажено з текстового редактора." if self.lang == "uk"
                         else "Position loaded from text editor.")
-
     def toggle_engine(self) -> dict[str, Any]:
         self.engine_enabled = not self.engine_enabled
         if self.engine_enabled:
@@ -927,36 +999,44 @@ class AccessibleChessAPI:
         }
         if len(text) == 1 and text in commands:
             return commands[text]()
-        if not self._at_history_end():
-            return self._error(self._t("review_before_move"))
-        if not self._history_metadata_valid():
-            return self._error(self._t("history_metadata_invalid"))
-        if not self._position_complete(self.board):
-            return self._error(self._t("setup_incomplete"))
-        if not self._position_playable(self.board):
-            return self._error(self._t("position_invalid"))
+        return self._play_move_text(text)
+
+    def _commit_move_text_transaction(self, text: str) -> str:
+        """Publish one chess move atomically without presentation side effects.
+
+        The caller owns command interpretation and user-facing error mapping.
+        This is the single Board/history publication path reused by manual and
+        engine-game moves.
+        """
+        # The canonical Board retains "--" as a format/analysis null-move
+        # primitive, but ordinary gameplay must publish only legal chess moves.
+        # Keep that pseudo-move behind its format boundary instead of letting
+        # typed move entry advance clocks/history without a legal move.
+        if Board.norm_san(text) == "--":
+            raise ValueError("null move is not an ordinary gameplay move")
+
         side = self.board.turn
         try:
             candidate_board = copy.deepcopy(self.board)
-        except Exception:
-            return self._error(self._t("move_history_failed"))
+        except Exception as exc:
+            raise RuntimeError("move board clone failed") from exc
         try:
             san = candidate_board.push_text(text)
         except ValueError:
             # Accept lowercase piece letters at the human-input boundary only.
             # Try exact SAN first: bxc3 must remain a pawn capture when valid.
-            # PGN/Board parsing and canonical disambiguation stay unchanged.
             if not re.fullmatch(r"[kqrbn](?:[a-h][1-8]?|[1-8])?x?[a-h][1-8][+#]?", text):
-                return self._error(self._t("move_invalid"))
+                raise
             try:
                 candidate_board = copy.deepcopy(self.board)
                 san = candidate_board.push_text(text[0].upper() + text[1:])
             except ValueError:
-                return self._error(self._t("move_invalid"))
-            except Exception:
-                return self._error(self._t("move_history_failed"))
-        except Exception:
-            return self._error(self._t("move_history_failed"))
+                raise
+            except Exception as exc:
+                raise RuntimeError("move board replay failed") from exc
+        except Exception as exc:
+            raise RuntimeError("move board replay failed") from exc
+
         try:
             candidate_history = ReviewHistory.from_tree(self.review_history.export_tree())
             candidate_sans = list(self.sans)
@@ -975,8 +1055,9 @@ class AccessibleChessAPI:
             )
             if selection.node_id != candidate_live_node:
                 raise RuntimeError("candidate move cursor mismatch")
-        except Exception:
-            return self._error(self._t("move_history_failed"))
+        except Exception as exc:
+            raise RuntimeError("move history publication failed") from exc
+
         self._publish_live_transaction(
             candidate_board,
             candidate_history,
@@ -986,15 +1067,34 @@ class AccessibleChessAPI:
             move_sides=candidate_sides,
             redo_meta=[],
         )
+        return san
+
+    def _play_move_text(self, text: str) -> dict[str, Any]:
+        """Play one already-normalized move through the canonical transaction."""
+        if type(text) is not str or not text:
+            return self._error(self._t("move_invalid"))
+        if not self._at_history_end():
+            return self._error(self._t("review_before_move"))
+        if not self._history_mutation_ready():
+            return self._error(self._t("history_metadata_invalid"))
+        if not self._position_complete(self.board):
+            return self._error(self._t("setup_incomplete"))
+        if not self._position_playable(self.board):
+            return self._error(self._t("position_invalid"))
+        try:
+            san = self._commit_move_text_transaction(text)
+        except ValueError:
+            return self._error(self._t("move_invalid"))
+        except Exception:
+            return self._error(self._t("move_history_failed"))
         return self._ok(
             ("Зіграно: " if self.lang == "uk" else "Played: ")
             + format_san(san, "uk_literal" if self.lang == "uk" else "en_literal")
         )
-
     def activate_square(self, square: str) -> dict[str, Any]:
         if not self._at_history_end():
             return self._error(self._t("review_before_move"))
-        if not self._history_metadata_valid():
+        if not self._history_mutation_ready():
             return self._error(self._t("history_metadata_invalid"))
         try:
             target = parse_sq(square)
@@ -1078,7 +1178,7 @@ class AccessibleChessAPI:
     def undo(self) -> dict[str, Any]:
         if not self._at_history_end():
             return self._error(self._t("review_before_move"))
-        if not self._history_metadata_valid():
+        if not self._history_mutation_ready():
             return self._error(self._t("history_metadata_invalid"))
         if not self.sans:
             return self._error(self._t("undo_none"))
@@ -1132,9 +1232,7 @@ class AccessibleChessAPI:
     def redo(self) -> dict[str, Any]:
         if not self._at_history_end():
             return self._error(self._t("review_before_move"))
-        if not self._history_metadata_valid():
-            return self._error(self._t("history_metadata_invalid"))
-        if not self._redo_metadata_valid():
+        if not self._history_mutation_ready():
             return self._error(self._t("history_metadata_invalid"))
         if not self.redo_meta:
             return self._error(self._t("redo_none"))
@@ -1204,8 +1302,9 @@ class AccessibleChessAPI:
             self._t("white_turn") if color == "w" else self._t("black_turn"),
             self._t("white_turn") if color == "w" else self._t("black_turn"),
         )
-
     def set_fen(self, fen: str) -> dict[str, Any]:
+        if not self._at_history_end():
+            return self._error(self._t("review_before_move"))
         if type(fen) is not str:
             return self._error(self._t("fen_text_type"))
         if len(fen) > MAX_FEN_CHARS:
@@ -1224,7 +1323,6 @@ class AccessibleChessAPI:
 
         self._publish_root_state(candidate_board, prepared)
         return self._ok("FEN завантажено." if self.lang == "uk" else "FEN loaded.")
-
     def set_language(self, lang: str) -> dict[str, Any]:
         if type(lang) is not str or lang not in ("uk", "en"):
             return self._error("Unsupported language")

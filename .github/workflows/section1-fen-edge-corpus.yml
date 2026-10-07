@@ -1,0 +1,84 @@
+name: Section 1 FEN Edge Corpus Boundary
+
+on:
+  pull_request:
+    branches:
+      - 'converge/fen-history-section1-20261007-sol56a1'
+    paths:
+      - '.github/workflows/section1-fen-edge-corpus.yml'
+      - 'tests/data/fen_edge_corpus_v1.json'
+      - 'tests/test_fen_edge_corpus.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: section1-fen-edge-corpus-${{ github.event.pull_request.head.sha }}
+  cancel-in-progress: true
+
+env:
+  EXPECTED_BASE_SHA: 5d22793c9908831b144b3c62394424f8231738fe
+  CORPUS_BLOB: 485c7925a72ee802631e6089a4e9258206d9ef06
+  CORPUS_TEST_BLOB: d4beb33a0131cb4b748e8495f4cacb89ffefc9a5
+  CHESSCORE_BLOB: e04982c2de52394c2c9f5e5725d6267cbc55ce3d
+  POSITION_EDITOR_BLOB: 2a9b0e4ea6640c350ae1952176bb12771dfde7f8
+  FEN_FLOW_TEST_BLOB: 3c9a0aaffcd32b5680a9a6341867a41aabda66a7
+
+jobs:
+  edge-corpus:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Prove exact parent and three-path geometry
+        shell: bash
+        env:
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EVENT_HEAD_SHA"
+          test "$EVENT_BASE_REF" = "converge/fen-history-section1-20261007-sol56a1"
+          test "$EVENT_BASE_SHA" = "$EXPECTED_BASE_SHA"
+          test "$(git merge-base "$EXPECTED_BASE_SHA" HEAD)" = "$EXPECTED_BASE_SHA"
+          git diff --check "$EXPECTED_BASE_SHA"...HEAD
+          changed="$(git diff --name-only "$EXPECTED_BASE_SHA"...HEAD | sort)"
+          expected="$(printf '%s\n'             '.github/workflows/section1-fen-edge-corpus.yml'             'tests/data/fen_edge_corpus_v1.json'             'tests/test_fen_edge_corpus.py' | sort)"
+          test "$changed" = "$expected"
+
+      - name: Bind exact evidence and inherited authorities
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:tests/data/fen_edge_corpus_v1.json)" = "$CORPUS_BLOB"
+          test "$(git rev-parse HEAD:tests/test_fen_edge_corpus.py)" = "$CORPUS_TEST_BLOB"
+          test "$(git rev-parse HEAD:acs/chesscore.py)" = "$CHESSCORE_BLOB"
+          test "$(git rev-parse HEAD:acs/position_editor.py)" = "$POSITION_EDITOR_BLOB"
+          test "$(git rev-parse HEAD:tests/test_fen_position_editor_complete_user_flow.py)" = "$FEN_FLOW_TEST_BLOB"
+
+      - name: Compile edge-corpus test
+        run: python -m py_compile tests/test_fen_edge_corpus.py
+
+      - name: Qualify deterministic representation and playability edges
+        run: >-
+          python -m unittest -v
+          tests.test_fen_edge_corpus
+          tests.test_fen_position_editor_complete_user_flow
+          tests.test_position_text_authority
+
+      - name: Core chess selftest
+        run: python -m acs.selftest
