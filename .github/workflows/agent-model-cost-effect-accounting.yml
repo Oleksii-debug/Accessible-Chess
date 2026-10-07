@@ -53,8 +53,8 @@ jobs:
             test "${changed[$i]}" = "${expected[$i]}"
           done
           test "$(git hash-object acs/universal_chess_agent.py)" = "be877a142dcb104abcf512a114dd78faca4df059"
-          test "$(git hash-object tests/test_agent_model_cost_effect_accounting.py)" = "595ff2baa8e3e8754bf7480189fdccf1c360f9fb"
-          test "$(git hash-object tests/test_universal_chess_agent_crossrepo.py)" = "c686131a6f60269f577fefe6df932459236ef7f4"
+          test "$(git hash-object tests/test_agent_model_cost_effect_accounting.py)" = "efd9fff75df7b7285b30972cef98c54fc8826d05"
+          test "$(git hash-object tests/test_universal_chess_agent_crossrepo.py)" = "b25150119b26008dedf5a16fd0d8bf71222b0b29"
 
       - name: Set up Python
         uses: actions/setup-python@v5
