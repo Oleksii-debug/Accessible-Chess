@@ -6,6 +6,7 @@ on:
       - 'section0/import-batch-runtime-isolation-20261007-sol56'
     paths:
       - '.github/workflows/current-fen-history-section1-convergence.yml'
+      - '.github/workflows/section1-epd-serialization-revalidation.yml'
       - '.github/workflows/section1-fen-castling-order.yml'
       - '.github/workflows/section1-fen-corpus-source-snapshot.yml'
       - '.github/workflows/section1-fen-edge-corpus.yml'
@@ -19,6 +20,7 @@ on:
       - '.github/workflows/section1-san-transition-contract.yml'
       - '.github/workflows/section1-whole-contract-convergence.yml'
       - 'acs/chesscore.py'
+      - 'acs/epd.py'
       - 'acs/input_limits.py'
       - 'acs/notation.py'
       - 'acs/position_editor.py'
@@ -30,6 +32,7 @@ on:
       - 'docs/automation/SECTION1_CLOSURE_CANDIDATE.md'
       - 'tests/data/fen_edge_corpus_v1.json'
       - 'tests/test_dev2_fen_atomicity.py'
+      - 'tests/test_epd.py'
       - 'tests/test_fen_edge_corpus.py'
       - 'tests/test_fen_position_editor_complete_user_flow.py'
       - 'tests/test_qualify_fen_position_corpus.py'
@@ -60,6 +63,7 @@ env:
   SECTION0_PREDECESSOR_SHA: 3714172861b9bc2b28dbb4de58027aea522eba55
   SECTION1_SUCCESSOR_SHA: dffbacbbb2ca52812774a20aa58341caad407898
   SECTION1_SERIALIZATION_SHA: a76a3cf1cca4b339e847cb333918ffd125692da2
+  SECTION1_EPD_SHA: 4df2d1870f74dd279218f054e97c6ae781e92808
   SECTION1_PARENT_SHA: 5d22793c9908831b144b3c62394424f8231738fe
   SAN_OWNER_SHA: ff7798bdec33393cdd6ad79c1e30e0dba12d7b94
   RECEIPT_OWNER_SHA: f6a2c6df5705eadcca1070564c517e6d8c13a248
@@ -72,6 +76,7 @@ env:
   NOTATION_BLOB: eed13c31993fa9979b6a2cbd608cce63c1ce74df
   CHESSCORE_BLOB: 5ba261b7b18d8a9c6cf8858d111d412035a7e5f4
   POSITION_EDITOR_BLOB: 8f1a41df8142bf7e7689f4c5f5cf335d8523a4a9
+  EPD_BLOB: c1454f2af145729874283fa3b2c9cc29ecac6250
   IMPORT_CONTRACT_BLOB: d9855d173f8c73440e190482a107299be28949c5
 
   QUALIFIER_BLOB: 6a230daff4c511339669c330fb4aabc988c7f86f
@@ -88,9 +93,10 @@ env:
   EP_HALFMOVE_TEST_BLOB: 26564b2613fa4becd7780e96e1c4e258e212123a
   EP_FULLMOVE_TEST_BLOB: 6b6889191f2faee9384275dadfe3405ba6beaf93
   POSITION_SERIALIZATION_TEST_BLOB: a566cf563934037f523e7f25cd59ef83b0e910af
+  EPD_TEST_BLOB: 10fa838c7c44497da9b106b823851535471086cf
 
   RECEIPT_WORKFLOW_BLOB: b8991a98b6c13118736907b7dce9e297b2b07ea2
-  SOURCE_WORKFLOW_BLOB: fd37aa8850184f62b22dbb1392cc6d639b2bb8d9
+  SOURCE_WORKFLOW_BLOB: c836fa1573396fbc8314c53961207be9d19ab885
   EDGE_WORKFLOW_BLOB: 6f28d4f2fdf5b2fb1d5a4d4f25a0bee4fa45f750
   FEN_CASTLING_WORKFLOW_BLOB: 1c623c5accf762ab210023ccab67ab65f1b594d4
   POSITION_WORKFLOW_BLOB: f0ac7cefcc5db28430680361b36a026c7d526dd2
@@ -101,7 +107,8 @@ env:
   EP_HALFMOVE_WORKFLOW_BLOB: cd3c9ff92331483aea208e4678e586edbbfeb74f
   EP_FULLMOVE_WORKFLOW_BLOB: fe3f379c88bf2c86d487af16d78b561014cb557d
   POSITION_SERIALIZATION_WORKFLOW_BLOB: 8194108042e2f9fde5d25fcb8b1f679a90a4e893
-  CLOSURE_DOC_BLOB: 941aecb4fce79a7bffd815faf5fc6b7552e85bd2
+  EPD_WORKFLOW_BLOB: 88c9880aed687330dfb3cac5ac07c92813af289d
+  CLOSURE_DOC_BLOB: 5506e708c131dce4b553f112b6e5b56c6ed94ec0
 
   P0F_PROVENANCE_BLOB: 3298aed00ca000d27f607cd861abbba9483ff358
   P0F_BUILDER_BLOB: b7b96a661652a17cb16e8ca4cabba3b8b373e483
@@ -142,13 +149,14 @@ jobs:
             test "$EVENT_BASE_SHA" = "$SECTION0_PREDECESSOR_SHA"
           fi
           test "$(git merge-base "$SECTION0_PREDECESSOR_SHA" HEAD)" = "$SECTION0_PREDECESSOR_SHA"
-          for ancestor in "$SECTION1_SUCCESSOR_SHA" "$SECTION1_SERIALIZATION_SHA" "$SECTION1_PARENT_SHA" "$SAN_OWNER_SHA" "$RECEIPT_OWNER_SHA" "$EDGE_OWNER_SHA" "$POSITION_OWNER_SHA" "$CONVERGENCE_ANCHOR_SHA" "$FEN_SAN_CASTLING_HEAD"; do
+          for ancestor in "$SECTION1_SUCCESSOR_SHA" "$SECTION1_SERIALIZATION_SHA" "$SECTION1_EPD_SHA" "$SECTION1_PARENT_SHA" "$SAN_OWNER_SHA" "$RECEIPT_OWNER_SHA" "$EDGE_OWNER_SHA" "$POSITION_OWNER_SHA" "$CONVERGENCE_ANCHOR_SHA" "$FEN_SAN_CASTLING_HEAD"; do
             git merge-base --is-ancestor "$ancestor" HEAD
           done
           git diff --check "$SECTION0_PREDECESSOR_SHA"...HEAD
           changed="$(git diff --name-only "$SECTION0_PREDECESSOR_SHA"...HEAD | sort)"
           expected="$(cat <<'EOF' | sort
           .github/workflows/current-fen-history-section1-convergence.yml
+          .github/workflows/section1-epd-serialization-revalidation.yml
           .github/workflows/section1-fen-castling-order.yml
           .github/workflows/section1-fen-corpus-source-snapshot.yml
           .github/workflows/section1-fen-edge-corpus.yml
@@ -162,6 +170,7 @@ jobs:
           .github/workflows/section1-san-transition-contract.yml
           .github/workflows/section1-whole-contract-convergence.yml
           acs/chesscore.py
+          acs/epd.py
           acs/input_limits.py
           acs/notation.py
           acs/position_editor.py
@@ -173,6 +182,7 @@ jobs:
           docs/automation/SECTION1_CLOSURE_CANDIDATE.md
           tests/data/fen_edge_corpus_v1.json
           tests/test_dev2_fen_atomicity.py
+          tests/test_epd.py
           tests/test_fen_edge_corpus.py
           tests/test_fen_position_editor_complete_user_flow.py
           tests/test_qualify_fen_position_corpus.py
@@ -202,6 +212,7 @@ jobs:
           test "$(git rev-parse HEAD:acs/notation.py)" = "$NOTATION_BLOB"
           test "$(git rev-parse HEAD:acs/chesscore.py)" = "$CHESSCORE_BLOB"
           test "$(git rev-parse HEAD:acs/position_editor.py)" = "$POSITION_EDITOR_BLOB"
+          test "$(git rev-parse HEAD:acs/epd.py)" = "$EPD_BLOB"
           test "$(git rev-parse HEAD:acs/import_contract.py)" = "$IMPORT_CONTRACT_BLOB"
           test "$(git rev-parse HEAD:tools/qualify_fen_position_corpus.py)" = "$QUALIFIER_BLOB"
           test "$(git rev-parse HEAD:tests/test_qualify_fen_position_corpus.py)" = "$QUALIFIER_TEST_BLOB"
@@ -217,6 +228,7 @@ jobs:
           test "$(git rev-parse HEAD:tests/test_section1_fen_en_passant_halfmove.py)" = "$EP_HALFMOVE_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_section1_fen_en_passant_fullmove.py)" = "$EP_FULLMOVE_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_section1_positionstate_serialization_boundary.py)" = "$POSITION_SERIALIZATION_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_epd.py)" = "$EPD_TEST_BLOB"
 
           test "$(git rev-parse HEAD:.github/workflows/current-fen-history-section1-convergence.yml)" = "$RECEIPT_WORKFLOW_BLOB"
           test "$(git rev-parse HEAD:.github/workflows/section1-fen-corpus-source-snapshot.yml)" = "$SOURCE_WORKFLOW_BLOB"
@@ -230,6 +242,7 @@ jobs:
           test "$(git rev-parse HEAD:.github/workflows/section1-fen-en-passant-halfmove.yml)" = "$EP_HALFMOVE_WORKFLOW_BLOB"
           test "$(git rev-parse HEAD:.github/workflows/section1-fen-en-passant-fullmove.yml)" = "$EP_FULLMOVE_WORKFLOW_BLOB"
           test "$(git rev-parse HEAD:.github/workflows/section1-positionstate-serialization-boundary.yml)" = "$POSITION_SERIALIZATION_WORKFLOW_BLOB"
+          test "$(git rev-parse HEAD:.github/workflows/section1-epd-serialization-revalidation.yml)" = "$EPD_WORKFLOW_BLOB"
           test "$(git rev-parse HEAD:docs/automation/SECTION1_CLOSURE_CANDIDATE.md)" = "$CLOSURE_DOC_BLOB"
 
           python - <<'PY'
@@ -246,6 +259,7 @@ jobs:
           acs/notation.py
           acs/chesscore.py
           acs/position_editor.py
+          acs/epd.py
           acs/import_contract.py
           tools/qualify_fen_position_corpus.py
           tests/test_section1_san_transition_contract.py
@@ -280,6 +294,7 @@ jobs:
           tests.test_position_text_authority
           tests.test_section1_positionstate_counter_boundary
           tests.test_section1_positionstate_serialization_boundary
+          tests.test_epd
           tests.test_fen_edge_corpus
           tests.test_qualify_fen_position_corpus
           tests.test_import_contract
