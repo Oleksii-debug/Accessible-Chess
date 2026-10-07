@@ -189,6 +189,50 @@ class PositionState:
         return tuple(problems)
 
     def to_fen(self) -> str:
+        """Serialize only a still-canonical representation.
+
+        PositionState is frozen, but low-level code can still bypass the
+        dataclass boundary with object.__setattr__. Serialization is a
+        publication boundary, so revalidate every emitted field here rather
+        than trusting construction-time validation alone.
+        """
+        if type(self.pieces) is not tuple:
+            raise PositionValidationError("pieces must be an immutable tuple")
+        if len(self.pieces) != 64:
+            raise PositionValidationError("position must contain exactly 64 squares")
+        if any(
+            piece is not None
+            and (type(piece) is not str or piece not in VALID_PIECES)
+            for piece in self.pieces
+        ):
+            raise PositionValidationError("position contains an invalid piece symbol")
+        if type(self.turn) is not str or self.turn not in {"w", "b"}:
+            raise PositionValidationError("turn must be 'w' or 'b'")
+        if type(self.castling) is not str:
+            raise PositionValidationError("castling rights must be text")
+        if len(self.castling) > _MAX_CASTLING_TEXT_CHARS:
+            raise PositionValidationError("castling rights text is too long")
+        _validate_castling(self.castling)
+        if (
+            self.castling != "-"
+            and self.castling != _canonical_castling_text(self.castling)
+        ):
+            raise PositionValidationError(
+                "castling rights must use canonical KQkq order"
+            )
+        if type(self.en_passant) is not str:
+            raise PositionValidationError("en-passant square must be text")
+        if len(self.en_passant) > MAX_SQUARE_TEXT_CHARS:
+            raise PositionValidationError("en-passant square text is too long")
+        _validate_en_passant(self.en_passant, self.turn)
+        if (
+            self.en_passant != "-"
+            and self.en_passant != _canonical_en_passant_text(self.en_passant)
+        ):
+            raise PositionValidationError(
+                "en-passant square must use canonical lowercase text"
+            )
+
         ranks: list[str] = []
         for rank_index in range(7, -1, -1):
             empty = 0
@@ -207,7 +251,13 @@ class PositionState:
             ranks.append("".join(parts))
         halfmove_text = _counter_text(self.halfmove, label="halfmove clock", minimum=0)
         fullmove_text = _counter_text(self.fullmove, label="fullmove number", minimum=1)
-        return f"{'/'.join(ranks)} {self.turn} {self.castling} {self.en_passant} {halfmove_text} {fullmove_text}"
+        rendered = (
+            f"{'/'.join(ranks)} {self.turn} {self.castling} "
+            f"{self.en_passant} {halfmove_text} {fullmove_text}"
+        )
+        if len(rendered) > MAX_FEN_CHARS:
+            raise PositionValidationError("FEN is too long")
+        return rendered
 
     @classmethod
     def from_fen(cls, fen: str) -> "PositionState":
