@@ -280,6 +280,31 @@ focus preservation, bounded comments/tags and no mixed-state publication. Existi
 PGN keyboard DOM and key-ownership regressions remain in the same gate. No
 presentation runtime bytes changed for this evidence convergence.
 
+
+### Push-CI PGN editing oracle convergence
+
+Push-triggered `PGN Complete Editing Current` run `37644540969` executed the
+current Section-2 PGN stack on both Ubuntu and Windows and reduced to three
+deterministic regression-oracle failures after compilation succeeded.
+
+Two search tests asserted that an unsaved `PgnDocumentSession.from_text(...)`
+became clean after navigation/search. That contradicts the canonical persistence
+contract: unsaved documents remain dirty until first save. The tests now capture
+the pre-search dirty state and prove search preserves it.
+
+The remaining WebView test predated exact slot/index multi-comment editing. Current
+projection state intentionally exposes separate comment entries and keeps
+ambiguous non-exact editing fail-closed. The regression now proves both halves:
+two comments remain separately addressable, ambiguous edit still raises without
+dispatch, and an exact `slot="after", index=1` edit delegates only that comment.
+
+Exact successor test blobs:
+- `tests/test_pgn_complete_editing_user_flow.py = f0730d2a9b442b3110d2739e8cfe460af54a1d0d`
+- `tests/test_dev1_pgn_webview_projection.py = 1488fd39957bb412c0e551252a4364629f816481`
+
+No Product runtime mutation was required for these three failures. The closure
+gate scope and exact bindings are expanded to these two repaired Section-2 tests.
+
 ### Live predecessor reconvergence — fce5c75c65cf9abd3d134086279f20a6f5d63ef1
 
 Section 1 moved after exact-SHA qualification exposed and repaired the editable
