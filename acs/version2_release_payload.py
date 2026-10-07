@@ -99,6 +99,8 @@ _REQUIRED_WEB_FILES = (
     Path("web") / "version2_local_profile.js",
     Path("web") / "p0_accessibility_runtime.js",
     Path("web") / "version2_release_bootstrap.js",
+    Path("web") / "protection_locked.html",
+    Path("web") / "protection_locked.js",
     Path("web") / "docs" / "ACCESSIBLE_CHESS_HOTKEYS_UK.txt",
     Path("web") / "docs" / "ACCESSIBLE_CHESS_CAPABILITIES_TESTING_UK.txt",
 )
