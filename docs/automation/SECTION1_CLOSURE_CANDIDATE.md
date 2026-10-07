@@ -139,6 +139,21 @@ The prior Whole command executed complete later-product modules for Library, Boo
 
 This is evidence/gate scoping, not a waiver of any Section-1 failure. Every failure inside the Section-1 boundary remains blocking. No product runtime, chess rule, FEN/SAN grammar or PositionState schema is changed by this attempt-2 repair.
 
+
+## Whole-gate later-section leakage correction — History/PGN/GameTree
+
+Exact-SHA Whole run `37642025921` reached the Section-1 gate with predecessor geometry, exact authority binding, compilation, the complete FEN/SAN/Position contract and lawful-corpus canonical-legality regression all successful on both Ubuntu and Windows before the next step failed.
+
+The failing step, `Execute retained History EPD GameTree PGN adjacency`, ran complete later-product modules. The observed failures/errors were in History review, PGN Workspace and Version2 PGN command behavior, including historical-analysis projection, PGN annotation dirty-state semantics and PGN export root freezing. These are not Section-1 acceptance surfaces under canonical plan revision 5:
+
+- Section 1 owns FEN, SAN, canonical legality, PositionState/Position Editor interchange and EPD adapter behavior.
+- Section 2 owns PGN and full GameTree.
+- Section 12 owns History/review workflow behavior.
+
+Accordingly the same canonical Whole gate now retains only `tests.test_epd` from that mixed step and removes the broad History/GameTree/PGN modules plus PGN browser DOM from Section-1 qualification. This is the same fixed-boundary correction already applied to Library/Books/Training leakage: it is not a waiver of any Section-1 failure and does not mutate product/runtime/chess-rule bytes.
+
+The Section-2/Section-12 failures remain real project work for their own sequential Sections and are not marked resolved here. Fresh exact-SHA Source and Whole qualification is required after this evidence-only gate correction.
+
 ## Exact predecessor-relative geometry
 
 Accepted predecessor: `dfdd077247e82e45596a044e5a606ec6c39ba17a`
