@@ -45,6 +45,7 @@ from .pgn_webview_bridge import PgnWebViewBridge
 from .pgn_workspace_webview_adapter import PgnWorkspaceWebViewProjection
 from .report_paths import report_safe_name
 from .search_service import GameSearchQuery
+from .tactile_input import build_default_tactile_input_controller
 from .version2_book_workspace import build_version2_book_webview
 from .version2_pgn_commands import Version2PgnCommands
 from .version2_profile import build_version2_shell, build_version2_router, build_version2_webview_adapter
@@ -191,7 +192,7 @@ class Version2Application:
     def __init__(self, database: AcsDatabase, *, progress_store: BookProgressStore,
                  engine_assistance: EngineAssistedWorkflowService, board_dispatch,
                  board_position_projector=None, copy_text=lambda _: None,
-                 language=UILanguage.UA, tactile_display=None):
+                 language=UILanguage.UA, tactile_display=None, tactile_settings_path=None):
         self._thread = threading.get_ident()
         self.database = database
         self.progress_store = progress_store
@@ -234,6 +235,16 @@ class Version2Application:
         self.shell = build_version2_shell(language=language)
         self.router = build_version2_router(self.shell, self._delegate)
         self.adapter = build_version2_webview_adapter(self.shell, self.router)
+        tactile_path = (
+            Path(tactile_settings_path)
+            if tactile_settings_path is not None
+            else self.progress_store.path.parent / "tactile-device-settings.json"
+        )
+        self.tactile_input = build_default_tactile_input_controller(
+            settings_path=tactile_path,
+            action_registry=self.router.registry,
+            dispatch=self._dispatch_tactile_action,
+        )
         self.pgn_commands = Version2PgnCommands(lambda: self.session, copy_text=copy_text)
         self.library_export = LibraryExportService(database)
         self.library = build_library_export_webview(database, self.router.dispatch, language=language)
@@ -244,6 +255,20 @@ class Version2Application:
         # and non-Windows compositions fail closed by default.
         self.confirm_book_progress_recovery = lambda: False
         self.open_book_dialog = lambda: None
+
+    def _dispatch_tactile_action(self, action_id, payload):
+        """Dispatch tactile input only through visible canonical Board commands."""
+        self._assert_thread()
+        if self.shell.current_route.route_id != "board":
+            raise ValueError("tactile board input requires the visible Board")
+        if self.shell.active_dialog_id is not None:
+            raise ValueError("close the active dialog before tactile board input")
+        result = self.router.dispatch(
+            action_id,
+            payload,
+            current_focus_id=self._focus,
+        )
+        return result.value
 
     def _assert_thread(self):
         if threading.get_ident() != self._thread:
