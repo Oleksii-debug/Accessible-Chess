@@ -47,6 +47,28 @@ class Section1FenCastlingOrderTests(unittest.TestCase):
                 ):
                     PositionState.from_fen(fen)
 
+    def test_board_san_castling_matches_canonical_notation_glyph_policy(self) -> None:
+        fen = f"{_BASE_BOARD} w KQkq - 0 1"
+        canonical = Board(fen)
+        self.assertEqual(canonical.parse_move("O-O"), canonical.parse_move("0-0"))
+        self.assertEqual(canonical.parse_move("O-O-O"), canonical.parse_move("0-0-0"))
+
+        mixed = ("0-O", "O-0", "0-O-O", "O-0-O", "O-O-0", "0-0-O")
+        before = canonical.fen()
+        for token in mixed:
+            with self.subTest(token=token):
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "не вдалося|нелегальний",
+                ):
+                    canonical.parse_move(token)
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "не вдалося|нелегальний",
+                ):
+                    canonical.push_text(token)
+                self.assertEqual(canonical.fen(), before)
+
     def test_rejected_order_is_atomic_for_live_board_history(self) -> None:
         board = Board()
         board.push_text("e4")
