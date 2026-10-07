@@ -177,6 +177,33 @@ class PrivateOSErrorImporter:
         )
 
 
+class ActiveFilenamePayload:
+    hook_calls = 0
+
+    def __fspath__(self):
+        type(self).hook_calls += 1
+        raise KeyboardInterrupt('filename fspath hook must never execute')
+
+    def __str__(self):
+        type(self).hook_calls += 1
+        raise KeyboardInterrupt('filename string hook must never execute')
+
+
+class ActiveFilenameOSErrorImporter:
+    format_name = 'Active filename filesystem failure'
+    suffixes = ('.active-filename-oserror',)
+
+    def inspect(self, path: Path) -> ImportReport:
+        # OSError stores the third argument as filename without coercing it.
+        # The registry must not later execute provider path/string hooks merely
+        # to render bounded batch evidence for this ordinary adapter failure.
+        raise OSError(
+            5,
+            r'private decoder strerror C:\\Users\\PrivateBackend\\secret.bin',
+            ActiveFilenamePayload(),
+        )
+
+
 class HostileOSError(OSError):
     hook_calls = 0
 
@@ -1629,6 +1656,34 @@ class ImportRegistryTests(unittest.TestCase):
             self.assertNotIn('Documents', error)
             self.assertNotIn('PrivateBackend', error)
             self.assertNotIn('decoder failed', error)
+
+    def test_batch_exact_oserror_never_executes_active_filename_payload(self):
+        registry = ImportRegistry()
+        registry.register(ActiveFilenameOSErrorImporter())
+        registry.register(FakeImporter())
+        ActiveFilenamePayload.hook_calls = 0
+        with tempfile.TemporaryDirectory() as td:
+            private = Path(td) / 'Users' / 'PrivateUser' / 'Documents'
+            private.mkdir(parents=True)
+            hostile = private / 'hostile.active-filename-oserror'
+            valid = private / 'good.foo'
+            hostile.write_bytes(b'hostile')
+            valid.write_bytes(b'valid')
+
+            batch = registry.inspect_batch([hostile, valid])
+
+            self.assertEqual([item.ok for item in batch.items], [False, True])
+            self.assertEqual(
+                batch.items[0].error,
+                'Filesystem error (errno 5): hostile.active-filename-oserror',
+            )
+            self.assertEqual(ActiveFilenamePayload.hook_calls, 0)
+            self.assertNotIn('PrivateUser', batch.items[0].error)
+            self.assertNotIn('PrivateBackend', batch.items[0].error)
+            self.assertNotIn('secret.bin', batch.items[0].error)
+            self.assertEqual(len(batch.reports), 1)
+            self.assertEqual(batch.reports[0].format_name, FakeImporter.format_name)
+            self.assertEqual(valid.read_bytes(), b'valid')
 
     def test_batch_hostile_oserror_attributes_cannot_abort_recovery(self):
         registry = ImportRegistry()
