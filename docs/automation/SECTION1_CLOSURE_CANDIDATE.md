@@ -987,3 +987,31 @@ Fresh exact-head lawful-corpus plus Ubuntu/Windows qualification is mandatory. S
 `HUMAN_TESTED=NO`
 
 `NVDA_VERIFIED=NO`
+
+
+### CURRENT LIVE AUTHORITY — reconvergence on threaded Section-0 registry authority
+
+Canonical Section 0 PR #2346 advanced on the same six-path lineage to
+`ddda5a470967ee7482b9ddd7276c47d12b45dd87`. The new runtime residual is narrowly inside Section 0.5:
+public ImportRegistry routing operations are serialized with one re-entrant host
+authority lock so a genuinely parallel `register()` / `unregister()` cannot
+return success during inspection and then be silently erased by inspection's
+older registration snapshot. Deterministic threaded regression coverage is bound
+into both canonical Section-0 exact-head gates.
+
+Prepared Section 1 remains canonical PR #2356. It inherits the exact current
+Section-0 registry/test/gate/receipt bytes, repins its predecessor-aware
+source/corpus and whole gates to `ddda5a470967ee7482b9ddd7276c47d12b45dd87`, and preserves the existing
+Section-1 runtime/FEN/SAN/Position history without rebase, squash or replay.
+Relative to the current predecessor, the required effective Section-1 delta
+remains exactly 45 paths.
+
+Fresh exact-head Section-0 and Section-1 terminal qualification is mandatory.
+
+`SECTION0_ACCEPTED=NO_PENDING_TERMINAL_CI`
+
+`SECTION_1_DONE=NO_PENDING_SECTION0_ACCEPTANCE_AND_EXACT_HEAD_QUALIFICATION`
+
+`HUMAN_TESTED=NO`
+
+`NVDA_VERIFIED=NO`
