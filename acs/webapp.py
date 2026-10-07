@@ -23,6 +23,12 @@ from .notation import format_accessible_compact_san, format_san
 from .position_editor import PositionState, PositionValidationError
 from .position_text import parse_position_text
 from .ui_review_adapter import ReviewPresentationAdapter
+from .visual_board_contract import (
+    BoardSurface,
+    VisualBoardCell,
+    VisualBoardPreferences,
+    VisualBoardSnapshot,
+)
 
 VERSION = "0.4.0-dev3"
 
@@ -64,6 +70,7 @@ class AccessibleChessAPI:
         self.announcement = self._t("ready")
         self.mode = "analysis"
         self.engine_enabled = False
+        self.visual_preferences = VisualBoardPreferences()
         self.review_history = ReviewHistory(self.start_fen)
         self.review_adapter = ReviewPresentationAdapter(self.review_history, language=self.lang)
         self.live_history_node = self.review_history.cursor_node_id
@@ -346,10 +353,78 @@ class AccessibleChessAPI:
                 cells.append({
                     "square": sq_name(sq),
                     "label": self.square_label(sq, b),
+                    "piece": b.board[sq] or "",
                     "occupied": bool(b.board[sq]),
                     "selected": (not reviewing) and sq == self.selected_source,
                 })
         return cells
+
+    def _visual_board_snapshot(
+        self,
+        board: Board,
+        cells: list[dict[str, Any]],
+    ) -> VisualBoardSnapshot:
+        """Project canonical chess state into the presentation-only contract."""
+        at_live_end = self._at_history_end()
+        selected_square = (
+            sq_name(self.selected_source)
+            if self.selected_source is not None and at_live_end
+            else None
+        )
+        legal_targets: tuple[str, ...] = ()
+        if (
+            self.selected_source is not None
+            and at_live_end
+            and self._position_playable(board)
+        ):
+            legal_targets = tuple(
+                sorted(
+                    {
+                        sq_name(move.to)
+                        for move in board.legal_moves()
+                        if move.frm == self.selected_source
+                    }
+                )
+            )
+        last_move = None
+        if board.last_move is not None and at_live_end:
+            last_move = (sq_name(board.last_move.frm), sq_name(board.last_move.to))
+        return VisualBoardSnapshot(
+            surface=BoardSurface.ORDINARY_PLAY,
+            preferences=self.visual_preferences,
+            cells=tuple(
+                VisualBoardCell(
+                    square=str(cell["square"]),
+                    piece=str(cell.get("piece") or ""),
+                    accessible_label=str(cell["label"]),
+                )
+                for cell in cells
+            ),
+            selected_square=selected_square,
+            last_move=last_move,
+            legal_targets=legal_targets,
+        )
+
+    def set_visual_preference(
+        self,
+        field: object,
+        value: object,
+    ) -> dict[str, Any]:
+        """Change presentation state only; Board/history remain authoritative."""
+        try:
+            updated = self.visual_preferences.updated(field, value)
+        except (TypeError, ValueError):
+            return self._error(
+                "Некоректне налаштування візуальної дошки."
+                if self.lang == "uk"
+                else "Invalid visual board setting."
+            )
+        self.visual_preferences = updated
+        return self._ok(
+            "Вигляд дошки оновлено."
+            if self.lang == "uk"
+            else "Board appearance updated."
+        )
 
     def _prepare_root_state(
         self,
@@ -674,6 +749,9 @@ class AccessibleChessAPI:
             and self._redo_metadata_valid()
         )
 
+        board_cells = self._board_cells(display_board)
+        visual_board = self._visual_board_snapshot(display_board, board_cells).as_dict()
+
         return {
             "version": VERSION, "lang": self.lang, "mode": self.mode,
             "gameInfo": status,
@@ -681,7 +759,8 @@ class AccessibleChessAPI:
             "whitePieces": self._pieces_text("w", display_board),
             "blackPieces": self._pieces_text("b", display_board),
             "gameStatus": status, "lastMove": last, "announcement": self.announcement,
-            "fen": display_view.fen, "board": self._board_cells(display_board),
+            "fen": display_view.fen, "board": board_cells,
+            "visualBoard": visual_board,
             "positionEditor": editor_projection,
             "selectedSquare": (
                 sq_name(self.selected_source)
