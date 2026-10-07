@@ -354,6 +354,18 @@ class Board:
         if len(candidates)==1: return candidates[0]
         if not candidates: raise ValueError('Не вдалося розпізнати або хід нелегальний: '+text)
         raise ValueError('Хід неоднозначний: '+text)
+    @staticmethod
+    def _require_roundtrippable_transition(candidate):
+        """Reject a transition that cannot re-enter the canonical FEN boundary."""
+        rendered=candidate.fen()
+        if len(rendered) > MAX_FEN_CHARS:
+            raise ValueError('Хід створює FEN, що перевищує допустиму довжину')
+        try:
+            Board(rendered)
+        except ValueError as exc:
+            raise ValueError('Хід створює некоректний canonical FEN') from exc
+        return rendered
+
     def push(self,m):
         if type(m) is not Move:
             raise ValueError('Хід має бути canonical Move')
@@ -363,6 +375,11 @@ class Board:
         self._require_recovery_stack(self.undo_stack)
         self._require_recovery_stack(self.redo_stack)
         before=self.fen(); san=self.san(m)
+        # A legal move can still overflow the shared serialized FEN budget when
+        # a valid boundary counter is incremented. Prove the post-move state is
+        # reloadable before history or Board fields are published.
+        candidate=self.clone(); candidate._apply(m)
+        self._require_roundtrippable_transition(candidate)
         self.undo_stack.append((before,san)); self.redo_stack.clear(); self._apply(m)
         return san
     def push_null(self):
@@ -382,6 +399,13 @@ class Board:
         self._require_recovery_stack(self.undo_stack)
         self._require_recovery_stack(self.redo_stack)
         before=self.fen()
+        candidate=self.clone()
+        candidate.ep=None
+        candidate.halfmove+=1
+        if candidate.turn=='b': candidate.fullmove+=1
+        candidate.turn='b' if candidate.turn=='w' else 'w'
+        candidate.last_move=None
+        self._require_roundtrippable_transition(candidate)
         self.undo_stack.append((before,'--')); self.redo_stack.clear()
         self.ep=None
         self.halfmove+=1
