@@ -20,6 +20,7 @@ from .chesscore import Board
 from .media_foundation import MediaClock, MediaContractError, MediaPositionTimeline
 from .squares import square_name
 from .search_service import GameSearchQuery, GameSearchService
+from .section36_integration import Section36AgentIntegration
 
 
 class MediaPlaybackPort(Protocol):
@@ -140,6 +141,7 @@ class ChessAgentToolRegistry:
         search_service: GameSearchService | None = None,
         media: MediaAgentBridge | None = None,
         application_snapshot_provider: Callable[[], Mapping[str, object]] | None = None,
+        late_integration: Section36AgentIntegration | None = None,
     ) -> None:
         if type(executor) is not ToolExecutor:
             raise TypeError("executor must be ToolExecutor")
@@ -155,9 +157,12 @@ class ChessAgentToolRegistry:
             application_snapshot_provider
         ):
             raise TypeError("application_snapshot_provider must be callable or None")
+        if late_integration is not None and type(late_integration) is not Section36AgentIntegration:
+            raise TypeError("late_integration must be Section36AgentIntegration or None")
         self.search_service = search_service
         self.media = media
         self.application_snapshot_provider = application_snapshot_provider
+        self.late_integration = late_integration
 
     def register_all(self) -> tuple[ToolSpec, ...]:
         self._register_board()
@@ -174,6 +179,8 @@ class ChessAgentToolRegistry:
             AgentClassroomTools(self.application_snapshot_provider).register(
                 self.executor
             )
+        if self.late_integration is not None:
+            self.late_integration.register(self.executor)
         return self.executor.specs()
 
     def _board(self) -> Board:
