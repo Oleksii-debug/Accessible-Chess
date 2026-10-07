@@ -1,0 +1,122 @@
+name: Section 0 Full Contract Convergence
+
+on:
+  pull_request:
+    branches:
+      - 'section0/import-report-contract-20261007-sol56'
+    paths:
+      - '.github/workflows/section0-convergence.yml'
+      - 'acs/format_capabilities.py'
+      - 'docs/automation/CANONICAL_FORMAT_CAPABILITY_MATRIX.md'
+      - 'docs/automation/SECTION0_CONVERGENCE.md'
+      - 'tests/test_section0_format_capabilities.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: section0-convergence-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+env:
+  EXPECTED_BASE_SHA: 633244a659b7998acddd34bef79b5e511d2990a3
+  MERGE_RECEIPT: 905df1412bda89774d265df0f6bd0ba38ec6d91f
+  AUTHORITY_HEAD: c61fbc8f1381ddec05109532f907595c2a7c9aaf
+  IMPORT_HEAD: 633244a659b7998acddd34bef79b5e511d2990a3
+  CAPABILITY_HEAD: 6f8ae8547dfe7c0f15ed124bc0f44a6c660c0056
+  PRIOR_CONVERGENCE_HEAD: 2a5b410635bf6df4d97983f30cc745568f83c212
+  ORIGINAL_RECEIPT: 0bc9dd57d41f047e0c259af3dcf8b2791cac23d3
+  CAPABILITY_BLOB: c3fb75120d71b7cf26b71f22961e9caa82a55b3c
+  MATRIX_BLOB: 965eff8a7f9d24094318b7e14680d42ff9098cb7
+  CAPABILITY_TEST_BLOB: 852aba2d3d8ba62064289f7dc76bc6430ac2e5b8
+  CLOSURE_DOC_BLOB: c31e77d1ef45bd45f77f172e098840d595a67807
+
+jobs:
+  section0-convergence:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Prove exact convergence geometry
+        shell: bash
+        env:
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          expected_head="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
+          test "$(git rev-parse HEAD)" = "$expected_head"
+          if [ -n "${EVENT_BASE_SHA:-}" ]; then
+            test "$EVENT_BASE_SHA" = "$EXPECTED_BASE_SHA"
+          fi
+          test "$(git merge-base "$EXPECTED_BASE_SHA" HEAD)" = "$EXPECTED_BASE_SHA"
+
+          test "$(git rev-parse "$MERGE_RECEIPT^1")" = "$IMPORT_HEAD"
+          test "$(git rev-parse "$MERGE_RECEIPT^2")" = "$PRIOR_CONVERGENCE_HEAD"
+          test "$(git rev-parse "$MERGE_RECEIPT^3")" = "$CAPABILITY_HEAD"
+          git merge-base --is-ancestor "$AUTHORITY_HEAD" HEAD
+          git merge-base --is-ancestor "$IMPORT_HEAD" HEAD
+          git merge-base --is-ancestor "$CAPABILITY_HEAD" HEAD
+          git merge-base --is-ancestor "$ORIGINAL_RECEIPT" HEAD
+          git merge-base --is-ancestor "$MERGE_RECEIPT" HEAD
+
+          git diff --check "$EXPECTED_BASE_SHA"...HEAD
+          changed="$(git diff --name-only "$EXPECTED_BASE_SHA"...HEAD | sort)"
+          expected="$(printf '%s\n'             '.github/workflows/section0-convergence.yml'             'acs/format_capabilities.py'             'docs/automation/CANONICAL_FORMAT_CAPABILITY_MATRIX.md'             'docs/automation/SECTION0_CONVERGENCE.md'             'tests/test_section0_format_capabilities.py' | sort)"
+          test "$changed" = "$expected"
+
+      - name: Bind exact convergence bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:acs/format_capabilities.py)" = "$CAPABILITY_BLOB"
+          test "$(git rev-parse HEAD:docs/automation/CANONICAL_FORMAT_CAPABILITY_MATRIX.md)" = "$MATRIX_BLOB"
+          test "$(git rev-parse HEAD:tests/test_section0_format_capabilities.py)" = "$CAPABILITY_TEST_BLOB"
+          test "$(git rev-parse HEAD:docs/automation/SECTION0_CONVERGENCE.md)" = "$CLOSURE_DOC_BLOB"
+
+      - name: Compile Section 0 contracts
+        run: >-
+          python -m py_compile
+          acs/format_capabilities.py
+          acs/import_contract.py
+          acs/import_registry.py
+          tests/test_section0_format_capabilities.py
+          tests/test_section0_format_authority_contract.py
+          tests/test_import_contract.py
+          tests/test_import_registry.py
+
+      - name: Section 0 direct contracts
+        run: >-
+          python -m unittest -v
+          tests.test_section0_format_authority_contract
+          tests.test_section0_format_capabilities
+          tests.test_import_contract
+          tests.test_import_registry
+
+      - name: Retain canonical format regressions
+        run: >-
+          python -m unittest -v
+          tests.test_position_text_authority
+          tests.test_epd
+          tests.test_d06_pgn_roundtrip
+          tests.test_version2_formats_integration
+          tests.test_v2_chessbase_capability_manifest
+          tests.test_v2_chessbase_chess960_capability_boundary
+          tests.test_acsdb
+
+      - name: Core chess selftest
+        run: python -m acs.selftest
