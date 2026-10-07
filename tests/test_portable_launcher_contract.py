@@ -533,7 +533,7 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
         guard = self.source[start:end]
         for token in (
             "CreateFileW(",
-            "FILE_READ_ATTRIBUTES",
+            "FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES",
             "FILE_SHARE_READ | FILE_SHARE_WRITE",
             "OPEN_EXISTING",
             "FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT",
@@ -547,10 +547,29 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
                 self.assertIn(token, guard)
         self.assertNotIn("FILE_SHARE_DELETE", guard)
 
+        verify_start = self.source.index(
+            "static BOOL ac_directory_guard_blocks_delete(const WCHAR *path)"
+        )
+        verify_end = self.source.index(
+            "static HANDLE ac_open_direct_directory_guard(const WCHAR *path)",
+            verify_start,
+        )
+        verifier = self.source[verify_start:verify_end]
+        for token in (
+            "DELETE",
+            "FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE",
+            "ERROR_SHARING_VIOLATION",
+            "SetLastError(ERROR_SUCCESS)",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, verifier)
+
     def test_data_directory_guard_precedes_environment_and_child_start(self):
         main = self.source[self.source.index("void WINAPI wWinMainCRTStartup(void)") :]
         directory_check = main.index("if (!ac_direct_directory(g_data))")
         guard_open = main.index("data_guard = ac_open_direct_directory_guard(g_data)")
+        guard_verify = main.index("if (!ac_directory_guard_blocks_delete(g_data))", guard_open)
+        proof = main.index('L"PACKAGE_DATA_GUARD: DELETE_SHARING_BLOCK_PROVEN"', guard_verify)
         environment = main.index('SetEnvironmentVariableW(L"LOCALAPPDATA", g_data)')
         create_process = main.index("if (!CreateProcessW(")
         resume = main.index("resume_result = ResumeThread(g_process.hThread)")
@@ -559,7 +578,9 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
         local_close = main.index("CloseHandle(data_guard)", supervise)
 
         self.assertLess(directory_check, guard_open)
-        self.assertLess(guard_open, environment)
+        self.assertLess(guard_open, guard_verify)
+        self.assertLess(guard_verify, proof)
+        self.assertLess(proof, environment)
         self.assertLess(environment, create_process)
         self.assertLess(create_process, resume)
         self.assertLess(resume, ready)
@@ -576,7 +597,9 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
             'ac_fail(\n            INVALID_HANDLE_VALUE,\n            L"package-root directory guard",',
             'ac_fail(\n            report,\n            L"App runtime directory guard",',
             'L"PACKAGE_ROOT_GUARD: DIRECT_DIRECTORY_HANDLE_READY"',
+            'L"PACKAGE_ROOT_GUARD: DELETE_SHARING_BLOCK_PROVEN"',
             'L"APP_RUNTIME_GUARD: DIRECT_DIRECTORY_HANDLE_READY"',
+            'L"APP_RUNTIME_GUARD: DELETE_SHARING_BLOCK_PROVEN"',
             'L"PACKAGE_ROOT_GUARD: RETAINED_BY_LAUNCHER_SUPERVISOR"',
             'L"APP_RUNTIME_GUARD: RETAINED_BY_LAUNCHER_SUPERVISOR"',
             "WaitForSingleObject(g_process.hProcess, INFINITE)",
@@ -611,6 +634,7 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
             "CREATE_UNICODE_ENVIRONMENT | CREATE_SUSPENDED",
             "HANDLE data_guard = INVALID_HANDLE_VALUE;",
             'L"PACKAGE_DATA_GUARD: DIRECT_DIRECTORY_HANDLE_READY"',
+            'L"PACKAGE_DATA_GUARD: DELETE_SHARING_BLOCK_PROVEN"',
             'L"PACKAGE_DATA_GUARD: RETAINED_BY_LAUNCHER_SUPERVISOR"',
             "WaitForSingleObject(g_process.hProcess, INFINITE)",
             "CloseHandle(data_guard)",
