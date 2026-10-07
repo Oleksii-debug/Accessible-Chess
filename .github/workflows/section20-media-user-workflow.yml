@@ -29,66 +29,71 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Prove exact Section 20 parent and scope
+      - name: Prove immutable Section 20 runtime and bounded repair scope
         shell: bash
         env:
           EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
-          EXPECTED_BASE: 3853e28793840a222bef4c4748d3fb129436cf34
-          BASE_BRANCH: integration/section20-media-user-workflow-20261007
+          INTEGRATED_SECTION20: 94b885c72a172ceefcfa5e82f334496c313de350
+          ACCEPTED_RUNTIME: 561093b274092ff045d8254970f3af3d52e253a5
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
-          git fetch --no-tags origin "+refs/heads/$BASE_BRANCH:refs/remotes/origin/section20-base"
-          live_base="$(git rev-parse refs/remotes/origin/section20-base)"
-          test "$live_base" = "$EXPECTED_BASE" || {
-            printf 'SECTION20_BASE_MOVED expected=%s live=%s\n' "$EXPECTED_BASE" "$live_base" >&2
+          git cat-file -e "$INTEGRATED_SECTION20^{commit}"
+          git cat-file -e "$ACCEPTED_RUNTIME^{commit}"
+          test "$(git merge-base "$INTEGRATED_SECTION20" HEAD)" = "$INTEGRATED_SECTION20"
+          git merge-base --is-ancestor "$INTEGRATED_SECTION20" HEAD
+          git diff --check "$INTEGRATED_SECTION20"...HEAD
+          changed="$(git diff --name-only "$INTEGRATED_SECTION20"...HEAD | LC_ALL=C sort)"
+          test "$changed" = '.github/workflows/section20-media-user-workflow.yml' || {
+            printf 'UNEXPECTED_SECTION20_REPAIR_SCOPE\n%s\n' "$changed" >&2
             exit 1
           }
-          test "$(git merge-base "$EXPECTED_BASE" HEAD)" = "$EXPECTED_BASE"
-          git merge-base --is-ancestor "$EXPECTED_BASE" HEAD
-          git diff --check "$EXPECTED_BASE"...HEAD
-          changed="$(git diff --name-only "$EXPECTED_BASE"...HEAD | LC_ALL=C sort)"
-          expected="$(printf '%s\n' \
-            '.github/workflows/section20-media-user-workflow.yml' \
-            'acs/media_preprocess.py' \
-            'acs/media_preprocess_executor.py' \
-            'acs/media_truth_corpus.py' \
-            'acs/media_user_workflow.py' \
-            'acs/recorded_media_accessibility.py' \
-            'acs/recorded_media_application.py' \
-            'acs/recorded_media_sync.py' \
-            'acs/structured_broadcast.py' \
-            'acs/structured_broadcast_application.py' \
-            'acs/structured_broadcast_live.py' \
-            'acs/version2_final_release.py' \
-            'tests/fixtures/recorded_media_truth/ambiguous.svg' \
-            'tests/fixtures/recorded_media_truth/manifest.json' \
-            'tests/fixtures/recorded_media_truth/occluded.svg' \
-            'tests/fixtures/recorded_media_truth/stable-black.svg' \
-            'tests/fixtures/recorded_media_truth/stable-white.svg' \
-            'tests/fixtures/recorded_media_truth/transition.svg' \
-            'tests/js/recorded_media_accessible_player_dom_test.js' \
-            'tests/js/version2_media_user_workflow_dom_test.js' \
-            'tests/js/youtube_iframe_playback_adapter_test.js' \
-            'tests/test_media_preprocess.py' \
-            'tests/test_media_preprocess_executor.py' \
-            'tests/test_media_user_workflow.py' \
-            'tests/test_recorded_media_accessibility.py' \
-            'tests/test_recorded_media_application.py' \
-            'tests/test_recorded_media_sync.py' \
-            'tests/test_recorded_media_truth_corpus.py' \
-            'tests/test_structured_broadcast.py' \
-            'tests/test_structured_broadcast_application.py' \
-            'tests/test_structured_broadcast_live.py' \
-            'tests/test_version2_final_media_workflow_composition.py' \
-            'web/recorded_media_accessible_player.js' \
-            'web/version2_media_restore_bootstrap.js' \
-            'web/version2_media_user_workflow.js' \
-            'web/youtube_iframe_playback_adapter.js' | LC_ALL=C sort)"
-          test "$changed" = "$expected" || {
-            printf 'UNEXPECTED_SECTION20_SCOPE\n%s\n' "$changed" >&2
-            exit 1
-          }
+
+          # The terminal merge has zero file delta from the accepted runtime
+          # candidate.  Re-prove every Section-20 Product/test/Web blob directly
+          # against that immutable candidate rather than a mutable branch ref.
+          for path in \
+            acs/media_preprocess.py \
+            acs/media_preprocess_executor.py \
+            acs/media_truth_corpus.py \
+            acs/media_user_workflow.py \
+            acs/recorded_media_accessibility.py \
+            acs/recorded_media_application.py \
+            acs/recorded_media_sync.py \
+            acs/structured_broadcast.py \
+            acs/structured_broadcast_application.py \
+            acs/structured_broadcast_live.py \
+            acs/version2_final_release.py \
+            tests/fixtures/recorded_media_truth/ambiguous.svg \
+            tests/fixtures/recorded_media_truth/manifest.json \
+            tests/fixtures/recorded_media_truth/occluded.svg \
+            tests/fixtures/recorded_media_truth/stable-black.svg \
+            tests/fixtures/recorded_media_truth/stable-white.svg \
+            tests/fixtures/recorded_media_truth/transition.svg \
+            tests/js/recorded_media_accessible_player_dom_test.js \
+            tests/js/version2_media_user_workflow_dom_test.js \
+            tests/js/youtube_iframe_playback_adapter_test.js \
+            tests/test_media_preprocess.py \
+            tests/test_media_preprocess_executor.py \
+            tests/test_media_user_workflow.py \
+            tests/test_recorded_media_accessibility.py \
+            tests/test_recorded_media_application.py \
+            tests/test_recorded_media_sync.py \
+            tests/test_recorded_media_truth_corpus.py \
+            tests/test_structured_broadcast.py \
+            tests/test_structured_broadcast_application.py \
+            tests/test_structured_broadcast_live.py \
+            tests/test_version2_final_media_workflow_composition.py \
+            web/recorded_media_accessible_player.js \
+            web/version2_media_restore_bootstrap.js \
+            web/version2_media_user_workflow.js \
+            web/youtube_iframe_playback_adapter.js
+          do
+            test "$(git rev-parse "$ACCEPTED_RUNTIME:$path")" = "$(git rev-parse "HEAD:$path")" || {
+              printf 'SECTION20_ACCEPTED_BLOB_DRIFT %s\n' "$path" >&2
+              exit 1
+            }
+          done
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
