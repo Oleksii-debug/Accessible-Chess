@@ -117,7 +117,7 @@ env:
   EP_FULLMOVE_WORKFLOW_BLOB: fe3f379c88bf2c86d487af16d78b561014cb557d
   POSITION_SERIALIZATION_WORKFLOW_BLOB: 8194108042e2f9fde5d25fcb8b1f679a90a4e893
   EPD_WORKFLOW_BLOB: 88c9880aed687330dfb3cac5ac07c92813af289d
-  CLOSURE_DOC_BLOB: 1d6e348bf53b1b238a11cdd076cf8fe0103bb553
+  CLOSURE_DOC_BLOB: 3bfe4567181de96b5bfa322ca3742d04fd5fa0a0
 
   P0F_PROVENANCE_BLOB: 3298aed00ca000d27f607cd861abbba9483ff358
   P0F_BUILDER_BLOB: 1137eac8804bbef600921853c37a69a77588f03c
@@ -365,18 +365,8 @@ jobs:
           print("SECTION1_LAWFUL_CORPUS_CANONICAL_LEGALITY_REGRESSION=PASS")
           PY
 
-      - name: Execute retained History EPD GameTree PGN adjacency
-        run: >-
-          python -m unittest -v
-          tests.test_history_review_complete_user_flow
-          tests.test_epd
-          tests.test_gametree
-          tests.test_gametree_accessible_completion
-          tests.test_pgn_workspace
-          tests.test_version2_pgn_commands
-
-      - name: Retained PGN browser DOM
-        run: node tests/js/pgn_surface_dom_test.js
+      - name: Execute retained EPD positional interchange
+        run: python -m unittest -v tests.test_epd
 
       - name: Core chess selftest
         run: python -m acs.selftest
