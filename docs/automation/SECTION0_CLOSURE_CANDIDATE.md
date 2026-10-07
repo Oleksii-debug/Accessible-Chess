@@ -289,7 +289,7 @@ Regressions cover a `None` item between two valid sources, a PathLike that
 raises a private-path RuntimeError, and a PathLike KeyboardInterrupt. Later
 valid sources are preserved only for ordinary failures.
 
-This remains same-lineage Section-0.5 recovery work inside the exact five-path
+This remains same-lineage Section-0.5 recovery work inside the exact six-path
 #2346 successor; no format/parser/chess/report authority is added.
 
 ### Exact ReadOnlyImporter suffix-container contract
