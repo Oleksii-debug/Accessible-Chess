@@ -2143,6 +2143,7 @@ class ImportRegistryTests(unittest.TestCase):
         inspection_entered = Event()
         release_inspection = Event()
         registration_started = Event()
+        registration_metadata_entered = Event()
         registration_finished = Event()
         inspection_reports: list[ImportReport] = []
         worker_errors: list[BaseException] = []
@@ -2161,8 +2162,12 @@ class ImportRegistryTests(unittest.TestCase):
                 )
 
         class ConcurrentImporter:
-            format_name = "Concurrent registered format"
             suffixes = (".concurrent",)
+
+            @property
+            def format_name(self) -> str:
+                registration_metadata_entered.set()
+                return "Concurrent registered format"
 
             def inspect(self, path: Path) -> ImportReport:
                 return ImportReport(
@@ -2200,7 +2205,11 @@ class ImportRegistryTests(unittest.TestCase):
         registrar.start()
         self.assertTrue(registration_started.wait(timeout=5))
         self.assertFalse(
-            registration_finished.wait(timeout=0.2),
+            registration_metadata_entered.wait(timeout=0.2),
+            "concurrent register() must not observe importer metadata while inspection owns routing authority",
+        )
+        self.assertFalse(
+            registration_finished.is_set(),
             "concurrent register() must not publish while inspection owns routing authority",
         )
 
@@ -2210,6 +2219,7 @@ class ImportRegistryTests(unittest.TestCase):
 
         self.assertFalse(inspector.is_alive())
         self.assertFalse(registrar.is_alive())
+        self.assertTrue(registration_metadata_entered.is_set())
         self.assertEqual(worker_errors, [])
         self.assertEqual(len(inspection_reports), 1)
         self.assertEqual(inspection_reports[0].format_name, blocking.format_name)
@@ -2219,6 +2229,78 @@ class ImportRegistryTests(unittest.TestCase):
             registry.registered_suffixes,
             (".blocking", ".concurrent"),
         )
+
+
+    def test_concurrent_unregister_is_serialized_with_active_inspection(self):
+        inspection_entered = Event()
+        release_inspection = Event()
+        unregister_helper_entered = Event()
+        unregister_finished = Event()
+        inspection_reports: list[ImportReport] = []
+        worker_errors: list[BaseException] = []
+
+        class ObservedRegistry(ImportRegistry):
+            def _unregister_locked(self, importer):
+                unregister_helper_entered.set()
+                return super()._unregister_locked(importer)
+
+        class BlockingImporter:
+            format_name = "Blocking unregister format"
+            suffixes = (".blocking-unregister",)
+
+            def inspect(self, path: Path) -> ImportReport:
+                inspection_entered.set()
+                if not release_inspection.wait(timeout=5):
+                    raise RuntimeError("test inspection release timed out")
+                return ImportReport(
+                    source=fingerprint(path),
+                    format_name=self.format_name,
+                )
+
+        registry = ObservedRegistry()
+        blocking = BlockingImporter()
+        registry.register(blocking)
+
+        def run_inspection() -> None:
+            try:
+                with tempfile.TemporaryDirectory() as td:
+                    path = Path(td) / "source.blocking-unregister"
+                    path.write_bytes(b"stable-source")
+                    inspection_reports.append(registry.inspect(path))
+            except BaseException as exc:  # pragma: no cover - surfaced below
+                worker_errors.append(exc)
+
+        def run_unregister() -> None:
+            try:
+                registry.unregister(blocking)
+            except BaseException as exc:  # pragma: no cover - surfaced below
+                worker_errors.append(exc)
+            finally:
+                unregister_finished.set()
+
+        inspector = Thread(target=run_inspection, name="section0-unregister-inspector")
+        unregistrar = Thread(target=run_unregister, name="section0-unregistrar")
+        inspector.start()
+        self.assertTrue(inspection_entered.wait(timeout=5))
+
+        unregistrar.start()
+        self.assertFalse(
+            unregister_helper_entered.wait(timeout=0.2),
+            "concurrent unregister() must not enter mutation helper while inspection owns routing authority",
+        )
+        self.assertFalse(unregister_finished.is_set())
+
+        release_inspection.set()
+        inspector.join(timeout=5)
+        unregistrar.join(timeout=5)
+
+        self.assertFalse(inspector.is_alive())
+        self.assertFalse(unregistrar.is_alive())
+        self.assertTrue(unregister_helper_entered.is_set())
+        self.assertEqual(worker_errors, [])
+        self.assertEqual(len(inspection_reports), 1)
+        self.assertEqual(inspection_reports[0].format_name, blocking.format_name)
+        self.assertIsNone(registry.importer_for("next.blocking-unregister"))
 
 
 if __name__ == '__main__':
