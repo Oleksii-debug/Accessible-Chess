@@ -388,10 +388,19 @@ class Board:
         return self.push(self.parse_move(t))
     def undo(self):
         if not self.undo_stack: return None
-        current=self.fen(); before,san=self.undo_stack.pop(); self.redo_stack.append((current,san)); self.set_fen(before,clear_history=False); return san
+        current=self.fen(); before,san=self.undo_stack[-1]
+        # Stored history is recovery input. Validate and publish the target
+        # through the canonical FEN authority before transferring stack state,
+        # so a stale/corrupt target cannot partially consume undo history.
+        self.set_fen(before,clear_history=False)
+        self.undo_stack.pop(); self.redo_stack.append((current,san)); return san
     def redo(self):
         if not self.redo_stack: return None
-        current=self.fen(); target,san=self.redo_stack.pop(); self.undo_stack.append((current,san)); self.set_fen(target,clear_history=False); return san
+        current=self.fen(); target,san=self.redo_stack[-1]
+        # Keep redo failure-atomic for the same reason: canonical target
+        # rejection must leave both history stacks and the live board intact.
+        self.set_fen(target,clear_history=False)
+        self.redo_stack.pop(); self.undo_stack.append((current,san)); return san
     def square_description(self,sq):
         sq=_require_square_index(sq)
         p=self.board[sq]; return f"{sq_name(sq)[0]} {sq_name(sq)[1]}, {PIECE_UA[p] if p else 'порожньо'}"

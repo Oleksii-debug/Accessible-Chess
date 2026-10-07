@@ -149,6 +149,54 @@ class Dev2FenAtomicityTests(unittest.TestCase):
                     before,
                 )
 
+    def test_undo_redo_reject_corrupt_targets_without_mutating_history(self):
+        impossible = "4k3/8/8/8/8/8/4R3/4K3 w - - 0 1"
+
+        undo_board = Board()
+        undo_board.push_text("e4")
+        undo_san = undo_board.undo_stack[-1][1]
+        undo_board.undo_stack[-1] = (impossible, undo_san)
+        undo_before = (
+            undo_board.fen(),
+            tuple(undo_board.undo_stack),
+            tuple(undo_board.redo_stack),
+            undo_board.last_move,
+        )
+        with self.assertRaisesRegex(ValueError, "залишається під шахом"):
+            undo_board.undo()
+        self.assertEqual(
+            (
+                undo_board.fen(),
+                tuple(undo_board.undo_stack),
+                tuple(undo_board.redo_stack),
+                undo_board.last_move,
+            ),
+            undo_before,
+        )
+
+        redo_board = Board()
+        redo_board.push_text("e4")
+        redo_board.undo()
+        redo_san = redo_board.redo_stack[-1][1]
+        redo_board.redo_stack[-1] = (impossible, redo_san)
+        redo_before = (
+            redo_board.fen(),
+            tuple(redo_board.undo_stack),
+            tuple(redo_board.redo_stack),
+            redo_board.last_move,
+        )
+        with self.assertRaisesRegex(ValueError, "залишається під шахом"):
+            redo_board.redo()
+        self.assertEqual(
+            (
+                redo_board.fen(),
+                tuple(redo_board.undo_stack),
+                tuple(redo_board.redo_stack),
+                redo_board.last_move,
+            ),
+            redo_before,
+        )
+
     def test_move_text_and_square_scalar_coercion_fail_closed(self):
         board = Board()
         before = board.fen()

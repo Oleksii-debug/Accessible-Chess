@@ -455,3 +455,36 @@ Exact successor blobs:
 This is compatibility hardening caused by the same canonical-legality residual;
 it does not expose null moves to ordinary user gameplay and does not create a new
 format or chess authority.
+
+### Undo/redo stored-target failure atomicity
+
+A recovery-path audit found that canonical `Board.undo()` and `Board.redo()`
+transferred their history-stack entries before `set_fen()` validated the stored
+target. A stale, corrupt or newly-invalid target could therefore raise after
+partially consuming undo/redo metadata even though the live board itself stayed
+unchanged.
+
+The existing canonical Board authority now peeks the stored target, validates
+and publishes it through `set_fen(..., clear_history=False)`, and only then
+transfers the history entry to the opposite stack. Rejected targets leave FEN,
+undo stack, redo stack and `last_move` unchanged.
+
+Focused regression coverage injects an impossible inactive-side-in-check target
+into both undo and redo history and proves exact failure atomicity.
+
+Exact successor blobs:
+- `acs/chesscore.py=10cf720c4010d701635cab746fb6b53a047f5d0d`;
+- `tests/test_dev2_fen_atomicity.py=10e50793c794010d724cfaf19b72d4cb8c0f3614`.
+
+The whole-Section gate is repinned to these exact blobs and this updated receipt
+in the same atomic branch commit. This is Section-1 recovery hardening only; it
+does not alter Section-0, create a second chess authority, or claim DONE.
+
+`SECTION_0_DONE=NO_PENDING_TERMINAL_CI`
+
+`SECTION_1_DONE=NO_PENDING_SECTION0_ACCEPTANCE_AND_EXACT_HEAD_QUALIFICATION`
+
+`HUMAN_TESTED=NO`
+
+`NVDA_VERIFIED=NO`
+
