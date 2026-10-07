@@ -174,12 +174,17 @@ jobs:
           tests.test_gametree_accessible_completion
           tests.test_pgn_streaming_import
           tests.test_v2_pgn_streaming_export
+          tests.test_pgn_save_snapshot
+          tests.test_pgn_save_snapshot_cancel
           tests.test_pgn_concurrent_save
+          tests.test_dev4_pgn_export_failure_recovery
           tests.test_dev4_pgn_postcommit_cleanup_atomicity
           tests.test_d06_gametree_snapshot_resume
           tests.test_d06_gametree_persistence_vertical
           tests.test_d06_v2_gametree_resume_reachability
           tests.test_pgn_document_setup_fen_integrity
+          tests.test_pgn_document_new_game_position_integrity
+          tests.test_pgn_document_passive_ingress
           tests.test_pgn_workspace
           tests.test_pgn_document
           tests.test_version2_pgn_commands
