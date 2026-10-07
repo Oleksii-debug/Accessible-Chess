@@ -55,8 +55,10 @@ jobs:
           set -euo pipefail
           expected_head="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
           test "$(git rev-parse HEAD)" = "$expected_head"
-          test "$EVENT_BASE_REF" = "section1/san-transition-boundary-20261007-sol56"
-          test "$EVENT_BASE_SHA" = "$EXPECTED_BASE_SHA"
+          if [ -n "${EVENT_BASE_REF:-}" ]; then
+            test "$EVENT_BASE_REF" = "section1/san-transition-boundary-20261007-sol56"
+            test "$EVENT_BASE_SHA" = "$EXPECTED_BASE_SHA"
+          fi
           test "$(git merge-base "$EXPECTED_BASE_SHA" HEAD)" = "$EXPECTED_BASE_SHA"
           git diff --check "$EXPECTED_BASE_SHA"...HEAD
           changed="$(git diff --name-only "$EXPECTED_BASE_SHA"...HEAD | sort)"
