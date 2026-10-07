@@ -46,9 +46,14 @@ search and labelled browser dialogs. The GameTree suite covers variation
 reorder, persistence/reopen, structural context and the trusted
 browser→adapter→canonical workspace boundary.
 
-Historical PR #2318 does **not** currently carry a unique product payload that
-needs replay: its `tests/test_gametree_accessible_completion.py` and
-`web/full_product_pgn.js` blobs are byte-identical to the frozen predecessor.
+Historical PR #2318 must **not** be replayed wholesale. Its
+`tests/test_gametree_accessible_completion.py` and `web/full_product_pgn.js`
+blobs are byte-identical to the frozen predecessor, and the frozen tree retains
+the variation-reorder / structural-context actions across the trusted adapter
+and keymap surfaces. Several older #2318 Python bridge/workspace blobs are not
+byte-identical because later current-product lineages changed those authorities;
+therefore closure must qualify the current blobs semantically rather than
+copying the older branch over newer safety/integration work.
 
 ### 2.3 Loss-aware / lossless-where-possible round-trip
 
