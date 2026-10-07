@@ -407,17 +407,31 @@ class Board:
         if replayed != san or probe.fen() != after_fen:
             raise ValueError('Збережений хід історії не відповідає позиції')
 
+    @staticmethod
+    def _peek_recovery_entry(stack):
+        """Return one exact passive recovery pair without invoking active containers."""
+        if type(stack) is not list:
+            raise ValueError('Збережена історія має неправильний формат')
+        if not stack:
+            return None
+        entry=stack[-1]
+        if type(entry) is not tuple or len(entry)!=2:
+            raise ValueError('Збережена історія має неправильний формат')
+        return entry
+
     def undo(self):
-        if not self.undo_stack: return None
-        current=self.fen(); before,san=self.undo_stack[-1]
+        entry=self._peek_recovery_entry(self.undo_stack)
+        if entry is None: return None
+        current=self.fen(); before,san=entry
         # Recovery metadata is one semantic pair. Prove both the target FEN and
         # its canonical transition before publishing either board or stack state.
         self._validate_recovery_transition(before,san,current)
         self.set_fen(before,clear_history=False)
         self.undo_stack.pop(); self.redo_stack.append((current,san)); return san
     def redo(self):
-        if not self.redo_stack: return None
-        current=self.fen(); target,san=self.redo_stack[-1]
+        entry=self._peek_recovery_entry(self.redo_stack)
+        if entry is None: return None
+        current=self.fen(); target,san=entry
         # Re-prove the same canonical transition in the forward direction
         # before the target or either stack is changed.
         self._validate_recovery_transition(current,san,target)

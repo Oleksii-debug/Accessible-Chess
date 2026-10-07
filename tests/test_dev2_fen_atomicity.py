@@ -299,6 +299,85 @@ class Dev2FenAtomicityTests(unittest.TestCase):
         self.assertEqual(null_board.redo(), "--")
         self.assertEqual(null_board.fen(), null_after)
 
+    def test_undo_redo_reject_active_or_noncanonical_recovery_containers_before_hooks(self):
+        class ActivePair(tuple):
+            touched = False
+
+            def __iter__(self):
+                type(self).touched = True
+                raise AssertionError("active recovery pair iterator must not run")
+
+            def __len__(self):
+                type(self).touched = True
+                raise AssertionError("active recovery pair length hook must not run")
+
+        class ActiveStack(list):
+            touched = False
+
+            def __len__(self):
+                type(self).touched = True
+                raise AssertionError("active recovery stack length hook must not run")
+
+            def __getitem__(self, key):
+                type(self).touched = True
+                raise AssertionError("active recovery stack item hook must not run")
+
+            def __iter__(self):
+                type(self).touched = True
+                raise AssertionError("active recovery stack iterator must not run")
+
+        malformed_undo = Board()
+        self.assertEqual(malformed_undo.push_text("e4"), "e4")
+        target, san = malformed_undo.undo_stack[-1]
+        malformed_undo.undo_stack[-1] = [target, san]
+        undo_before = (malformed_undo.fen(), malformed_undo.last_move)
+        with self.assertRaisesRegex(ValueError, "неправильний формат"):
+            malformed_undo.undo()
+        self.assertEqual((malformed_undo.fen(), malformed_undo.last_move), undo_before)
+        self.assertIsInstance(malformed_undo.undo_stack[-1], list)
+
+        active_pair = Board()
+        self.assertEqual(active_pair.push_text("e4"), "e4")
+        active_pair.undo_stack[-1] = ActivePair(active_pair.undo_stack[-1])
+        pair_before = (active_pair.fen(), active_pair.last_move)
+        ActivePair.touched = False
+        with self.assertRaisesRegex(ValueError, "неправильний формат"):
+            active_pair.undo()
+        self.assertFalse(ActivePair.touched)
+        self.assertEqual((active_pair.fen(), active_pair.last_move), pair_before)
+
+        active_undo_stack = Board()
+        self.assertEqual(active_undo_stack.push_text("e4"), "e4")
+        active_undo_stack.undo_stack = ActiveStack(active_undo_stack.undo_stack)
+        stack_before = (active_undo_stack.fen(), active_undo_stack.last_move)
+        ActiveStack.touched = False
+        with self.assertRaisesRegex(ValueError, "неправильний формат"):
+            active_undo_stack.undo()
+        self.assertFalse(ActiveStack.touched)
+        self.assertEqual((active_undo_stack.fen(), active_undo_stack.last_move), stack_before)
+
+        malformed_redo = Board()
+        self.assertEqual(malformed_redo.push_text("e4"), "e4")
+        self.assertEqual(malformed_redo.undo(), "e4")
+        target, san = malformed_redo.redo_stack[-1]
+        malformed_redo.redo_stack[-1] = [target, san]
+        redo_before = (malformed_redo.fen(), malformed_redo.last_move)
+        with self.assertRaisesRegex(ValueError, "неправильний формат"):
+            malformed_redo.redo()
+        self.assertEqual((malformed_redo.fen(), malformed_redo.last_move), redo_before)
+        self.assertIsInstance(malformed_redo.redo_stack[-1], list)
+
+        active_redo_stack = Board()
+        self.assertEqual(active_redo_stack.push_text("e4"), "e4")
+        self.assertEqual(active_redo_stack.undo(), "e4")
+        active_redo_stack.redo_stack = ActiveStack(active_redo_stack.redo_stack)
+        redo_stack_before = (active_redo_stack.fen(), active_redo_stack.last_move)
+        ActiveStack.touched = False
+        with self.assertRaisesRegex(ValueError, "неправильний формат"):
+            active_redo_stack.redo()
+        self.assertFalse(ActiveStack.touched)
+        self.assertEqual((active_redo_stack.fen(), active_redo_stack.last_move), redo_stack_before)
+
     def test_move_text_and_square_scalar_coercion_fail_closed(self):
         board = Board()
         before = board.fen()
