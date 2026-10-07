@@ -229,3 +229,14 @@ The prepared predecessor line additionally history-preservingly converges PR #23
 - retained focused workflow `.github/workflows/section1-positionstate-serialization-boundary.yml=8194108042e2f9fde5d25fcb8b1f679a90a4e893`.
 
 Because `acs/position_editor.py` was already inside the Section-1 union, this adds two new paths, making the exact #2346-relative prepared union **42 paths**, not 43. The gate requires #2355 ancestry and revalidates the serialization regression before any closure claim.
+
+
+### Predecessor-aware workflow registration repair
+
+The first prepared predecessor-aware source/whole workflow edits used a generated shell heredoc whose payload lines were not indented inside the YAML `run: |` block. GitHub therefore did not register those two workflows on the exact PR head; generic PR workflows did register, making the absence attributable rather than an Actions queue condition.
+
+The invalid form was repaired before qualification:
+- source/corpus workflow syntax-repair blob: `fd37aa8850184f62b22dbb1392cc6d639b2bb8d9`;
+- whole workflow syntax-repair descendant was created next and must be repinned after this receipt update.
+
+No missing or unregistered run is PASS. Only a fresh exact-head run registered after this repair may qualify the prepared lineage.
