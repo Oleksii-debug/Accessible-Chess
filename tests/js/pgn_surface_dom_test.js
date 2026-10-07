@@ -135,6 +135,7 @@ function snapshot(selectedId) {
       { action: "pgn.copy_selection", label: "Copy selection", enabled: true },
       { action: "pgn.export_selection", label: "Export selection", enabled: true }
     ],
+    selection_context: "",
     comment_editor: {
       enabled: true,
       value: "",

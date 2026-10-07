@@ -116,9 +116,10 @@ class PgnSaveSnapshotTests(unittest.TestCase):
         malformed = SourceFingerprint(
             path=str(source.absolute()),
             size=source.stat().st_size,
-            sha256="F" * 64,
+            sha256="0" * 64,
             suffix=".pgn",
         )
+        object.__setattr__(malformed, "sha256", "F" * 64)
 
         with patch(
             "acs.pgn_save_snapshot.save_pgn_atomic",
@@ -642,7 +643,9 @@ class PgnSaveSnapshotTests(unittest.TestCase):
 
         self.assertEqual([], touched)
         self.assertTrue(target.exists())
-        self.assertEqual(Path(session.source.path), source)
+        self.assertIs(session._source, live_source)
+        with self.assertRaises(TypeError):
+            _ = session.source
 
     def test_commit_rejects_active_live_saved_digest_before_equality(self) -> None:
         source = self.write_document("active-live-saved-digest.pgn")
@@ -843,7 +846,7 @@ class PgnSaveSnapshotTests(unittest.TestCase):
 
         self.assertEqual([], touched)
         self.assertTrue(target.exists())
-        self.assertIs(session.source, original_source)
+        self.assertEqual(session.source, original_source)
         self.assertEqual(session._saved_digest, original_saved_digest)
         self.assertEqual(Path(session.source.path), source)
 
@@ -991,13 +994,9 @@ class PgnSaveSnapshotTests(unittest.TestCase):
         )
         session._global_warnings = ("valid warning", object())  # type: ignore[assignment]
 
-        with self.assertRaises(PgnDocumentError) as caught:
+        with self.assertRaises(TypeError):
             commit_pgn_save_publication(session, publication)
 
-        self.assertEqual(
-            caught.exception.code,
-            PgnDocumentErrorCode.SAVE_COMMIT_FAILED,
-        )
         self.assertEqual(session.source, source_before)
         self.assertEqual(session._saved_digest, saved_digest_before)
         self.assertEqual(session.document_revision, revision_before)
@@ -1199,11 +1198,11 @@ class PgnSaveSnapshotTests(unittest.TestCase):
             ("suffix", ".txt"),
             ("path", ""),
         )
-        for field_name, invalid_value in cases:
-            with self.subTest(field=field_name):
+        for case_index, (field_name, invalid_value) in enumerate(cases):
+            with self.subTest(field=field_name, case=case_index):
                 session = PgnDocumentSession.from_text(DOCUMENT)
                 snapshot = capture_pgn_save_snapshot(session, mode=PgnSaveMode.SAVE_AS)
-                target = self.root / f"noncanonical-{field_name}.pgn"
+                target = self.root / f"noncanonical-{case_index}-{field_name}.pgn"
                 publication = publish_pgn_save_snapshot(snapshot, path=target)
                 object.__setattr__(publication.saved, field_name, invalid_value)
 

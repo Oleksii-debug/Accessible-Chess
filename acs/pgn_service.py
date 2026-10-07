@@ -88,14 +88,27 @@ class PgnPublishedPathChangedError(
 
 
 def _same_direct_path(left: str | Path, right: str | Path) -> bool:
-    """Compare direct path spellings with platform path/case normalization."""
+    """Compare one direct filesystem path without rejecting Windows aliases.
 
-    def key(value: str | Path) -> str:
-        return os.path.normcase(
-            os.path.abspath(os.fspath(Path(value).expanduser()))
-        )
+    Existing paths are compared by filesystem identity first.  This handles the
+    same Windows file being reported once through an 8.3 short-name component
+    and once through its long-name spelling.  If either side does not exist yet
+    (for example a new Save-As destination), fall back to normalized absolute
+    spelling without resolving through symlinks/reparse points.
+    """
 
-    return key(left) == key(right)
+    left_path = Path(left).expanduser()
+    right_path = Path(right).expanduser()
+    try:
+        if os.path.samefile(left_path, right_path):
+            return True
+    except (FileNotFoundError, OSError, ValueError):
+        pass
+
+    def key(value: Path) -> str:
+        return os.path.normcase(os.path.abspath(os.fspath(value)))
+
+    return key(left_path) == key(right_path)
 
 
 @dataclass(frozen=True)
@@ -638,7 +651,15 @@ def _publish_no_clobber(tmp_path: Path, destination: Path) -> None:
     if os.name == "nt":
         # MoveFileExW without REPLACE_EXISTING preserves no-clobber semantics;
         # WRITE_THROUGH makes the namespace move itself a durability barrier.
-        _windows_move_write_through(tmp_path, destination, replace=False)
+        # Keep the public error contract identical to the POSIX hard-link path:
+        # an already-existing destination remains FileExistsError, while a
+        # publication primitive failure is a stable PgnFileError.
+        try:
+            _windows_move_write_through(tmp_path, destination, replace=False)
+        except FileExistsError:
+            raise
+        except OSError as exc:
+            raise PgnFileError("PGN no-clobber publication is unavailable") from exc
         return
 
     try:

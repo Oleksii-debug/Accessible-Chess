@@ -7,6 +7,7 @@ import unittest
 from unittest import mock
 
 from acs.gametree import parse_games
+import acs.pgn_service as pgn_service
 from acs.pgn_service import PgnFileError, open_pgn, save_pgn_atomic
 
 
@@ -23,7 +24,10 @@ class Dev4PgnExportFailureRecoveryTests(unittest.TestCase):
             original = '[Event "Original"]\n[Result "*"]\n\n1. d4 *\n'
             destination.write_text(original, encoding="utf-8")
 
-            with mock.patch("acs.pgn_service.os.replace", side_effect=OSError("replace failed")):
+            with mock.patch(
+                "acs.pgn_service._replace_published_path",
+                side_effect=OSError("replace failed"),
+            ):
                 with self.assertRaises(OSError):
                     save_pgn_atomic(destination, self._games(), overwrite=True)
 
@@ -42,7 +46,10 @@ class Dev4PgnExportFailureRecoveryTests(unittest.TestCase):
             destination.write_text(original, encoding="utf-8")
             expected_sha256 = open_pgn(destination).source.sha256
 
-            with mock.patch("acs.pgn_service.os.replace", side_effect=OSError("replace failed")):
+            with mock.patch(
+                "acs.pgn_service._replace_published_path",
+                side_effect=OSError("replace failed"),
+            ):
                 with self.assertRaises(OSError):
                     save_pgn_atomic(
                         destination,
@@ -69,7 +76,7 @@ class Dev4PgnExportFailureRecoveryTests(unittest.TestCase):
             concurrent = '[Event "Concurrent writer"]\n[Result "*"]\n\n1. c4 *\n'
             destination.write_text(original, encoding="utf-8")
             expected_sha256 = open_pgn(destination).source.sha256
-            real_replace = os.replace
+            real_replace_published_path = pgn_service._replace_published_path
             replace_calls = 0
 
             def publish_then_fail_rollback(src, dst):
@@ -79,11 +86,11 @@ class Dev4PgnExportFailureRecoveryTests(unittest.TestCase):
                     # Mutate the pre-publication inode after all prechecks. The CAS
                     # hard link observes these newer bytes and forces rollback.
                     destination.write_text(concurrent, encoding="utf-8")
-                    return real_replace(src, dst)
+                    return real_replace_published_path(src, dst)
                 raise OSError("rollback failed")
 
             with mock.patch(
-                "acs.pgn_service.os.replace",
+                "acs.pgn_service._replace_published_path",
                 side_effect=publish_then_fail_rollback,
             ):
                 with self.assertRaises(PgnFileError):
@@ -152,7 +159,15 @@ class Dev4PgnExportFailureRecoveryTests(unittest.TestCase):
             root = Path(directory)
             destination = root / "new.pgn"
 
-            with mock.patch("acs.pgn_service.os.link", side_effect=OSError("hard links unavailable")):
+            publication_seam = (
+                "acs.pgn_service._windows_move_write_through"
+                if os.name == "nt"
+                else "acs.pgn_service.os.link"
+            )
+            with mock.patch(
+                publication_seam,
+                side_effect=OSError("no-clobber publication unavailable"),
+            ):
                 with self.assertRaises(PgnFileError):
                     save_pgn_atomic(destination, self._games(), overwrite=False)
 
