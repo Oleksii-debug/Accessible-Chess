@@ -621,31 +621,29 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
     def test_data_directory_guard_is_retained_by_suspended_child(self):
         main = self.source[self.source.index("void WINAPI wWinMainCRTStartup(void)") :]
         for token in (
-            "CREATE_UNICODE_ENVIRONMENT | CREATE_SUSPENDED",
+            "CREATE_UNICODE_ENVIRONMENT | CREATE_SUSPENDED | EXTENDED_STARTUPINFO_PRESENT",
             "HANDLE data_guard = INVALID_HANDLE_VALUE;",
-            "HANDLE child_data_guard = NULL;",
-            "DuplicateHandle(\n            GetCurrentProcess(),\n            data_guard,\n            g_process.hProcess,\n            &child_data_guard,",
-            'ac_fail(report, L"package-local data directory guard transfer", error)',
+            "HANDLE inherited_handles[4];",
+            "inherited_handles[3] = data_guard;",
+            "PROC_THREAD_ATTRIBUTE_HANDLE_LIST",
+            "SetHandleInformation(",
+            "UpdateProcThreadAttribute(",
             'L"PACKAGE_DATA_GUARD: DIRECT_DIRECTORY_HANDLE_READY"',
             'L"PACKAGE_DATA_GUARD: TRANSFERRED_TO_CHILD"',
         ):
             with self.subTest(token=token):
                 self.assertIn(token, main)
 
-        transfer_start = main.index(
-            "if (!DuplicateHandle(\n            GetCurrentProcess(),\n            data_guard,"
-        )
-        transfer_end = main.index(
-            "resume_result = ResumeThread(g_process.hThread)", transfer_start
-        )
-        transfer = main[transfer_start:transfer_end]
-        self.assertNotIn("TerminateProcess(g_process.hProcess", transfer)
-        self.assertIn("CloseHandle(g_process.hThread)", transfer)
-        self.assertNotIn("ac_close_child_process_handle()", transfer)
-        self.assertIn(
-            'ac_fail(report, L"package-local data directory guard transfer", error)',
-            transfer,
-        )
+        prepare = main.index("inherited_handles[3] = data_guard;")
+        attribute = main.index("if (!UpdateProcThreadAttribute(", prepare)
+        create = main.index("if (!CreateProcessW(", attribute)
+        resume = main.index("resume_result = ResumeThread(g_process.hThread)", create)
+        local_close = main.index("CloseHandle(data_guard)", resume)
+        self.assertLess(prepare, attribute)
+        self.assertLess(attribute, create)
+        self.assertLess(create, resume)
+        self.assertLess(resume, local_close)
+        self.assertNotIn("DuplicateHandle(", main)
 
 
 if __name__ == "__main__":
