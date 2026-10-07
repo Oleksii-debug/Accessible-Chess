@@ -1,0 +1,108 @@
+name: Section 1 FEN En Passant Halfmove Boundary
+
+on:
+  pull_request:
+    branches:
+      - 'section1/san-internal-whitespace-boundary-20261007-sol56'
+    paths:
+      - '.github/workflows/section1-fen-en-passant-halfmove.yml'
+      - 'acs/chesscore.py'
+      - 'tests/test_section1_fen_en_passant_halfmove.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: section1-fen-en-passant-halfmove-${{ github.event.pull_request.head.sha }}
+  cancel-in-progress: true
+
+env:
+  EXPECTED_PARENT_SHA: 44048067be0a117e9e9a89926ee3c31cf6319d3b
+  PARALLEL_SAN_SUCCESSOR_SHA: 160046d0c2c3c4e1ca3c0b57f2508466ed791af6
+  CHESSCORE_BLOB: 1e742addd2a027c4786661e2f3704a5e7d4f394e
+  TEST_BLOB: 26564b2613fa4becd7780e96e1c4e258e212123a
+  SAN_TEST_BLOB: dd910faeaee287c8944f36cf3c5d7cff88c7bc79
+  SAN_WORKFLOW_BLOB: fd315537c7ae8698ec02fa6071e2d1b020972cf9
+  FEN_ATOMICITY_TEST_BLOB: 1cc88c136b5a9b711b5e495d1752a67be310a7e0
+  FEN_FIELD_TEST_BLOB: 9d9917a46fd4cbf99f4d966e8e44b8602caf9222
+  KING_CAPTURE_TEST_BLOB: 4c0facef788c2ace18cbed0fcaeee9195113ec9f
+  SAN_TRANSITION_TEST_BLOB: 22e493307ac650d14f7fa7300d80cffcd100f36b
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Prove exact descendant and convergence geometry
+        shell: bash
+        env:
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EVENT_HEAD_SHA"
+          test "$EVENT_BASE_REF" = "section1/san-internal-whitespace-boundary-20261007-sol56"
+          test "$(git merge-base "$EXPECTED_PARENT_SHA" HEAD)" = "$EXPECTED_PARENT_SHA"
+          git merge-base --is-ancestor "$PARALLEL_SAN_SUCCESSOR_SHA" HEAD
+          git diff --check "$EXPECTED_PARENT_SHA"...HEAD
+          changed="$(git diff --name-only "$EXPECTED_PARENT_SHA"...HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/section1-fen-en-passant-halfmove.yml' \
+            'acs/chesscore.py' \
+            'tests/test_section1_fen_en_passant_halfmove.py' | sort)"
+          test "$changed" = "$expected"
+
+      - name: Bind exact FEN and inherited Section 1 evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:acs/chesscore.py)" = "$CHESSCORE_BLOB"
+          test "$(git rev-parse HEAD:tests/test_section1_fen_en_passant_halfmove.py)" = "$TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_section1_san_internal_whitespace.py)" = "$SAN_TEST_BLOB"
+          test "$(git rev-parse HEAD:.github/workflows/section1-san-internal-whitespace.yml)" = "$SAN_WORKFLOW_BLOB"
+          test "$(git rev-parse HEAD:tests/test_dev2_fen_atomicity.py)" = "$FEN_ATOMICITY_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_section1_fen_field_count.py)" = "$FEN_FIELD_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_section1_king_capture_boundary.py)" = "$KING_CAPTURE_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_section1_san_transition_contract.py)" = "$SAN_TRANSITION_TEST_BLOB"
+
+      - name: Compile focused contract
+        run: >-
+          python -m py_compile
+          acs/chesscore.py
+          tests/test_section1_fen_en_passant_halfmove.py
+          tests/test_section1_san_internal_whitespace.py
+          tests/test_dev2_fen_atomicity.py
+          tests/test_section1_fen_field_count.py
+          tests/test_section1_king_capture_boundary.py
+          tests/test_section1_san_transition_contract.py
+
+      - name: Execute FEN invariant and adjacent Section 1 regressions
+        run: >-
+          python -m unittest -v
+          tests.test_section1_fen_en_passant_halfmove
+          tests.test_dev2_fen_atomicity
+          tests.test_section1_fen_field_count
+          tests.test_section1_fen_castling_order
+          tests.test_fen_position_editor_complete_user_flow
+          tests.test_section1_san_internal_whitespace
+          tests.test_section1_king_capture_boundary
+          tests.test_section1_san_transition_contract
+          tests.test_notation
+
+      - name: Core chess selftest
+        run: python -m acs.selftest
