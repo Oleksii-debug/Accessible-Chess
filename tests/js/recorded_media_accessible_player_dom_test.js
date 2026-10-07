@@ -383,7 +383,10 @@ async function main() {
         false,
       );
     } catch (error) {
-      focusRejected = String(error).includes("invalid focus target");
+      const message = String(error);
+      focusRejected =
+        message.includes("invalid focus target") ||
+        message.includes("invalid focusTarget");
     }
     check(focusRejected, "arbitrary focus target crossed the browser boundary");
   }
