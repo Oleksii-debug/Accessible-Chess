@@ -194,6 +194,16 @@ class PrivateRuntimeErrorImporter:
         )
 
 
+class PrivateRegistryErrorImporter:
+    format_name = 'Private registry-like adapter failure'
+    suffixes = ('.private-registry',)
+
+    def inspect(self, path: Path) -> ImportReport:
+        raise ImportRegistryError(
+            f"adapter-owned registry-like error at {path.parent / 'decoder-secret.bin'}"
+        )
+
+
 class BrokenStringError(Exception):
     def __str__(self) -> str:
         raise RuntimeError('exception rendering failed')
@@ -900,15 +910,18 @@ class ImportRegistryTests(unittest.TestCase):
         registry = ImportRegistry()
         registry.register(PrivateValueErrorImporter())
         registry.register(PrivateRuntimeErrorImporter())
+        registry.register(PrivateRegistryErrorImporter())
         with tempfile.TemporaryDirectory() as td:
             private = Path(td) / 'Users' / 'PrivateUser' / 'Documents'
             private.mkdir(parents=True)
             value_source = private / 'value.private-value'
             runtime_source = private / 'runtime.private-runtime'
+            registry_source = private / 'registry.private-registry'
             value_source.write_bytes(b'value')
             runtime_source.write_bytes(b'runtime')
+            registry_source.write_bytes(b'registry')
 
-            batch = registry.inspect_batch([value_source, runtime_source])
+            batch = registry.inspect_batch([value_source, runtime_source, registry_source])
 
             self.assertEqual(
                 batch.items[0].error,
@@ -918,18 +931,27 @@ class ImportRegistryTests(unittest.TestCase):
                 batch.items[1].error,
                 'Importer rejected source: runtime.private-runtime',
             )
+            self.assertEqual(
+                batch.items[2].error,
+                'Importer rejected source: registry.private-registry',
+            )
             combined = '\n'.join(item.error for item in batch.items)
             self.assertNotIn('PrivateUser', combined)
             self.assertNotIn('Documents', combined)
             self.assertNotIn('PrivateBackend', combined)
             self.assertNotIn('decoder-cache.bin', combined)
+            self.assertNotIn('decoder-secret.bin', combined)
             self.assertNotIn('backend crashed', combined)
+            self.assertNotIn('registry-like error', combined)
 
             # Strict inspection remains an internal API that preserves the
             # original adapter exception identity and diagnostic text.
             with self.assertRaises(ValueError) as strict_ctx:
                 registry.inspect(value_source)
             self.assertIn('decoder-cache.bin', str(strict_ctx.exception))
+            with self.assertRaises(ImportRegistryError) as registry_ctx:
+                registry.inspect(registry_source)
+            self.assertIn('decoder-secret.bin', str(registry_ctx.exception))
 
     def test_batch_preflight_reports_every_source_in_order_without_aborting(self):
         registry = ImportRegistry()
