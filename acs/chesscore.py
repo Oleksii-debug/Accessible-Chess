@@ -128,7 +128,18 @@ class Board:
             if turn=='w' and fullmove < 2:
                 raise ValueError('FEN: fullmove має бути не менше 2 після подвійного ходу чорного пішака')
 
-        # Commit only after every syntactic and structural check has passed.
+        # A legal FEN may have the side to move in check, but the side that just
+        # moved cannot still have its own king in check.  Validate this through
+        # the canonical Board attack authority before publishing any candidate
+        # fields to self, preserving set_fen failure atomicity.
+        probe=copy.copy(self)
+        probe.board=bd; probe.turn=turn; probe.castling=castling; probe.ep=ep
+        probe.halfmove=halfmove; probe.fullmove=fullmove
+        inactive='b' if turn=='w' else 'w'
+        if probe.in_check(inactive):
+            raise ValueError('FEN: король сторони, яка щойно ходила, залишається під шахом')
+
+        # Commit only after every syntactic, structural and legality check has passed.
         self.board=bd; self.turn=turn; self.castling=castling; self.ep=ep
         self.halfmove=halfmove; self.fullmove=fullmove; self.last_move=None
         if clear_history: self.undo_stack=[]; self.redo_stack=[]
