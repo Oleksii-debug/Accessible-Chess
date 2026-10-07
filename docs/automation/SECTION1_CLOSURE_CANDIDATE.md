@@ -488,3 +488,43 @@ does not alter Section-0, create a second chess authority, or claim DONE.
 
 `NVDA_VERIFIED=NO`
 
+### Semantic live-history / redo metadata fail-closed boundary
+
+A Section-1 transition audit found a typed-but-semantic recovery gap in the
+application history projection. Existing `move_sides` / `redo_meta` checks
+proved shape and scalar types, while incremental move/edit/undo paths did not
+require the stronger live-line validator. A structurally valid but wrong mover
+side could therefore be consumed and only become visible as an invalid history
+projection after publication. The redo path also did not bind its top metadata
+entry to the canonical Board redo stack and preserved active History child.
+
+The existing application boundary now:
+- requires the exact validated live History lineage before move entry, board
+  activation, position-editor publication, undo, or redo can mutate state;
+- binds an advertised/executable redo entry to Board redo-stack cardinality,
+  target FEN, SAN, side-to-move, active History child SAN/side/last-move;
+- fails closed on any mismatch without consuming Board/History/redo state;
+- keeps explicit FEN load as the intentional root-reset recovery path.
+
+Focused composed-API regression coverage proves both semantic drift classes:
+wrong live mover-side metadata blocks move/activation/editor/undo atomically,
+and wrong redo-side metadata is neither advertised nor published. FEN recovery
+then restores a valid one-root projection.
+
+Exact successor blobs:
+- `acs/webapp.py=c191634ce1394654f327e7c9513d8f54b9848bec`;
+- `tests/test_ui_analysis_webapp.py=bf09ba906643377710f5025f17d888191a5fe92d`.
+
+This remains on canonical PR #2356 and preserves the exact 45-path Section-1
+delta relative to Section-0 predecessor
+`7b172de1ace250e62cb9a077029c056f71d6f833`. Section 1 is still not DONE:
+Section 0 acceptance and fresh terminal exact-head source/corpus + whole
+qualification remain required.
+
+`SECTION_0_DONE=NO_PENDING_TERMINAL_CI`
+
+`SECTION_1_DONE=NO_PENDING_SECTION0_ACCEPTANCE_AND_EXACT_HEAD_QUALIFICATION`
+
+`HUMAN_TESTED=NO`
+
+`NVDA_VERIFIED=NO`
