@@ -379,6 +379,75 @@ jobs:
                   return 0;
               }
           }
+
+          public static class AccessibleChessProcessExitProbe {
+              private const uint Synchronize = 0x00100000;
+              private const uint ProcessQueryLimitedInformation = 0x00001000;
+              private const uint WaitObject0 = 0x00000000;
+              private const uint WaitTimeout = 0x00000102;
+              private const uint StillActive = 259;
+              private static readonly IntPtr InvalidHandleValue = new IntPtr(-1);
+
+              [DllImport("kernel32.dll", SetLastError = true)]
+              private static extern IntPtr OpenProcess(
+                  uint desiredAccess,
+                  bool inheritHandle,
+                  uint processId
+              );
+
+              [DllImport("kernel32.dll", SetLastError = true)]
+              private static extern uint WaitForSingleObject(
+                  IntPtr handle,
+                  uint milliseconds
+              );
+
+              [DllImport("kernel32.dll", SetLastError = true)]
+              private static extern bool GetExitCodeProcess(
+                  IntPtr process,
+                  out uint exitCode
+              );
+
+              [DllImport("kernel32.dll", SetLastError = true)]
+              private static extern bool CloseHandle(IntPtr handle);
+
+              public static uint WaitForExitCode(uint processId, uint timeoutMs) {
+                  IntPtr process = OpenProcess(
+                      Synchronize | ProcessQueryLimitedInformation,
+                      false,
+                      processId
+                  );
+                  if (process == IntPtr.Zero || process == InvalidHandleValue) {
+                      throw new InvalidOperationException(
+                          "OpenProcess failed: " + Marshal.GetLastWin32Error()
+                      );
+                  }
+                  try {
+                      uint wait = WaitForSingleObject(process, timeoutMs);
+                      if (wait == WaitTimeout) {
+                          throw new TimeoutException("Child process did not exit within timeout");
+                      }
+                      if (wait != WaitObject0) {
+                          throw new InvalidOperationException(
+                              "WaitForSingleObject failed: " + Marshal.GetLastWin32Error()
+                          );
+                      }
+                      uint exitCode;
+                      if (!GetExitCodeProcess(process, out exitCode)) {
+                          throw new InvalidOperationException(
+                              "GetExitCodeProcess failed: " + Marshal.GetLastWin32Error()
+                          );
+                      }
+                      if (exitCode == StillActive) {
+                          throw new InvalidOperationException(
+                              "Child remained STILL_ACTIVE after signaled exit"
+                          );
+                      }
+                      return exitCode;
+                  } finally {
+                      CloseHandle(process);
+                  }
+              }
+          }
           '@
 
 
@@ -500,17 +569,22 @@ jobs:
             }
           }
 
-          # The smoke child exits naturally after about seven seconds. The
-          # supervisor must remain until then, then release all directory locks.
-          if (-not $reportedChild.WaitForExit(12000)) {
-            $reportedChild.Kill()
-            $reportedChild.WaitForExit()
-            if (-not $first.HasExited) { $first.Kill(); $first.WaitForExit() }
-            throw 'Smoke child did not exit naturally within 12 seconds'
+          # The smoke child exits naturally after about seven seconds. Use a
+          # retained native process handle for the exit-code proof: PowerShell's
+          # Get-Process wrapper can expose a blank ExitCode after WaitForExit.
+          try {
+            [uint32]$smokeExitCode = [AccessibleChessProcessExitProbe]::WaitForExitCode(
+              $reportedChildPid,
+              12000
+            )
           }
-          if ($reportedChild.ExitCode -ne 0) {
+          catch {
             if (-not $first.HasExited) { $first.Kill(); $first.WaitForExit() }
-            throw "Smoke child exited with code $($reportedChild.ExitCode)"
+            throw "Smoke child exit observation failed: $($_.Exception.Message)"
+          }
+          if ($smokeExitCode -ne 0) {
+            if (-not $first.HasExited) { $first.Kill(); $first.WaitForExit() }
+            throw "Smoke child exited with code $smokeExitCode"
           }
           if (-not $first.WaitForExit(10000)) {
             $first.Kill()
