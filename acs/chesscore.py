@@ -124,7 +124,7 @@ class Board:
                 raise ValueError('FEN: en passant не відповідає попередньому подвійому ходу пішака')
             if halfmove != 0:
                 raise ValueError('FEN: halfmove має дорівнювати 0 після подвійного ходу пішака')
-            if turn == 'w' and fullmove < 2:
+            if len(parts) == 6 and turn == 'w' and fullmove < 2:
                 raise ValueError('FEN: fullmove має бути не менше 2 після ходу чорних')
 
         # Commit only after every syntactic and structural check has passed.
