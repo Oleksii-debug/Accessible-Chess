@@ -11,6 +11,11 @@ on:
       - 'acs/version2_upgrade_status_release.py'
       - 'web/protection_locked.html'
       - 'web/protection_locked.js'
+      - 'acs/version2_release_payload.py'
+      - 'acs/version2_package_preflight.py'
+      - 'tests/test_version2_release_payload.py'
+      - 'tests/test_version2_package_preflight.py'
+      - 'tests/test_v2_package_required_resources.py'
       - 'tests/test_security_wave1_product_integration.py'
       - '.github/workflows/security-wave1-product-integration.yml'
   workflow_dispatch:
@@ -60,6 +65,9 @@ jobs:
           python -m pytest -q
           tests/test_security_wave1_product_integration.py
           tests/test_version2_release_app.py
+          tests/test_version2_release_payload.py
+          tests/test_version2_package_preflight.py
+          tests/test_v2_package_required_resources.py
       - name: Prove public boundary contains no private implementation import
         shell: bash
         run: |
