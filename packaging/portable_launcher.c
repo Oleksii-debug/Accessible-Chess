@@ -44,7 +44,7 @@ static WCHAR g_command[AC_PATH_CAP * 2];
 static WCHAR g_message[AC_PATH_CAP + 2048];
 static WCHAR g_error_text[2048];
 static CHAR g_utf8[AC_UTF8_CAP];
-static STARTUPINFOW g_startup;
+static STARTUPINFOEXW g_startup;
 static PROCESS_INFORMATION g_process;
 static HANDLE g_instance_lock = INVALID_HANDLE_VALUE;
 
@@ -664,10 +664,10 @@ void WINAPI wWinMainCRTStartup(void) {
     HANDLE app_guard = INVALID_HANDLE_VALUE;
     HANDLE core_guard = INVALID_HANDLE_VALUE;
     HANDLE data_guard = INVALID_HANDLE_VALUE;
-    HANDLE child_instance_lock = NULL;
-    HANDLE child_root_guard = NULL;
-    HANDLE child_app_guard = NULL;
-    HANDLE child_data_guard = NULL;
+    HANDLE inherited_handles[4];
+    LPPROC_THREAD_ATTRIBUTE_LIST attribute_list = NULL;
+    SIZE_T attribute_bytes = 0;
+    DWORD inherited_index;
     DWORD error;
     DWORD wait_result;
     DWORD exit_code = STILL_ACTIVE;
@@ -762,76 +762,94 @@ void WINAPI wWinMainCRTStartup(void) {
         ac_fail(report, L"child command construction", ERROR_BUFFER_OVERFLOW);
     }
 
-    g_startup.cb = sizeof(g_startup);
+    inherited_handles[0] = g_instance_lock;
+    inherited_handles[1] = root_guard;
+    inherited_handles[2] = app_guard;
+    inherited_handles[3] = data_guard;
+    for (inherited_index = 0; inherited_index < 4; ++inherited_index) {
+        if (!SetHandleInformation(
+                inherited_handles[inherited_index],
+                HANDLE_FLAG_INHERIT,
+                HANDLE_FLAG_INHERIT)) {
+            error = GetLastError();
+            ac_fail(report, L"selective guard inheritance preparation", error);
+        }
+    }
+
+    if (InitializeProcThreadAttributeList(NULL, 1, 0, &attribute_bytes) ||
+        GetLastError() != ERROR_INSUFFICIENT_BUFFER) {
+        error = GetLastError();
+        ac_fail(
+            report,
+            L"selective guard attribute sizing",
+            error == ERROR_SUCCESS ? ERROR_INVALID_DATA : error
+        );
+    }
+    attribute_list = (LPPROC_THREAD_ATTRIBUTE_LIST)HeapAlloc(
+        GetProcessHeap(),
+        0,
+        attribute_bytes
+    );
+    if (attribute_list == NULL) {
+        ac_fail(report, L"selective guard attribute allocation", ERROR_NOT_ENOUGH_MEMORY);
+    }
+    if (!InitializeProcThreadAttributeList(attribute_list, 1, 0, &attribute_bytes)) {
+        error = GetLastError();
+        HeapFree(GetProcessHeap(), 0, attribute_list);
+        attribute_list = NULL;
+        ac_fail(report, L"selective guard attribute initialization", error);
+    }
+    if (!UpdateProcThreadAttribute(
+            attribute_list,
+            0,
+            PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
+            inherited_handles,
+            sizeof(inherited_handles),
+            NULL,
+            NULL)) {
+        error = GetLastError();
+        DeleteProcThreadAttributeList(attribute_list);
+        HeapFree(GetProcessHeap(), 0, attribute_list);
+        attribute_list = NULL;
+        ac_fail(report, L"selective guard handle-list binding", error);
+    }
+
+    g_startup.StartupInfo.cb = sizeof(g_startup);
+    g_startup.lpAttributeList = attribute_list;
 
     if (!CreateProcessW(
             g_core,
             g_command,
             NULL,
             NULL,
-            FALSE,
-            CREATE_UNICODE_ENVIRONMENT | CREATE_SUSPENDED,
+            TRUE,
+            CREATE_UNICODE_ENVIRONMENT | CREATE_SUSPENDED | EXTENDED_STARTUPINFO_PRESENT,
             NULL,
             g_app_dir,
-            &g_startup,
+            &g_startup.StartupInfo,
             &g_process)) {
         error = GetLastError();
+        DeleteProcThreadAttributeList(attribute_list);
+        HeapFree(GetProcessHeap(), 0, attribute_list);
+        attribute_list = NULL;
         CloseHandle(core_guard);
         ac_fail(report, L"core process creation", error);
     }
+    DeleteProcThreadAttributeList(attribute_list);
+    HeapFree(GetProcessHeap(), 0, attribute_list);
+    attribute_list = NULL;
     CloseHandle(core_guard);
     core_guard = INVALID_HANDLE_VALUE;
 
-    if (!DuplicateHandle(
-            GetCurrentProcess(),
-            g_instance_lock,
-            g_process.hProcess,
-            &child_instance_lock,
-            0,
-            FALSE,
-            DUPLICATE_SAME_ACCESS)) {
-        error = GetLastError();
-        CloseHandle(g_process.hThread);
-        ac_fail(report, L"package-local data ownership transfer", error);
-    }
-
-    if (!DuplicateHandle(
-            GetCurrentProcess(),
-            root_guard,
-            g_process.hProcess,
-            &child_root_guard,
-            0,
-            FALSE,
-            DUPLICATE_SAME_ACCESS)) {
-        error = GetLastError();
-        CloseHandle(g_process.hThread);
-        ac_fail(report, L"package-root directory guard transfer", error);
-    }
-
-    if (!DuplicateHandle(
-            GetCurrentProcess(),
-            app_guard,
-            g_process.hProcess,
-            &child_app_guard,
-            0,
-            FALSE,
-            DUPLICATE_SAME_ACCESS)) {
-        error = GetLastError();
-        CloseHandle(g_process.hThread);
-        ac_fail(report, L"App runtime directory guard transfer", error);
-    }
-
-    if (!DuplicateHandle(
-            GetCurrentProcess(),
-            data_guard,
-            g_process.hProcess,
-            &child_data_guard,
-            0,
-            FALSE,
-            DUPLICATE_SAME_ACCESS)) {
-        error = GetLastError();
-        CloseHandle(g_process.hThread);
-        ac_fail(report, L"package-local data directory guard transfer", error);
+    for (inherited_index = 0; inherited_index < 4; ++inherited_index) {
+        if (!SetHandleInformation(
+                inherited_handles[inherited_index],
+                HANDLE_FLAG_INHERIT,
+                0)) {
+            error = GetLastError();
+            CloseHandle(g_process.hThread);
+            ac_fail(report, L"selective guard inheritance cleanup", error);
+        }
     }
 
     resume_result = ResumeThread(g_process.hThread);
