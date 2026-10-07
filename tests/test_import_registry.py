@@ -341,6 +341,58 @@ class ImportRegistryTests(unittest.TestCase):
         with self.assertRaisesRegex(ImportRegistryError, 'exact text'):
             ImportRegistry().register(ActiveSuffixImporter())
 
+    def test_registration_rejects_unroutable_or_unbounded_suffix_text(self):
+        class UnsafeSuffixImporter:
+            format_name = 'Unsafe suffix'
+
+            def __init__(self, suffix: str) -> None:
+                self.suffixes = (suffix,)
+
+            def inspect(self, path: Path) -> ImportReport:
+                raise AssertionError('inspection must not run')
+
+        unsafe_suffixes = (
+            '.bad\nsuffix',
+            '.bad\u2028suffix',
+            '.nested/path',
+            '.nested\\path',
+            '.' + ('x' * 65),
+        )
+        for suffix in unsafe_suffixes:
+            with self.subTest(suffix=repr(suffix)):
+                with self.assertRaisesRegex(
+                    ImportRegistryError,
+                    'bounded safe extension text',
+                ):
+                    ImportRegistry().register(UnsafeSuffixImporter(suffix))
+
+    def test_unknown_suffix_error_is_bounded_and_control_safe(self):
+        registry = ImportRegistry()
+        registry.register(FakeImporter())
+
+        unsafe_paths = (
+            'source.' + ('x' * 4096),
+            'source.bad\nsuffix',
+            'source.bad\u2028suffix',
+        )
+        for source in unsafe_paths:
+            with self.subTest(source=repr(source)):
+                with self.assertRaises(ImportRegistryError) as ctx:
+                    registry.inspect(source)
+                message = str(ctx.exception)
+                self.assertEqual(
+                    message,
+                    'No read-only importer registered for suffix: <invalid>',
+                )
+                self.assertNotIn('\n', message)
+                self.assertNotIn('\u2028', message)
+                self.assertLess(len(message), 80)
+
+                batch = registry.inspect_batch([source])
+                self.assertEqual(len(batch.items), 1)
+                self.assertFalse(batch.items[0].ok)
+                self.assertEqual(batch.items[0].error, message)
+
     def test_registration_routes_case_insensitive_suffixes_without_ui_or_database_knowledge(self):
         registry = ImportRegistry()
         importer = FakeImporter()

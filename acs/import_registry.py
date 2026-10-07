@@ -28,6 +28,9 @@ from .import_contract import (
 from .report_paths import report_safe_name
 
 
+_MAX_IMPORT_SUFFIX_CHARS = 64
+
+
 class ImportRegistryError(ValueError):
     pass
 
@@ -204,7 +207,15 @@ class ImportRegistry:
         value = suffix.strip().lower()
         if not value:
             raise ImportRegistryError("Importer suffix must not be empty")
-        return value if value.startswith(".") else "." + value
+        value = value if value.startswith(".") else "." + value
+        if (
+            len(value) > _MAX_IMPORT_SUFFIX_CHARS
+            or "/" in value
+            or "\\" in value
+            or report_safe_name("source" + value) != "source" + value
+        ):
+            raise ImportRegistryError("Importer suffix must be bounded safe extension text")
+        return value
 
     def register(self, importer: ReadOnlyImporter, *, replace: bool = False) -> ImporterRegistration:
         format_name = importer.format_name
@@ -245,8 +256,18 @@ class ImportRegistry:
         source_suffix = source.suffix.lower()
         importer = self._by_suffix.get(source_suffix)
         if importer is None:
+            if (
+                source_suffix
+                and len(source_suffix) <= _MAX_IMPORT_SUFFIX_CHARS
+                and "/" not in source_suffix
+                and "\\" not in source_suffix
+                and report_safe_name("source" + source_suffix) == "source" + source_suffix
+            ):
+                suffix_label = source_suffix
+            else:
+                suffix_label = "<none>" if not source_suffix else "<invalid>"
             raise ImportRegistryError(
-                f"No read-only importer registered for suffix: {source_suffix or '<none>'}"
+                f"No read-only importer registered for suffix: {suffix_label}"
             )
         registered_format_name = self._format_name_by_suffix.get(source_suffix)
         registration_token = self._registration_token_by_suffix.get(source_suffix)
