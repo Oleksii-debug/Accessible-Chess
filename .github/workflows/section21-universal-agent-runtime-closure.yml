@@ -4,9 +4,6 @@ on:
   pull_request:
     branches:
       - work/media-agent-crossrepo-intake-20261005
-  push:
-    branches:
-      - close/section21-universal-agent-runtime-20261007-sol56
   workflow_dispatch:
 
 permissions:
@@ -22,65 +19,47 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, windows-2025]
+        os: [ubuntu-24.04, windows-2025]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
 
     steps:
-      - name: Checkout exact candidate
+      - name: Checkout exact repair candidate
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
+          persist-credentials: false
 
-      - name: Prove exact parent, bounded scope and authority blobs
+      - name: Prove immutable Agent ancestry and bounded repair scope
         shell: bash
         env:
           EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
-          BASE_REF: work/media-agent-crossrepo-intake-20261005
-          BASE_SHA: 6609c35ff5fa0b1f959806866ff7403e70efdbf3
+          SECTION21_ACCEPTED: 95554150c8a7920021053a0f66c57a7bcb8a836f
+          SECTION21_MERGE: 12b9094faad983db5d242d6ec485a4883f71cd6a
+          SECTION22_MERGE: 92b9b6af16977c301e1a5c69b908bc7aa478262a
+          CURRENT_AGENT: 59eedf4e33de0565d0ad47d11206b6743dd3bff8
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
-          git fetch --no-tags origin "+refs/heads/$BASE_REF:refs/remotes/origin/section21-base"
-          live_base="$(git rev-parse refs/remotes/origin/section21-base)"
-          test "$live_base" = "$BASE_SHA" || {
-            printf 'SECTION21_BASE_MOVED expected=%s live=%s\n' "$BASE_SHA" "$live_base" >&2
-            exit 1
-          }
-          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
-            test "${{ github.event.pull_request.base.ref }}" = "$BASE_REF"
-          fi
-          test "$(git merge-base "$BASE_SHA" HEAD)" = "$BASE_SHA"
-          git diff --check "$BASE_SHA"...HEAD
-          changed="$(git diff --name-only "$BASE_SHA"...HEAD | LC_ALL=C sort)"
-          expected="$(printf '%s\n'             '.github/workflows/media-agent-intake-convergence.yml'             '.github/workflows/media-agent-intake-safety-repair.yml'             '.github/workflows/section21-universal-agent-runtime-closure.yml'             'acs/agent_accessibility.py'             'acs/agent_ollama_provider.py'             'acs/agent_tools.py'             'acs/public_errors.py'             'acs/universal_chess_agent.py'             'docs/automation/SECTION21_CLOSURE_AUDIT.md'             'tests/test_agent_model_cost_effect_accounting.py'             'tests/test_agent_tool_result_authority.py'             'tests/test_media_agent_intake_convergence_20261005.py'             'tests/test_section21_architecture.py'             'tests/test_section21_ollama_provider.py'             'tests/test_universal_chess_agent_crossrepo.py' | LC_ALL=C sort)"
+          for sha in "$SECTION21_ACCEPTED" "$SECTION21_MERGE" "$SECTION22_MERGE" "$CURRENT_AGENT"; do
+            git cat-file -e "$sha^{commit}"
+          done
+          git merge-base --is-ancestor "$SECTION21_MERGE" HEAD
+          git merge-base --is-ancestor "$SECTION22_MERGE" HEAD
+          git merge-base --is-ancestor "$CURRENT_AGENT" HEAD
+          test "$(git merge-base "$CURRENT_AGENT" HEAD)" = "$CURRENT_AGENT"
+          git diff --quiet "$SECTION21_ACCEPTED" "$SECTION21_MERGE"
+          git diff --check "$CURRENT_AGENT"...HEAD
+          changed="$(git diff --name-only "$CURRENT_AGENT"...HEAD | LC_ALL=C sort)"
+          expected="$(printf '%s\n'             '.github/workflows/section21-universal-agent-runtime-closure.yml'             '.github/workflows/section22-agent-domain-tools-closure.yml'             '.github/workflows/sections23-24-agent-closure.yml' 'tests/test_agent_format_capabilities.py' | LC_ALL=C sort)"
           test "$changed" = "$expected" || {
-            printf 'Unexpected Section 21 scope:\n%s\n' "$changed" >&2
+            printf 'UNEXPECTED_AGENT_CLOSURE_REPAIR_SCOPE\n%s\n' "$changed" >&2
             exit 1
           }
 
-          test "$(git rev-parse HEAD:acs/universal_chess_agent.py)" = 'be877a142dcb104abcf512a114dd78faca4df059'
-          test "$(git rev-parse HEAD:acs/agent_tools.py)" = 'ff029facfb23340ffed18fbd4a0b0e55e1f5e719'
-          test "$(git rev-parse HEAD:acs/agent_model_gateway.py)" = 'e9127b209ec8c1fb50dd4f916753763084d783f1'
-          test "$(git rev-parse HEAD:acs/agent_model_contracts.py)" = '088e759447c921dfeae2a40fe7af16275d7b3417'
-          test "$(git rev-parse HEAD:acs/agent_checkpoint.py)" = 'e9cc46cf415c98f4ace5d307b80666d10e8e4ebb'
-          test "$(git rev-parse HEAD:acs/agent_retry.py)" = '1fd06a3d7425b97f2111b3d24d9c73e739526d67'
-          test "$(git rev-parse HEAD:acs/agent_task_state.py)" = '2e8e19d31c27ebc687baf0a01850f2471400ff12'
-          test "$(git rev-parse HEAD:acs/agent_verification.py)" = '1300eb8284692ef89bcda508d0aff579a45598cf'
-          test "$(git rev-parse HEAD:acs/agent_budget.py)" = 'a4f50e7a929c7401fadbb0d46d831c7e3f0eb344'
-          test "$(git rev-parse HEAD:acs/agent_resource_budget.py)" = 'ec501c7facf9723d8696b6cf88b9680e26c7f44d'
-          test "$(git rev-parse HEAD:acs/agent_ollama_provider.py)" = 'cb2b66efe0b03e468a4339e0edb268d69e2d3596'
-          test "$(git rev-parse HEAD:acs/chess_agent_tools.py)" = 'cf73c95d3f26c1ad4ae3ec255ef012ba52d35637'
-          test "$(git rev-parse HEAD:acs/board_service.py)" = '5058733f0efe74bd42831b98c8f9cba83278d0cf'
-          test "$(git rev-parse HEAD:acs/analysis_service.py)" = 'c5ca651a9ac299d3794278f9cfae8f16fcb938e4'
-          test "$(git rev-parse HEAD:tests/test_agent_tool_result_authority.py)" = '5455b74ddf95930bc410af0a1a3c259d363e0c4a'
-          test "$(git rev-parse HEAD:tests/test_agent_model_cost_effect_accounting.py)" = 'efd9fff75df7b7285b30972cef98c54fc8826d05'
-          test "$(git rev-parse HEAD:tests/test_universal_chess_agent_crossrepo.py)" = 'b25150119b26008dedf5a16fd0d8bf71222b0b29'
-          test "$(git rev-parse HEAD:tests/test_section21_ollama_provider.py)" = '4a198ef493e515d3cb18bf71de2267c8cacb4ad5'
-          test "$(git rev-parse HEAD:tests/test_section21_architecture.py)" = '36232f10b1209e7beb64338cac489564f7d36d37'
-
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: '3.12.10'
 
@@ -132,3 +111,6 @@ jobs:
           tests/test_section21_architecture.py
           tests/test_media_agent_intake_convergence_20261005.py
           tests/test_media_agent_safety_primitives_20261005.py
+
+      - name: Core selftest
+        run: python -m acs.selftest
