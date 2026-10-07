@@ -92,7 +92,21 @@ class RecordedMediaPreprocessTests(unittest.TestCase):
                                observation_ref="x", square_confidence=tuple(bad))
 
     def test_speech_is_typed_bounded_and_partial_supported(self):
-        partial = SpeechEvidence("video-1", "source-v1", 10, 30, "partial", False, .4)
+        partial = SpeechEvidence(
+            "video-1", "source-v1", 10, 30, "частковий коментар", False, .4,
+            language="uk",
+        )
+        self.assertEqual(partial.language, "uk")
+        final_en = SpeechEvidence(
+            "video-1", "source-v1", 10, 40, "Knight to f3", True, .9,
+            language="en-US",
+        )
+        self.assertEqual(final_en.language, "en-US")
+        with self.assertRaises(PreprocessContractError):
+            SpeechEvidence(
+                "video-1", "source-v1", 10, 40, "bad language", True, .9,
+                language="en--US",
+            )
         self.assertFalse(partial.is_final)
         with self.assertRaises(PreprocessContractError):
             SpeechEvidence("video-1", "source-v1", 30, 10, "bad", True)
