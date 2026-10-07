@@ -730,3 +730,28 @@ is DONE while those gates remain nonterminal.
 `HUMAN_TESTED=NO`
 
 `NVDA_VERIFIED=NO`
+
+### Re-convergence after exact importer suffix-tuple closure
+
+Section 0 advanced on canonical #2346 to 977a0787df16184d98660c58c798af3e5655323e. The final internal
+registration audit aligned runtime acceptance with the declared ReadOnlyImporter
+contract: suffix metadata is now an exact built-in tuple, with stale iterator-
+based acceptance evidence replaced by a property-level re-entrant mutation
+regression. This is Section-0-only import-boundary work.
+
+Prepared Section 1 is history-preservingly reconverged onto that exact
+predecessor with a two-parent merge. No Section-1 runtime commit is replayed,
+rebased, squashed or dropped. Relative to 977a0787df16184d98660c58c798af3e5655323e, the effective
+Section-1 delta remains exactly 45 paths.
+
+Fresh predecessor-aware source/corpus and whole qualification is required.
+Section 0 remains BLOCKED_EXTERNAL_CI and Section 1 remains blocked on Section 0
+plus its own exact-head terminal qualification.
+
+`SECTION_0_DONE=NO_PENDING_TERMINAL_CI`
+
+`SECTION_1_DONE=NO_PENDING_SECTION0_ACCEPTANCE_AND_EXACT_HEAD_QUALIFICATION`
+
+`HUMAN_TESTED=NO`
+
+`NVDA_VERIFIED=NO`

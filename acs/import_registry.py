@@ -15,7 +15,6 @@ through the shared import boundary.
 """
 
 from dataclasses import dataclass
-from itertools import islice
 from pathlib import Path
 from typing import Iterable
 
@@ -264,16 +263,14 @@ class ImportRegistry:
                 raise ImportRegistryError("Importer format_name must be non-empty exact text")
 
             raw_suffixes = importer.suffixes
-            try:
-                suffix_values = tuple(
-                    islice(iter(raw_suffixes), _MAX_IMPORT_SUFFIXES + 1)
+            if type(raw_suffixes) is not tuple:
+                raise ImportRegistryError(
+                    "Importer suffixes must be an exact immutable tuple"
                 )
-            except TypeError as exc:
-                raise ImportRegistryError("Importer suffixes must be iterable") from exc
-            if len(suffix_values) > _MAX_IMPORT_SUFFIXES:
+            if len(raw_suffixes) > _MAX_IMPORT_SUFFIXES:
                 raise ImportRegistryError("Importer declares too many suffixes")
 
-            suffixes = tuple(self._normalize_suffix(item) for item in suffix_values)
+            suffixes = tuple(self._normalize_suffix(item) for item in raw_suffixes)
             if not suffixes:
                 raise ImportRegistryError("Importer must declare at least one suffix")
             if len(set(suffixes)) != len(suffixes):

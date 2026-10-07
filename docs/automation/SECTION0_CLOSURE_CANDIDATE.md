@@ -290,3 +290,34 @@ valid sources are preserved only for ordinary failures.
 
 This remains same-lineage Section-0.5 recovery work inside the exact five-path
 #2346 successor; no format/parser/chess/report authority is added.
+
+### Exact ReadOnlyImporter suffix-container contract
+
+The canonical ReadOnlyImporter protocol declares suffixes as tuple[str, ...],
+but the registry still accepted any iterable. A scalar string such as "x"
+could therefore be interpreted as one character and silently register .x;
+arbitrary iterator/provider code also expanded the registration surface beyond
+the declared passive contract.
+
+Registration now requires an exact built-in immutable tuple before observing
+its contents. Tuple subclasses, lists, strings and generators are rejected
+without invoking container iteration/length hooks. The 64-suffix count fence
+remains and every tuple element still passes the canonical suffix-text boundary.
+
+Regressions prove scalar string/list/generator/active tuple-subclass rejection,
+zero active tuple hooks, no accidental .x route publication, and the 65-element
+count rejection. This keeps the registry aligned with ReadOnlyImporter instead
+of broadening its API.
+
+This is the same five-path Section-0.5 lineage and adds no new importer API or
+format authority.
+
+### Exact-tuple acceptance-test convergence
+
+After enforcing the declared exact tuple suffix contract, one older adversarial
+test still expected a custom suffix iterator to execute before route-drift
+detection. That expectation contradicted the new passive-container boundary.
+The regression now attacks the suffixes property itself: it mutates host routing
+and raises before returning metadata. Registration must restore the snapshot and
+surface registration-change evidence while preserving the original RuntimeError
+as the cause. Generic iterable hooks remain intentionally unreachable.
