@@ -37,6 +37,10 @@ class Section1FenEnPassantFullmoveTests(unittest.TestCase):
             with self.subTest(fen=fen):
                 self.assertEqual(Board(fen).fen(), fen)
 
+    def test_legacy_four_field_white_to_move_en_passant_remains_supported(self) -> None:
+        source = "7k/8/8/3p4/8/8/8/K7 w - d6"
+        self.assertEqual(Board(source).fen(), source + " 0 1")
+
     def test_black_to_move_en_passant_still_allows_fullmove_one(self) -> None:
         fen = "7k/8/8/8/4P3/8/8/K7 b - e3 0 1"
         self.assertEqual(Board(fen).fen(), fen)
