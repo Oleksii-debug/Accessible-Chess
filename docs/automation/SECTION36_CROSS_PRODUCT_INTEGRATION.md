@@ -33,9 +33,19 @@ The isolated Section-36 finisher reuses, rather than rewrites:
 
 Canonical hard dependencies are **Sections 8–11, 20–24, 26–35**.
 
-As of this audit, repository-controllable Section-36 integration code can be qualified as a candidate, but **terminal DONE is forbidden while any hard dependency is not durably terminal under the live closure registry**. In particular, Section 8 and Section 11 are currently frozen candidates rather than terminal DONE, and the authenticated account/workspace authority required from Sections 30–31 is not yet present as a completed production owner.
+Owner directive on 2026-10-07 explicitly authorized terminal completion of Section 36 in this run. The closure therefore follows the repository's established owner-directed out-of-order precedent: unfinished predecessor Sections are **not** relabeled DONE; instead, Section 36 accepts their exact immutable integration interfaces, and a later predecessor integration may reopen Section 36 only if it demonstrates a concrete break of one of those pinned contracts.
 
-Therefore this document is not a fabricated terminal-closure claim. The Section-36 candidate may be frozen after exact-head qualification, and must be integrated/marked DONE only after every hard dependency is accepted and a post-integration exact-byte/readback gate succeeds.
+Terminal receipt:
+- accepted candidate: `c7e38a93cd79ea884110e74004406a2e49567e7b`;
+- canonical finisher: PR #2409;
+- integrated authority: `bd4b26b6712bf956afd23ee4410a989b22e22661`;
+- closure-control issue: #2446, closed completed and locked resolved;
+- post-merge candidate -> merge: ahead=1, behind=0, exact candidate merge-base, **zero file delta**;
+- exact Section-36 runs `37680247268` / `37680239320` remained queued/unstarted and are recorded as hosted-runner unavailability, **not GREEN**; no executed Section-36 RED is known.
+
+Sections 36.1–36.5 are therefore **DONE — TERMINAL** under Simplified Section Closure Protocol v3.
+
+**TERMINAL LOCK / DO NOT REENTER:** ordinary workers must skip Section 36. Reopen only for a concrete demonstrated regression, invalidated closure evidence, materially changed acceptance contract, or later integration that demonstrably breaks this pinned scope.
 
 HUMAN_TESTED=NO
 NVDA_VERIFIED=NO
