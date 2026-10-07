@@ -803,3 +803,17 @@ qualification. No Section-1 runtime authority is changed.
 `HUMAN_TESTED=NO`
 
 `NVDA_VERIFIED=NO`
+
+### FEN product-action acceptance binding
+
+Plan revision 5 Section 1.1 requires FEN reading, creation, copying, editing and validation to be product-reachable, not only present as domain helpers. The prepared lineage already retains the canonical `board.read_fen`, `position.copy_fen` and `pgn.new_from_position` actions with bilingual/native-menu/keymap surfaces. A closure audit found that the predecessor-aware whole-Section gate did not execute the inherited regression modules that qualify those user actions on its exact head.
+
+The whole gate now executes `tests.test_version2_release_ui`, `tests.test_version2_application`, `tests.test_full_product_native_menu` and `tests.test_ui_keymap_adapter` together with the existing FEN/Position/SAN suites. This binds read/copy/create reachability and keyboard/native-menu registration to the same Ubuntu/Windows exact-head qualification without changing runtime authority or the 45-path Section-1 geometry.
+
+`SECTION_0_DONE=NO_PENDING_TERMINAL_CI`
+
+`SECTION_1_DONE=NO_PENDING_SECTION0_ACCEPTANCE_AND_EXACT_HEAD_QUALIFICATION`
+
+`HUMAN_TESTED=NO`
+
+`NVDA_VERIFIED=NO`
