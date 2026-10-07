@@ -86,11 +86,19 @@ It runs on Ubuntu 22.04 and Windows 2025 and:
 
 Hosted jobs that remain queued/unstarted are recorded as runner unavailability and are not called GREEN. Any executed RED attributable to this exact Section-37 head must be repaired before terminal closure.
 
-## Closure rule
+## Terminal closure receipt
 
-After exact candidate integration and post-merge zero-delta readback:
-- Section 37 = `DONE — TERMINAL`;
-- ordinary workers MUST NOT reimplement, polish or repeat-audit this Section;
-- reopen only for a concrete demonstrated regression, invalid closure evidence, materially changed acceptance contract, or later integration that demonstrably breaks a pinned Section-37 contract.
+Owner directive on 2026-10-07 explicitly authorized terminal completion of Section 37 in this run.
+
+- accepted candidate: `1f0b383f12bec2df20041b9aaa3f90c97d06ad7d`;
+- canonical finisher: PR #2443;
+- integrated authority: `7dbbfbe3e99479e7a7a158921b22db67bd90a37b`;
+- closure-control issue: #2447, closed completed and locked resolved;
+- post-merge candidate -> merge: ahead=1, behind=0, exact candidate merge-base, **zero file delta**;
+- exact Section-37 runs `37685027264` / `37684955730` remained queued/unstarted and are recorded as hosted-runner unavailability, **not GREEN**; no executed Section-37 RED is known.
+
+Section 37 is therefore **DONE — TERMINAL** under Simplified Section Closure Protocol v3.
+
+**TERMINAL LOCK / DO NOT REENTER:** ordinary workers MUST NOT reimplement, polish or repeat-audit Section 37. Reopen only for a concrete demonstrated regression, invalid closure evidence, materially changed acceptance contract, or later integration that demonstrably breaks a pinned Section-37 contract.
 
 Manual NVDA/human acceptance remains whole-product final evidence and does not block this intermediate repository-complete Section under Simplified Section Closure Protocol v3.
