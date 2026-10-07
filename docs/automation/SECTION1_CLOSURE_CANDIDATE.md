@@ -240,3 +240,17 @@ The invalid form was repaired before qualification:
 - whole workflow syntax-repair descendant was created next and must be repinned after this receipt update.
 
 No missing or unregistered run is PASS. Only a fresh exact-head run registered after this repair may qualify the prepared lineage.
+
+
+### EPD serialization successor converged
+
+The prepared predecessor-aware line additionally history-preservingly converges PR #2357:
+- exact #2357 head: `4df2d1870f74dd279218f054e97c6ae781e92808`;
+- convergence merge: `67fac0083e7bd6c0e75931bbeb771dcbcf6e9918`;
+- retained `acs/epd.py=c1454f2af145729874283fa3b2c9cc29ecac6250`;
+- retained `tests/test_epd.py=10fa838c7c44497da9b106b823851535471086cf`;
+- retained focused workflow `.github/workflows/section1-epd-serialization-revalidation.yml=88c9880aed687330dfb3cac5ac07c92813af289d`.
+
+All three EPD paths are new relative to the previous 42-path predecessor-aware union, so exact #2346-relative geometry is now **45 paths**. The source/corpus gate current blob after adding #2357 ancestry/geometry is `c836fa1573396fbc8314c53961207be9d19ab885`.
+
+The EPD repair remains representation/publication hardening only. It does not create a second chess-legality authority, and its exact runtime/test/workflow blobs must be pinned by the whole-Section gate before any acceptance claim.
