@@ -408,10 +408,16 @@ class Board:
             raise ValueError('Збережений хід історії не відповідає позиції')
 
     @staticmethod
-    def _peek_recovery_entry(stack):
-        """Return one exact passive recovery pair without invoking active containers."""
+    def _require_recovery_stack(stack):
+        """Reject active/noncanonical history containers before any recovery use."""
         if type(stack) is not list:
             raise ValueError('Збережена історія має неправильний формат')
+        return stack
+
+    @staticmethod
+    def _peek_recovery_entry(stack):
+        """Return one exact passive recovery pair without invoking active containers."""
+        stack=Board._require_recovery_stack(stack)
         if not stack:
             return None
         entry=stack[-1]
@@ -422,6 +428,10 @@ class Board:
     def undo(self):
         entry=self._peek_recovery_entry(self.undo_stack)
         if entry is None: return None
+        # The opposite stack is part of this publication transaction too.
+        # Validate it before set_fen()/pop() so append cannot discover an
+        # active/noncanonical destination after Board/history mutation.
+        self._require_recovery_stack(self.redo_stack)
         current=self.fen(); before,san=entry
         # Recovery metadata is one semantic pair. Prove both the target FEN and
         # its canonical transition before publishing either board or stack state.
@@ -431,6 +441,8 @@ class Board:
     def redo(self):
         entry=self._peek_recovery_entry(self.redo_stack)
         if entry is None: return None
+        # Symmetrically validate the undo destination before any publication.
+        self._require_recovery_stack(self.undo_stack)
         current=self.fen(); target,san=entry
         # Re-prove the same canonical transition in the forward direction
         # before the target or either stack is changed.

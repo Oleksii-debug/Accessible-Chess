@@ -378,6 +378,103 @@ class Dev2FenAtomicityTests(unittest.TestCase):
         self.assertFalse(ActiveStack.touched)
         self.assertEqual((active_redo_stack.fen(), active_redo_stack.last_move), redo_stack_before)
 
+    def test_undo_redo_validate_destination_stack_before_publication(self):
+        class ActiveDestination(list):
+            touched = False
+
+            def _touch(self):
+                type(self).touched = True
+                raise AssertionError("active destination stack hook must not run")
+
+            def append(self, value):
+                self._touch()
+
+            def __len__(self):
+                self._touch()
+
+            def __getitem__(self, key):
+                self._touch()
+
+            def __iter__(self):
+                self._touch()
+
+        # A passive but noncanonical destination must fail before undo changes
+        # the board or consumes its source entry.
+        undo_tuple = Board()
+        self.assertEqual(undo_tuple.push_text("e4"), "e4")
+        undo_tuple.redo_stack = ()
+        undo_before = (
+            undo_tuple.fen(),
+            tuple(undo_tuple.undo_stack),
+            undo_tuple.last_move,
+        )
+        with self.assertRaisesRegex(ValueError, "неправильний формат"):
+            undo_tuple.undo()
+        self.assertEqual(
+            (undo_tuple.fen(), tuple(undo_tuple.undo_stack), undo_tuple.last_move),
+            undo_before,
+        )
+        self.assertEqual(undo_tuple.redo_stack, ())
+
+        # An active list subclass must be rejected by exact type without
+        # invoking append/len/item/iteration hooks.
+        undo_active = Board()
+        self.assertEqual(undo_active.push_text("e4"), "e4")
+        active_redo = ActiveDestination()
+        undo_active.redo_stack = active_redo
+        undo_active_before = (
+            undo_active.fen(),
+            tuple(undo_active.undo_stack),
+            undo_active.last_move,
+        )
+        ActiveDestination.touched = False
+        with self.assertRaisesRegex(ValueError, "неправильний формат"):
+            undo_active.undo()
+        self.assertFalse(ActiveDestination.touched)
+        self.assertIs(undo_active.redo_stack, active_redo)
+        self.assertEqual(
+            (undo_active.fen(), tuple(undo_active.undo_stack), undo_active.last_move),
+            undo_active_before,
+        )
+
+        # Redo has the symmetric destination-stack requirement.
+        redo_tuple = Board()
+        self.assertEqual(redo_tuple.push_text("e4"), "e4")
+        self.assertEqual(redo_tuple.undo(), "e4")
+        redo_before = (
+            redo_tuple.fen(),
+            tuple(redo_tuple.redo_stack),
+            redo_tuple.last_move,
+        )
+        redo_tuple.undo_stack = ()
+        with self.assertRaisesRegex(ValueError, "неправильний формат"):
+            redo_tuple.redo()
+        self.assertEqual(
+            (redo_tuple.fen(), tuple(redo_tuple.redo_stack), redo_tuple.last_move),
+            redo_before,
+        )
+        self.assertEqual(redo_tuple.undo_stack, ())
+
+        redo_active = Board()
+        self.assertEqual(redo_active.push_text("e4"), "e4")
+        self.assertEqual(redo_active.undo(), "e4")
+        active_undo = ActiveDestination()
+        redo_active.undo_stack = active_undo
+        redo_active_before = (
+            redo_active.fen(),
+            tuple(redo_active.redo_stack),
+            redo_active.last_move,
+        )
+        ActiveDestination.touched = False
+        with self.assertRaisesRegex(ValueError, "неправильний формат"):
+            redo_active.redo()
+        self.assertFalse(ActiveDestination.touched)
+        self.assertIs(redo_active.undo_stack, active_undo)
+        self.assertEqual(
+            (redo_active.fen(), tuple(redo_active.redo_stack), redo_active.last_move),
+            redo_active_before,
+        )
+
     def test_move_text_and_square_scalar_coercion_fail_closed(self):
         board = Board()
         before = board.fen()

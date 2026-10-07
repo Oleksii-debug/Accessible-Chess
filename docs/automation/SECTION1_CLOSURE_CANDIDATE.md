@@ -636,3 +636,24 @@ No second history, FEN, SAN or legality authority is introduced.
 
 `NVDA_VERIFIED=NO`
 
+### Undo/redo destination-stack failure atomicity
+
+The passive recovery-container repair also exposed the symmetric publication
+boundary: validating only the source stack is insufficient. `Board.undo()`
+publishes into `redo_stack`, and `Board.redo()` publishes into
+`undo_stack`. If that destination had been replaced by a tuple or active list
+subclass, the old order could validate the source transition, publish the target
+FEN, consume the source entry, and only then fail or execute provider code at
+`append()`.
+
+Both recovery directions now require the destination stack to be an exact
+built-in list before `fen()`, `set_fen()`, source `pop()`, or destination
+`append()` can participate in the transaction. Focused regression coverage
+proves passive tuple destinations and active list-subclass destinations fail
+before Board/history mutation and without invoking destination hooks. Canonical
+undo/redo behavior remains unchanged.
+
+This is a same-lineage Section-1 recovery-integrity repair on PR #2356. It does
+not alter Section 0, introduce a second chess authority, or make a DONE claim.
+Terminal exact-head Ubuntu/Windows/lawful-corpus qualification is still required.
+
