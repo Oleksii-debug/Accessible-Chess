@@ -22,6 +22,10 @@ not declare Section 1 DONE by itself.
   with #2340 as first parent and #2335/#2336/#2338 as additional parents.
 - Canonical convergence branch:
   `converge/section1-whole-contract-20261007-sol56`.
+- Released FEN/SAN lexical-ingress child PR #2347 at
+  `a9822c819eaa2e5b53d178908c28f20b1ff987c9` is now in canonical
+  #2344 ancestry by fast-forward, preserving its exact history without
+  force-push/rebase.
 
 No owner branch was rebased, force-pushed, deleted or overwritten. No second FEN
 parser, SAN legality engine, Position model, GameTree or chess-rules authority is
@@ -29,8 +33,8 @@ introduced.
 
 Section 0 is a hard plan dependency and must be honestly DONE before Section 1
 can be marked DONE. At this convergence checkpoint the current Section 0
-successor is PR #2346; its internally controllable runtime/qualification
-residuals have been repaired, but its exact-head qualification is still
+successor is PR #2346; its current same-lineage source/qualification repairs
+are represented on its live head, but exact-head qualification is still
 nonterminal. Queued CI is not PASS.
 
 ## 1.1 — complete FEN read/create/copy/edit/validate
@@ -48,9 +52,13 @@ The composed lineage retains:
 ## 1.2 — FEN state fields and variant boundary
 
 Standard-chess interchange covers side to move, orthodox castling rights,
-en-passant, halfmove and fullmove fields. Manual transitions clear stale
-en-passant where required and validation remains owned by canonical
-`Board` / `PositionState`.
+en-passant, halfmove and fullmove fields. Canonical FEN ingress now requires
+orthodox castling flags in relative `KQkq` order and canonical lowercase
+en-passant square text on both `Board` and `PositionState`; the editor-facing
+mutation helpers may still normalize user-entered rights/square text before
+constructing a new immutable state. Manual transitions clear stale en-passant
+where required and validation remains owned by canonical `Board` /
+`PositionState`.
 
 Chess960/Fischer Random is not silently reinterpreted as Standard chess. The
 current product boundary explicitly fails closed for unsupported variant
@@ -71,7 +79,10 @@ PR #2337 supplies the canonical transition residuals:
   `Move -> Board.san -> notation grammar -> Board.parse_move -> Board.push ->
   FEN -> undo/redo` across castling, en-passant, promotion, source
   disambiguation and checkmate;
-- wrong explicit check/mate claims fail without board mutation.
+- wrong explicit check/mate claims fail without board mutation;
+- canonical and all-zero legacy castling SAN remain accepted, while mixed
+  zero/letter forms such as `0-O` / `O-0` are rejected consistently by the
+  notation grammar and `Board` legality ingress without board mutation.
 
 ## 1.4 — positional interchange without a second rules authority
 
@@ -87,7 +98,10 @@ error-domain seams at this public boundary:
   announcement and do not mutate the live board;
 - `from_fen()` normalizes CPython integer digit-limit conversion failures to
   stable `PositionValidationError` messages for both counters rather than
-  leaking runtime-specific `ValueError` text.
+  leaking runtime-specific `ValueError` text;
+- direct `PositionState` values cannot retain noncanonical castling-order or
+  en-passant spelling that `to_fen()` would publish differently from
+  canonical `Board`.
 
 EPD remains an adapter over the same position authority.
 
@@ -137,9 +151,12 @@ entrypoint it advertises. On the current canonical #2344 lineage:
   same dispatch-safe topology rule;
 - because the source-snapshot workflow was inherited from #2340, changing it on
   #2344 makes it an explicit member of the effective base-to-head convergence
-  geometry. The whole-Section gate must therefore include that path and pin the
-  exact current blobs of all repaired component workflows before its run can be
-  closure evidence.
+  geometry;
+- the consumed #2347 FEN/SAN lexical-ingress workflow is also an explicit
+  convergence path and binds exact `Board`, `PositionState` and focused-test
+  blobs. The whole-Section gate must include it, its focused test and
+  `acs/chesscore.py`, and must pin the exact current blobs before its run can
+  be closure evidence.
 
 These are qualification-contract repairs only. They do not alter canonical
 FEN/SAN/Position behavior, chess legality, corpus bytes or test expectations.
@@ -150,15 +167,16 @@ Section 1 may be marked DONE only after all of the following are simultaneously
 true on freshly re-read live authority:
 
 - Section 0 is honestly DONE;
-- #2327/#2337/#2340 and the consumed #2335/#2336/#2338 residuals have not moved
-  away from the exact consumed heads without another history-preserving
-  convergence;
+- #2327/#2337/#2340 and the consumed #2335/#2336/#2338/#2347 residuals have
+  not moved away from the exact consumed heads without another
+  history-preserving convergence;
 - the canonical Section 1 whole-contract convergence head has terminal
   attributable successful Ubuntu and Windows qualification;
 - the exact-head lawful CC0 corpus job is terminal successful and its receipt
   remains bound to the exact source bytes;
-- deterministic edge-corpus and PositionState resource/error regressions pass on
-  the same exact convergence head;
+- deterministic edge-corpus, PositionState resource/error, canonical FEN
+  castling/en-passant spelling, and SAN castling-glyph regressions pass on the
+  same exact convergence head;
 - no newer conflicting Section 1 owner exists;
 - the live ordered plan, `main`, Section 0 state and this exact head are
   refreshed immediately before closure.
