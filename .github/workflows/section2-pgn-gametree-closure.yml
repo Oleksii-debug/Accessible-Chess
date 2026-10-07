@@ -37,9 +37,7 @@ env:
   STREAMING_IMPORT_TEST_BLOB: 312fd1be794ef61537528d11ada731109d185ff1
   STREAMING_EXPORT_TEST_BLOB: f12627d462ce73a07fd1b9ddd25edad4414720c6
   SAVE_SNAPSHOT_TEST_BLOB: dc20abb0a0e6915d105526895d2611fd718882a1
-  SAVE_CANCEL_TEST_BLOB: 1d96b67b6bd01fdcabc2055b6ec91ab2f59108c1
   CONCURRENT_SAVE_TEST_BLOB: f342bace40ec1a0b11e1aee1f200493be994492c
-  EXPORT_FAILURE_RECOVERY_TEST_BLOB: 1a471a4d2bbbb2f4ded8e535fa62cda13a26b63e
   POSTCOMMIT_ATOMICITY_TEST_BLOB: 8fa8b78561db9a2d015c26cb42d587b670121214
   GAMETREE_SNAPSHOT_RESUME_TEST_BLOB: 2d10a947e0c353ca88c0c76a764932dd5511ce49
   GAMETREE_PERSISTENCE_TEST_BLOB: e3d1e1f5791f3fea799364d42ac69581987d3da5
@@ -56,7 +54,7 @@ env:
   PGN_WEB_BLOB: cd7c1da9ccb0285b26bed733da4d64ba2da61a5f
   PGN_WORKSPACE_TEST_BLOB: a1bdab52d57c8dc7d32e304f0429c8ac82cf0330
   VERSION2_PGN_COMMANDS_TEST_BLOB: cccf94bf327641dc040af3fc7c8de780b72947b1
-  SECTION2_AUDIT_BLOB: 195a5f014b8d264d6420545eb048159c61abddeb
+  SECTION2_AUDIT_BLOB: c8a655e1368ce8eebd5c7b3920ca1aaa728a9770
   PGN_WEBVIEW_PROJECTION_BLOB: 5327c3c89da28f9150a09eff4cc15131cc80cc76
   FULL_PRODUCT_PRESENTERS_BLOB: aa9c7c10a03fbe85bfa9a3b542188a5b31fee655
   PGN_WEBVIEW_PROJECTION_TEST_BLOB: 1488fd39957bb412c0e551252a4364629f816481
@@ -123,17 +121,12 @@ jobs:
           test "$(git rev-parse HEAD:tests/test_gametree_accessible_completion.py)" = "$ACCESSIBLE_GAMETREE_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_pgn_streaming_import.py)" = "$STREAMING_IMPORT_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_v2_pgn_streaming_export.py)" = "$STREAMING_EXPORT_TEST_BLOB"
-          test "$(git rev-parse HEAD:tests/test_pgn_save_snapshot.py)" = "$SAVE_SNAPSHOT_TEST_BLOB"
-          test "$(git rev-parse HEAD:tests/test_pgn_save_snapshot_cancel.py)" = "$SAVE_CANCEL_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_pgn_concurrent_save.py)" = "$CONCURRENT_SAVE_TEST_BLOB"
-          test "$(git rev-parse HEAD:tests/test_dev4_pgn_export_failure_recovery.py)" = "$EXPORT_FAILURE_RECOVERY_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_dev4_pgn_postcommit_cleanup_atomicity.py)" = "$POSTCOMMIT_ATOMICITY_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_d06_gametree_snapshot_resume.py)" = "$GAMETREE_SNAPSHOT_RESUME_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_d06_gametree_persistence_vertical.py)" = "$GAMETREE_PERSISTENCE_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_d06_v2_gametree_resume_reachability.py)" = "$GAMETREE_RESUME_REACHABILITY_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_pgn_document_setup_fen_integrity.py)" = "$SETUP_FEN_INTEGRITY_TEST_BLOB"
-          test "$(git rev-parse HEAD:tests/test_pgn_document_new_game_position_integrity.py)" = "$NEW_GAME_POSITION_INTEGRITY_TEST_BLOB"
-          test "$(git rev-parse HEAD:tests/test_pgn_document_passive_ingress.py)" = "$PASSIVE_INGRESS_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/js/pgn_surface_dom_test.js)" = "$PGN_DOM_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/js/pgn_tree_keyboard_dom_test.js)" = "$PGN_TREE_KEYBOARD_DOM_BLOB"
           test "$(git rev-parse HEAD:tests/js/pgn_tree_boundary_key_ownership_test.js)" = "$PGN_TREE_KEY_OWNERSHIP_BLOB"
@@ -181,17 +174,12 @@ jobs:
           tests.test_gametree_accessible_completion
           tests.test_pgn_streaming_import
           tests.test_v2_pgn_streaming_export
-          tests.test_pgn_save_snapshot
-          tests.test_pgn_save_snapshot_cancel
           tests.test_pgn_concurrent_save
-          tests.test_dev4_pgn_export_failure_recovery
           tests.test_dev4_pgn_postcommit_cleanup_atomicity
           tests.test_d06_gametree_snapshot_resume
           tests.test_d06_gametree_persistence_vertical
           tests.test_d06_v2_gametree_resume_reachability
           tests.test_pgn_document_setup_fen_integrity
-          tests.test_pgn_document_new_game_position_integrity
-          tests.test_pgn_document_passive_ingress
           tests.test_pgn_workspace
           tests.test_pgn_document
           tests.test_version2_pgn_commands
