@@ -30,6 +30,7 @@ from .report_paths import report_safe_name
 
 _MAX_IMPORT_SUFFIX_CHARS = 64
 _MAX_IMPORT_SUFFIXES = 64
+_MAX_IMPORT_FORMAT_NAME_CHARS = 256
 _PASSIVE_OSERROR_TYPES = frozenset(
     {
         OSError,
@@ -322,7 +323,14 @@ class ImportRegistry:
         registration_snapshot = self._registration_snapshot()
         try:
             format_name = importer.format_name
-            if type(format_name) is not str or not format_name.strip():
+            if type(format_name) is not str:
+                raise ImportRegistryError("Importer format_name must be exact text")
+            # Bound provider-owned exact text before strip() performs a linear
+            # whitespace scan. Importer metadata is a routing/control-plane
+            # boundary and must not permit unbounded work before registration.
+            if len(format_name) > _MAX_IMPORT_FORMAT_NAME_CHARS:
+                raise ImportRegistryError("Importer format_name is too long")
+            if not format_name.strip():
                 raise ImportRegistryError("Importer format_name must be non-empty exact text")
 
             raw_suffixes = importer.suffixes
