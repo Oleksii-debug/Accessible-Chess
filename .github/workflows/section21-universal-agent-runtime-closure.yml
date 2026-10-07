@@ -52,7 +52,7 @@ jobs:
           git diff --quiet "$SECTION21_ACCEPTED" "$SECTION21_MERGE"
           git diff --check "$CURRENT_AGENT"...HEAD
           changed="$(git diff --name-only "$CURRENT_AGENT"...HEAD | LC_ALL=C sort)"
-          expected="$(printf '%s\n'             '.github/workflows/section21-universal-agent-runtime-closure.yml'             '.github/workflows/section22-agent-domain-tools-closure.yml'             '.github/workflows/sections23-24-agent-closure.yml' | LC_ALL=C sort)"
+          expected="$(printf '%s\n'             '.github/workflows/section21-universal-agent-runtime-closure.yml'             '.github/workflows/section22-agent-domain-tools-closure.yml'             '.github/workflows/sections23-24-agent-closure.yml' 'tests/test_agent_format_capabilities.py' | LC_ALL=C sort)"
           test "$changed" = "$expected" || {
             printf 'UNEXPECTED_AGENT_CLOSURE_REPAIR_SCOPE\n%s\n' "$changed" >&2
             exit 1
