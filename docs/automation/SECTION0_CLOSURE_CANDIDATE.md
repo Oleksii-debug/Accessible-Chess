@@ -56,12 +56,13 @@ The checked projection remains `docs/automation/CANONICAL_FORMAT_CAPABILITY_MATR
 
 This successor preserves #2345, #2341, #2332 and their reconciled Section 0 ancestry instead of opening a competing implementation.
 
-Relative to exact #2345, the current successor is required to change exactly five paths:
+Relative to exact #2345, the current successor is required to change exactly six paths:
 - `.github/workflows/section0-import-batch-exception-isolation.yml`;
 - `.github/workflows/section0-whole-contract-convergence.yml`;
 - `acs/import_registry.py`;
 - `docs/automation/SECTION0_CLOSURE_CANDIDATE.md`;
-- `tests/test_import_registry.py`.
+- `tests/test_import_registry.py`;
+- `tests/test_dev4_import_batch_adapter_failure.py`.
 
 If #2345 moves before qualification, the gate must fail closed and this successor must be reconverged.
 
@@ -394,3 +395,22 @@ projection values are unchanged after restoration.
 
 This remains the exact five-path #2346 Section-0.5 lineage and adds no parser,
 decoder, report, format or chess authority.
+
+### Retained batch-runtime QA privacy convergence
+
+A retained repository QA module still encoded the pre-privacy behavior for
+ordinary adapter `RuntimeError`: it required the adapter's raw exception text
+to appear in `BatchInspectionItem.error`. The current canonical Section-0.5
+boundary intentionally treats that text as untrusted because it may contain
+private workstation/decoder paths. Leaving the stale oracle outside the
+canonical gates would allow the Section gates to pass while repository-level
+unittest discovery still contained a contradictory regression.
+
+`tests/test_dev4_import_batch_adapter_failure.py` now requires the stable
+source-scoped message, proves private/provider text is absent, and still proves a
+later independent source is inspected successfully. The focused and Whole V3
+gates exact-pin, compile and execute this retained QA module.
+
+The honest #2346 successor geometry therefore expands from five to exactly six
+paths; this is test/evidence convergence only and does not change runtime
+semantics.
