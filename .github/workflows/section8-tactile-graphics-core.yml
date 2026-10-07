@@ -1,0 +1,46 @@
+name: Section 8 Refreshable Tactile Graphics Core
+
+on:
+  pull_request:
+    paths:
+      - 'acs/tactile_graphics.py'
+      - 'tests/test_section8_tactile_graphics_core.py'
+      - 'docs/automation/SECTION8_CLOSURE_AUDIT.md'
+      - '.github/workflows/section8-tactile-graphics-core.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  section8-core:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile Section 8 core
+        run: python -m py_compile acs/tactile_graphics.py tests/test_section8_tactile_graphics_core.py
+
+      - name: Run Section 8 acceptance tests
+        run: python -m unittest -v tests.test_section8_tactile_graphics_core
+
+      - name: Run canonical Position and GameTree adjacency
+        run: >
+          python -m unittest -v
+          tests.test_position_editor
+          tests.test_position_editor_passive_boundary
+          tests.test_gametree
+          tests.test_gametree_accessible_completion
