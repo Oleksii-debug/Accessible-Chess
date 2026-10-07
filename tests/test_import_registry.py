@@ -356,13 +356,15 @@ class ImportRegistryTests(unittest.TestCase):
             '.bad\u2028suffix',
             '.nested/path',
             '.nested\\path',
+            '.',
+            '..double',
             '.' + ('x' * 65),
         )
         for suffix in unsafe_suffixes:
             with self.subTest(suffix=repr(suffix)):
                 with self.assertRaisesRegex(
                     ImportRegistryError,
-                    'bounded safe extension text',
+                    'bounded canonical extension text',
                 ):
                     ImportRegistry().register(UnsafeSuffixImporter(suffix))
 

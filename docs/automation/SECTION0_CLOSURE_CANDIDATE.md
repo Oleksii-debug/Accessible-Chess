@@ -82,7 +82,7 @@ The composed stack now requires:
 - the selected suffix/importer/format registration to remain one stable registration token across each inspection; re-entrant or concurrent replace/unregister/re-register of that suffix during adapter execution fails closed before report acceptance or before an ordinary adapter error can hide the route mutation;
 - replace/unregister routing and identity maps to remain synchronized;
 - format-identity rejection to be source-preserving and batch-recoverable;
-- canonical suffix declarations to remain bounded, path-separator-free and report-safe before registration, so routing keys cannot contain control/path syntax that `Path.suffix` can never produce;
+- canonical suffix declarations to remain bounded, path-separator-free, report-safe and exact-round-trippable through `Path.suffix` before registration, so unreachable routing keys such as `.` or `..foo` never enter host authority;
 - unknown-source diagnostics to bound and sanitize hostile/control suffix text instead of republishing it into accessible batch evidence;
 - non-aborting `inspect_batch()` to isolate ordinary adapter/parser exceptions such as KeyError/IndexError per source and continue to later independent sources;
 - failed batch items to carry a non-empty diagnostic even when an exception has empty text;
@@ -188,17 +188,19 @@ new parser, decoder, registry, report model or chess authority.
 ### Bounded canonical suffix/error boundary
 
 The same Section-0.5 registry now rejects importer suffix declarations that are
-over the 64-character routing budget, contain slash/backslash path syntax, or
-contain report-control text. This aligns registration keys with the actual
-single-suffix `Path.suffix` router and prevents unreachable or control-bearing
-format routes from entering host authority.
+over the 64-character routing budget, contain slash/backslash path syntax,
+contain report-control text, or fail an exact `Path.suffix` round trip. This
+aligns registration keys with the actual single-suffix router and prevents
+unreachable values such as `.` / `..foo` or control-bearing format routes from
+entering host authority.
 
 Unknown-source errors use the same bounded/report-safe boundary. A hostile or
 extreme suffix is reported as `<invalid>` rather than being copied verbatim
 into batch/accessibility diagnostics. Ordinary short unknown suffixes keep their
 specific extension evidence.
 
-Focused regressions cover newline, Unicode line-separator, path-like and
-over-budget declarations plus strict and batch unknown-source diagnostics. The
+Focused regressions cover newline, Unicode line-separator, path-like,
+non-round-trippable (`.` / `..foo`) and over-budget declarations plus strict and
+batch unknown-source diagnostics. The
 repair stays on PR #2346 and changes no decoder, chess semantics, provenance
 model or capability classification.

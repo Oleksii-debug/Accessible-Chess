@@ -213,8 +213,9 @@ class ImportRegistry:
             or "/" in value
             or "\\" in value
             or report_safe_name("source" + value) != "source" + value
+            or Path("source" + value).suffix.lower() != value
         ):
-            raise ImportRegistryError("Importer suffix must be bounded safe extension text")
+            raise ImportRegistryError("Importer suffix must be bounded canonical extension text")
         return value
 
     def register(self, importer: ReadOnlyImporter, *, replace: bool = False) -> ImporterRegistration:
