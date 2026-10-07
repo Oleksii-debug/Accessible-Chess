@@ -59,7 +59,7 @@ PARTIAL/BLOCKED states are intentional product truth. In particular, FEN full ed
 
 ### 0.4 — convergence
 
-This candidate composes the active sibling lineages with a two-parent history-preserving merge. Historical PRs remain evidence rather than alternate runtime authorities.
+This candidate composes the active sibling lineages through a history-preserving convergence chain. The required current owner heads and reconciled candidate remain explicit ancestors; historical PRs remain evidence rather than alternate runtime authorities.
 
 ### 0.5 — malformed/partial input reporting
 
@@ -79,7 +79,7 @@ The current stack:
 ## Qualification required before DONE
 
 The dedicated whole-Section dual-OS gate must be terminal GREEN on the exact convergence head. It checks:
-- exact two-parent ancestry;
+- required current owner/candidate ancestry;
 - exact effective geometry;
 - exact authority/report/capability blobs;
 - Section 0.1–0.5 executable contracts;
