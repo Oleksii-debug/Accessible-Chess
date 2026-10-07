@@ -605,39 +605,3 @@ This remains the same exact six-path canonical PR #2346 lineage and introduces
 no parser, decoder, ImportReport, format capability or chess authority.
 
 `SECTION_0_DONE=NO_PENDING_TERMINAL_CI_AND_LIVE_REVALIDATION`
-
-
-
-### Process-control mutation precedence in non-aborting batch preflight
-
-Exact-head hosted qualification exposed a real retained regression:
-`test_process_control_cannot_hide_source_mutation` failed because batch
-preflight correctly converted source mutation into `SourceMutationError`, but
-then treated that error as ordinary per-source evidence and continued. A direct
-`KeyboardInterrupt` / `SystemExit` raised only after mutating or deleting
-the source could therefore be downgraded into the normal non-aborting batch
-path.
-
-The canonical registry now preserves direct process-control as the explicit
-cause of source-integrity failure. `inspect_batch()` continues to record
-ordinary adapter/source mutation per source, but re-raises
-`SourceMutationError` when its cause is direct process-control. This keeps
-ordinary batch isolation intact while preventing control-plus-mutation from
-being swallowed. If post-signal fingerprinting fails because the source was
-deleted or became unverifiable, the original process-control signal remains
-the explicit cause instead of being replaced by the verification exception.
-
-The retained mutation regression now has executable semantics again, and a new
-deletion regression proves that `SystemExit` + source deletion raises
-`SourceMutationError`, aborts later batch work, preserves the later source
-bytes, and retains `SystemExit` as the cause.
-
-Exact successor blobs:
-- `acs/import_registry.py`: `76be5deb299db67caaa4a3ed999936980b17eeb8`;
-- `tests/test_import_registry.py`: `ed0c9515977847700e19ce9ea298795a3c21512c`;
-- focused workflow: `4dcafa3b0ef03da5b3d3e79812f58f6449242a5c`.
-
-This remains the same six-path PR #2346 Section-0 lineage and introduces no
-new format, parser, ImportReport, capability or chess authority.
-
-`SECTION_0_DONE=NO_PENDING_TERMINAL_CI_AND_LIVE_REVALIDATION`
