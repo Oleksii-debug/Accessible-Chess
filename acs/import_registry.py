@@ -135,7 +135,12 @@ class ImportRegistry:
             raise ImportRegistryError(
                 "Read-only importer must return an exact passive ImportReport"
             )
-        report.validate()
+        try:
+            report.validate()
+        except (TypeError, ValueError) as exc:
+            raise ImportRegistryError(
+                "Read-only importer returned an invalid ImportReport"
+            ) from exc
         if not _same_source(before, report.source):
             raise SourceProvenanceError(
                 f"Importer report provenance does not match inspected source: {source}"
