@@ -227,6 +227,8 @@ jobs:
           assert int(source["selected_games"]) >= 200
           assert entry["license_id"] == "CC0-1.0"
           assert entry["sha256"] == digest
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env:
+              env.write(f"LAWFUL_FEN_STARTER_SHA256={digest}\\n")
           print("LAWFUL_FEN_CORPUS_PROVENANCE=PASS")
           PY
 
@@ -240,3 +242,42 @@ jobs:
             --min-positions 5000 \
             --require-edge-coverage \
             --json-out .fen-lawful/fen_position_qualification.json
+
+      - name: Bind qualification report to lawful source bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          root = Path(".fen-lawful")
+          starter = root / "starter_uk.pgn"
+          manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+          report = json.loads(
+              (root / "fen_position_qualification.json").read_text(encoding="utf-8")
+          )
+          entry = manifest["files"]["starter_uk.pgn"]
+          expected = os.environ["LAWFUL_FEN_STARTER_SHA256"]
+          current_digest = hashlib.sha256(starter.read_bytes()).hexdigest()
+
+          assert len(expected) == 64
+          assert entry["sha256"] == expected
+          assert current_digest == expected
+          assert report["source_sha256"] == expected
+          assert int(report["game_count"]) >= 200
+          assert int(report["position_count"]) >= 5000
+          for key in (
+              "white_to_move_count",
+              "black_to_move_count",
+              "castling_rights_count",
+              "no_castling_rights_count",
+              "en_passant_count",
+              "halfmove_nonzero_count",
+              "fullmove_gt_one_count",
+          ):
+              assert int(report[key]) >= 1, key
+          print("LAWFUL_FEN_CORPUS_REPORT_BINDING=PASS")
+          PY
