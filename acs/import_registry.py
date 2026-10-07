@@ -148,6 +148,30 @@ class ImportRegistry:
         self._format_name_by_suffix: dict[str, str] = {}
         self._registration_token_by_suffix: dict[str, object] = {}
 
+    def _registration_state_is_passive(self) -> bool:
+        """Reject active/corrupt routing containers before observing their data."""
+
+        by_suffix = getattr(self, "_by_suffix", None)
+        format_names = getattr(self, "_format_name_by_suffix", None)
+        tokens = getattr(self, "_registration_token_by_suffix", None)
+        if (
+            type(by_suffix) is not dict
+            or type(format_names) is not dict
+            or type(tokens) is not dict
+        ):
+            return False
+
+        mappings = (by_suffix, format_names, tokens)
+        if any(type(key) is not str for mapping in mappings for key in mapping):
+            return False
+        if any(type(value) is not str for value in format_names.values()):
+            return False
+        if any(type(value) is not object for value in tokens.values()):
+            return False
+
+        keys = set(by_suffix)
+        return keys == set(format_names) == set(tokens)
+
     def _registration_snapshot(
         self,
     ) -> tuple[
@@ -156,6 +180,8 @@ class ImportRegistry:
         dict[str, object],
     ]:
         """Capture the complete routing authority before adapter execution."""
+        if not self._registration_state_is_passive():
+            raise ImportRegistryError("Importer registration state is inconsistent")
         return (
             dict(self._by_suffix),
             dict(self._format_name_by_suffix),
@@ -170,19 +196,24 @@ class ImportRegistry:
             dict[str, object],
         ],
     ) -> bool:
+        if not self._registration_state_is_passive():
+            return False
         by_suffix, format_names, tokens = snapshot
         if (
-            set(self._by_suffix) != set(by_suffix)
-            or set(self._format_name_by_suffix) != set(format_names)
-            or set(self._registration_token_by_suffix) != set(tokens)
+            len(self._by_suffix) != len(by_suffix)
+            or len(self._format_name_by_suffix) != len(format_names)
+            or len(self._registration_token_by_suffix) != len(tokens)
         ):
             return False
-        return all(
-            self._by_suffix[suffix] is importer
-            and self._format_name_by_suffix[suffix] == format_names[suffix]
-            and self._registration_token_by_suffix[suffix] is tokens[suffix]
-            for suffix, importer in by_suffix.items()
-        )
+        for suffix, importer in by_suffix.items():
+            if self._by_suffix.get(suffix) is not importer:
+                return False
+            current_format = self._format_name_by_suffix.get(suffix)
+            if type(current_format) is not str or current_format != format_names[suffix]:
+                return False
+            if self._registration_token_by_suffix.get(suffix) is not tokens[suffix]:
+                return False
+        return True
 
     def _restore_registration_snapshot(
         self,
@@ -192,13 +223,12 @@ class ImportRegistry:
             dict[str, object],
         ],
     ) -> None:
+        # Never call clear/update on adapter-rebound containers: a dict subclass
+        # or arbitrary mapping could execute hooks during the recovery path.
         by_suffix, format_names, tokens = snapshot
-        self._by_suffix.clear()
-        self._by_suffix.update(by_suffix)
-        self._format_name_by_suffix.clear()
-        self._format_name_by_suffix.update(format_names)
-        self._registration_token_by_suffix.clear()
-        self._registration_token_by_suffix.update(tokens)
+        self._by_suffix = dict(by_suffix)
+        self._format_name_by_suffix = dict(format_names)
+        self._registration_token_by_suffix = dict(tokens)
 
     @staticmethod
     def _normalize_suffix(suffix: str) -> str:
@@ -219,6 +249,8 @@ class ImportRegistry:
         return value
 
     def register(self, importer: ReadOnlyImporter, *, replace: bool = False) -> ImporterRegistration:
+        if not self._registration_state_is_passive():
+            raise ImportRegistryError("Importer registration state is inconsistent")
         format_name = importer.format_name
         if type(format_name) is not str or not format_name.strip():
             raise ImportRegistryError("Importer format_name must be non-empty exact text")
@@ -240,18 +272,24 @@ class ImportRegistry:
         return ImporterRegistration(importer=importer, suffixes=suffixes)
 
     def unregister(self, importer: ReadOnlyImporter) -> None:
+        if not self._registration_state_is_passive():
+            raise ImportRegistryError("Importer registration state is inconsistent")
         for suffix in [key for key, value in self._by_suffix.items() if value is importer]:
             del self._by_suffix[suffix]
             del self._format_name_by_suffix[suffix]
             del self._registration_token_by_suffix[suffix]
 
     def importer_for(self, path: str | Path) -> ReadOnlyImporter | None:
+        if not self._registration_state_is_passive():
+            raise ImportRegistryError("Importer registration state is inconsistent")
         return self._by_suffix.get(Path(path).suffix.lower())
 
     def inspect(self, path: str | Path) -> ImportReport:
         return self._inspect(path, batch_context=False)
 
     def _inspect(self, path: str | Path, *, batch_context: bool) -> ImportReport:
+        if not self._registration_state_is_passive():
+            raise ImportRegistryError("Importer registration state is inconsistent")
         source = Path(path)
         safe_source = report_safe_name(source)
         source_suffix = source.suffix.lower()

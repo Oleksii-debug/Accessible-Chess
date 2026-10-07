@@ -205,3 +205,35 @@ non-round-trippable (`.` / `..foo`) and over-budget declarations plus strict and
 batch unknown-source diagnostics. The
 repair stays on PR #2346 and changes no decoder, chess semantics, provenance
 model or capability classification.
+
+### Passive registration-container recovery
+
+A further Section-0.5 adversarial audit found that route restoration still
+trusted the identity of the registry's private mapping containers. An adapter
+can capture the registry and rebind a routing map to a `dict` subclass or
+another active object during inspection. The previous drift check would then
+iterate/query that hostile container, while restoration called `clear()` and
+`update()` on it. Adapter-owned hooks could therefore execute inside the
+host-owned recovery path and prevent authoritative routing from being restored.
+
+The registry now treats container identity and passive shape as part of the
+routing invariant:
+- all three routing maps must be exact built-in `dict` values before use;
+- routing keys and bound format-name/token scalars are checked passively before
+  set/membership/equality operations;
+- drift detection returns failure without invoking methods on a rebound
+  container;
+- restoration replaces the three attributes with fresh built-in dict copies
+  of the pre-adapter snapshot instead of mutating attacker-supplied containers;
+- public register/unregister/importer lookup and inspection fail closed if
+  pre-existing registration state is not passive/canonical.
+
+Negative regressions cover a successful adapter, an ordinary failing adapter,
+cooperative cancellation, and direct `KeyboardInterrupt`, each rebinding a
+different routing container to a hostile dict subclass whose iteration or
+mutation hooks raise. No hostile mapping hook is executed; canonical routes are
+restored; ordinary batch work continues when appropriate; cancellation and
+process-control remain control flow.
+
+This remains the same five-path #2346 successor and introduces no new parser,
+decoder, ImportReport, chess, provenance or reporting authority.
