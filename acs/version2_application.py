@@ -1580,7 +1580,17 @@ class Version2Application:
                 payload = {}
             if type(payload) is not dict:
                 raise ValueError("user-data portability payload must be an object")
-            return self._user_data_portability(action, dict(payload))
+            result = self._user_data_portability(action, dict(payload))
+            if type(result) is dict:
+                announcement = result.get("announcement")
+                if type(announcement) is str and announcement:
+                    self._events.append(
+                        {
+                            "kind": "status",
+                            "payload": {"announcement": announcement},
+                        }
+                    )
+            return result
         if action == "board.read_fen":
             if payload:
                 raise ValueError("Read FEN accepts no payload")
