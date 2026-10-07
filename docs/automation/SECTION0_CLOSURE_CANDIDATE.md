@@ -82,7 +82,9 @@ The composed stack now requires:
 - the selected suffix/importer/format registration to remain one stable registration token across each inspection; re-entrant or concurrent replace/unregister/re-register of that suffix during adapter execution fails closed before report acceptance or before an ordinary adapter error can hide the route mutation;
 - replace/unregister routing and identity maps to remain synchronized;
 - format-identity rejection to be source-preserving and batch-recoverable;
-- canonical suffix declarations to remain bounded, path-separator-free and report-safe before registration, so routing keys cannot contain control/path syntax that `Path.suffix` can never produce;\n- unknown-source diagnostics to bound and sanitize hostile/control suffix text instead of republishing it into accessible batch evidence;\n- non-aborting `inspect_batch()` to isolate ordinary adapter/parser exceptions such as KeyError/IndexError per source and continue to later independent sources;
+- canonical suffix declarations to remain bounded, path-separator-free and report-safe before registration, so routing keys cannot contain control/path syntax that `Path.suffix` can never produce;
+- unknown-source diagnostics to bound and sanitize hostile/control suffix text instead of republishing it into accessible batch evidence;
+- non-aborting `inspect_batch()` to isolate ordinary adapter/parser exceptions such as KeyError/IndexError per source and continue to later independent sources;
 - failed batch items to carry a non-empty diagnostic even when an exception has empty text;
 - registry-owned mutation/unverifiable/provenance diagnostics to expose only report-safe source identity, never private workstation parent paths;
 - batch adapter exception text to remain untrusted: OSError evidence is reduced to bounded errno/safe filename context, while ordinary adapter diagnostics (including adapter-raised ImportRegistryError) become stable source-scoped messages instead of republishing private decoder/path text;
