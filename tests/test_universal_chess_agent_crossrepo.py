@@ -15,6 +15,7 @@ from acs.agent_model_contracts import (
 )
 from acs.agent_model_gateway import ModelGateway
 from acs.agent_tools import ToolExecutor
+from acs.board_service import BoardCommandService, BoardSnapshot, MoveView
 from acs.chess_agent_tools import ChessAgentToolRegistry
 from acs.chesscore import Board
 from acs.universal_chess_agent import AgentRunPolicy, UniversalChessAgentRuntime
@@ -54,13 +55,37 @@ class _BlockingProvider(_ScriptedProvider):
         raise AssertionError("cancel should interrupt provider coroutine")
 
 
+def _board_commands(board: Board) -> BoardCommandService:
+    legal = tuple(
+        MoveView(
+            move.frm,
+            move.to,
+            board.san(move),
+            bool(board.board[move.to]) or move.en_passant,
+        )
+        for move in board.legal_moves()
+    )
+    attacks = {}
+    for target in range(64):
+        origins = tuple(board.attackers_of(target))
+        if origins:
+            attacks[target] = origins
+    last = board.last_move
+    last_view = None if last is None else MoveView(last.frm, last.to)
+    return BoardCommandService(
+        BoardSnapshot(tuple(board.board), board.turn, legal, attacks, last_view)
+    )
+
+
 def _runtime(provider, *, budget=None, max_steps=5):
     gateway = ModelGateway()
     gateway.register(provider)
     tools = ToolExecutor()
+    board = Board()
     ChessAgentToolRegistry(
         executor=tools,
-        board_provider=lambda: Board(),
+        board_provider=lambda: board,
+        board_commands_provider=lambda: _board_commands(board),
     ).register_all()
     return UniversalChessAgentRuntime(
         gateway=gateway,
