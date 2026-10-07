@@ -177,6 +177,25 @@ const VISUAL_PIECE_NAMES = Object.freeze([
     ['чорний пішак', '♟'], ['black pawn', '♟']
 ]);
 
+const VISUAL_PIECE_ASSET_IDS = Object.freeze({
+    '♔': 'white_king', '♕': 'white_queen', '♖': 'white_rook',
+    '♗': 'white_bishop', '♘': 'white_knight', '♙': 'white_pawn',
+    '♚': 'black_king', '♛': 'black_queen', '♜': 'black_rook',
+    '♝': 'black_bishop', '♞': 'black_knight', '♟': 'black_pawn'
+});
+
+function safeVisualPieceUrl(value) {
+    const text = typeof value === 'string' ? value : '';
+    return /^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(text) ? text : '';
+}
+
+function activeVisualPieceAssets() {
+    const currentState = typeof state !== 'undefined' ? state : null;
+    const visual = currentState && currentState.visualBoard && currentState.visualBoard.visual;
+    const assets = visual && visual.assets;
+    return assets && assets.pieces && typeof assets.pieces === 'object' ? assets.pieces : {};
+}
+
 let newGameVisualPending = false;
 let newGameAnimationGeneration = 0;
 let newGameAnimationEndTimer = null;
@@ -195,7 +214,7 @@ function ensureVisualPieceStyle() {
     style.id = 'stage1-visual-piece-style';
     style.textContent = [
         '#board-grid [role="gridcell"]{position:relative;min-height:4.5rem;overflow:visible}',
-        '.stage1-visual-piece{position:relative;display:block;font-family:"Segoe UI Symbol","Noto Sans Symbols 2",sans-serif;font-size:2.25rem;line-height:1.05;pointer-events:none;transform-origin:50% 65%;will-change:transform,opacity}',
+        '.stage1-visual-piece{position:relative;display:block;width:100%;min-height:2.5rem;font-family:"Segoe UI Symbol","Noto Sans Symbols 2",sans-serif;font-size:calc(2.25rem * var(--piece-scale, .92));line-height:1.05;pointer-events:none;transform-origin:50% 65%;will-change:transform,opacity;background-repeat:no-repeat;background-position:center;background-size:contain}',
         '#board-grid.stage1-new-game-animating .stage1-visual-piece{z-index:3}'
     ].join('');
     document.head.appendChild(style);
@@ -205,6 +224,7 @@ function decorateVisibleBoardPieces(grid = byId('board-grid')) {
     if (!grid) return 0;
     ensureVisualPieceStyle();
     const cells = [...grid.querySelectorAll('[role="gridcell"][data-square]')];
+    const customAssets = activeVisualPieceAssets();
     let count = 0;
     cells.forEach(cell => {
         const glyph = visualPieceGlyph(cell);
@@ -214,9 +234,13 @@ function decorateVisibleBoardPieces(grid = byId('board-grid')) {
             return;
         }
         const piece = existing || document.createElement('span');
+        const assetId = VISUAL_PIECE_ASSET_IDS[glyph] || '';
+        const assetUrl = assetId ? safeVisualPieceUrl(customAssets[assetId]) : '';
         piece.className = 'stage1-visual-piece';
         piece.setAttribute('aria-hidden', 'true');
-        piece.textContent = glyph;
+        piece.textContent = assetUrl ? '' : glyph;
+        piece.style.backgroundImage = assetUrl ? 'url("' + assetUrl + '")' : '';
+        piece.dataset.visualAsset = assetUrl ? assetId : '';
         piece.dataset.square = String(cell.dataset.square || '');
         if (!existing) cell.appendChild(piece);
         count += 1;
@@ -267,6 +291,10 @@ function startNewGameVisualSequence() {
         return false;
     }
     if (currentSoundState.newGameAnimation === false) {
+        finishNewGameVisualSequence();
+        return false;
+    }
+    if (grid.dataset.reducedMotion === 'true') {
         finishNewGameVisualSequence();
         return false;
     }
