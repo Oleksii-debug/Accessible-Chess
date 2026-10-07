@@ -543,3 +543,31 @@ This remains the same exact six-path canonical PR #2346 lineage. It adds no
 parser, decoder, ImportReport, format capability or chess authority.
 
 `SECTION_0_DONE=NO_PENDING_TERMINAL_CI_AND_LIVE_REVALIDATION`
+
+
+### Deterministic threaded mutation oracle
+
+The first threaded regression proved final state but still used a short completion
+wait as part of its blocking oracle. The acceptance evidence is now stronger and
+symmetric.
+
+For concurrent `register()`, the candidate importer exposes a format-name
+property that sets an event only when host registration has actually crossed the
+authority lock and begun metadata observation. While inspection is held open,
+that event must remain unset; after release it must become set and the new route
+must persist.
+
+For concurrent `unregister()`, an observed registry subclass marks entry into
+the mutation helper. The helper is unreachable while inspection owns the routing
+transaction, then runs after release; the in-flight report remains valid and the
+route is removed only afterwards.
+
+This removes a timing-only interpretation from the threaded acceptance oracle
+and covers both publication directions without changing runtime semantics.
+
+Exact updated test blob:
+- `tests/test_import_registry.py`: `aff0a87a2c4161a7bd2ab6bce5e21bd2b3fefb2b`.
+
+This remains the same six-path PR #2346 lineage.
+
+`SECTION_0_DONE=NO_PENDING_TERMINAL_CI_AND_LIVE_REVALIDATION`
