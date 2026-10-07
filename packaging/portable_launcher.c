@@ -1,5 +1,4 @@
 #define WIN32_LEAN_AND_MEAN
-#define _WIN32_WINNT 0x0601
 #include <windows.h>
 
 /*
@@ -45,7 +44,7 @@ static WCHAR g_command[AC_PATH_CAP * 2];
 static WCHAR g_message[AC_PATH_CAP + 2048];
 static WCHAR g_error_text[2048];
 static CHAR g_utf8[AC_UTF8_CAP];
-static STARTUPINFOEXW g_startup;
+static STARTUPINFOW g_startup;
 static PROCESS_INFORMATION g_process;
 static HANDLE g_instance_lock = INVALID_HANDLE_VALUE;
 
@@ -665,10 +664,6 @@ void WINAPI wWinMainCRTStartup(void) {
     HANDLE app_guard = INVALID_HANDLE_VALUE;
     HANDLE core_guard = INVALID_HANDLE_VALUE;
     HANDLE data_guard = INVALID_HANDLE_VALUE;
-    HANDLE inherited_handles[4];
-    LPPROC_THREAD_ATTRIBUTE_LIST attribute_list = NULL;
-    SIZE_T attribute_bytes = 0;
-    DWORD inherited_index;
     DWORD error;
     DWORD wait_result;
     DWORD exit_code = STILL_ACTIVE;
@@ -763,95 +758,25 @@ void WINAPI wWinMainCRTStartup(void) {
         ac_fail(report, L"child command construction", ERROR_BUFFER_OVERFLOW);
     }
 
-    inherited_handles[0] = g_instance_lock;
-    inherited_handles[1] = root_guard;
-    inherited_handles[2] = app_guard;
-    inherited_handles[3] = data_guard;
-    for (inherited_index = 0; inherited_index < 4; ++inherited_index) {
-        if (!SetHandleInformation(
-                inherited_handles[inherited_index],
-                HANDLE_FLAG_INHERIT,
-                HANDLE_FLAG_INHERIT)) {
-            error = GetLastError();
-            ac_fail(report, L"selective guard inheritance preparation", error);
-        }
-    }
-
-    if (InitializeProcThreadAttributeList(NULL, 1, 0, &attribute_bytes) ||
-        GetLastError() != ERROR_INSUFFICIENT_BUFFER) {
-        error = GetLastError();
-        ac_fail(
-            report,
-            L"selective guard attribute sizing",
-            error == ERROR_SUCCESS ? ERROR_INVALID_DATA : error
-        );
-    }
-    attribute_list = (LPPROC_THREAD_ATTRIBUTE_LIST)HeapAlloc(
-        GetProcessHeap(),
-        0,
-        attribute_bytes
-    );
-    if (attribute_list == NULL) {
-        ac_fail(report, L"selective guard attribute allocation", ERROR_NOT_ENOUGH_MEMORY);
-    }
-    if (!InitializeProcThreadAttributeList(attribute_list, 1, 0, &attribute_bytes)) {
-        error = GetLastError();
-        HeapFree(GetProcessHeap(), 0, attribute_list);
-        attribute_list = NULL;
-        ac_fail(report, L"selective guard attribute initialization", error);
-    }
-    if (!UpdateProcThreadAttribute(
-            attribute_list,
-            0,
-            PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
-            inherited_handles,
-            sizeof(inherited_handles),
-            NULL,
-            NULL)) {
-        error = GetLastError();
-        DeleteProcThreadAttributeList(attribute_list);
-        HeapFree(GetProcessHeap(), 0, attribute_list);
-        attribute_list = NULL;
-        ac_fail(report, L"selective guard handle-list binding", error);
-    }
-
-    g_startup.StartupInfo.cb = sizeof(g_startup);
-    g_startup.lpAttributeList = attribute_list;
+    g_startup.cb = sizeof(g_startup);
 
     if (!CreateProcessW(
             g_core,
             g_command,
             NULL,
             NULL,
-            TRUE,
-            CREATE_UNICODE_ENVIRONMENT | CREATE_SUSPENDED | EXTENDED_STARTUPINFO_PRESENT,
+            FALSE,
+            CREATE_UNICODE_ENVIRONMENT | CREATE_SUSPENDED,
             NULL,
             g_app_dir,
-            &g_startup.StartupInfo,
+            &g_startup,
             &g_process)) {
         error = GetLastError();
-        DeleteProcThreadAttributeList(attribute_list);
-        HeapFree(GetProcessHeap(), 0, attribute_list);
-        attribute_list = NULL;
         CloseHandle(core_guard);
         ac_fail(report, L"core process creation", error);
     }
-    DeleteProcThreadAttributeList(attribute_list);
-    HeapFree(GetProcessHeap(), 0, attribute_list);
-    attribute_list = NULL;
     CloseHandle(core_guard);
     core_guard = INVALID_HANDLE_VALUE;
-
-    for (inherited_index = 0; inherited_index < 4; ++inherited_index) {
-        if (!SetHandleInformation(
-                inherited_handles[inherited_index],
-                HANDLE_FLAG_INHERIT,
-                0)) {
-            error = GetLastError();
-            CloseHandle(g_process.hThread);
-            ac_fail(report, L"selective guard inheritance cleanup", error);
-        }
-    }
 
     resume_result = ResumeThread(g_process.hThread);
     if (resume_result == (DWORD)-1) {
@@ -860,17 +785,9 @@ void WINAPI wWinMainCRTStartup(void) {
         ac_fail(report, L"core process resume", error);
     }
     CloseHandle(g_process.hThread);
-    CloseHandle(g_instance_lock);
-    g_instance_lock = INVALID_HANDLE_VALUE;
-    CloseHandle(root_guard);
-    root_guard = INVALID_HANDLE_VALUE;
-    CloseHandle(app_guard);
-    app_guard = INVALID_HANDLE_VALUE;
-    CloseHandle(data_guard);
-    data_guard = INVALID_HANDLE_VALUE;
-    ac_write_line(report, L"PACKAGE_ROOT_GUARD: TRANSFERRED_TO_CHILD");
-    ac_write_line(report, L"APP_RUNTIME_GUARD: TRANSFERRED_TO_CHILD");
-    ac_write_line(report, L"PACKAGE_DATA_GUARD: TRANSFERRED_TO_CHILD");
+    ac_write_line(report, L"PACKAGE_ROOT_GUARD: RETAINED_BY_LAUNCHER_SUPERVISOR");
+    ac_write_line(report, L"APP_RUNTIME_GUARD: RETAINED_BY_LAUNCHER_SUPERVISOR");
+    ac_write_line(report, L"PACKAGE_DATA_GUARD: RETAINED_BY_LAUNCHER_SUPERVISOR");
 
     ac_write_line(report, L"PROCESS_CREATED: YES");
     ac_write_utf8(report, L"CHILD_PROCESS_ID: ");
@@ -945,9 +862,38 @@ void WINAPI wWinMainCRTStartup(void) {
     ac_write_line(report, L"STATUS: STARTUP_WINDOW_READY");
     ac_write_line(report, L"USER_WINDOW_PROVEN: YES");
     ac_write_line(report, L"USER_NVDA_PROVEN: NO");
+    ac_write_line(report, L"LAUNCHER_SUPERVISOR: ACTIVE_UNTIL_CHILD_EXIT");
     ac_write_line(report, L"NEXT: user verifies keyboard and NVDA behavior on these exact packaged bytes");
     ac_flush_report(report);
-    ac_close_child_process_handle();
     CloseHandle(report);
-    ExitProcess(0);
+
+    /*
+     * Remain as a windowless supervisor while the product is alive.  This is
+     * intentionally simpler and stronger than trying to hand directory share
+     * locks to an already-created process: the exact handles that validated
+     * package root/App/data remain open for the whole child lifetime.
+     */
+    wait_result = WaitForSingleObject(g_process.hProcess, INFINITE);
+    if (wait_result != WAIT_OBJECT_0) {
+        error = wait_result == WAIT_FAILED ? GetLastError() : ERROR_INVALID_DATA;
+        ac_close_child_process_handle();
+        ExitProcess(error == ERROR_SUCCESS ? ERROR_GEN_FAILURE : error);
+    }
+    if (!GetExitCodeProcess(g_process.hProcess, &exit_code)) {
+        error = GetLastError();
+        ac_close_child_process_handle();
+        ExitProcess(error == ERROR_SUCCESS ? ERROR_GEN_FAILURE : error);
+    }
+    ac_close_child_process_handle();
+
+    CloseHandle(g_instance_lock);
+    g_instance_lock = INVALID_HANDLE_VALUE;
+    CloseHandle(root_guard);
+    root_guard = INVALID_HANDLE_VALUE;
+    CloseHandle(app_guard);
+    app_guard = INVALID_HANDLE_VALUE;
+    CloseHandle(data_guard);
+    data_guard = INVALID_HANDLE_VALUE;
+
+    ExitProcess(exit_code == STILL_ACTIVE ? 0 : exit_code);
 }
