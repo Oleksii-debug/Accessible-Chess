@@ -87,8 +87,11 @@ jobs:
           tests.test_notation
           tests.test_fen_edge_corpus
           tests.test_dev2_fen_atomicity
+          tests.test_fen_position_editor_complete_user_flow
           tests.test_position_editor
           tests.test_position_editor_passive_boundary
+          tests.test_section1_positionstate_counter_boundary
+          tests.test_epd
 
       - name: Core chess selftest
         run: python -m acs.selftest
