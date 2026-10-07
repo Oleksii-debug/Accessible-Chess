@@ -60,6 +60,30 @@ class FalseProvenanceImporter:
         return ImportReport(source=false_source, format_name=self.format_name)
 
 
+class ActiveFakeReport:
+    @property
+    def source(self):
+        raise AssertionError('registry must reject non-ImportReport before field access')
+
+
+class NonReportImporter:
+    format_name = 'Active fake report'
+    suffixes = ('.active-report',)
+
+    def inspect(self, path: Path):
+        return ActiveFakeReport()
+
+
+class CorruptReportImporter:
+    format_name = 'Corrupt report'
+    suffixes = ('.corrupt-report',)
+
+    def inspect(self, path: Path) -> ImportReport:
+        report = ImportReport(source=fingerprint(path), format_name=self.format_name)
+        report.records.append(object())  # type: ignore[arg-type]
+        return report
+
+
 class ImportRegistryTests(unittest.TestCase):
     def test_registration_routes_case_insensitive_suffixes_without_ui_or_database_knowledge(self):
         registry = ImportRegistry()
@@ -148,6 +172,26 @@ class ImportRegistryTests(unittest.TestCase):
             self.assertIn('provenance does not match', batch.items[1].error)
             self.assertEqual(len(batch.reports), 1)
             self.assertEqual(batch.reports[0].source.sha256, fingerprint(valid).sha256)
+
+    def test_registry_rejects_non_report_before_active_field_access(self):
+        registry = ImportRegistry()
+        registry.register(NonReportImporter())
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / 'source.active-report'
+            path.write_bytes(b'unchanged')
+            with self.assertRaisesRegex(ImportRegistryError, 'exact passive ImportReport'):
+                registry.inspect(path)
+            self.assertEqual(path.read_bytes(), b'unchanged')
+
+    def test_registry_rejects_mutated_report_collections_as_invalid_contract(self):
+        registry = ImportRegistry()
+        registry.register(CorruptReportImporter())
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / 'source.corrupt-report'
+            path.write_bytes(b'unchanged')
+            with self.assertRaisesRegex(ImportRegistryError, 'invalid ImportReport'):
+                registry.inspect(path)
+            self.assertEqual(path.read_bytes(), b'unchanged')
 
     def test_unregister_removes_only_that_importers_suffixes(self):
         registry = ImportRegistry()
