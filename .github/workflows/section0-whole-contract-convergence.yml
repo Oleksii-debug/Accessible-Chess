@@ -29,10 +29,11 @@ env:
   DUPLICATE_CONVERGENCE_SHA: 8a39f849950020e59f815b9315b2640dc394ca31
 
   FORMAT_IDENTITY_WORKFLOW_BLOB: ec13eb5748f515c43955dd6d99ea321c49105861
-  BATCH_ISOLATION_WORKFLOW_BLOB: 4cdaf3c9cd125ad59e77ef79703ec00f15292745
+  BATCH_ISOLATION_WORKFLOW_BLOB: 96b45ab7a1ead512cf1913edacf443a34828c856
   AUTHORITY_DOC_BLOB: a1f7680f120c1a397e323dc9e633018a59adc711
   AUTHORITY_TEST_BLOB: ca8cc57fa0ca5c6888004239100390f136d43ac8
   IMPORT_CONTRACT_BLOB: d9855d173f8c73440e190482a107299be28949c5
+  REPORT_PATHS_BLOB: fafc8696a846a1b9c96a8ce89a76ce82593fd582
   IMPORT_REGISTRY_BLOB: 9f568c0664da494843418627cc2c5dc470a116dd
   IMPORT_CONTRACT_TEST_BLOB: 69439b421e7957caa7262704510b3211110b4e40
   IMPORT_REGISTRY_TEST_BLOB: ab57092d26da2db714a6f38b46238ba020211360
@@ -110,6 +111,7 @@ jobs:
           test "$(git rev-parse HEAD:docs/FORMAT_AUTHORITY_BOUNDARIES.md)" = "$AUTHORITY_DOC_BLOB"
           test "$(git rev-parse HEAD:tests/test_section0_format_authority_contract.py)" = "$AUTHORITY_TEST_BLOB"
           test "$(git rev-parse HEAD:acs/import_contract.py)" = "$IMPORT_CONTRACT_BLOB"
+          test "$(git rev-parse HEAD:acs/report_paths.py)" = "$REPORT_PATHS_BLOB"
           test "$(git rev-parse HEAD:acs/import_registry.py)" = "$IMPORT_REGISTRY_BLOB"
           test "$(git rev-parse HEAD:tests/test_import_contract.py)" = "$IMPORT_CONTRACT_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_import_registry.py)" = "$IMPORT_REGISTRY_TEST_BLOB"
@@ -132,6 +134,7 @@ jobs:
           acs/format_capabilities.py
           acs/import_contract.py
           acs/import_registry.py
+          acs/report_paths.py
           tests/test_section0_format_authority_contract.py
           tests/test_section0_format_capabilities.py
           tests/test_import_contract.py
