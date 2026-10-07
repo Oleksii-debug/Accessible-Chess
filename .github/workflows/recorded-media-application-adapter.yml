@@ -9,6 +9,8 @@ on:
       - tests/test_recorded_media_application.py
       - .github/workflows/recorded-media-application-adapter.yml
   pull_request:
+    branches:
+      - work/accessible-chess-20261005-recorded-media-preprocess-fafa04-v2
     paths:
       - acs/recorded_media_application.py
       - tests/test_recorded_media_application.py
