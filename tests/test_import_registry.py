@@ -582,6 +582,32 @@ class ImportRegistryTests(unittest.TestCase):
 
         self.assertEqual(registry.registered_suffixes, ())
 
+    def test_registration_format_name_rejects_unsafe_control_text(self):
+        class UnsafeFormatNameImporter:
+            suffixes = (".unsafe-format-name",)
+
+            def __init__(self, format_name: str) -> None:
+                self.format_name = format_name
+
+            def inspect(self, path: Path) -> ImportReport:
+                raise AssertionError("inspection must not run")
+
+        unsafe_names = (
+            "Fake\nformat",
+            "Fake\u2028format",
+            "Fake\u2066format",
+            "Fake\x00format",
+        )
+        for format_name in unsafe_names:
+            with self.subTest(format_name=repr(format_name)):
+                registry = ImportRegistry()
+                with self.assertRaisesRegex(
+                    ImportRegistryError,
+                    "unsafe control text",
+                ):
+                    registry.register(UnsafeFormatNameImporter(format_name))
+                self.assertEqual(registry.registered_suffixes, ())
+
     def test_registration_replace_flag_rejects_active_boolean_coercion(self):
         class ActiveReplace:
             def __bool__(self):
