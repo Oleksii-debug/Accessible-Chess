@@ -45,6 +45,11 @@ env:
   NEW_GAME_POSITION_INTEGRITY_TEST_BLOB: e7b2e9ebca69b5b13c5a633ca32b125004b35ac4
   PASSIVE_INGRESS_TEST_BLOB: 99706c1d76b9d2bbe4ce8179c21304100295b512
   PGN_DOM_TEST_BLOB: d751388dc98e0f5218cfc7029f9af113b4bc751c
+  PGN_TREE_KEYBOARD_DOM_BLOB: 3ec326e766110eba04228bcda92cc1d3dfea011a
+  PGN_TREE_KEY_OWNERSHIP_BLOB: ab47179b52be5744053a842f992902ecf4f978b1
+  PGN_REMAINING_KEYBINDINGS_JS_BLOB: f5d1e6082672721d62444539c4cd1bfb6a916f20
+  PGN_KEYBINDINGS_TEST_BLOB: e5b969c6c0f1c2c66a21c59432792e9285ab30bf
+  PGN_TREE_KEYBINDINGS_TEST_BLOB: 104cd19bab8e361ff301d2d5fb3b5854f92c0f79
   PGN_WEB_BLOB: cd7c1da9ccb0285b26bed733da4d64ba2da61a5f
 
   OFFLINE_QUALIFIER_BLOB: b2c387f1f14074bd368035678c03fe78edb9877e
@@ -113,6 +118,11 @@ jobs:
           test "$(git rev-parse HEAD:tests/test_pgn_document_new_game_position_integrity.py)" = "$NEW_GAME_POSITION_INTEGRITY_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_pgn_document_passive_ingress.py)" = "$PASSIVE_INGRESS_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/js/pgn_surface_dom_test.js)" = "$PGN_DOM_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/js/pgn_tree_keyboard_dom_test.js)" = "$PGN_TREE_KEYBOARD_DOM_BLOB"
+          test "$(git rev-parse HEAD:tests/js/pgn_tree_boundary_key_ownership_test.js)" = "$PGN_TREE_KEY_OWNERSHIP_BLOB"
+          test "$(git rev-parse HEAD:tests/js/pgn_remaining_keybindings_test.js)" = "$PGN_REMAINING_KEYBINDINGS_JS_BLOB"
+          test "$(git rev-parse HEAD:tests/test_full_product_pgn_keybindings.py)" = "$PGN_KEYBINDINGS_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_pgn_tree_remaining_keybindings.py)" = "$PGN_TREE_KEYBINDINGS_TEST_BLOB"
           test "$(git rev-parse HEAD:web/full_product_pgn.js)" = "$PGN_WEB_BLOB"
 
           test "$(git rev-parse HEAD:scripts/qualify_pgn_conversion_corpus.py)" = "$OFFLINE_QUALIFIER_BLOB"
@@ -160,9 +170,15 @@ jobs:
           tests.test_pgn_document_context_atomicity
           tests.test_pgn_presenter_graph_safety_current
           tests.test_dev4_pgn_resource_security
+          tests.test_full_product_pgn_keybindings
+          tests.test_pgn_tree_remaining_keybindings
 
-      - name: Execute accessible PGN browser DOM contract
-        run: node tests/js/pgn_surface_dom_test.js
+      - name: Execute accessible PGN browser and tree keyboard DOM contracts
+        run: >-
+          node tests/js/pgn_surface_dom_test.js
+          && node tests/js/pgn_tree_keyboard_dom_test.js
+          && node tests/js/pgn_tree_boundary_key_ownership_test.js
+          && node tests/js/pgn_remaining_keybindings_test.js
 
       - name: Core chess selftest
         run: python -m acs.selftest
