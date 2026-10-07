@@ -300,9 +300,13 @@ class RecordedMediaSyncTests(unittest.TestCase):
 
         canonical = ExplodingCanonical()
         builder = RecordedMediaTimelineBuilder(self.plan(), canonical)
-        for disposition in (FrameDisposition.TRANSITION, FrameDisposition.OCCLUDED):
+        for timestamp, disposition in enumerate(
+            (FrameDisposition.TRANSITION, FrameDisposition.OCCLUDED)
+        ):
             with self.subTest(disposition=disposition):
-                step = builder.accept(self.frame(disposition=disposition))
+                step = builder.accept(
+                    self.frame(timestamp=timestamp * 1000, disposition=disposition)
+                )
                 self.assertEqual(step.kind, RecordedSyncStepKind.SKIPPED)
         self.assertFalse(canonical.called)
         self.assertEqual(builder.timeline.links, ())
