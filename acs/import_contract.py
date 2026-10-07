@@ -51,10 +51,20 @@ class ImportReport:
     global_warnings: list[str] = field(default_factory=list)
 
     def add(self, record: ImportedRecord) -> None:
+        _validate_imported_record(record)
+        if type(self.records) is not list:
+            raise TypeError("ImportReport records must be an exact list")
+        if any(
+            type(existing) is ImportedRecord
+            and existing.source_record_id == record.source_record_id
+            for existing in self.records
+        ):
+            raise ValueError("ImportReport source_record_id values must be unique")
         self.records.append(record)
 
     @property
     def counts(self) -> dict[str, int]:
+        validate_import_report(self)
         result = {quality.value: 0 for quality in ImportQuality}
         for record in self.records:
             result[record.quality.value] += 1
@@ -62,11 +72,92 @@ class ImportReport:
 
     @property
     def total(self) -> int:
+        validate_import_report(self)
         return len(self.records)
 
     @property
     def has_damage(self) -> bool:
+        validate_import_report(self)
         return any(record.quality is ImportQuality.DAMAGED for record in self.records)
+
+
+def _require_exact_text(
+    value: object,
+    field_name: str,
+    *,
+    allow_empty: bool = False,
+) -> str:
+    if type(value) is not str:
+        raise TypeError(f"{field_name} must be exact text")
+    if not allow_empty and not value.strip():
+        raise ValueError(f"{field_name} must not be blank")
+    return value
+
+
+def _validate_source_fingerprint(source: object) -> SourceFingerprint:
+    if type(source) is not SourceFingerprint:
+        raise TypeError("ImportReport source must be an exact SourceFingerprint")
+    _require_exact_text(source.path, "SourceFingerprint path")
+    if type(source.size) is not int or source.size < 0:
+        raise TypeError("SourceFingerprint size must be a non-negative exact integer")
+    digest = _require_exact_text(source.sha256, "SourceFingerprint sha256")
+    if len(digest) != 64 or any(ch not in "0123456789abcdef" for ch in digest):
+        raise ValueError("SourceFingerprint sha256 must be a lowercase 64-character hexadecimal digest")
+    _require_exact_text(source.suffix, "SourceFingerprint suffix", allow_empty=True)
+    return source
+
+
+def _validate_imported_record(record: object) -> ImportedRecord:
+    if type(record) is not ImportedRecord:
+        raise TypeError("ImportReport records must contain exact ImportedRecord values")
+    _require_exact_text(record.source_record_id, "ImportedRecord source_record_id")
+    if type(record.quality) is not ImportQuality:
+        raise TypeError("ImportedRecord quality must be an exact ImportQuality")
+    if record.game_id is not None:
+        if type(record.game_id) is not int or record.game_id < 1:
+            raise TypeError("ImportedRecord game_id must be a positive exact integer or None")
+        if record.quality in {ImportQuality.DAMAGED, ImportQuality.WARNING}:
+            raise ValueError("damaged or warning-only ImportReport records cannot publish a game_id")
+    _require_exact_text(record.message, "ImportedRecord message", allow_empty=True)
+    if type(record.warnings) is not tuple:
+        raise TypeError("ImportedRecord warnings must be an exact tuple")
+    for warning in record.warnings:
+        _require_exact_text(warning, "ImportedRecord warning")
+    if record.quality is not ImportQuality.FULL and not (
+        record.message.strip() or record.warnings
+    ):
+        raise ValueError("non-full ImportReport records must explain their partial, damaged, or warning status")
+    return record
+
+
+def validate_import_report(report: object) -> ImportReport:
+    """Validate adapter evidence before it crosses the shared import boundary.
+
+    Adapters are untrusted format-specific code.  The registry accepts only the
+    exact passive report model, exact provenance and internally consistent
+    record evidence.  In particular, damaged/warning-only records can never
+    carry a published game id, and non-full outcomes cannot silently omit the
+    reason for their status.
+    """
+
+    if type(report) is not ImportReport:
+        raise TypeError("Importer must return an exact ImportReport")
+    _validate_source_fingerprint(report.source)
+    _require_exact_text(report.format_name, "ImportReport format_name")
+    if type(report.records) is not list:
+        raise TypeError("ImportReport records must be an exact list")
+    if type(report.global_warnings) is not list:
+        raise TypeError("ImportReport global_warnings must be an exact list")
+    for warning in report.global_warnings:
+        _require_exact_text(warning, "ImportReport global warning")
+
+    seen: set[str] = set()
+    for record in report.records:
+        checked = _validate_imported_record(record)
+        if checked.source_record_id in seen:
+            raise ValueError("ImportReport source_record_id values must be unique")
+        seen.add(checked.source_record_id)
+    return report
 
 
 class ReadOnlyImporter(Protocol):
