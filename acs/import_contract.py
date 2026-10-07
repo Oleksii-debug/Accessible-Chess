@@ -19,6 +19,18 @@ import os
 import stat
 
 
+# Import reports may describe very large databases, so record cardinality is
+# deliberately not capped here. Adapter-owned diagnostic metadata is bounded,
+# however: malformed input must not publish arbitrarily large labels/messages or
+# warning vectors through the shared passive report boundary.
+_MAX_IMPORT_FORMAT_NAME_CHARS = 256
+_MAX_IMPORT_RECORD_ID_CHARS = 4096
+_MAX_IMPORT_MESSAGE_CHARS = 16384
+_MAX_IMPORT_WARNING_CHARS = 4096
+_MAX_IMPORT_WARNINGS_PER_RECORD = 256
+_MAX_IMPORT_GLOBAL_WARNINGS = 1024
+
+
 class ImportQuality(str, Enum):
     FULL = "full"
     PARTIAL = "partial"
@@ -76,7 +88,11 @@ class ImportedRecord:
         """Revalidate one passive record before report observation/publication."""
         if type(self) is not ImportedRecord:
             raise TypeError("imported record must be an exact ImportedRecord")
-        if type(self.source_record_id) is not str or not self.source_record_id.strip():
+        if type(self.source_record_id) is not str:
+            raise ValueError("source_record_id must be non-empty exact text")
+        if len(self.source_record_id) > _MAX_IMPORT_RECORD_ID_CHARS:
+            raise ValueError("source_record_id is too long")
+        if not self.source_record_id.strip():
             raise ValueError("source_record_id must be non-empty exact text")
         if type(self.quality) is not ImportQuality:
             raise TypeError("quality must be an ImportQuality")
@@ -86,10 +102,17 @@ class ImportedRecord:
             raise ValueError("game_id must be a positive integer or None")
         if type(self.message) is not str:
             raise TypeError("message must be exact text")
+        if len(self.message) > _MAX_IMPORT_MESSAGE_CHARS:
+            raise ValueError("message is too long")
         if type(self.warnings) is not tuple:
             raise TypeError("warnings must be an exact tuple")
-        if any(type(item) is not str or not item.strip() for item in self.warnings):
-            raise ValueError("warnings must contain non-empty exact text")
+        if len(self.warnings) > _MAX_IMPORT_WARNINGS_PER_RECORD:
+            raise ValueError("warnings contain too many entries")
+        for item in self.warnings:
+            if type(item) is not str or not item.strip():
+                raise ValueError("warnings must contain non-empty exact text")
+            if len(item) > _MAX_IMPORT_WARNING_CHARS:
+                raise ValueError("warning text is too long")
         if (
             self.quality is not ImportQuality.FULL
             and not self.message.strip()
@@ -117,7 +140,11 @@ class ImportReport:
         if type(self.source) is not SourceFingerprint:
             raise TypeError("import report source must be an exact SourceFingerprint")
         self.source.validate()
-        if type(self.format_name) is not str or not self.format_name.strip():
+        if type(self.format_name) is not str:
+            raise ValueError("format_name must be non-empty exact text")
+        if len(self.format_name) > _MAX_IMPORT_FORMAT_NAME_CHARS:
+            raise ValueError("format_name is too long")
+        if not self.format_name.strip():
             raise ValueError("format_name must be non-empty exact text")
         if type(self.records) is not list:
             raise TypeError("import report records must be an exact list")
@@ -127,11 +154,13 @@ class ImportReport:
             record.validate()
         if type(self.global_warnings) is not list:
             raise TypeError("global_warnings must be an exact list")
-        if any(
-            type(warning) is not str or not warning.strip()
-            for warning in self.global_warnings
-        ):
-            raise ValueError("global_warnings must contain non-empty exact text")
+        if len(self.global_warnings) > _MAX_IMPORT_GLOBAL_WARNINGS:
+            raise ValueError("global_warnings contains too many entries")
+        for warning in self.global_warnings:
+            if type(warning) is not str or not warning.strip():
+                raise ValueError("global_warnings must contain non-empty exact text")
+            if len(warning) > _MAX_IMPORT_WARNING_CHARS:
+                raise ValueError("global warning text is too long")
 
     def add(self, record: ImportedRecord) -> None:
         if type(record) is not ImportedRecord:

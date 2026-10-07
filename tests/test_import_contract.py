@@ -2,6 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import acs.import_contract as import_contract
 from acs.import_contract import (
     ImportQuality,
     ImportedRecord,
@@ -199,6 +200,65 @@ class ImportContractTests(unittest.TestCase):
             )
         with self.assertRaises(ValueError):
             ImportedRecord('1', ImportQuality.WARNING, warnings=('   ',))
+
+    def test_import_report_diagnostic_metadata_is_bounded(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source_path = Path(tmp) / 'bounded-report.pgn'
+            source_path.write_text('x', encoding='utf-8')
+            source = fingerprint(source_path)
+
+            with self.assertRaisesRegex(ValueError, 'source_record_id is too long'):
+                ImportedRecord(
+                    'r' * (import_contract._MAX_IMPORT_RECORD_ID_CHARS + 1),
+                    ImportQuality.FULL,
+                )
+            with self.assertRaisesRegex(ValueError, 'message is too long'):
+                ImportedRecord(
+                    'record-1',
+                    ImportQuality.WARNING,
+                    message='m' * (import_contract._MAX_IMPORT_MESSAGE_CHARS + 1),
+                )
+            with self.assertRaisesRegex(ValueError, 'warning text is too long'):
+                ImportedRecord(
+                    'record-1',
+                    ImportQuality.WARNING,
+                    warnings=('w' * (import_contract._MAX_IMPORT_WARNING_CHARS + 1),),
+                )
+            with self.assertRaisesRegex(ValueError, 'too many entries'):
+                ImportedRecord(
+                    'record-1',
+                    ImportQuality.WARNING,
+                    warnings=('warning',) * (
+                        import_contract._MAX_IMPORT_WARNINGS_PER_RECORD + 1
+                    ),
+                )
+            with self.assertRaisesRegex(ValueError, 'format_name is too long'):
+                ImportReport(
+                    source,
+                    'f' * (import_contract._MAX_IMPORT_FORMAT_NAME_CHARS + 1),
+                )
+
+            report = ImportReport(source, 'bounded')
+            report.global_warnings.extend(
+                ['warning'] * (import_contract._MAX_IMPORT_GLOBAL_WARNINGS + 1)
+            )
+            with self.assertRaisesRegex(ValueError, 'too many entries'):
+                report.validate()
+
+    def test_report_revalidates_oversized_diagnostics_after_low_level_mutation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source_path = Path(tmp) / 'mutated-diagnostics.pgn'
+            source_path.write_text('x', encoding='utf-8')
+            record = ImportedRecord('record-1', ImportQuality.FULL)
+            report = ImportReport(fingerprint(source_path), 'bounded', [record])
+
+            object.__setattr__(
+                record,
+                'message',
+                'm' * (import_contract._MAX_IMPORT_MESSAGE_CHARS + 1),
+            )
+            with self.assertRaisesRegex(ValueError, 'message is too long'):
+                report.validate()
 
     def test_report_revalidates_mutable_collections_before_observation(self):
         with tempfile.TemporaryDirectory() as tmp:
