@@ -575,16 +575,17 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
         for token in (
             "HANDLE root_guard = INVALID_HANDLE_VALUE;",
             "HANDLE app_guard = INVALID_HANDLE_VALUE;",
-            "HANDLE child_root_guard = NULL;",
-            "HANDLE child_app_guard = NULL;",
+            "HANDLE inherited_handles[4];",
+            "LPPROC_THREAD_ATTRIBUTE_LIST attribute_list = NULL;",
             "root_guard = ac_open_direct_directory_guard(g_root);",
             "app_guard = ac_open_direct_directory_guard(g_app_dir);",
-            "DuplicateHandle(\n            GetCurrentProcess(),\n            root_guard,\n            g_process.hProcess,\n            &child_root_guard,",
-            "DuplicateHandle(\n            GetCurrentProcess(),\n            app_guard,\n            g_process.hProcess,\n            &child_app_guard,",
+            "inherited_handles[1] = root_guard;",
+            "inherited_handles[2] = app_guard;",
+            "PROC_THREAD_ATTRIBUTE_HANDLE_LIST",
+            "UpdateProcThreadAttribute(",
+            "EXTENDED_STARTUPINFO_PRESENT",
             'ac_fail(\n            INVALID_HANDLE_VALUE,\n            L"package-root directory guard",',
             'ac_fail(\n            report,\n            L"App runtime directory guard",',
-            'ac_fail(report, L"package-root directory guard transfer", error)',
-            'ac_fail(report, L"App runtime directory guard transfer", error)',
             'L"PACKAGE_ROOT_GUARD: DIRECT_DIRECTORY_HANDLE_READY"',
             'L"APP_RUNTIME_GUARD: DIRECT_DIRECTORY_HANDLE_READY"',
             'L"PACKAGE_ROOT_GUARD: TRANSFERRED_TO_CHILD"',
@@ -599,10 +600,9 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
         app_check = main.index("if (!ac_direct_directory(g_app_dir))")
         app_open = main.index("app_guard = ac_open_direct_directory_guard(g_app_dir)")
         core_open = main.index("core_guard = ac_open_direct_private_file(g_core)")
+        allowlist = main.index("inherited_handles[0] = g_instance_lock;")
+        attribute = main.index("if (!UpdateProcThreadAttribute(")
         create_process = main.index("if (!CreateProcessW(")
-        root_transfer = main.index("            root_guard,", create_process)
-        app_transfer = main.index("            app_guard,", root_transfer)
-        data_transfer = main.index("            data_guard,", app_transfer)
         resume = main.index("resume_result = ResumeThread(g_process.hThread)")
         root_close = main.index("CloseHandle(root_guard)", resume)
         app_close = main.index("CloseHandle(app_guard)", root_close)
@@ -611,11 +611,10 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
         self.assertLess(root_open, instance_lock)
         self.assertLess(app_check, app_open)
         self.assertLess(app_open, core_open)
-        self.assertLess(core_open, create_process)
-        self.assertLess(create_process, root_transfer)
-        self.assertLess(root_transfer, app_transfer)
-        self.assertLess(app_transfer, data_transfer)
-        self.assertLess(data_transfer, resume)
+        self.assertLess(core_open, allowlist)
+        self.assertLess(allowlist, attribute)
+        self.assertLess(attribute, create_process)
+        self.assertLess(create_process, resume)
         self.assertLess(resume, root_close)
         self.assertLess(root_close, app_close)
 
