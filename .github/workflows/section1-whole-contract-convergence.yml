@@ -99,9 +99,7 @@ jobs:
             test "$EVENT_BASE_SHA" = "$BASE_2340_SHA"
           fi
 
-          for ancestor in             "$BASE_2340_SHA"             "$SECTION1_PARENT_SHA"             "$SAN_OWNER_SHA"             "$RECEIPT_OWNER_SHA"             "$EDGE_OWNER_SHA"             "$POSITION_OWNER_SHA"             "$CONVERGENCE_ANCHOR_SHA"
-            "$FEN_SAN_CASTLING_HEAD"
-          do
+          for ancestor in "$BASE_2340_SHA" "$SECTION1_PARENT_SHA" "$SAN_OWNER_SHA" "$RECEIPT_OWNER_SHA" "$EDGE_OWNER_SHA" "$POSITION_OWNER_SHA" "$CONVERGENCE_ANCHOR_SHA" "$FEN_SAN_CASTLING_HEAD"; do
             git merge-base --is-ancestor "$ancestor" HEAD
           done
 
