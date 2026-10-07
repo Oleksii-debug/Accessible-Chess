@@ -1,0 +1,30 @@
+name: Section 10 Tactile Synchronization
+
+on:
+  pull_request:
+    paths:
+      - 'acs/tactile_sync.py'
+      - 'tests/test_section10_tactile_sync.py'
+      - 'docs/automation/SECTION10_TACTILE_SYNC_AUDIT.md'
+      - '.github/workflows/section10-tactile-sync.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  section10-contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile Section 10 synchronization boundary
+        run: python -m py_compile acs/tactile_sync.py tests/test_section10_tactile_sync.py
+      - name: Execute Section 10 focused contract
+        run: python -m unittest -v tests.test_section10_tactile_sync
