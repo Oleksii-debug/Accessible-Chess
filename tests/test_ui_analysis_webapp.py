@@ -481,6 +481,61 @@ class UIAnalysisWebAppTests(unittest.TestCase):
         self.assertEqual(api.review_history.export_tree(), before_tree)
         self.assertEqual(api.review_history.node_count, 1)
 
+    def test_semantic_live_history_corruption_blocks_incremental_mutation(self):
+        api, _fake = self.make_api()
+        self.assertTrue(api.make_move("e4")["ok"])
+        before_fen = api.board.fen()
+        before_tree = api.review_history.export_tree()
+        before_undo = list(api.board.undo_stack)
+
+        # Structurally valid metadata with the wrong mover side must not be
+        # allowed to extend, edit, or consume the canonical live history.
+        api.move_sides[0] = "b"
+        for operation in (
+            lambda: api.make_move("e5"),
+            lambda: api.activate_square("e7"),
+            lambda: api.edit_position_piece("a3", "N"),
+            api.undo,
+        ):
+            with self.subTest(operation=operation):
+                result = operation()
+                self.assertFalse(result["ok"])
+                self.assertEqual(api.board.fen(), before_fen)
+                self.assertEqual(api.review_history.export_tree(), before_tree)
+                self.assertEqual(api.board.undo_stack, before_undo)
+                self.assertEqual(api.sans, ["e4"])
+                self.assertEqual(api.move_sides, ["b"])
+
+        # Explicit FEN load is a recovery/root-reset path and remains usable.
+        recovered = api.set_fen(before_fen)
+        self.assertTrue(recovered["ok"])
+        self.assertTrue(recovered["historyProjectionValid"])
+        self.assertEqual(api.sans, [])
+        self.assertEqual(api.move_sides, [])
+
+    def test_semantic_redo_metadata_corruption_is_not_advertised_or_published(self):
+        api, _fake = self.make_api()
+        self.assertTrue(api.make_move("e4")["ok"])
+        self.assertTrue(api.undo()["ok"])
+
+        before_fen = api.board.fen()
+        before_tree = api.review_history.export_tree()
+        before_board_redo = list(api.board.redo_stack)
+        api.redo_meta[-1] = ("e4", "b")
+
+        state = api.get_state()
+        self.assertFalse(state["canRedo"])
+
+        result = api.redo()
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(api.board.fen(), before_fen)
+        self.assertEqual(api.review_history.export_tree(), before_tree)
+        self.assertEqual(api.board.redo_stack, before_board_redo)
+        self.assertEqual(api.redo_meta, [("e4", "b")])
+        self.assertEqual(api.sans, [])
+        self.assertEqual(api.move_sides, [])
+
     def test_canonical_reset_releases_obsolete_locked_target(self):
         api, fake = self.make_api()
         api.toggle_engine()
