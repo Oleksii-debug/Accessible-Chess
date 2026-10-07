@@ -413,6 +413,110 @@ class ImportRegistryTests(unittest.TestCase):
                 self.assertFalse(batch.items[0].ok)
                 self.assertEqual(batch.items[0].error, message)
 
+    def test_registration_metadata_cannot_rebind_host_route_container(self):
+        registry = ImportRegistry()
+        original = FakeImporter()
+        registry.register(original)
+
+        class HostileRouteMap(dict):
+            def __iter__(self):
+                raise AssertionError("metadata poison iteration hook must not run")
+
+            def __contains__(self, item):
+                raise AssertionError("metadata poison membership hook must not run")
+
+            def clear(self):
+                raise AssertionError("metadata poison clear hook must not run")
+
+        class MetadataPoisoner:
+            suffixes = (".metadata-poison",)
+
+            @property
+            def format_name(self):
+                registry._by_suffix = HostileRouteMap()
+                return "Metadata poisoner"
+
+            def inspect(self, path: Path) -> ImportReport:
+                raise AssertionError("inspection must not run")
+
+        with self.assertRaisesRegex(
+            ImportRegistryError,
+            "registration changed while reading importer metadata",
+        ):
+            registry.register(MetadataPoisoner())
+
+        self.assertEqual(type(registry._by_suffix), dict)
+        self.assertIs(registry.importer_for("still.foo"), original)
+        self.assertNotIn(".metadata-poison", registry.registered_suffixes)
+
+    def test_registration_suffix_iteration_cannot_hide_route_mutation_or_runtime_error(self):
+        registry = ImportRegistry()
+        original = FakeImporter()
+        registry.register(original)
+
+        class MutatingSuffixes:
+            def __iter__(self):
+                registry._format_name_by_suffix = {}
+                yield ".metadata-iter"
+                raise RuntimeError("suffix iterator failed after route mutation")
+
+        class IteratorPoisoner:
+            format_name = "Iterator poisoner"
+            suffixes = MutatingSuffixes()
+
+            def inspect(self, path: Path) -> ImportReport:
+                raise AssertionError("inspection must not run")
+
+        with self.assertRaisesRegex(
+            ImportRegistryError,
+            "registration changed while reading importer metadata",
+        ) as ctx:
+            registry.register(IteratorPoisoner())
+
+        self.assertIsInstance(ctx.exception.__cause__, RuntimeError)
+        self.assertIs(registry.importer_for("still.foo"), original)
+        self.assertNotIn(".metadata-iter", registry.registered_suffixes)
+
+    def test_registration_suffix_iterable_is_bounded_before_unbounded_materialization(self):
+        class InfiniteSuffixes:
+            def __init__(self):
+                self.calls = 0
+
+            def __iter__(self):
+                return self
+
+            def __next__(self):
+                self.calls += 1
+                return f".suffix-{self.calls}"
+
+        suffixes = InfiniteSuffixes()
+
+        class InfiniteImporter:
+            format_name = "Infinite suffix importer"
+
+            def __init__(self):
+                self.suffixes = suffixes
+
+            def inspect(self, path: Path) -> ImportReport:
+                raise AssertionError("inspection must not run")
+
+        with self.assertRaisesRegex(ImportRegistryError, "too many suffixes"):
+            ImportRegistry().register(InfiniteImporter())
+
+        self.assertEqual(suffixes.calls, 65)
+
+    def test_registration_replace_flag_rejects_active_boolean_coercion(self):
+        class ActiveReplace:
+            def __bool__(self):
+                raise AssertionError("replace boolean hook must not run")
+
+        registry = ImportRegistry()
+        registry.register(FakeImporter())
+        with self.assertRaisesRegex(ImportRegistryError, "replace flag must be boolean"):
+            registry.register(SecondFooImporter(), replace=ActiveReplace())
+
+        self.assertIs(registry.importer_for("still.foo"), registry.importer_for("still.bar"))
+
     def test_registration_routes_case_insensitive_suffixes_without_ui_or_database_knowledge(self):
         registry = ImportRegistry()
         importer = FakeImporter()

@@ -237,3 +237,34 @@ process-control remain control flow.
 
 This remains the same five-path #2346 successor and introduces no new parser,
 decoder, ImportReport, chess, provenance or reporting authority.
+
+### Bounded registration-metadata transaction
+
+The next Section-0.5 audit found that host-owned routing could still be changed
+while `register()` was reading adapter-owned metadata. `format_name` and
+`suffixes` are Python attributes/iterables and may execute provider code.
+The previous passive-state check happened only before those reads, so a
+property/iterator could mutate registry routing and make later collision/write
+logic operate on the changed authority. The suffix iterable was also
+materialized without a count bound.
+
+Registration metadata is now a bounded transaction:
+- `replace` must be an exact boolean, so no active truthiness hook is invoked;
+- host routing is snapshotted before observing importer metadata;
+- suffix iteration is capped at 65 observations for a hard maximum of 64
+  declared suffixes;
+- every suffix still passes the existing exact-text/canonical-extension fence;
+- metadata errors restore any re-entrant routing mutation before propagation;
+- a routing mutation is authoritative over an ordinary metadata exception, so
+  provider failure cannot hide changed host state;
+- successful metadata observation is followed by an exact routing-snapshot
+  check before collision detection or registration writes.
+
+Regressions cover format-name property poisoning with a hostile route map,
+suffix-iterator route mutation followed by a runtime failure, an infinite
+suffix iterator with an exact 65-call bound, and an active non-boolean
+`replace` argument whose coercion hook must never run.
+
+This stays inside the same #2346 five-path successor and does not change
+format capability truth, parser/chess semantics, ImportReport, provenance or
+reporting authority.

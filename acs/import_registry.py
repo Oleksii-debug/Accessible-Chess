@@ -15,6 +15,7 @@ through the shared import boundary.
 """
 
 from dataclasses import dataclass
+from itertools import islice
 from pathlib import Path
 from typing import Iterable
 
@@ -29,6 +30,7 @@ from .report_paths import report_safe_name
 
 
 _MAX_IMPORT_SUFFIX_CHARS = 64
+_MAX_IMPORT_SUFFIXES = 64
 
 
 class ImportRegistryError(ValueError):
@@ -249,16 +251,48 @@ class ImportRegistry:
         return value
 
     def register(self, importer: ReadOnlyImporter, *, replace: bool = False) -> ImporterRegistration:
-        if not self._registration_state_is_passive():
-            raise ImportRegistryError("Importer registration state is inconsistent")
-        format_name = importer.format_name
-        if type(format_name) is not str or not format_name.strip():
-            raise ImportRegistryError("Importer format_name must be non-empty exact text")
-        suffixes = tuple(self._normalize_suffix(item) for item in importer.suffixes)
-        if not suffixes:
-            raise ImportRegistryError("Importer must declare at least one suffix")
-        if len(set(suffixes)) != len(suffixes):
-            raise ImportRegistryError("Importer declares duplicate suffixes")
+        if type(replace) is not bool:
+            raise ImportRegistryError("Importer replace flag must be boolean")
+
+        # Importer metadata is adapter-owned code. Hold a host-owned routing
+        # snapshot while properties/iterators are observed, bound the iterable,
+        # and restore any re-entrant routing mutation before returning/raising.
+        registration_snapshot = self._registration_snapshot()
+        try:
+            format_name = importer.format_name
+            if type(format_name) is not str or not format_name.strip():
+                raise ImportRegistryError("Importer format_name must be non-empty exact text")
+
+            raw_suffixes = importer.suffixes
+            try:
+                suffix_values = tuple(
+                    islice(iter(raw_suffixes), _MAX_IMPORT_SUFFIXES + 1)
+                )
+            except TypeError as exc:
+                raise ImportRegistryError("Importer suffixes must be iterable") from exc
+            if len(suffix_values) > _MAX_IMPORT_SUFFIXES:
+                raise ImportRegistryError("Importer declares too many suffixes")
+
+            suffixes = tuple(self._normalize_suffix(item) for item in suffix_values)
+            if not suffixes:
+                raise ImportRegistryError("Importer must declare at least one suffix")
+            if len(set(suffixes)) != len(suffixes):
+                raise ImportRegistryError("Importer declares duplicate suffixes")
+        except BaseException as exc:
+            registration_changed = not self._registration_matches(registration_snapshot)
+            if registration_changed:
+                self._restore_registration_snapshot(registration_snapshot)
+            if registration_changed and isinstance(exc, Exception):
+                raise ImportRegistryError(
+                    "Importer registration changed while reading importer metadata"
+                ) from exc
+            raise
+
+        if not self._registration_matches(registration_snapshot):
+            self._restore_registration_snapshot(registration_snapshot)
+            raise ImportRegistryError(
+                "Importer registration changed while reading importer metadata"
+            )
 
         collisions = [suffix for suffix in suffixes if suffix in self._by_suffix]
         if collisions and not replace:
