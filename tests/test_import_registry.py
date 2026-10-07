@@ -144,6 +144,40 @@ class IndexErrorImporter:
         raise IndexError('decoder record index out of range')
 
 
+class BrokenStringError(Exception):
+    def __str__(self) -> str:
+        raise RuntimeError('exception rendering failed')
+
+
+class BrokenStringImporter:
+    format_name = 'Broken exception rendering'
+    suffixes = ('.broken-str',)
+
+    def inspect(self, path: Path) -> ImportReport:
+        raise BrokenStringError()
+
+
+class InvalidStringError(Exception):
+    def __str__(self):  # type: ignore[override]
+        return object()
+
+
+class InvalidStringImporter:
+    format_name = 'Invalid exception rendering'
+    suffixes = ('.invalid-str',)
+
+    def inspect(self, path: Path) -> ImportReport:
+        raise InvalidStringError()
+
+
+class ProcessControlImporter:
+    format_name = 'Process control passthrough'
+    suffixes = ('.interrupt',)
+
+    def inspect(self, path: Path) -> ImportReport:
+        raise KeyboardInterrupt()
+
+
 class LowLevelMutatedRecordImporter:
     format_name = 'Low-level mutated exact report'
     suffixes = ('.mutated-record',)
@@ -417,6 +451,46 @@ class ImportRegistryTests(unittest.TestCase):
             # the adapter failure to callers that explicitly chose it.
             with self.assertRaises(KeyError):
                 registry.inspect(key_failure)
+
+    def test_batch_contains_broken_exception_rendering_and_continues(self):
+        registry = ImportRegistry()
+        registry.register(BrokenStringImporter())
+        registry.register(InvalidStringImporter())
+        registry.register(FakeImporter())
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            broken = root / 'bad.broken-str'
+            invalid = root / 'bad.invalid-str'
+            valid = root / 'good.foo'
+            broken.write_bytes(b'broken-str-source')
+            invalid.write_bytes(b'invalid-str-source')
+            valid.write_bytes(b'valid-source')
+
+            batch = registry.inspect_batch([broken, invalid, valid])
+
+            self.assertEqual([item.ok for item in batch.items], [False, False, True])
+            self.assertEqual(batch.items[0].error, 'BrokenStringError')
+            self.assertEqual(batch.items[1].error, 'InvalidStringError')
+            self.assertEqual(len(batch.reports), 1)
+            self.assertEqual(batch.reports[0].format_name, FakeImporter.format_name)
+            self.assertEqual(broken.read_bytes(), b'broken-str-source')
+            self.assertEqual(invalid.read_bytes(), b'invalid-str-source')
+            self.assertEqual(valid.read_bytes(), b'valid-source')
+
+            # Strict single-source inspection keeps exposing the original
+            # adapter exception instead of converting it to batch evidence.
+            with self.assertRaises(BrokenStringError):
+                registry.inspect(broken)
+
+    def test_batch_does_not_swallow_process_control_exceptions(self):
+        registry = ImportRegistry()
+        registry.register(ProcessControlImporter())
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / 'stop.interrupt'
+            source.write_bytes(b'interrupt-source')
+            with self.assertRaises(KeyboardInterrupt):
+                registry.inspect_batch([source])
 
     def test_registry_rejects_low_level_mutated_exact_record(self):
         registry = ImportRegistry()
