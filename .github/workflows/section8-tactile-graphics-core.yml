@@ -1,0 +1,53 @@
+name: Section 8 Refreshable Tactile Graphics Core
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  SECTION7_PREDECESSOR_SHA: 21e5974da922cb764425ff1139fa63c3c7097b02
+  FROZEN_SECTION8_SHA: 7a4d14d68642a5d4fb81bbf5474525d1743d71ac
+
+jobs:
+  section8-core:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+      - name: Exact predecessor scope and frozen blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git merge-base "$SECTION7_PREDECESSOR_SHA" HEAD)" = "$SECTION7_PREDECESSOR_SHA"
+          git diff --check "$SECTION7_PREDECESSOR_SHA"...HEAD
+          actual="$(git diff --name-only "$SECTION7_PREDECESSOR_SHA"...HEAD | LC_ALL=C sort)"
+          expected="$(printf '%s\n' '.github/workflows/section8-tactile-graphics-core.yml' 'acs/tactile_graphics.py' 'docs/automation/SECTION8_CLOSURE_AUDIT.md' 'tests/test_section8_tactile_graphics_core.py' | LC_ALL=C sort)"
+          test "$actual" = "$expected"
+          test "$(git hash-object acs/tactile_graphics.py)" = "7a0434961b963f943fa802952a89a5ad13ffc601"
+          test "$(git hash-object tests/test_section8_tactile_graphics_core.py)" = "0e8ea90ad572b6945c321660742f11af8b263031"
+      - name: Compile Section 8 core
+        run: python -m py_compile acs/tactile_graphics.py tests/test_section8_tactile_graphics_core.py
+      - name: Run Section 8 acceptance tests
+        run: python -m unittest -v tests.test_section8_tactile_graphics_core
+      - name: Run canonical Position and GameTree adjacency
+        run: >-
+          python -m unittest -v
+          tests.test_position_editor
+          tests.test_position_editor_passive_boundary
+          tests.test_gametree
+          tests.test_gametree_accessible_completion
