@@ -53,7 +53,11 @@ env:
   PGN_WEB_BLOB: cd7c1da9ccb0285b26bed733da4d64ba2da61a5f
   PGN_WORKSPACE_TEST_BLOB: eb7f9d4ba7eaa50ea2142c5c76df43b69a98c066
   VERSION2_PGN_COMMANDS_TEST_BLOB: cccf94bf327641dc040af3fc7c8de780b72947b1
-  SECTION2_AUDIT_BLOB: 8b173273e308233f88108cd9b567ffcf19f3a1fd
+  SECTION2_AUDIT_BLOB: ae272c209f76ce39ee24ed2b0dee4671dd884874
+  PGN_WEBVIEW_PROJECTION_BLOB: 5327c3c89da28f9150a09eff4cc15131cc80cc76
+  FULL_PRODUCT_PRESENTERS_BLOB: aa9c7c10a03fbe85bfa9a3b542188a5b31fee655
+  PGN_WEBVIEW_PROJECTION_TEST_BLOB: c58b9096bcccd8b5a09f2e8bdb9c09ebfe5bcc4b
+  PGN_PRESENTER_GRAPH_TEST_BLOB: c66f1473f46f1595add938b27f9e8ea553e91348
 
   OFFLINE_QUALIFIER_BLOB: b2c387f1f14074bd368035678c03fe78edb9877e
   OFFLINE_REPORT_BLOB: 04421cdedef8c31c72c7d759e398d56e69dffda3
@@ -101,6 +105,8 @@ jobs:
           test "$(git rev-parse HEAD:acs/version2_windows_pgn_export.py)" = "$STREAMING_EXPORT_BLOB"
           test "$(git rev-parse HEAD:acs/pgn_webview_bridge.py)" = "$WEBVIEW_BRIDGE_BLOB"
           test "$(git rev-parse HEAD:acs/pgn_workspace_webview_adapter.py)" = "$WEBVIEW_ADAPTER_BLOB"
+          test "$(git rev-parse HEAD:acs/pgn_webview_projection.py)" = "$PGN_WEBVIEW_PROJECTION_BLOB"
+          test "$(git rev-parse HEAD:acs/full_product_presenters.py)" = "$FULL_PRODUCT_PRESENTERS_BLOB"
 
           test "$(git rev-parse HEAD:tests/test_v2_pgn_semantic_fidelity.py)" = "$SEMANTIC_FIDELITY_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_d06_pgn_roundtrip.py)" = "$STRICT_RECOVERY_TEST_BLOB"
@@ -129,6 +135,8 @@ jobs:
           test "$(git rev-parse HEAD:web/full_product_pgn.js)" = "$PGN_WEB_BLOB"
           test "$(git rev-parse HEAD:tests/test_pgn_workspace.py)" = "$PGN_WORKSPACE_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_version2_pgn_commands.py)" = "$VERSION2_PGN_COMMANDS_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_dev1_pgn_webview_projection.py)" = "$PGN_WEBVIEW_PROJECTION_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_pgn_presenter_graph_safety_current.py)" = "$PGN_PRESENTER_GRAPH_TEST_BLOB"
           test "$(git rev-parse HEAD:docs/automation/SECTION2_CLOSURE_AUDIT.md)" = "$SECTION2_AUDIT_BLOB"
 
           test "$(git rev-parse HEAD:scripts/qualify_pgn_conversion_corpus.py)" = "$OFFLINE_QUALIFIER_BLOB"
@@ -146,6 +154,8 @@ jobs:
           acs/version2_windows_pgn_export.py
           acs/pgn_webview_bridge.py
           acs/pgn_workspace_webview_adapter.py
+          acs/pgn_webview_projection.py
+          acs/full_product_presenters.py
           scripts/qualify_pgn_conversion_corpus.py
 
       - name: Execute PGN GameTree editing recovery streaming contract
@@ -174,6 +184,7 @@ jobs:
           tests.test_version2_pgn_commands
           tests.test_pgn_open_source_binding
           tests.test_pgn_document_context_atomicity
+          tests.test_dev1_pgn_webview_projection
           tests.test_pgn_presenter_graph_safety_current
           tests.test_dev4_pgn_resource_security
           tests.test_full_product_pgn_keybindings
