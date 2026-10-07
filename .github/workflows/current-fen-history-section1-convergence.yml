@@ -1,0 +1,160 @@
+name: Current FEN History Section 1 Convergence
+
+on:
+  pull_request:
+    branches:
+      - converge/history-surrogate-epd-gametree-20261006-ooxple7
+    paths:
+      - '.github/workflows/current-fen-history-section1-convergence.yml'
+      - 'acs/position_editor.py'
+      - 'acs/stage1_release_ui_core.py'
+      - 'acs/ui_analysis_adapter.py'
+      - 'acs/webapp.py'
+      - 'acs/webapp_keymap.py'
+      - 'acs/webapp_keymap_core.py'
+      - 'tests/test_fen_position_editor_complete_user_flow.py'
+      - 'tests/test_stage1_engine_play_ui.py'
+      - 'tests/test_ui_analysis_adapter.py'
+      - 'tests/test_ui_analysis_webapp.py'
+      - 'web/index.html'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-fen-history-section1-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  EXPECTED_BASE_SHA: 5854b528fbd3632cfa69553a70973123eaf14b54
+  SOURCE_FEN_SHA: 54eba72aa213c9968cd58c160bf954838740de65
+  POSITION_EDITOR_BLOB: 2a9b0e4ea6640c350ae1952176bb12771dfde7f8
+  STAGE1_UI_BLOB: b718e14ad03b2216b46e156584561523c4704cdb
+  ANALYSIS_ADAPTER_BLOB: e22d65ef3482e1e420a5252d36db9c1a5f5f8527
+  KEYMAP_BLOB: 9ac8af3d9c7dc567edc87b29a2ab8be948294543
+  KEYMAP_CORE_BLOB: f4bd6c9db6251a477cc9d678f36b9a17db64a5f7
+  ENGINE_UI_TEST_BLOB: b15066ea12c2180749b0870db0618d541db37e2c
+  ANALYSIS_ADAPTER_TEST_BLOB: ed002ed906ee5711e365cc2c70163a72d7359f00
+  ANALYSIS_WEBAPP_TEST_BLOB: ceefa54795f397d6a965b9028366596aac984830
+  WEBAPP_BLOB: 5c915b44fe66d897368547938ef01ac8cfcc673b
+  FEN_FLOW_TEST_BLOB: 3c9a0aaffcd32b5680a9a6341867a41aabda66a7
+  WEB_INDEX_BLOB: 2fa19a084ad4aaa9f6c728761d5c281c3186ea51
+  HISTORY_FLOW_TEST_BLOB: a8e09c9cc6fe8a95f9e8df085bff36bf8e3495e0
+  GAMETREE_TEST_BLOB: 9f9902e86d27bd9ace0dfd8379969b422800f761
+  PGN_BROWSER_BLOB: cd7c1da9ccb0285b26bed733da4d64ba2da61a5f
+  EPD_BLOB: 06b47a2a30cbd7b97095424a6f146bd175ea185a
+  EPD_TEST_BLOB: 90cfe919074b7b48d3ec5c43fb54003d505e4f51
+  PGN_WORKSPACE_BLOB: cc10d63d6ffdb4e6844f6cb01fb54d7f12044fde
+  VERSION2_COMMANDS_BLOB: 79655ccdde7fa3587861d5308a417df5d691b177
+
+jobs:
+  exact-head:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Prove exact convergence geometry
+        shell: bash
+        env:
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          expected="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
+          test "$(git rev-parse HEAD)" = "$expected"
+          test "${EVENT_BASE_REF}" = "converge/history-surrogate-epd-gametree-20261006-ooxple7"
+          test "${EVENT_BASE_SHA}" = "$EXPECTED_BASE_SHA"
+          test "$(git merge-base "$EXPECTED_BASE_SHA" HEAD)" = "$EXPECTED_BASE_SHA"
+          git diff --check "$EXPECTED_BASE_SHA"...HEAD
+          changed="$(git diff --name-only "$EXPECTED_BASE_SHA"...HEAD | sort)"
+          expected_paths="$(printf '%s\n' \
+            '.github/workflows/current-fen-history-section1-convergence.yml' \
+            'acs/position_editor.py' \
+            'acs/stage1_release_ui_core.py' \
+            'acs/ui_analysis_adapter.py' \
+            'acs/webapp.py' \
+            'acs/webapp_keymap.py' \
+            'acs/webapp_keymap_core.py' \
+            'tests/test_fen_position_editor_complete_user_flow.py' \
+            'tests/test_stage1_engine_play_ui.py' \
+            'tests/test_ui_analysis_adapter.py' \
+            'tests/test_ui_analysis_webapp.py' \
+            'web/index.html' | sort)"
+          test "$changed" = "$expected_paths"
+
+      - name: Bind current FEN and inherited authorities
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:acs/position_editor.py)" = "$POSITION_EDITOR_BLOB"
+          test "$(git rev-parse HEAD:acs/stage1_release_ui_core.py)" = "$STAGE1_UI_BLOB"
+          test "$(git rev-parse HEAD:acs/ui_analysis_adapter.py)" = "$ANALYSIS_ADAPTER_BLOB"
+          test "$(git rev-parse HEAD:acs/webapp_keymap.py)" = "$KEYMAP_BLOB"
+          test "$(git rev-parse HEAD:acs/webapp_keymap_core.py)" = "$KEYMAP_CORE_BLOB"
+          test "$(git rev-parse HEAD:tests/test_stage1_engine_play_ui.py)" = "$ENGINE_UI_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_ui_analysis_adapter.py)" = "$ANALYSIS_ADAPTER_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_ui_analysis_webapp.py)" = "$ANALYSIS_WEBAPP_TEST_BLOB"
+          test "$(git rev-parse HEAD:acs/webapp.py)" = "$WEBAPP_BLOB"
+          test "$(git rev-parse HEAD:tests/test_fen_position_editor_complete_user_flow.py)" = "$FEN_FLOW_TEST_BLOB"
+          test "$(git rev-parse HEAD:web/index.html)" = "$WEB_INDEX_BLOB"
+          test "$(git rev-parse HEAD:tests/test_history_review_complete_user_flow.py)" = "$HISTORY_FLOW_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_gametree_accessible_completion.py)" = "$GAMETREE_TEST_BLOB"
+          test "$(git rev-parse HEAD:web/full_product_pgn.js)" = "$PGN_BROWSER_BLOB"
+          test "$(git rev-parse HEAD:acs/epd.py)" = "$EPD_BLOB"
+          test "$(git rev-parse HEAD:tests/test_epd.py)" = "$EPD_TEST_BLOB"
+          test "$(git rev-parse HEAD:acs/pgn_workspace.py)" = "$PGN_WORKSPACE_BLOB"
+          test "$(git rev-parse HEAD:acs/version2_pgn_commands.py)" = "$VERSION2_COMMANDS_BLOB"
+
+      - name: Compile composed Python surface
+        run: >-
+          python -m py_compile
+          acs/position_editor.py
+          acs/stage1_release_ui_core.py
+          acs/ui_analysis_adapter.py
+          acs/webapp.py
+          acs/webapp_keymap.py
+          acs/webapp_keymap_core.py
+          tests/test_fen_position_editor_complete_user_flow.py
+          tests/test_stage1_engine_play_ui.py
+          tests/test_ui_analysis_adapter.py
+          tests/test_ui_analysis_webapp.py
+
+      - name: Section 1 FEN gameplay analysis regressions
+        run: >-
+          python -m unittest -v
+          tests.test_fen_position_editor_complete_user_flow
+          tests.test_stage1_engine_play_ui
+          tests.test_ui_analysis_adapter
+          tests.test_ui_analysis_webapp
+          tests.test_stage1_fen_history_atomicity_current
+          tests.test_release_stockfish_composition
+
+      - name: Retained History EPD GameTree PGN regressions
+        run: >-
+          python -m unittest -v
+          tests.test_history_review_complete_user_flow
+          tests.test_epd
+          tests.test_gametree_accessible_completion
+          tests.test_pgn_workspace
+          tests.test_version2_pgn_commands
+
+      - name: Retained PGN browser DOM
+        run: node tests/js/pgn_surface_dom_test.js
+
+      - name: Core chess selftest
+        run: python -m acs.selftest
