@@ -54,9 +54,11 @@ en-passant where required and validation remains owned by canonical
 
 Chess960/Fischer Random is not silently reinterpreted as Standard chess. The
 current product boundary explicitly fails closed for unsupported variant
-semantics, including rook-file castling evidence. The plan requires Chess960
-only where planned; this conservative boundary is therefore preferable to
-inventing another rules implementation.
+semantics, including rook-file castling evidence. The deterministic edge
+corpus includes a Shredder-FEN-style rook-file castling token and requires both
+`PositionState` representation parsing and canonical `Board` publication to
+reject it. The plan requires Chess960 only where planned; this conservative
+boundary is therefore preferable to inventing another rules implementation.
 
 ## 1.3 — SAN, moves, transitions and canonical legality
 
@@ -100,8 +102,8 @@ Deterministic project-authored corpus:
 - covers valid/invalid FEN representation and canonical-playability boundaries,
   including side to move, castling, en-passant, counters, promotion-ready
   state, adjacent kings, inconsistent castling, missing EP pawn, pawn on the
-  first rank, duplicate castling, Unicode digits, zero fullmove and legacy
-  four-field Board normalization.
+  first rank, duplicate castling, unsupported Chess960 rook-file castling,
+  Unicode digits, zero fullmove and legacy four-field Board normalization.
 
 Lawful real corpus:
 
