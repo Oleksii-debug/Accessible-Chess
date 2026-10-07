@@ -227,6 +227,40 @@ Current strengthened prepared workflow blob:
 `PRODUCT_MUTATION=NONE`
 
 
+
+### Current exact-tree PGN regression convergence — workspace boundary and stale oracles
+
+Section-1 Whole qualification run `37642025921` accidentally executed complete
+Section-2 PGN modules before the Section-1 gate was corrected. Because the PGN
+product blobs on that exact tree were byte-identical to this Section-2 preparation,
+those failures are reusable dependency-safe evidence for FRONT-2 rather than a
+reason to widen Section 1.
+
+The four PGN failures were reduced to one product boundary defect and three stale
+regression oracles:
+
+- direct workspace annotation of a lone UTF-16 surrogate reached semantic identity
+  hashing and leaked raw `UnicodeEncodeError`; `PgnWorkspace` now converts that
+  impossible-to-publish Unicode state into stable
+  `PgnWorkspaceErrorCode.INVALID_DOCUMENT` before any workspace commit;
+- two dirty-state regressions incorrectly treated the low-level
+  `AnnotationEditResult` return value as a `PgnWorkspaceView`; they now assert
+  the owning workspace's canonical `dirty` state;
+- the frozen-selection export race regression attempted to mutate
+  `workspace.current_game()`, which is intentionally a detached copy. The test
+  now explicitly uses the private canonical test-only reference to simulate a
+  post-validation canonical mutation and therefore genuinely proves the exported
+  selection was frozen before publication.
+
+Exact new blobs:
+- `acs/pgn_workspace.py = 7978337169b53a3490bc5e675b6ae20189648057`
+- `tests/test_pgn_workspace.py = eb7f9d4ba7eaa50ea2142c5c76df43b69a98c066`
+- `tests/test_version2_pgn_commands.py = cccf94bf327641dc040af3fc7c8de780b72947b1`
+
+No parser grammar, GameTree structure, chess legality, or export publication
+authority was duplicated. These paths are now part of the bounded Section-2
+candidate scope and are exact-bound by the prepared closure gate.
+
 ### Live predecessor reconvergence — fce5c75c65cf9abd3d134086279f20a6f5d63ef1
 
 Section 1 moved after exact-SHA qualification exposed and repaired the editable
