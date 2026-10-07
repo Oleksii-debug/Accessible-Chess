@@ -19,11 +19,15 @@ class EntitlementState(str, Enum):
 
 
 class FeatureId(str, Enum):
-    """Stable product-facing feature identifiers.
+    """Stable product-facing capability identifiers.
 
-    These values are intentionally provider-neutral. Product code may depend on
-    them, while billing/network adapters translate their own plans and claims to
-    these IDs at the infrastructure boundary.
+    These values describe product capabilities, never price tiers or billing
+    providers. Product code may depend on them while infrastructure adapters map
+    future commercial plans and server claims to these stable IDs.
+
+    Accessibility itself is intentionally absent from this catalog: keyboard,
+    screen-reader and semantic-document accessibility are product invariants,
+    not entitlements that can be sold or revoked.
     """
 
     PLAY_ENGINE = "play.engine"
@@ -32,11 +36,30 @@ class FeatureId(str, Enum):
     HISTORY_REVIEW = "history.review"
     DATA_IMPORT = "data.import"
     DATA_EXPORT = "data.export"
+    DATA_RECOVERY = "data.recovery"
+    PGN_WORKSPACE = "pgn.workspace"
+    LIBRARY_SEARCH = "library.search"
+    BOOKS_READER = "books.reader"
     TRAINING_LOCAL = "training.local"
+    TRAINING_COURSES = "training.courses"
+    TEACHER_LOCAL = "teacher.local"
+    CLASSROOM_LOCAL = "classroom.local"
+    EDUCATION_MANAGEMENT = "education.management"
     SETTINGS_PROFILES = "settings.profiles"
 
 
 CORE_FEATURE_IDS: FrozenSet[str] = frozenset(feature.value for feature in FeatureId)
+
+# User-owned local data must remain exportable and recoverable even when a
+# commercial entitlement is unavailable, expired, revoked or requires an update.
+# This is a data-safety invariant, not a paid feature grant. Provider-backed
+# premium content/export requires distinct future capability IDs.
+LOCAL_DATA_SAFETY_FEATURE_IDS: FrozenSet[str] = frozenset(
+    {
+        FeatureId.DATA_EXPORT.value,
+        FeatureId.DATA_RECOVERY.value,
+    }
+)
 
 
 ACTIVE_STATES = frozenset(
@@ -80,6 +103,10 @@ class ProductVersion:
 @dataclass(frozen=True)
 class RemotePolicy:
     """Server-authored policy values consumed by the client.
+
+    `refresh_after` is an enforceable cache TTL boundary, not advisory metadata.
+    Once it is passed the pure FeatureGate fails closed unless a bounded
+    `grace_until` is still active. Transport code may refresh before evaluation.
 
     This type deliberately contains no transport, signature, payment-provider,
     or token-storage implementation. Those belong to infrastructure adapters.
@@ -196,8 +223,15 @@ class FeatureGate:
     """Pure policy evaluator for stable feature IDs.
 
     The gate never deletes data and never performs network or billing calls.
-    A caller may preserve read/export/recovery features by granting their stable
-    feature IDs even while paid functionality is unavailable.
+    User-owned local data export/recovery are narrow safety invariants and stay
+    available independently of commercial entitlement state. Other features
+    remain fail-closed unless explicitly entitled.
+
+    When a server-authored snapshot supplies `server_time`, evaluation never
+    reasons about a time earlier than that trusted floor. This blocks the trivial
+    local-clock rollback where a user sets Windows time before a server-observed
+    expiry/refresh boundary. A transport/cache layer remains responsible for
+    persistence and cryptographic authenticity of server-issued policy.
     """
 
     def __init__(self, *, current_version: ProductVersion | str) -> None:
@@ -215,7 +249,15 @@ class FeatureGate:
         now: datetime | None = None,
     ) -> AccessDecision:
         feature = _normalize_feature_id(feature_id)
-        current_time = _utc_now(now)
+        local_time = _utc_now(now)
+
+        if feature in LOCAL_DATA_SAFETY_FEATURE_IDS:
+            return AccessDecision(
+                True,
+                snapshot.state if snapshot is not None else EntitlementState.EXPIRED,
+                "local_data_safety",
+                feature,
+            )
 
         if snapshot is None:
             return AccessDecision(
@@ -224,6 +266,8 @@ class FeatureGate:
                 "entitlement_unavailable",
                 feature,
             )
+
+        current_time = _effective_time(local_time, snapshot.server_time)
 
         minimum = snapshot.policy.minimum_supported_version
         if minimum is not None and self.current_version < minimum:
@@ -278,6 +322,24 @@ class FeatureGate:
                 using_grace=True,
             )
 
+        refresh_after = snapshot.policy.refresh_after
+        if refresh_after is not None and current_time > refresh_after:
+            grace_until = snapshot.policy.grace_until
+            if grace_until is not None and current_time <= grace_until:
+                return AccessDecision(
+                    True,
+                    EntitlementState.GRACE_PERIOD,
+                    "refresh_overdue_grace",
+                    feature,
+                    using_grace=True,
+                )
+            return AccessDecision(
+                False,
+                EntitlementState.EXPIRED,
+                "refresh_required",
+                feature,
+            )
+
         if snapshot.state in ACTIVE_STATES:
             return AccessDecision(True, snapshot.state, "entitled", feature)
 
@@ -304,3 +366,12 @@ def _utc_now(value: datetime | None) -> datetime:
     if value.tzinfo is None:
         raise ValueError("now must be timezone-aware")
     return value.astimezone(timezone.utc)
+
+
+def _effective_time(local_time: datetime, server_time: datetime | None) -> datetime:
+    """Return a time that never predates a known server-authored time floor."""
+
+    if server_time is None:
+        return local_time
+    server_utc = server_time.astimezone(timezone.utc)
+    return max(local_time, server_utc)
