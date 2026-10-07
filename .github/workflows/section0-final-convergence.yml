@@ -1,0 +1,157 @@
+name: Section 0 Final Format Convergence
+
+on:
+  pull_request:
+    branches:
+      - section0/authority-contract-20261007-sol56
+    paths:
+      - '.github/workflows/section0-final-convergence.yml'
+      - '.github/workflows/section0-format-capability-contract.yml'
+      - 'acs/format_capabilities.py'
+      - 'acs/import_contract.py'
+      - 'acs/import_registry.py'
+      - 'docs/IMPORT_REPORT_CONTRACT.md'
+      - 'docs/automation/CANONICAL_FORMAT_CAPABILITY_MATRIX.md'
+      - 'tests/test_section0_format_capabilities.py'
+      - 'tests/test_section0_import_report_contract.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: section0-final-format-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  EXPECTED_BASE_SHA: c61fbc8f1381ddec05109532f907595c2a7c9aaf
+  CAPABILITY_HEAD_SHA: acaa749b8ab340c3fb78f25b2e88df0e2b8a645c
+  AUTHORITY_WORKFLOW_BLOB: 2a92543441307a13733b1aa4e2ed7975003c27f9
+  AUTHORITY_DOC_BLOB: a1f7680f120c1a397e323dc9e633018a59adc711
+  AUTHORITY_TEST_BLOB: ca8cc57fa0ca5c6888004239100390f136d43ac8
+  CAPABILITY_WORKFLOW_BLOB: 94c6449e871392c0bcf2101e00b35dd7ae0f2bef
+  CAPABILITY_BLOB: 9544f44a97a1f15b331cc1f41ce9fd677da93920
+  CAPABILITY_DOC_BLOB: 38212c7efe90222fdcb75d1938cd0f8c83f1a549
+  CAPABILITY_TEST_BLOB: d7299164ec16248be18ba88e491891014f7a6074
+  IMPORT_CONTRACT_BLOB: 311f0818eb28ae414e48eb376e57168e8de0346a
+  IMPORT_REGISTRY_BLOB: 3ccd96fb67dea77ec5a0115a34dc82350a2da617
+  IMPORT_REPORT_DOC_BLOB: 98283edf968f9da715629487435374305e3bfb34
+  IMPORT_REPORT_TEST_BLOB: a8b06b82083172314a931134adc95d2d02ae6031
+  CHESSCORE_BLOB: e04982c2de52394c2c9f5e5725d6267cbc55ce3d
+  POSITION_EDITOR_BLOB: fd48b517c4489fe70e4ecb102e2615027be8f098
+  EPD_BLOB: 06b47a2a30cbd7b97095424a6f146bd175ea185a
+  GAMETREE_BLOB: 565afa84260d5b8dc2ee8979bb0538b495516f97
+  PGN_ROUNDTRIP_BLOB: 76e10f5035e55cc413632dcb3829f698a70b41ca
+  LIBRARY_IMPORT_BLOB: 3ff7dfa63e8d587d5688daed21bdbfce30664c1a
+  GAME_IDENTITY_BLOB: 4cfc738084a99ee12c4397c71c846cac4426754d
+
+jobs:
+  section0:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Prove exact stacked Section 0 geometry
+        shell: bash
+        env:
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          expected="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
+          test "$(git rev-parse HEAD)" = "$expected"
+          test "${EVENT_BASE_REF}" = "section0/authority-contract-20261007-sol56"
+          test "${EVENT_BASE_SHA}" = "$EXPECTED_BASE_SHA"
+          test "$(git merge-base "$EXPECTED_BASE_SHA" HEAD)" = "$EXPECTED_BASE_SHA"
+          git merge-base --is-ancestor "$CAPABILITY_HEAD_SHA" HEAD
+          git diff --check "$EXPECTED_BASE_SHA"...HEAD
+          changed="$(git diff --name-only "$EXPECTED_BASE_SHA"...HEAD | sort)"
+          expected_paths="$(printf '%s\n' \
+            '.github/workflows/section0-final-convergence.yml' \
+            '.github/workflows/section0-format-capability-contract.yml' \
+            'acs/format_capabilities.py' \
+            'acs/import_contract.py' \
+            'acs/import_registry.py' \
+            'docs/IMPORT_REPORT_CONTRACT.md' \
+            'docs/automation/CANONICAL_FORMAT_CAPABILITY_MATRIX.md' \
+            'tests/test_section0_format_capabilities.py' \
+            'tests/test_section0_import_report_contract.py' | sort)"
+          test "$changed" = "$expected_paths"
+
+      - name: Bind both Section 0 lineages and 0.5 repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:.github/workflows/section0-format-authority-contract.yml)" = "$AUTHORITY_WORKFLOW_BLOB"
+          test "$(git rev-parse HEAD:docs/FORMAT_AUTHORITY_BOUNDARIES.md)" = "$AUTHORITY_DOC_BLOB"
+          test "$(git rev-parse HEAD:tests/test_section0_format_authority_contract.py)" = "$AUTHORITY_TEST_BLOB"
+          test "$(git rev-parse HEAD:.github/workflows/section0-format-capability-contract.yml)" = "$CAPABILITY_WORKFLOW_BLOB"
+          test "$(git rev-parse HEAD:acs/format_capabilities.py)" = "$CAPABILITY_BLOB"
+          test "$(git rev-parse HEAD:docs/automation/CANONICAL_FORMAT_CAPABILITY_MATRIX.md)" = "$CAPABILITY_DOC_BLOB"
+          test "$(git rev-parse HEAD:tests/test_section0_format_capabilities.py)" = "$CAPABILITY_TEST_BLOB"
+          test "$(git rev-parse HEAD:acs/import_contract.py)" = "$IMPORT_CONTRACT_BLOB"
+          test "$(git rev-parse HEAD:acs/import_registry.py)" = "$IMPORT_REGISTRY_BLOB"
+          test "$(git rev-parse HEAD:docs/IMPORT_REPORT_CONTRACT.md)" = "$IMPORT_REPORT_DOC_BLOB"
+          test "$(git rev-parse HEAD:tests/test_section0_import_report_contract.py)" = "$IMPORT_REPORT_TEST_BLOB"
+
+      - name: Bind inherited canonical format authorities
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:acs/chesscore.py)" = "$CHESSCORE_BLOB"
+          test "$(git rev-parse HEAD:acs/position_editor.py)" = "$POSITION_EDITOR_BLOB"
+          test "$(git rev-parse HEAD:acs/epd.py)" = "$EPD_BLOB"
+          test "$(git rev-parse HEAD:acs/gametree.py)" = "$GAMETREE_BLOB"
+          test "$(git rev-parse HEAD:acs/pgn_roundtrip.py)" = "$PGN_ROUNDTRIP_BLOB"
+          test "$(git rev-parse HEAD:acs/library_import_service.py)" = "$LIBRARY_IMPORT_BLOB"
+          test "$(git rev-parse HEAD:acs/game_identity.py)" = "$GAME_IDENTITY_BLOB"
+
+      - name: Compile Section 0 surfaces
+        run: >-
+          python -m py_compile
+          acs/format_capabilities.py
+          acs/import_contract.py
+          acs/import_registry.py
+          tests/test_section0_format_authority_contract.py
+          tests/test_section0_format_capabilities.py
+          tests/test_section0_import_report_contract.py
+
+      - name: Section 0 exact contracts
+        run: >-
+          python -m unittest -v
+          tests.test_section0_format_authority_contract
+          tests.test_section0_format_capabilities
+          tests.test_section0_import_report_contract
+
+      - name: Shared import boundary regressions
+        run: >-
+          python -m unittest -v
+          tests.test_import_contract
+          tests.test_import_registry
+          tests.test_dev4_import_batch_adapter_failure
+
+      - name: Retained malformed and canonical format regressions
+        run: >-
+          python -m unittest -v
+          tests.test_position_text_authority
+          tests.test_epd
+          tests.test_d06_pgn_roundtrip
+          tests.test_version2_formats_integration
+          tests.test_acsdb
+
+      - name: Core chess selftest
+        run: python -m acs.selftest
