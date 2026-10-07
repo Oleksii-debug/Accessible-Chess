@@ -366,8 +366,12 @@ class Board:
         A null move changes no pieces or castling rights. It clears en-passant,
         advances the halfmove/fullmove counters exactly like a quiet ply, flips
         the side to move, and participates in the same undo/redo history as
-        ordinary canonical moves.
+        ordinary canonical moves. It cannot be used to pass while the moving
+        side is in check, because that would create a FEN which canonical Board
+        legality must reject on reload.
         """
+        if self.in_check(self.turn):
+            raise ValueError('Нульовий хід не можна виконати під шахом')
         before=self.fen()
         self.undo_stack.append((before,'--')); self.redo_stack.clear()
         self.ep=None
