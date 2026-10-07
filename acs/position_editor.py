@@ -264,6 +264,7 @@ class PositionState:
                 "FEN fullmove counter is too large"
             ) from exc
 
+        _validate_fen_castling_token(castling)
         return cls(
             tuple(pieces),
             turn=turn,
@@ -402,6 +403,19 @@ def _square_index(square: str) -> int:
         # The rejected value may be an active object or an enormous integer.
         # Keep the domain error stable without invoking __repr__/integer text conversion.
         raise PositionValidationError("invalid square") from exc
+
+
+def _validate_fen_castling_token(value: str) -> None:
+    """Require the standard FEN KQkq relative order at text ingress."""
+
+    _validate_castling(value)
+    if value == "-":
+        return
+    canonical = "".join(symbol for symbol in "KQkq" if symbol in value)
+    if value != canonical:
+        raise PositionValidationError(
+            "FEN castling rights must use canonical KQkq order"
+        )
 
 
 def _normalize_castling(value: str) -> str:
