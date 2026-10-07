@@ -88,14 +88,27 @@ class PgnPublishedPathChangedError(
 
 
 def _same_direct_path(left: str | Path, right: str | Path) -> bool:
-    """Compare direct path spellings with platform path/case normalization."""
+    """Compare one direct filesystem path without rejecting Windows aliases.
 
-    def key(value: str | Path) -> str:
-        return os.path.normcase(
-            os.path.abspath(os.fspath(Path(value).expanduser()))
-        )
+    Existing paths are compared by filesystem identity first.  This handles the
+    same Windows file being reported once through an 8.3 short-name component
+    and once through its long-name spelling.  If either side does not exist yet
+    (for example a new Save-As destination), fall back to normalized absolute
+    spelling without resolving through symlinks/reparse points.
+    """
 
-    return key(left) == key(right)
+    left_path = Path(left).expanduser()
+    right_path = Path(right).expanduser()
+    try:
+        if os.path.samefile(left_path, right_path):
+            return True
+    except (FileNotFoundError, OSError, ValueError):
+        pass
+
+    def key(value: Path) -> str:
+        return os.path.normcase(os.path.abspath(os.fspath(value)))
+
+    return key(left_path) == key(right_path)
 
 
 @dataclass(frozen=True)
