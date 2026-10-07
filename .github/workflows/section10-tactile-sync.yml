@@ -4,7 +4,12 @@ on:
   pull_request:
     paths:
       - 'acs/tactile_sync.py'
+      - 'acs/version2_application.py'
+      - 'acs/version2_profile.py'
+      - 'acs/full_product_actions.py'
+      - 'acs/full_product_native_menu.py'
       - 'tests/test_section10_tactile_sync.py'
+      - 'tests/test_section10_v2_tactile_wiring.py'
       - 'docs/automation/SECTION10_TACTILE_SYNC_AUDIT.md'
       - '.github/workflows/section10-tactile-sync.yml'
   workflow_dispatch:
@@ -25,6 +30,6 @@ jobs:
         with:
           python-version: '3.12'
       - name: Compile tactile integration
-        run: python -m py_compile acs/tactile_graphics.py acs/tactile_sync.py tests/test_section10_tactile_sync.py
+        run: python -m py_compile acs/tactile_graphics.py acs/tactile_sync.py acs/version2_application.py acs/version2_profile.py acs/full_product_actions.py acs/full_product_native_menu.py tests/test_section10_tactile_sync.py tests/test_section10_v2_tactile_wiring.py
       - name: Execute retained Section 8 and focused Section 10 contracts
-        run: python -m unittest -v tests.test_section8_tactile_graphics_core tests.test_section10_tactile_sync
+        run: python -m unittest -v tests.test_section8_tactile_graphics_core tests.test_section10_tactile_sync tests.test_section10_v2_tactile_wiring
