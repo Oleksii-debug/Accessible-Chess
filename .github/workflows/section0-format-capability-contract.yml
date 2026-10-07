@@ -20,13 +20,14 @@ concurrency:
 
 env:
   EXPECTED_BASE_SHA: 5854b528fbd3632cfa69553a70973123eaf14b54
-  CAPABILITY_BLOB: 7fca0c7b3fb2261fedb2e993d97a91527c8555e3
+  CAPABILITY_BLOB: 9544f44a97a1f15b331cc1f41ce9fd677da93920
   CAPABILITY_DOC_BLOB: 38212c7efe90222fdcb75d1938cd0f8c83f1a549
-  CAPABILITY_TEST_BLOB: bb6fae14c29927e4f333fde2b142042061fcfb43
+  CAPABILITY_TEST_BLOB: d7299164ec16248be18ba88e491891014f7a6074
   IMPORT_CONTRACT_BLOB: b302b1666511289a70b5b3569ed5360b5cb66a95
   CHESSBASE_MATRIX_BLOB: 390a0b70e0275f3afe31d4909a8f6b547fe446e0
   CBF_EVIDENCE_BLOB: 88bfd2d5b198433b3c4839ec9158caadf6ea0193
   CBF_EVIDENCE_TEST_BLOB: 216f0675b7fab0bf57c7dea70d57b21f47434ca7
+  POSITION_EDITOR_BLOB: fd48b517c4489fe70e4ecb102e2615027be8f098
   POSITION_TEXT_BLOB: e62dcb2f28f8fca345c163cfaf841aefc38a3bbf
   EPD_BLOB: 06b47a2a30cbd7b97095424a6f146bd175ea185a
   PGN_BLOB: 18239940bf74dd1cdc4acdefa5ba9463c48795d6
@@ -84,6 +85,7 @@ jobs:
           test "$(git rev-parse HEAD:docs/automation/DEV4_CHESSBASE_CAPABILITY_MATRIX.md)" = "$CHESSBASE_MATRIX_BLOB"
           test "$(git rev-parse HEAD:docs/automation/V2_CHESSBASE_CAPABILITIES.json)" = "$CBF_EVIDENCE_BLOB"
           test "$(git rev-parse HEAD:tests/test_v2_chessbase_capability_manifest.py)" = "$CBF_EVIDENCE_TEST_BLOB"
+          test "$(git rev-parse HEAD:acs/position_editor.py)" = "$POSITION_EDITOR_BLOB"
           test "$(git rev-parse HEAD:acs/position_text.py)" = "$POSITION_TEXT_BLOB"
           test "$(git rev-parse HEAD:acs/epd.py)" = "$EPD_BLOB"
           test "$(git rev-parse HEAD:acs/pgn.py)" = "$PGN_BLOB"
