@@ -74,7 +74,7 @@
     }
     const playAction = requiredText(value.playAction, "playAction", 16);
     if (!["play", "pause"].includes(playAction)) throw new Error("invalid play action");
-    const focusTarget = requiredText(value.focusTarget, "focusTarget", 64);
+    const focusTarget = requiredText(value.focusTarget, "focus target", 64);
     if (!FOCUS_TARGETS.has(focusTarget)) throw new Error("invalid focus target");
     if (value.restoreEnabled && qualification !== "confirmed") {
       throw new Error("restore requires a confirmed chess position");
