@@ -530,7 +530,7 @@ class ImportRegistryTests(unittest.TestCase):
             with self.assertRaisesRegex(ImportRegistryError, 'registration changed'):
                 registry.inspect(path)
 
-            self.assertIs(registry.importer_for(path), replacement)
+            self.assertIs(registry.importer_for(path), original)
             self.assertEqual(path.read_bytes(), original_bytes)
 
     def test_batch_isolates_reentrant_route_replacement_and_continues(self):
@@ -556,7 +556,8 @@ class ImportRegistryTests(unittest.TestCase):
                     format_name=replacement.format_name,
                 )
 
-        registry.register(ReentrantImporter())
+        original = ReentrantImporter()
+        registry.register(original)
         registry.register(FakeImporter())
 
         with tempfile.TemporaryDirectory() as td:
@@ -573,6 +574,7 @@ class ImportRegistryTests(unittest.TestCase):
             self.assertIsNone(batch.items[0].report)
             self.assertEqual(len(batch.reports), 1)
             self.assertEqual(batch.reports[0].format_name, FakeImporter.format_name)
+            self.assertIs(registry.importer_for(rerouted), original)
             self.assertEqual(rerouted.read_bytes(), b'reentrant-batch-source')
             self.assertEqual(valid.read_bytes(), b'valid-source')
 
@@ -596,7 +598,8 @@ class ImportRegistryTests(unittest.TestCase):
                 registry.register(replacement, replace=True)
                 raise RuntimeError('decoder failed after route replacement')
 
-        registry.register(ReentrantFailingImporter())
+        original = ReentrantFailingImporter()
+        registry.register(original)
 
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / 'source.reroute-error'
@@ -607,7 +610,7 @@ class ImportRegistryTests(unittest.TestCase):
                 registry.inspect(path)
 
             self.assertIsInstance(ctx.exception.__cause__, RuntimeError)
-            self.assertIs(registry.importer_for(path), replacement)
+            self.assertIs(registry.importer_for(path), original)
             self.assertEqual(path.read_bytes(), original_bytes)
 
     def test_batch_isolates_route_replacement_hidden_by_adapter_error(self):
@@ -630,7 +633,8 @@ class ImportRegistryTests(unittest.TestCase):
                 registry.register(replacement, replace=True)
                 raise RuntimeError('decoder failed after route replacement')
 
-        registry.register(ReentrantFailingImporter())
+        original = ReentrantFailingImporter()
+        registry.register(original)
         registry.register(FakeImporter())
 
         with tempfile.TemporaryDirectory() as td:
@@ -647,9 +651,157 @@ class ImportRegistryTests(unittest.TestCase):
             self.assertIsNone(batch.items[0].report)
             self.assertEqual(len(batch.reports), 1)
             self.assertEqual(batch.reports[0].format_name, FakeImporter.format_name)
-            self.assertIs(registry.importer_for(rerouted), replacement)
+            self.assertIs(registry.importer_for(rerouted), original)
             self.assertEqual(rerouted.read_bytes(), b'reentrant-batch-route-error')
             self.assertEqual(valid.read_bytes(), b'valid-source')
+
+    def test_batch_restores_same_suffix_route_before_later_source(self):
+        registry = ImportRegistry()
+
+        class ReplacementImporter:
+            format_name = 'Unauthorized replacement'
+            suffixes = ('.same-route',)
+
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def inspect(self, path: Path) -> ImportReport:
+                self.calls += 1
+                return ImportReport(source=fingerprint(path), format_name=self.format_name)
+
+        replacement = ReplacementImporter()
+
+        class ReentrantOnceImporter:
+            format_name = 'Authorized original'
+            suffixes = ('.same-route',)
+
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def inspect(self, path: Path) -> ImportReport:
+                self.calls += 1
+                if self.calls == 1:
+                    registry.register(replacement, replace=True)
+                return ImportReport(source=fingerprint(path), format_name=self.format_name)
+
+        original = ReentrantOnceImporter()
+        registry.register(original)
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            first = root / 'first.same-route'
+            second = root / 'second.same-route'
+            first.write_bytes(b'first')
+            second.write_bytes(b'second')
+
+            batch = registry.inspect_batch([first, second])
+
+            self.assertEqual([item.ok for item in batch.items], [False, True])
+            self.assertIn('registration changed', batch.items[0].error)
+            self.assertEqual(batch.items[1].report.format_name, original.format_name)
+            self.assertIs(registry.importer_for(second), original)
+            self.assertEqual(original.calls, 2)
+            self.assertEqual(replacement.calls, 0)
+
+    def test_batch_restores_same_suffix_route_after_adapter_error(self):
+        registry = ImportRegistry()
+
+        class ReplacementImporter:
+            format_name = 'Unauthorized error replacement'
+            suffixes = ('.same-route-error',)
+
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def inspect(self, path: Path) -> ImportReport:
+                self.calls += 1
+                return ImportReport(source=fingerprint(path), format_name=self.format_name)
+
+        replacement = ReplacementImporter()
+
+        class ReentrantOnceFailingImporter:
+            format_name = 'Authorized error original'
+            suffixes = ('.same-route-error',)
+
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def inspect(self, path: Path) -> ImportReport:
+                self.calls += 1
+                if self.calls == 1:
+                    registry.register(replacement, replace=True)
+                    raise RuntimeError('first source failed after reroute')
+                return ImportReport(source=fingerprint(path), format_name=self.format_name)
+
+        original = ReentrantOnceFailingImporter()
+        registry.register(original)
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            first = root / 'first.same-route-error'
+            second = root / 'second.same-route-error'
+            first.write_bytes(b'first')
+            second.write_bytes(b'second')
+
+            batch = registry.inspect_batch([first, second])
+
+            self.assertEqual([item.ok for item in batch.items], [False, True])
+            self.assertIn('registration changed', batch.items[0].error)
+            self.assertEqual(batch.items[1].report.format_name, original.format_name)
+            self.assertIs(registry.importer_for(second), original)
+            self.assertEqual(original.calls, 2)
+            self.assertEqual(replacement.calls, 0)
+
+    def test_registry_rejects_and_restores_cross_suffix_route_poisoning(self):
+        registry = ImportRegistry()
+
+        class VictimImporter:
+            format_name = 'Victim original'
+            suffixes = ('.victim-route',)
+
+            def inspect(self, path: Path) -> ImportReport:
+                return ImportReport(source=fingerprint(path), format_name=self.format_name)
+
+        class VictimReplacement:
+            format_name = 'Victim replacement'
+            suffixes = ('.victim-route',)
+
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def inspect(self, path: Path) -> ImportReport:
+                self.calls += 1
+                return ImportReport(source=fingerprint(path), format_name=self.format_name)
+
+        victim = VictimImporter()
+        replacement = VictimReplacement()
+        registry.register(victim)
+
+        class CrossSuffixPoisoner:
+            format_name = 'Cross suffix poisoner'
+            suffixes = ('.poison-route',)
+
+            def inspect(self, path: Path) -> ImportReport:
+                registry.register(replacement, replace=True)
+                return ImportReport(source=fingerprint(path), format_name=self.format_name)
+
+        poisoner = CrossSuffixPoisoner()
+        registry.register(poisoner)
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            poison = root / 'bad.poison-route'
+            victim_source = root / 'good.victim-route'
+            poison.write_bytes(b'poison')
+            victim_source.write_bytes(b'victim')
+
+            batch = registry.inspect_batch([poison, victim_source])
+
+            self.assertEqual([item.ok for item in batch.items], [False, True])
+            self.assertIn('registration changed', batch.items[0].error)
+            self.assertEqual(batch.items[1].report.format_name, victim.format_name)
+            self.assertIs(registry.importer_for(victim_source), victim)
+            self.assertEqual(replacement.calls, 0)
 
     def test_registry_binds_format_identity_at_registration_time(self):
         registry = ImportRegistry()
