@@ -53,7 +53,7 @@ class RecordedMediaTruthCorpusTests(unittest.TestCase):
         self.assertEqual(corpus.board_revision, "truth-corpus-board-v1")
         self.assertEqual(
             [frame.timestamp_ms for frame in corpus.frames],
-            [0, 1000, 2000, 3000, 4000],
+            [0, 1000, 2000, 3000, 4000, 5000, 6000],
         )
         self.assertEqual(
             [frame.evidence.disposition for frame in corpus.frames],
@@ -63,6 +63,8 @@ class RecordedMediaTruthCorpusTests(unittest.TestCase):
                 FrameDisposition.STABLE,
                 FrameDisposition.OCCLUDED,
                 FrameDisposition.AMBIGUOUS,
+                FrameDisposition.STABLE,
+                FrameDisposition.STABLE,
             ],
         )
         self.assertEqual(corpus.frames[0].evidence.orientation, BoardOrientation.WHITE_BOTTOM)
@@ -103,6 +105,8 @@ class RecordedMediaTruthCorpusTests(unittest.TestCase):
                 FrameDisposition.STABLE,
                 FrameDisposition.OCCLUDED,
                 FrameDisposition.AMBIGUOUS,
+                FrameDisposition.STABLE,
+                FrameDisposition.STABLE,
             ],
         )
 
@@ -172,6 +176,103 @@ class RecordedMediaTruthCorpusTests(unittest.TestCase):
         self.assertEqual(
             resolution.evidence_ids,
             (evidence[0].evidence_id,),
+        )
+
+    def test_svg_hash_identity_is_stable_across_windows_line_endings(self):
+        canonical = self.corpus().asset_bytes(0)
+        self.assertNotIn(b"\r", canonical)
+        with tempfile.TemporaryDirectory() as tmp:
+            copied = Path(tmp) / "corpus"
+            shutil.copytree(FIXTURE_ROOT, copied)
+            asset = copied / "stable-white.svg"
+            asset.write_bytes(canonical.replace(b"\n", b"\r\n"))
+            loaded = RecordedMediaTruthCorpus.load(copied)
+            self.assertEqual(loaded.asset_bytes(0), canonical)
+
+    def test_lawful_corpus_covers_linear_rewind_variation_and_uncertainty(self):
+        corpus = self.corpus()
+        source = RecordedMediaSourceRevision(
+            corpus.source_id,
+            corpus.source_revision,
+            corpus.source_ref,
+            corpus.duration_ms,
+        )
+        plan = RecordedMediaPreprocessPlan.build(
+            source,
+            board_revision=corpus.board_revision,
+            speech_revision="speech-multilingual-v1",
+            policy=AdaptiveSamplingPolicy(1000, 200, 0),
+        )
+
+        class CanonicalApplication:
+            def reconcile_media_evidence_batch(
+                self,
+                *,
+                current_chess_ref,
+                evidence,
+            ):
+                board = evidence[0]
+                ref = board.raw_candidate_ref
+                mapping = {
+                    "truth:stable-white": "tree:main:A",
+                    "truth:stable-black": "tree:main:B",
+                    "truth:rewind-white": "tree:main:A",
+                    "truth:variation-black": "tree:variation:C",
+                }
+                if ref == "truth:ambiguous":
+                    return MediaReconciliationResult(
+                        source_id=corpus.source_id,
+                        state=MediaReconciliationState.AMBIGUOUS,
+                        evidence_ids=tuple(item.evidence_id for item in evidence),
+                        candidate_refs=("tree:main:B", "tree:variation:C"),
+                        confidence=.5,
+                        reason="lawful ambiguous fixture",
+                    )
+                return MediaReconciliationResult(
+                    source_id=corpus.source_id,
+                    state=MediaReconciliationState.VERIFIED,
+                    evidence_ids=tuple(item.evidence_id for item in evidence),
+                    chess_ref=mapping[ref],
+                    confidence=1.0,
+                    reason="lawful deterministic fixture",
+                )
+
+        builder = RecordedMediaTimelineBuilder(
+            plan,
+            CanonicalRecordedFrameApplicationAdapter(CanonicalApplication()),
+        )
+        port = TruthCorpusBoardVisionPort(corpus)
+        for frame in corpus.frames:
+            builder.accept(port.observe(corpus.source_ref, frame.timestamp_ms))
+
+        self.assertEqual(
+            tuple(link.chess_ref for link in builder.timeline.links),
+            (
+                "tree:main:A",
+                "tree:main:B",
+                "tree:main:A",
+                "tree:variation:C",
+            ),
+        )
+        self.assertEqual(
+            builder.timeline.resolve_exact(5000).chess_ref,
+            "tree:main:A",
+        )
+        self.assertEqual(
+            builder.timeline.resolve_exact(6000).chess_ref,
+            "tree:variation:C",
+        )
+        self.assertEqual(
+            builder.timeline.barrier_at(1000).state,
+            MediaReconciliationState.RESYNC_REQUIRED,
+        )
+        self.assertEqual(
+            builder.timeline.barrier_at(3000).state,
+            MediaReconciliationState.RESYNC_REQUIRED,
+        )
+        self.assertEqual(
+            builder.timeline.barrier_at(4000).state,
+            MediaReconciliationState.AMBIGUOUS,
         )
 
     def test_asset_tamper_fails_before_fixture_truth_is_published(self):
