@@ -54,7 +54,7 @@ jobs:
         run: >-
           python -m unittest -v
           tests.test_fen_edge_corpus
-          tests.test_d06_real_corpus
+          tests.test_d06_pgn_roundtrip
           tests.test_d07_search_scalar_equivalence
           tests.test_markdown_library_journey
           tests.test_v2_book_html_import
