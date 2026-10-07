@@ -458,7 +458,19 @@ class ImportRegistry:
         """
         items: list[BatchInspectionItem] = []
         for raw_path in paths:
-            source = Path(raw_path)
+            try:
+                source = Path(raw_path)
+            except Exception:
+                # Path coercion is per-source ingress. An invalid/active
+                # PathLike must not abort the whole batch or leak its exception
+                # text; direct BaseException process-control remains unswallowed.
+                items.append(
+                    BatchInspectionItem(
+                        path=Path("<invalid-source>"),
+                        error="Invalid source path",
+                    )
+                )
+                continue
             try:
                 report = self._inspect(source, batch_context=True)
             except SourceReadCancelledError:

@@ -1580,6 +1580,61 @@ class ImportRegistryTests(unittest.TestCase):
                 registry.inspect(registry_source)
             self.assertIn('decoder-secret.bin', str(registry_ctx.exception))
 
+    def test_batch_invalid_path_scalar_is_isolated_and_later_sources_continue(self):
+        registry = ImportRegistry()
+        registry.register(FakeImporter())
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            first = root / "first.foo"
+            last = root / "last.bar"
+            first.write_bytes(b"first")
+            last.write_bytes(b"last")
+
+            batch = registry.inspect_batch([first, None, last])
+
+            self.assertEqual([item.ok for item in batch.items], [True, False, True])
+            self.assertEqual(batch.items[1].path, Path("<invalid-source>"))
+            self.assertEqual(batch.items[1].error, "Invalid source path")
+            self.assertEqual(len(batch.reports), 2)
+            self.assertEqual(first.read_bytes(), b"first")
+            self.assertEqual(last.read_bytes(), b"last")
+
+            # Strict single-source inspection keeps its fail-fast API contract.
+            with self.assertRaises(TypeError):
+                registry.inspect(None)
+
+    def test_batch_pathlike_conversion_error_is_sanitized_per_source(self):
+        registry = ImportRegistry()
+        registry.register(FakeImporter())
+
+        class BrokenPathLike:
+            def __fspath__(self):
+                raise RuntimeError(
+                    r"private path conversion C:\\Users\\PrivateUser\\secret"
+                )
+
+        with tempfile.TemporaryDirectory() as td:
+            valid = Path(td) / "good.foo"
+            valid.write_bytes(b"valid")
+
+            batch = registry.inspect_batch([BrokenPathLike(), valid])
+
+            self.assertEqual([item.ok for item in batch.items], [False, True])
+            self.assertEqual(batch.items[0].path, Path("<invalid-source>"))
+            self.assertEqual(batch.items[0].error, "Invalid source path")
+            self.assertNotIn("PrivateUser", batch.items[0].error)
+            self.assertEqual(batch.items[1].report.format_name, FakeImporter.format_name)
+
+    def test_batch_pathlike_process_control_is_not_converted_to_source_evidence(self):
+        registry = ImportRegistry()
+
+        class InterruptingPathLike:
+            def __fspath__(self):
+                raise KeyboardInterrupt()
+
+        with self.assertRaises(KeyboardInterrupt):
+            registry.inspect_batch([InterruptingPathLike()])
+
     def test_batch_preflight_reports_every_source_in_order_without_aborting(self):
         registry = ImportRegistry()
         registry.register(FakeImporter())

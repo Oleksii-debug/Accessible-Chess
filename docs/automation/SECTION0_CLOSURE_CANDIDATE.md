@@ -268,3 +268,25 @@ suffix iterator with an exact 65-call bound, and an active non-boolean
 This stays inside the same #2346 five-path successor and does not change
 format capability truth, parser/chess semantics, ImportReport, provenance or
 reporting authority.
+
+### Per-source batch path-ingress isolation
+
+The non-aborting batch contract still had one pre-adapter escape hatch:
+`inspect_batch()` converted each raw source with `Path(raw_path)` before its
+per-source `try` block. A malformed scalar such as `None`, or a PathLike
+whose `__fspath__` raises an ordinary exception, therefore aborted the entire
+batch and hid later independent sources.
+
+Path coercion is now part of the per-source ingress transaction. Ordinary
+conversion failures produce one stable `Invalid source path` item using a
+non-private placeholder path and the batch continues. The provider exception
+text is never republished. Direct `BaseException` process-control raised by a
+PathLike remains unswallowed, matching the existing adapter control-flow rule.
+Strict single-source `inspect()` remains fail-fast.
+
+Regressions cover a `None` item between two valid sources, a PathLike that
+raises a private-path RuntimeError, and a PathLike KeyboardInterrupt. Later
+valid sources are preserved only for ordinary failures.
+
+This remains same-lineage Section-0.5 recovery work inside the exact five-path
+#2346 successor; no format/parser/chess/report authority is added.
