@@ -639,3 +639,32 @@ This remains the same six-path PR #2346 Section-0 lineage and introduces no
 new format, parser, ImportReport, capability or chess authority.
 
 `SECTION_0_DONE=NO_PENDING_TERMINAL_CI_AND_LIVE_REVALIDATION`
+
+### Cooperative Cancel mutation precedence in non-aborting batch preflight
+
+A follow-up audit found that the process-control repair did not cover the
+project's trusted cooperative `SourceReadCancelledError` signal. If an adapter
+mutated the source and then raised Cancel, `_inspect()` correctly converted the
+integrity violation into `SourceMutationError`, but batch preflight treated
+that wrapper as ordinary per-source evidence because Cancel subclasses
+`Exception`. If the adapter deleted the source, fingerprint verification also
+replaced Cancel as the explicit cause. Either path could therefore continue to
+later sources after the caller had cancelled.
+
+The canonical registry now preserves cooperative Cancel as the explicit cause
+of mutation/unverifiable `SourceMutationError` and aborts the batch whenever
+that trusted cause is present. Ordinary source mutation without cancellation
+remains bounded per-source evidence. Two deterministic regressions cover both
+changed bytes and deletion, assert the retained Cancel cause, and prove that no
+later source is inspected.
+
+Exact successor blobs:
+- `acs/import_registry.py`: `bc4188937966d4bacdf56df98a6735bd505d7def`;
+- `tests/test_import_registry.py`: `878e00578f81f2a966e4949cdd4b2aded7cc9ab7`;
+- focused workflow: `5078455b4802367c62deae03dc02c11b727c7f1e`.
+
+This remains the same six-path PR #2346 lineage and changes no parser, decoder,
+ImportReport schema, capability or chess authority.
+
+`SECTION_0_DONE=NO_PENDING_TERMINAL_CI_AND_LIVE_REVALIDATION`
+

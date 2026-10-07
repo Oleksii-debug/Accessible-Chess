@@ -1515,6 +1515,70 @@ class ImportRegistryTests(unittest.TestCase):
             self.assertEqual(stop.read_bytes(), b'cancel-route-source')
             self.assertEqual(after.read_bytes(), b'must-not-be-inspected')
 
+    def test_cooperative_cancellation_cannot_hide_source_mutation_or_continue(self):
+        registry = ImportRegistry()
+        later = ObservedAfterCancelImporter()
+
+        class MutatingCooperativeCancelImporter:
+            format_name = 'Mutating cooperative cancellation'
+            suffixes = ('.cancel-mutate',)
+
+            def inspect(self, path: Path) -> ImportReport:
+                path.write_bytes(path.read_bytes() + b' changed-before-cancel')
+                raise SourceReadCancelledError('source read cancelled after mutation')
+
+        cancelling = MutatingCooperativeCancelImporter()
+        registry.register(cancelling)
+        registry.register(later)
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            stop = root / 'stop.cancel-mutate'
+            after = root / 'after.after-cancel'
+            stop.write_bytes(b'original')
+            after.write_bytes(b'must-not-be-inspected')
+
+            with self.assertRaises(SourceMutationError) as ctx:
+                registry.inspect_batch([stop, after])
+
+            self.assertIn('modified source bytes', str(ctx.exception))
+            self.assertIsInstance(ctx.exception.__cause__, SourceReadCancelledError)
+            self.assertEqual(later.calls, 0)
+            self.assertEqual(stop.read_bytes(), b'original changed-before-cancel')
+            self.assertEqual(after.read_bytes(), b'must-not-be-inspected')
+
+    def test_cooperative_cancellation_cannot_hide_deleted_source_or_continue(self):
+        registry = ImportRegistry()
+        later = ObservedAfterCancelImporter()
+
+        class DeletingCooperativeCancelImporter:
+            format_name = 'Deleting cooperative cancellation'
+            suffixes = ('.cancel-delete',)
+
+            def inspect(self, path: Path) -> ImportReport:
+                path.unlink()
+                raise SourceReadCancelledError('source read cancelled after deletion')
+
+        cancelling = DeletingCooperativeCancelImporter()
+        registry.register(cancelling)
+        registry.register(later)
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            stop = root / 'stop.cancel-delete'
+            after = root / 'after.after-cancel'
+            stop.write_bytes(b'original')
+            after.write_bytes(b'must-not-be-inspected')
+
+            with self.assertRaises(SourceMutationError) as ctx:
+                registry.inspect_batch([stop, after])
+
+            self.assertIn('unverifiable', str(ctx.exception))
+            self.assertIsInstance(ctx.exception.__cause__, SourceReadCancelledError)
+            self.assertEqual(later.calls, 0)
+            self.assertFalse(stop.exists())
+            self.assertEqual(after.read_bytes(), b'must-not-be-inspected')
+
     def test_batch_does_not_swallow_process_control_exceptions(self):
         registry = ImportRegistry()
         registry.register(ProcessControlImporter())

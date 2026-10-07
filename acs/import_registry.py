@@ -457,9 +457,14 @@ class ImportRegistry:
             try:
                 after = fingerprint(source)
             except Exception as verification_exc:
+                # Cooperative Cancel is trusted control flow. If the adapter
+                # deleted or otherwise made the source unverifiable before
+                # cancelling, retain Cancel as the explicit cause so batch
+                # preflight cannot downgrade it into ordinary evidence.
+                cause = exc if isinstance(exc, SourceReadCancelledError) else verification_exc
                 raise SourceMutationError(
                     f"Read-only importer left source unverifiable after inspection: {safe_source}"
-                ) from verification_exc
+                ) from cause
             if not _same_source(before, after):
                 raise SourceMutationError(
                     f"Read-only importer modified source bytes during inspection: {safe_source}"
@@ -662,11 +667,13 @@ class ImportRegistry:
                 raise
             except SourceMutationError as exc:
                 # Ordinary source mutation remains bounded per-source evidence,
-                # but a mutation that occurred before direct process-control is
-                # fail-closed for the whole batch. Otherwise KeyboardInterrupt
-                # or SystemExit could be converted into a normal continue path.
+                # but mutation coupled to trusted control flow is fail-closed
+                # for the whole batch. Otherwise cooperative Cancel or direct
+                # process-control could be converted into a normal continue path.
                 cause = exc.__cause__
-                if isinstance(cause, BaseException) and not isinstance(cause, Exception):
+                if isinstance(cause, SourceReadCancelledError) or (
+                    isinstance(cause, BaseException) and not isinstance(cause, Exception)
+                ):
                     raise
                 message = _batch_error_text(exc, source)
                 items.append(BatchInspectionItem(path=source, error=message))
