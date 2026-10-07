@@ -251,8 +251,18 @@ class PositionState:
                 raise PositionValidationError(
                     f"FEN {label} counter must be an unsigned ASCII decimal integer"
                 )
-        halfmove = int(halfmove_text)
-        fullmove = int(fullmove_text)
+        try:
+            halfmove = int(halfmove_text)
+        except ValueError as exc:
+            raise PositionValidationError(
+                "FEN halfmove counter is too large"
+            ) from exc
+        try:
+            fullmove = int(fullmove_text)
+        except ValueError as exc:
+            raise PositionValidationError(
+                "FEN fullmove counter is too large"
+            ) from exc
 
         return cls(
             tuple(pieces),
