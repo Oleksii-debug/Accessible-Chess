@@ -1,0 +1,98 @@
+name: Section 1 EPD Serialization Revalidation
+
+on:
+  pull_request:
+    branches:
+      - 'section1/positionstate-serialization-revalidation-20261007-sol56'
+    paths:
+      - '.github/workflows/section1-epd-serialization-revalidation.yml'
+      - 'acs/epd.py'
+      - 'tests/test_epd.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: section1-epd-serialization-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+env:
+  EXPECTED_PARENT_SHA: a76a3cf1cca4b339e847cb333918ffd125692da2
+  EPD_BLOB: c1454f2af145729874283fa3b2c9cc29ecac6250
+  EPD_TEST_BLOB: 10fa838c7c44497da9b106b823851535471086cf
+  POSITION_EDITOR_BLOB: 8f1a41df8142bf7e7689f4c5f5cf335d8523a4a9
+  POSITION_SERIALIZATION_TEST_BLOB: a566cf563934037f523e7f25cd59ef83b0e910af
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Prove exact parent and three-path geometry
+        shell: bash
+        env:
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          expected_head="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
+          test "$(git rev-parse HEAD)" = "$expected_head"
+          if [ -n "${EVENT_BASE_REF:-}" ]; then
+            test "$EVENT_BASE_REF" = "section1/positionstate-serialization-revalidation-20261007-sol56"
+            test "$EVENT_BASE_SHA" = "$EXPECTED_PARENT_SHA"
+          fi
+          test "$(git merge-base "$EXPECTED_PARENT_SHA" HEAD)" = "$EXPECTED_PARENT_SHA"
+          git diff --check "$EXPECTED_PARENT_SHA"...HEAD
+          changed="$(git diff --name-only "$EXPECTED_PARENT_SHA"...HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/section1-epd-serialization-revalidation.yml' \
+            'acs/epd.py' \
+            'tests/test_epd.py' | sort)"
+          test "$changed" = "$expected"
+
+      - name: Bind exact EPD and inherited PositionState authorities
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:acs/epd.py)" = "$EPD_BLOB"
+          test "$(git rev-parse HEAD:tests/test_epd.py)" = "$EPD_TEST_BLOB"
+          test "$(git rev-parse HEAD:acs/position_editor.py)" = "$POSITION_EDITOR_BLOB"
+          test "$(git rev-parse HEAD:tests/test_section1_positionstate_serialization_boundary.py)" = "$POSITION_SERIALIZATION_TEST_BLOB"
+
+      - name: Compile focused contract
+        run: >-
+          python -m py_compile
+          acs/epd.py
+          tests/test_epd.py
+          acs/position_editor.py
+          tests/test_section1_positionstate_serialization_boundary.py
+
+      - name: Execute EPD and adjacent positional-interchange regressions
+        run: >-
+          python -m unittest -v
+          tests.test_epd
+          tests.test_section1_positionstate_serialization_boundary
+          tests.test_section1_positionstate_counter_boundary
+          tests.test_position_text_authority
+          tests.test_fen_position_editor_complete_user_flow
+          tests.test_fen_edge_corpus
+
+      - name: Core chess selftest
+        run: python -m acs.selftest
