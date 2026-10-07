@@ -91,6 +91,7 @@ class ImportRegistry:
     def __init__(self) -> None:
         self._by_suffix: dict[str, ReadOnlyImporter] = {}
         self._format_name_by_suffix: dict[str, str] = {}
+        self._registration_token_by_suffix: dict[str, object] = {}
 
     @staticmethod
     def _normalize_suffix(suffix: str) -> str:
@@ -119,23 +120,30 @@ class ImportRegistry:
         for suffix in suffixes:
             self._by_suffix[suffix] = importer
             self._format_name_by_suffix[suffix] = format_name
+            self._registration_token_by_suffix[suffix] = object()
         return ImporterRegistration(importer=importer, suffixes=suffixes)
 
     def unregister(self, importer: ReadOnlyImporter) -> None:
         for suffix in [key for key, value in self._by_suffix.items() if value is importer]:
             del self._by_suffix[suffix]
             del self._format_name_by_suffix[suffix]
+            del self._registration_token_by_suffix[suffix]
 
     def importer_for(self, path: str | Path) -> ReadOnlyImporter | None:
         return self._by_suffix.get(Path(path).suffix.lower())
 
     def inspect(self, path: str | Path) -> ImportReport:
         source = Path(path)
-        importer = self.importer_for(source)
+        source_suffix = source.suffix.lower()
+        importer = self._by_suffix.get(source_suffix)
         if importer is None:
             raise ImportRegistryError(
-                f"No read-only importer registered for suffix: {source.suffix.lower() or '<none>'}"
+                f"No read-only importer registered for suffix: {source_suffix or '<none>'}"
             )
+        registered_format_name = self._format_name_by_suffix.get(source_suffix)
+        registration_token = self._registration_token_by_suffix.get(source_suffix)
+        if registered_format_name is None or registration_token is None:
+            raise ImportRegistryError("Importer registration state is inconsistent")
 
         before = fingerprint(source)
         try:
@@ -178,7 +186,14 @@ class ImportRegistry:
             raise ImportRegistryError(
                 "Read-only importer returned an invalid ImportReport"
             ) from exc
-        registered_format_name = self._format_name_by_suffix[source.suffix.lower()]
+        if (
+            self._by_suffix.get(source_suffix) is not importer
+            or self._format_name_by_suffix.get(source_suffix) != registered_format_name
+            or self._registration_token_by_suffix.get(source_suffix) is not registration_token
+        ):
+            raise ImportRegistryError(
+                "Read-only importer registration changed during inspection"
+            )
         if report.format_name != registered_format_name:
             raise ImportRegistryError(
                 "Read-only importer report format identity does not match registered importer"
