@@ -42,6 +42,25 @@ def _text(value: object, name: str, limit: int = 512) -> str:
     return value
 
 
+def _language_tag(value: object) -> str:
+    tag = _text(value, "language", 64)
+    parts = tag.split("-")
+    if (
+        len(parts) > 8
+        or any(
+            not part
+            or len(part) > 8
+            or not part.isascii()
+            or not part.isalnum()
+            for part in parts
+        )
+    ):
+        raise PreprocessContractError(
+            "invalid language", code=PreprocessErrorCode.INVALID
+        )
+    return tag
+
+
 def _nat(value: object, name: str) -> int:
     if type(value) is not int or value < 0:
         raise PreprocessContractError(f"invalid {name}", code=PreprocessErrorCode.INVALID)
@@ -242,6 +261,7 @@ class SpeechEvidence:
     text: str
     is_final: bool
     confidence: float = 0.0
+    language: str = "und"
 
     def __post_init__(self):
         object.__setattr__(self, "source_id", _text(self.source_id, "source_id"))
@@ -252,6 +272,7 @@ class SpeechEvidence:
         object.__setattr__(self, "start_ms", start); object.__setattr__(self, "end_ms", end)
         object.__setattr__(self, "text", _text(self.text, "text", MAX_TEXT))
         object.__setattr__(self, "confidence", _confidence(self.confidence))
+        object.__setattr__(self, "language", _language_tag(self.language))
 
 
 @dataclass(frozen=True, slots=True)
