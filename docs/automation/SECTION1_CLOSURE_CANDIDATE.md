@@ -122,7 +122,9 @@ Whole attempt 2 run `37635721041`, Windows job `112842018709`, proved two retain
 Only the assertions were aligned; failure atomicity and exact state/stack preservation remain mandatory.
 
 Exact repaired evidence:
-- `tests/test_dev2_fen_atomicity.py = 14d4dfe7a4a2dc684691a9aa2a17bc66a6e81739`
+- `tests/test_dev2_fen_atomicity.py = f5cd49741eb1370519f36076f9f90e0a4175752c`
+
+The first successor Whole Windows run on `cc6225eb0b09d0d24c12ea02fab473eda4d39f5f` reduced the prior 23 mixed failures to exactly two stale assertions in this same atomicity regression. One null-move counter path still expected the superseded pre-budget message, and corrupt undo/redo fixtures over-specified which valid fail-closed validator must reject the corrupt target. The final oracle now requires the canonical whole-FEN budget message for both counter-growth paths and requires `ValueError` plus exact state/history preservation for corrupt recovery entries, without constraining validator precedence.
 
 ### Invalid-editor representation oracle
 
