@@ -164,6 +164,36 @@ class IndexErrorImporter:
         raise IndexError('decoder record index out of range')
 
 
+class PrivateOSErrorImporter:
+    format_name = 'Private filesystem failure'
+    suffixes = ('.private-oserror',)
+
+    def inspect(self, path: Path) -> ImportReport:
+        raise OSError(
+            5,
+            r'decoder failed while reading C:\\Users\\PrivateBackend\\cache.bin',
+            str(path.parent / 'decoder-cache.bin'),
+        )
+
+
+class PrivateValueErrorImporter:
+    format_name = 'Private value failure'
+    suffixes = ('.private-value',)
+
+    def inspect(self, path: Path) -> ImportReport:
+        raise ValueError(f"invalid metadata at {path.parent / 'decoder-cache.bin'}")
+
+
+class PrivateRuntimeErrorImporter:
+    format_name = 'Private runtime failure'
+    suffixes = ('.private-runtime',)
+
+    def inspect(self, path: Path) -> ImportReport:
+        raise RuntimeError(
+            r'backend crashed at C:\\Users\\PrivateBackend\\Documents\\decoder.dll'
+        )
+
+
 class BrokenStringError(Exception):
     def __str__(self) -> str:
         raise RuntimeError('exception rendering failed')
@@ -671,7 +701,11 @@ class ImportRegistryTests(unittest.TestCase):
             batch = registry.inspect_batch([malformed, valid])
 
             self.assertEqual([item.ok for item in batch.items], [False, True])
-            self.assertIn('exact list', batch.items[0].error)
+            self.assertEqual(
+                batch.items[0].error,
+                'Importer rejected source: bad.type-report',
+            )
+            self.assertNotIn('exact list', batch.items[0].error)
             self.assertIsNone(batch.items[0].report)
             self.assertIsNotNone(batch.items[1].report)
             self.assertEqual(batch.items[1].report.counts['full'], 1)
@@ -696,8 +730,9 @@ class ImportRegistryTests(unittest.TestCase):
             batch = registry.inspect_batch([key_failure, index_failure, valid])
 
             self.assertEqual([item.ok for item in batch.items], [False, False, True])
-            self.assertEqual(batch.items[0].error, 'KeyError')
-            self.assertIn('decoder record index out of range', batch.items[1].error)
+            self.assertEqual(batch.items[0].error, 'Importer rejected source: bad.key-error')
+            self.assertEqual(batch.items[1].error, 'Importer rejected source: bad.index-error')
+            self.assertNotIn('decoder record index out of range', batch.items[1].error)
             self.assertIsNone(batch.items[0].report)
             self.assertIsNone(batch.items[1].report)
             self.assertIsNotNone(batch.items[2].report)
@@ -733,9 +768,9 @@ class ImportRegistryTests(unittest.TestCase):
             batch = registry.inspect_batch([broken, invalid, nameless, valid])
 
             self.assertEqual([item.ok for item in batch.items], [False, False, False, True])
-            self.assertEqual(batch.items[0].error, 'BrokenStringError')
-            self.assertEqual(batch.items[1].error, 'InvalidStringError')
-            self.assertEqual(batch.items[2].error, 'Exception')
+            self.assertEqual(batch.items[0].error, 'Importer rejected source: bad.broken-str')
+            self.assertEqual(batch.items[1].error, 'Importer rejected source: bad.invalid-str')
+            self.assertEqual(batch.items[2].error, 'Importer rejected source: bad.nameless-str')
             self.assertEqual(len(batch.reports), 1)
             self.assertEqual(batch.reports[0].format_name, FakeImporter.format_name)
             self.assertEqual(broken.read_bytes(), b'broken-str-source')
@@ -812,6 +847,89 @@ class ImportRegistryTests(unittest.TestCase):
         registry.unregister(second)
         self.assertIsNone(registry.importer_for('x.foo'))
         self.assertIs(registry.importer_for('x.bar'), first)
+
+    def test_registry_owned_failures_hide_private_parent_paths(self):
+        with tempfile.TemporaryDirectory() as td:
+            private = Path(td) / 'Users' / 'PrivateUser' / 'Documents'
+            private.mkdir(parents=True)
+
+            mutation = private / 'analysis.mut'
+            mutation.write_bytes(b'original')
+            registry = ImportRegistry()
+            registry.register(MutatingImporter())
+            with self.assertRaises(SourceMutationError) as mutation_ctx:
+                registry.inspect(mutation)
+            mutation_message = str(mutation_ctx.exception)
+            self.assertIn('analysis.mut', mutation_message)
+            self.assertNotIn('PrivateUser', mutation_message)
+            self.assertNotIn('Documents', mutation_message)
+            self.assertNotIn('Users', mutation_message)
+
+            provenance = private / 'analysis.lie'
+            provenance.write_bytes(b'original')
+            registry = ImportRegistry()
+            registry.register(FalseProvenanceImporter())
+            with self.assertRaises(SourceProvenanceError) as provenance_ctx:
+                registry.inspect(provenance)
+            provenance_message = str(provenance_ctx.exception)
+            self.assertIn('analysis.lie', provenance_message)
+            self.assertNotIn('PrivateUser', provenance_message)
+            self.assertNotIn('Documents', provenance_message)
+            self.assertNotIn('Users', provenance_message)
+
+    def test_batch_filesystem_error_exposes_only_bounded_safe_context(self):
+        registry = ImportRegistry()
+        registry.register(PrivateOSErrorImporter())
+        with tempfile.TemporaryDirectory() as td:
+            private = Path(td) / 'Users' / 'PrivateUser' / 'Documents'
+            private.mkdir(parents=True)
+            source = private / 'analysis.private-oserror'
+            source.write_bytes(b'source')
+
+            error = registry.inspect_batch([source]).errors[0].error
+
+            self.assertIn('Filesystem error', error)
+            self.assertIn('errno 5', error)
+            self.assertIn('decoder-cache.bin', error)
+            self.assertNotIn('PrivateUser', error)
+            self.assertNotIn('Documents', error)
+            self.assertNotIn('PrivateBackend', error)
+            self.assertNotIn('decoder failed', error)
+
+    def test_batch_ordinary_adapter_text_is_not_a_reporting_channel(self):
+        registry = ImportRegistry()
+        registry.register(PrivateValueErrorImporter())
+        registry.register(PrivateRuntimeErrorImporter())
+        with tempfile.TemporaryDirectory() as td:
+            private = Path(td) / 'Users' / 'PrivateUser' / 'Documents'
+            private.mkdir(parents=True)
+            value_source = private / 'value.private-value'
+            runtime_source = private / 'runtime.private-runtime'
+            value_source.write_bytes(b'value')
+            runtime_source.write_bytes(b'runtime')
+
+            batch = registry.inspect_batch([value_source, runtime_source])
+
+            self.assertEqual(
+                batch.items[0].error,
+                'Importer rejected source: value.private-value',
+            )
+            self.assertEqual(
+                batch.items[1].error,
+                'Importer rejected source: runtime.private-runtime',
+            )
+            combined = '\n'.join(item.error for item in batch.items)
+            self.assertNotIn('PrivateUser', combined)
+            self.assertNotIn('Documents', combined)
+            self.assertNotIn('PrivateBackend', combined)
+            self.assertNotIn('decoder-cache.bin', combined)
+            self.assertNotIn('backend crashed', combined)
+
+            # Strict inspection remains an internal API that preserves the
+            # original adapter exception identity and diagnostic text.
+            with self.assertRaises(ValueError) as strict_ctx:
+                registry.inspect(value_source)
+            self.assertIn('decoder-cache.bin', str(strict_ctx.exception))
 
     def test_batch_preflight_reports_every_source_in_order_without_aborting(self):
         registry = ImportRegistry()
