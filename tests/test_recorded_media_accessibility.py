@@ -99,15 +99,17 @@ def _checkpoint(status: PreprocessStatus, completed: int, total: int) -> Preproc
 
 class RecordedMediaAccessibilityBridgeTests(unittest.TestCase):
     def test_playback_nested_media_cursor_must_be_exact_passive_value(self) -> None:
-        class ActiveCursor(MediaCursor):
+        class ActiveCursor:
             def __getattribute__(self, name):
                 if name in {"source_id", "position_ms"}:
                     raise AssertionError("active playback cursor getter was executed")
                 return super().__getattribute__(name)
 
         bridge = RecordedMediaAccessibilityBridge(language="en")
-        cursor = ActiveCursor("recorded-1", 20_500)
-        session = MediaChessSession(cursor, "opaque:session-node")
+        session = MediaChessSession(
+            MediaCursor("recorded-1", 20_500),
+            "opaque:session-node",
+        )
         timeline = MediaPositionTimeline(
             "recorded-1", (_link(20_000, "opaque:confirmed-node"),)
         )
@@ -119,20 +121,23 @@ class RecordedMediaAccessibilityBridgeTests(unittest.TestCase):
                 "Recorded media evidence is synchronized.",
             ),
         )
+        object.__setattr__(session, "media_cursor", ActiveCursor())
 
         with self.assertRaises(RecordedMediaAccessibilityError):
             bridge.snapshot(**_clock_kwargs(), playback=resolution)
 
     def test_nested_media_cursor_must_be_exact_passive_value(self) -> None:
-        class ActiveCursor(MediaCursor):
+        class ActiveCursor:
             def __getattribute__(self, name):
                 if name in {"source_id", "position_ms"}:
                     raise AssertionError("active cursor getter was executed")
                 return super().__getattribute__(name)
 
         bridge = RecordedMediaAccessibilityBridge(language="en")
-        cursor = ActiveCursor("recorded-1", 20_500)
-        session = MediaChessSession(cursor, "opaque:session-node")
+        session = MediaChessSession(
+            MediaCursor("recorded-1", 20_500),
+            "opaque:session-node",
+        )
         snapshot = RecordedSyncSnapshot(
             source_revision="revision-1",
             cache_fingerprint="cache-fingerprint",
@@ -143,6 +148,7 @@ class RecordedMediaAccessibilityBridgeTests(unittest.TestCase):
             ),
             session=session,
         )
+        object.__setattr__(session, "media_cursor", ActiveCursor())
 
         with self.assertRaises(RecordedMediaAccessibilityError):
             bridge.snapshot(**_clock_kwargs(), sync_snapshot=snapshot)
@@ -216,7 +222,7 @@ class RecordedMediaAccessibilityBridgeTests(unittest.TestCase):
         self.assertEqual(state["focusTarget"], "recorded-media-seek")
 
     def test_ambiguous_position_disables_restore(self) -> None:
-        bridge = RecordedMediaAccessibilityBridge()
+        bridge = RecordedMediaAccessibilityBridge(language="en")
 
         state = bridge.snapshot(
             **_clock_kwargs(),
@@ -276,7 +282,7 @@ class RecordedMediaAccessibilityBridgeTests(unittest.TestCase):
         self.assertIn("Синхронізацію записаного медіа перервано", uk["statusText"])
 
     def test_unlinked_position_is_explicit(self) -> None:
-        bridge = RecordedMediaAccessibilityBridge()
+        bridge = RecordedMediaAccessibilityBridge(language="en")
 
         state = bridge.snapshot(
             **_clock_kwargs(position_ms=10_000),
@@ -409,7 +415,19 @@ class RecordedMediaAccessibilityBridgeTests(unittest.TestCase):
             cache_fingerprint="cache-2",
             plan_digest="plan-2",
             source=foreign_source,
-            timeline=MediaPositionTimeline("recorded-2", (_link(20_000, "node:foreign"),)),
+            timeline=MediaPositionTimeline(
+                "recorded-2",
+                (
+                    MediaChessLink(
+                        "recorded-2",
+                        20_000,
+                        "node:foreign",
+                        status=MediaLinkStatus.CONFIRMED,
+                        confidence=1.0,
+                        evidence="fixture evidence",
+                    ),
+                ),
+            ),
             session=MediaChessSession(
                 MediaCursor("recorded-2", 20_500),
                 "opaque:foreign",
