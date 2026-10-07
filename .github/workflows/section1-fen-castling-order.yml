@@ -1,4 +1,4 @@
-name: Section 1 FEN Castling Order
+name: Section 1 FEN SAN Castling Contract
 
 on:
   pull_request:
@@ -79,10 +79,12 @@ jobs:
           acs/position_editor.py
           tests/test_section1_fen_castling_order.py
 
-      - name: Execute castling-order and adjacent FEN regressions
+      - name: Execute FEN SAN castling and adjacent regressions
         run: >-
           python -m unittest -v
           tests.test_section1_fen_castling_order
+          tests.test_section1_san_transition_contract
+          tests.test_notation
           tests.test_fen_edge_corpus
           tests.test_dev2_fen_atomicity
           tests.test_position_editor
