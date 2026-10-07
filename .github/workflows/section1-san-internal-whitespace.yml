@@ -1,0 +1,94 @@
+name: Section 1 SAN Internal Whitespace Boundary
+
+on:
+  pull_request:
+    branches:
+      - 'section1/king-capture-boundary-20261007-sol56'
+    paths:
+      - '.github/workflows/section1-san-internal-whitespace.yml'
+      - 'acs/chesscore.py'
+      - 'tests/test_section1_san_internal_whitespace.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: section1-san-internal-whitespace-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+env:
+  EXPECTED_PARENT_SHA: 8d72eaf3ad9eb9532fe67e8cf977d71b8a0555c5
+  CHESSCORE_BLOB: ad67814942fc3eb8f7dce71c8e99032d94cd0f65
+  TEST_BLOB: e3e09e1ef166bda9cb3c958a9a11ea0196fcd2f5
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Prove exact successor geometry
+        shell: bash
+        env:
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          expected_head="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
+          test "$(git rev-parse HEAD)" = "$expected_head"
+          if [ -n "${EVENT_BASE_REF:-}" ]; then
+            test "$EVENT_BASE_REF" = "section1/king-capture-boundary-20261007-sol56"
+            test "$EVENT_BASE_SHA" = "$EXPECTED_PARENT_SHA"
+          fi
+          test "$(git merge-base "$EXPECTED_PARENT_SHA" HEAD)" = "$EXPECTED_PARENT_SHA"
+          git diff --check "$EXPECTED_PARENT_SHA"...HEAD
+          changed="$(git diff --name-only "$EXPECTED_PARENT_SHA"...HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/section1-san-internal-whitespace.yml' \
+            'acs/chesscore.py' \
+            'tests/test_section1_san_internal_whitespace.py' | sort)"
+          test "$changed" = "$expected"
+
+      - name: Bind exact rules authority and regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:acs/chesscore.py)" = "$CHESSCORE_BLOB"
+          test "$(git rev-parse HEAD:tests/test_section1_san_internal_whitespace.py)" = "$TEST_BLOB"
+
+      - name: Compile focused contract
+        run: >-
+          python -m py_compile
+          acs/chesscore.py
+          tests/test_section1_san_internal_whitespace.py
+
+      - name: Execute SAN whitespace and retained Section 1 regressions
+        run: >-
+          python -m unittest -v
+          tests.test_section1_san_internal_whitespace
+          tests.test_section1_san_transition_contract
+          tests.test_section1_king_capture_boundary
+          tests.test_section1_fen_field_count
+          tests.test_d02_canonical_move_scalar_fail_closed
+          tests.test_dev2_fen_atomicity
+          tests.test_section1_fen_castling_order
+          tests.test_notation
+
+      - name: Core chess selftest
+        run: python -m acs.selftest
