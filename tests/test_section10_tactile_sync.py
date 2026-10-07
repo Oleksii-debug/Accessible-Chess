@@ -137,7 +137,7 @@ class TactileSyncContractTests(unittest.TestCase):
         self.assertEqual(before.source_revision, 0)
 
         result = session.submit("e4")
-        self.assertTrue(result.correct)
+        self.assertTrue(result.accepted)
 
         after = self.controller.dispatch(
             TactileSyncCommand.REFRESH_TRAINING,
@@ -159,7 +159,7 @@ class TactileSyncContractTests(unittest.TestCase):
         )
         first = self.controller.sync_training(session)
         result = session.submit("d4")
-        self.assertFalse(result.correct)
+        self.assertFalse(result.accepted)
         second = self.controller.sync_training(session)
 
         self.assertEqual(second.canonical_fen, first.canonical_fen)
