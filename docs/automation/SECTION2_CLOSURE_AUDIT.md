@@ -489,3 +489,21 @@ failure of canonical Section 2.1-2.5 behavior.
 
 `SECTION2_ACCEPTANCE_SCOPE=CANONICAL_PLAN_2_1_TO_2_5`
 `SECTION2_NONAUTHORITATIVE_HISTORICAL_HARDENING=EXCLUDED_FROM_CLOSURE_GATE`
+
+
+### Proven PGN DOM fixture repair
+
+Fresh exact-head whole-contract qualification reached the browser contract after
+**251 Python tests passed** and the lawful multi-source corpus job passed. Both
+Ubuntu and Windows then failed at the same first DOM render because the retained
+`tests/js/pgn_surface_dom_test.js` snapshot helper predated the required
+`selection_context` field enforced by the canonical shipping
+`web/full_product_pgn.js`.
+
+The Product validation is correct and remains unchanged. The fixture now supplies
+the canonical empty-text selection context used when no human-readable selection
+context is present. This is an acceptance-gating test-fixture repair, not a
+loosening of the PGN presentation contract.
+
+`SECTION2_PYTHON_WHOLE_CONTRACT=251_TESTS_OK_DUAL_OS_BEFORE_DOM_STEP`
+`SECTION2_DOM_FIXTURE_SELECTION_CONTEXT=REPAIRED`
