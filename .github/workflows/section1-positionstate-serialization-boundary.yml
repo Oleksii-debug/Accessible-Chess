@@ -1,0 +1,100 @@
+name: Section 1 PositionState Serialization Boundary
+
+on:
+  pull_request:
+    branches:
+      - 'section1/fen-en-passant-fullmove-20261007-sol56'
+    paths:
+      - '.github/workflows/section1-positionstate-serialization-boundary.yml'
+      - 'acs/position_editor.py'
+      - 'tests/test_section1_positionstate_serialization_boundary.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: section1-positionstate-serialization-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+env:
+  EXPECTED_PARENT_SHA: dffbacbbb2ca52812774a20aa58341caad407898
+  POSITION_EDITOR_BLOB: 8f1a41df8142bf7e7689f4c5f5cf335d8523a4a9
+  TEST_BLOB: a566cf563934037f523e7f25cd59ef83b0e910af
+  INHERITED_COUNTER_TEST_BLOB: ad6b0c0dbbe0e5d3cf47bb534a29d4d6a2925061
+  CHESSCORE_BLOB: 5ba261b7b18d8a9c6cf8858d111d412035a7e5f4
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Prove exact parent and three-path geometry
+        shell: bash
+        env:
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          expected_head="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
+          test "$(git rev-parse HEAD)" = "$expected_head"
+          if [ -n "${EVENT_BASE_REF:-}" ]; then
+            test "$EVENT_BASE_REF" = "section1/fen-en-passant-fullmove-20261007-sol56"
+            test "$EVENT_BASE_SHA" = "$EXPECTED_PARENT_SHA"
+          fi
+          test "$(git merge-base "$EXPECTED_PARENT_SHA" HEAD)" = "$EXPECTED_PARENT_SHA"
+          git diff --check "$EXPECTED_PARENT_SHA"...HEAD
+          changed="$(git diff --name-only "$EXPECTED_PARENT_SHA"...HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/section1-positionstate-serialization-boundary.yml' \
+            'acs/position_editor.py' \
+            'tests/test_section1_positionstate_serialization_boundary.py' | sort)"
+          test "$changed" = "$expected"
+
+      - name: Bind exact PositionState publication authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:acs/position_editor.py)" = "$POSITION_EDITOR_BLOB"
+          test "$(git rev-parse HEAD:tests/test_section1_positionstate_serialization_boundary.py)" = "$TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_section1_positionstate_counter_boundary.py)" = "$INHERITED_COUNTER_TEST_BLOB"
+          test "$(git rev-parse HEAD:acs/chesscore.py)" = "$CHESSCORE_BLOB"
+
+      - name: Compile focused contract
+        run: >-
+          python -m py_compile
+          acs/position_editor.py
+          tests/test_section1_positionstate_serialization_boundary.py
+          tests/test_section1_positionstate_counter_boundary.py
+
+      - name: Execute serialization and adjacent Section 1 regressions
+        run: >-
+          python -m unittest -v
+          tests.test_section1_positionstate_serialization_boundary
+          tests.test_section1_positionstate_counter_boundary
+          tests.test_position_editor
+          tests.test_position_editor_passive_boundary
+          tests.test_fen_position_editor_complete_user_flow
+          tests.test_fen_edge_corpus
+          tests.test_section1_fen_en_passant_fullmove
+          tests.test_section1_fen_en_passant_halfmove
+          tests.test_section1_san_transition_contract
+
+      - name: Core chess selftest
+        run: python -m acs.selftest
