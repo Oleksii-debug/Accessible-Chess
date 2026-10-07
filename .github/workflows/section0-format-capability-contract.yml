@@ -1,0 +1,118 @@
+name: Section 0 Canonical Format Capability Contract
+
+on:
+  pull_request:
+    branches:
+      - anchor/section0-capmatrix-base-5854b52
+    paths:
+      - '.github/workflows/section0-format-capability-contract.yml'
+      - 'acs/format_capabilities.py'
+      - 'docs/automation/CANONICAL_FORMAT_CAPABILITY_MATRIX.md'
+      - 'tests/test_section0_format_capabilities.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: section0-format-capability-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  EXPECTED_BASE_SHA: 5854b528fbd3632cfa69553a70973123eaf14b54
+  CAPABILITY_BLOB: 9544f44a97a1f15b331cc1f41ce9fd677da93920
+  CAPABILITY_DOC_BLOB: 38212c7efe90222fdcb75d1938cd0f8c83f1a549
+  CAPABILITY_TEST_BLOB: d7299164ec16248be18ba88e491891014f7a6074
+  IMPORT_CONTRACT_BLOB: b302b1666511289a70b5b3569ed5360b5cb66a95
+  CHESSBASE_MATRIX_BLOB: 390a0b70e0275f3afe31d4909a8f6b547fe446e0
+  CBF_EVIDENCE_BLOB: 88bfd2d5b198433b3c4839ec9158caadf6ea0193
+  CBF_EVIDENCE_TEST_BLOB: 216f0675b7fab0bf57c7dea70d57b21f47434ca7
+  POSITION_EDITOR_BLOB: fd48b517c4489fe70e4ecb102e2615027be8f098
+  POSITION_TEXT_BLOB: e62dcb2f28f8fca345c163cfaf841aefc38a3bbf
+  EPD_BLOB: 06b47a2a30cbd7b97095424a6f146bd175ea185a
+  PGN_BLOB: 18239940bf74dd1cdc4acdefa5ba9463c48795d6
+  GAMETREE_BLOB: 565afa84260d5b8dc2ee8979bb0538b495516f97
+
+jobs:
+  exact-contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Prove exact Section 0 contract geometry
+        shell: bash
+        env:
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          expected="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
+          test "$(git rev-parse HEAD)" = "$expected"
+          test "${EVENT_BASE_REF}" = "anchor/section0-capmatrix-base-5854b52"
+          test "${EVENT_BASE_SHA}" = "$EXPECTED_BASE_SHA"
+          test "$(git merge-base "$EXPECTED_BASE_SHA" HEAD)" = "$EXPECTED_BASE_SHA"
+          git diff --check "$EXPECTED_BASE_SHA"...HEAD
+          changed="$(git diff --name-only "$EXPECTED_BASE_SHA"...HEAD | sort)"
+          expected_paths="$(printf '%s\n' \
+            '.github/workflows/section0-format-capability-contract.yml' \
+            'acs/format_capabilities.py' \
+            'docs/automation/CANONICAL_FORMAT_CAPABILITY_MATRIX.md' \
+            'tests/test_section0_format_capabilities.py' | sort)"
+          test "$changed" = "$expected_paths"
+
+      - name: Bind new matrix and inherited authorities
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:acs/format_capabilities.py)" = "$CAPABILITY_BLOB"
+          test "$(git rev-parse HEAD:docs/automation/CANONICAL_FORMAT_CAPABILITY_MATRIX.md)" = "$CAPABILITY_DOC_BLOB"
+          test "$(git rev-parse HEAD:tests/test_section0_format_capabilities.py)" = "$CAPABILITY_TEST_BLOB"
+          test "$(git rev-parse HEAD:acs/import_contract.py)" = "$IMPORT_CONTRACT_BLOB"
+          test "$(git rev-parse HEAD:docs/automation/DEV4_CHESSBASE_CAPABILITY_MATRIX.md)" = "$CHESSBASE_MATRIX_BLOB"
+          test "$(git rev-parse HEAD:docs/automation/V2_CHESSBASE_CAPABILITIES.json)" = "$CBF_EVIDENCE_BLOB"
+          test "$(git rev-parse HEAD:tests/test_v2_chessbase_capability_manifest.py)" = "$CBF_EVIDENCE_TEST_BLOB"
+          test "$(git rev-parse HEAD:acs/position_editor.py)" = "$POSITION_EDITOR_BLOB"
+          test "$(git rev-parse HEAD:acs/position_text.py)" = "$POSITION_TEXT_BLOB"
+          test "$(git rev-parse HEAD:acs/epd.py)" = "$EPD_BLOB"
+          test "$(git rev-parse HEAD:acs/pgn.py)" = "$PGN_BLOB"
+          test "$(git rev-parse HEAD:acs/gametree.py)" = "$GAMETREE_BLOB"
+
+      - name: Compile Section 0 contract
+        run: >-
+          python -m py_compile
+          acs/format_capabilities.py
+          tests/test_section0_format_capabilities.py
+
+      - name: Section 0 capability and import-boundary regressions
+        run: >-
+          python -m unittest -v
+          tests.test_section0_format_capabilities
+          tests.test_import_contract
+          tests.test_import_registry
+          tests.test_v2_chessbase_capability_manifest
+          tests.test_v2_chessbase_chess960_capability_boundary
+
+      - name: Inherited canonical format regressions
+        run: >-
+          python -m unittest -v
+          tests.test_position_text_authority
+          tests.test_epd
+          tests.test_d06_pgn_roundtrip
+          tests.test_acsdb
+
+      - name: Core chess selftest
+        run: python -m acs.selftest
