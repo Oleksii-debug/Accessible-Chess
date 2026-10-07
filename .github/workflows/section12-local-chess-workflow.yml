@@ -1,0 +1,117 @@
+name: Section 12 Local Chess Workflow
+
+on:
+  pull_request:
+    branches:
+      - converge/current-product-books-provider-20261005-ooxple7
+    paths:
+      - 'acs/webapp.py'
+      - 'acs/keybindings.py'
+      - 'acs/webapp_keymap_core.py'
+      - 'acs/stage1_release_ui.py'
+      - 'acs/full_product_native_menu.py'
+      - 'tests/test_game_lifecycle.py'
+      - 'tests/test_full_product_native_menu.py'
+      - '.github/workflows/section12-local-chess-workflow.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: section12-local-chess-workflow-${{ github.event.pull_request.number || github.ref }}-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  section12:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prove current Product successor and exact Section 12 scope
+        shell: bash
+        env:
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PRODUCT_REF: converge/current-product-books-provider-20261005-ooxple7
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          expected_head="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
+          test "$(git rev-parse HEAD)" = "$expected_head"
+          test "${EVENT_BASE_REF:-$PRODUCT_REF}" = "$PRODUCT_REF"
+
+          if [ -n "${PR_NUMBER:-}" ]; then
+            git fetch --no-tags origin "+refs/pull/$PR_NUMBER/head:refs/remotes/origin/section12-live-pr-head"
+            test "$(git rev-parse refs/remotes/origin/section12-live-pr-head)" = "$expected_head" || {
+              echo "SECTION12_SUPERSEDED" >&2
+              exit 1
+            }
+          fi
+
+          git fetch --no-tags origin "+refs/heads/$PRODUCT_REF:refs/remotes/origin/$PRODUCT_REF"
+          live_product="$(git rev-parse refs/remotes/origin/$PRODUCT_REF)"
+          if [ -n "${EVENT_BASE_SHA:-}" ]; then
+            test "$EVENT_BASE_SHA" = "$live_product" || {
+              echo "SECTION12_PRODUCT_MOVED event=$EVENT_BASE_SHA live=$live_product" >&2
+              exit 1
+            }
+          fi
+          git merge-base --is-ancestor "$live_product" HEAD
+          test "$(git merge-base "$live_product" HEAD)" = "$live_product"
+          git diff --check "$live_product"...HEAD
+
+          changed="$(git diff --name-only "$live_product"...HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/section12-local-chess-workflow.yml' \
+            'acs/full_product_native_menu.py' \
+            'acs/keybindings.py' \
+            'acs/stage1_release_ui.py' \
+            'acs/webapp.py' \
+            'acs/webapp_keymap_core.py' \
+            'tests/test_full_product_native_menu.py' \
+            'tests/test_game_lifecycle.py' | sort)"
+          test "$changed" = "$expected" || {
+            printf 'Unexpected Section 12 scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
+          echo "SECTION12_SCOPE=PASS"
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile Section 12 boundary
+        run: >-
+          python -m compileall -q
+          acs/webapp.py
+          acs/keybindings.py
+          acs/webapp_keymap_core.py
+          acs/stage1_release_ui.py
+          acs/full_product_native_menu.py
+          tests/test_game_lifecycle.py
+          tests/test_full_product_native_menu.py
+
+      - name: Execute Section 12 focused and adjacent regressions
+        run: >-
+          python -m unittest -v
+          tests.test_game_lifecycle
+          tests.test_full_product_native_menu
+          tests.test_stage1_engine_play_ui
+          tests.test_version2_release_ui
+          tests.test_version2_application
+
+      - name: Core selftest
+        run: python -m acs.selftest
