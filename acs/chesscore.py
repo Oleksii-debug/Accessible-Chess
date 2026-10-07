@@ -91,6 +91,8 @@ class Board:
         if turn not in ('w','b'): raise ValueError('FEN: хід має бути w або b')
         castling='' if parts[2]=='-' else parts[2]
         if any(ch not in 'KQkq' for ch in castling) or len(set(castling))!=len(castling): raise ValueError('FEN: неправильні права рокіровки')
+        canonical_castling=''.join(ch for ch in 'KQkq' if ch in castling)
+        if castling != canonical_castling: raise ValueError('FEN: права рокіровки мають порядок KQkq')
         ep=None if parts[3]=='-' else parse_sq(parts[3])
         if any(not text.isascii() or not text.isdecimal() for text in parts[4:6]):
             raise ValueError('FEN: лічильники мають бути невід’ємними десятковими числами')
