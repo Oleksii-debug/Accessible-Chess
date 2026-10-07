@@ -1,0 +1,93 @@
+name: Section 1 FEN Field Count Contract
+
+on:
+  pull_request:
+    branches:
+      - 'converge/section1-whole-contract-20261007-sol56'
+    paths:
+      - '.github/workflows/section1-fen-field-count.yml'
+      - 'acs/chesscore.py'
+      - 'tests/test_section1_fen_field_count.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: section1-fen-field-count-${{ github.event.pull_request.head.sha }}
+  cancel-in-progress: true
+
+env:
+  EXPECTED_BASE_SHA: 51370fbe244633bb3a77a32095c751050053abb7
+  CHESSCORE_BLOB: 83a055e1c7b6d42c24a3979b231784fa794eef41
+  TEST_BLOB: 9d9917a46fd4cbf99f4d966e8e44b8602caf9222
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Prove exact bounded-child geometry
+        shell: bash
+        env:
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EVENT_HEAD_SHA"
+          test "$EVENT_BASE_REF" = "converge/section1-whole-contract-20261007-sol56"
+          test "$EVENT_BASE_SHA" = "$EXPECTED_BASE_SHA"
+          test "$(git merge-base "$EXPECTED_BASE_SHA" HEAD)" = "$EXPECTED_BASE_SHA"
+          git diff --check "$EXPECTED_BASE_SHA"...HEAD
+          changed="$(git diff --name-only "$EXPECTED_BASE_SHA"...HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/section1-fen-field-count.yml' \
+            'acs/chesscore.py' \
+            'tests/test_section1_fen_field_count.py' | sort)"
+          test "$changed" = "$expected"
+
+      - name: Bind exact FEN authority and regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:acs/chesscore.py)" = "$CHESSCORE_BLOB"
+          test "$(git rev-parse HEAD:tests/test_section1_fen_field_count.py)" = "$TEST_BLOB"
+
+      - name: Compile focused contract
+        run: >-
+          python -m py_compile
+          acs/chesscore.py
+          tests/test_section1_fen_field_count.py
+
+      - name: Execute field-count and adjacent FEN regressions
+        run: >-
+          python -m unittest -v
+          tests.test_section1_fen_field_count
+          tests.test_section1_fen_castling_order
+          tests.test_fen_edge_corpus
+          tests.test_dev2_fen_atomicity
+          tests.test_fen_position_editor_complete_user_flow
+          tests.test_position_editor
+          tests.test_position_editor_passive_boundary
+          tests.test_section1_positionstate_counter_boundary
+          tests.test_section1_san_transition_contract
+          tests.test_notation
+          tests.test_epd
+
+      - name: Core chess selftest
+        run: python -m acs.selftest
