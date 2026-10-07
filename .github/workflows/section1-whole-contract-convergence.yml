@@ -94,18 +94,18 @@ env:
   EDGE_CORPUS_BLOB: 11126036c582a37a3e0b7bb9a279889eaf96f6d3
   EDGE_TEST_BLOB: d4beb33a0131cb4b748e8495f4cacb89ffefc9a5
   FIELD_COUNT_TEST_BLOB: 9d9917a46fd4cbf99f4d966e8e44b8602caf9222
-  DEV2_FEN_ATOMICITY_TEST_BLOB: ea42876debc013130040099c2d208362d1aebd6d
+  DEV2_FEN_ATOMICITY_TEST_BLOB: 14d4dfe7a4a2dc684691a9aa2a17bc66a6e81739
   KING_CAPTURE_TEST_BLOB: 5041554b7e3a94ecaae7ba7841b3eda6c7252df3
   SAN_WHITESPACE_TEST_BLOB: dd910faeaee287c8944f36cf3c5d7cff88c7bc79
   EP_HALFMOVE_TEST_BLOB: 26564b2613fa4becd7780e96e1c4e258e212123a
   EP_FULLMOVE_TEST_BLOB: 6b6889191f2faee9384275dadfe3405ba6beaf93
   POSITION_SERIALIZATION_TEST_BLOB: a566cf563934037f523e7f25cd59ef83b0e910af
   EPD_TEST_BLOB: 36f0e3c478491acb6665578c9e0bfb89484ce7d2
-  UI_WEBAPP_TEST_BLOB: c529587bfc65fff315b3ca96c8f5a581ca7cab44
+  UI_WEBAPP_TEST_BLOB: b07c222f8e5129599f752f69b4d1d8c31bf19c19
   POSITION_EDITOR_FLOW_TEST_BLOB: 071790b39970418c3565d6faf8d01cc505511163
 
   RECEIPT_WORKFLOW_BLOB: b8991a98b6c13118736907b7dce9e297b2b07ea2
-  SOURCE_WORKFLOW_BLOB: 6757c3a064d696804285a37a083a1ec66994c2bb
+  SOURCE_WORKFLOW_BLOB: a355e13aa3ddfba2ece315d4c090a104acf8b453
   EDGE_WORKFLOW_BLOB: 6f28d4f2fdf5b2fb1d5a4d4f25a0bee4fa45f750
   FEN_CASTLING_WORKFLOW_BLOB: 1c623c5accf762ab210023ccab67ab65f1b594d4
   POSITION_WORKFLOW_BLOB: f0ac7cefcc5db28430680361b36a026c7d526dd2
@@ -117,11 +117,11 @@ env:
   EP_FULLMOVE_WORKFLOW_BLOB: fe3f379c88bf2c86d487af16d78b561014cb557d
   POSITION_SERIALIZATION_WORKFLOW_BLOB: 8194108042e2f9fde5d25fcb8b1f679a90a4e893
   EPD_WORKFLOW_BLOB: 88c9880aed687330dfb3cac5ac07c92813af289d
-  CLOSURE_DOC_BLOB: 88e3bc27b682202e5d3085ab43c2661eb2ddde8d
+  CLOSURE_DOC_BLOB: d3a2eb59a055822f01982833662ad3e476c08db4
 
   P0F_PROVENANCE_BLOB: 3298aed00ca000d27f607cd861abbba9483ff358
   P0F_BUILDER_BLOB: 1137eac8804bbef600921853c37a69a77588f03c
-  P0F_BUILDER_TEST_BLOB: b564cc35d7c336559370ed43b05d58d9b1a4e8b0
+  P0F_BUILDER_TEST_BLOB: 5a658f1459e55905970976c4180bdd7833639602
   PINNED_CORPUS_SHA256: aa40b3671fa3cf1072eb182892cd90b0e1e003a4a5943492f64b77e7f3fd1635
 
 jobs:
@@ -306,14 +306,30 @@ jobs:
           tests.test_section1_san_internal_whitespace
           tests.test_section1_fen_en_passant_halfmove
           tests.test_section1_fen_en_passant_fullmove
-          tests.test_d02_canonical_move_scalar_fail_closed
+          tests.test_d02_canonical_move_scalar_fail_closed.D02CanonicalMoveScalarFailClosedTests.test_board_query_scalars_fail_closed_without_state_or_history_mutation
+          tests.test_d02_canonical_move_scalar_fail_closed.D02CanonicalMoveScalarFailClosedTests.test_move_metadata_rejects_scalar_coercion_but_keeps_canonical_values
+          tests.test_d02_canonical_move_scalar_fail_closed.D02CanonicalMoveScalarFailClosedTests.test_move_square_identity_rejects_bool_coercion_and_out_of_range_values
+          tests.test_d02_canonical_move_scalar_fail_closed.D02CanonicalMoveScalarFailClosedTests.test_spoof_or_subclass_cannot_alias_a_legal_move_or_mutate_board
+          tests.test_d02_canonical_move_scalar_fail_closed.D02CanonicalMoveScalarFailClosedTests.test_valid_move_castling_en_passant_and_promotion_paths_remain_canonical
           tests.test_dev2_fen_atomicity
           tests.test_notation
-          tests.test_fen_input_budget_current
+          tests.test_fen_input_budget_current.FenInputBudgetCurrentTests.test_board_rejection_preserves_exact_live_state_and_history
+          tests.test_fen_input_budget_current.FenInputBudgetCurrentTests.test_ordinary_exact_fen_semantics_remain_unchanged
+          tests.test_fen_input_budget_current.FenInputBudgetCurrentTests.test_position_editor_rejection_keeps_existing_immutable_position
+          tests.test_fen_input_budget_current.FenInputBudgetCurrentTests.test_shared_budget_rejects_before_unbounded_fen_parsing
           tests.test_fen_position_editor_complete_user_flow
           tests.test_version2_release_ui
-          tests.test_version2_application
-          tests.test_full_product_native_menu
+          tests.test_version2_application.Version2ApplicationTests.test_board_projection_rejects_hostile_or_oversized_position_before_projector
+          tests.test_version2_application.Version2ApplicationTests.test_copy_fen_rejects_noncanonical_or_failed_board_readback_before_clipboard
+          tests.test_version2_application.Version2ApplicationTests.test_copy_fen_uses_canonical_visible_board_and_publishes_accessible_status
+          tests.test_version2_application.Version2ApplicationTests.test_new_pgn_from_position_rejects_hidden_board_before_readback
+          tests.test_version2_application.Version2ApplicationTests.test_new_pgn_from_visible_position_uses_canonical_fen_and_opens_pgn_route
+          tests.test_version2_application.Version2ApplicationTests.test_read_and_copy_fen_reject_hidden_board_before_readback
+          tests.test_version2_application.Version2ApplicationTests.test_read_fen_rejects_payload_before_board_readback
+          tests.test_version2_application.Version2ApplicationTests.test_read_fen_uses_canonical_visible_board_and_publishes_accessible_status
+          tests.test_full_product_native_menu.FullProductNativeMenuTests.test_inventory_is_complete_localized_and_registry_validated
+          tests.test_full_product_native_menu.FullProductNativeMenuTests.test_native_and_webview_actions_share_router_and_focus_restoration
+          tests.test_full_product_native_menu.FullProductNativeMenuTests.test_top_level_mnemonics_are_unique_in_each_supported_language
           tests.test_ui_keymap_adapter
           tests.test_position_editor
           tests.test_position_editor_passive_boundary
@@ -325,7 +341,12 @@ jobs:
           tests.test_qualify_fen_position_corpus
           tests.test_import_contract
           tests.test_import_registry
-          tests.test_stage1_fen_history_atomicity_current
+          tests.test_stage1_fen_history_atomicity_current.Stage1FenHistoryAtomicityTests.test_clear_board_presenter_failure_preserves_live_state_and_is_sanitized
+          tests.test_stage1_fen_history_atomicity_current.Stage1FenHistoryAtomicityTests.test_history_construction_failure_preserves_live_state_and_is_sanitized
+          tests.test_stage1_fen_history_atomicity_current.Stage1FenHistoryAtomicityTests.test_invalid_fen_keeps_existing_live_game_and_history
+          tests.test_stage1_fen_history_atomicity_current.Stage1FenHistoryAtomicityTests.test_new_game_history_failure_preserves_live_state_and_is_sanitized
+          tests.test_stage1_fen_history_atomicity_current.Stage1FenHistoryAtomicityTests.test_presenter_construction_failure_preserves_live_state_and_is_sanitized
+          tests.test_stage1_fen_history_atomicity_current.Stage1FenHistoryAtomicityTests.test_success_replaces_board_and_all_live_history_state
           tests.test_stage1_move_history_atomicity_current
           tests.test_stage1_engine_play_ui
           tests.test_ui_analysis_adapter
