@@ -163,7 +163,7 @@ class Dev2FenAtomicityTests(unittest.TestCase):
             tuple(undo_board.redo_stack),
             undo_board.last_move,
         )
-        with self.assertRaisesRegex(ValueError, "залишається під шахом"):
+        with self.assertRaisesRegex(ValueError, "не відповідає позиції"):
             undo_board.undo()
         self.assertEqual(
             (
@@ -186,7 +186,7 @@ class Dev2FenAtomicityTests(unittest.TestCase):
             tuple(redo_board.redo_stack),
             redo_board.last_move,
         )
-        with self.assertRaisesRegex(ValueError, "залишається під шахом"):
+        with self.assertRaisesRegex(ValueError, "не відповідає позиції"):
             redo_board.redo()
         self.assertEqual(
             (
@@ -491,7 +491,7 @@ class Dev2FenAtomicityTests(unittest.TestCase):
             tuple(quiet.redo_stack),
             quiet.last_move,
         )
-        with self.assertRaisesRegex(ValueError, "перевищує допустиму довжину"):
+        with self.assertRaisesRegex(ValueError, "FEN занадто довгий"):
             quiet.push_text("Nf4")
         self.assertEqual(
             (
