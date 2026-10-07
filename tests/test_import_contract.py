@@ -131,6 +131,42 @@ class ImportContractTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'global_warnings'):
                 clean.validate()
 
+
+    def test_report_revalidates_frozen_record_scalars_after_low_level_mutation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / 'mutated-record.pgn'
+            source.write_text('x', encoding='utf-8')
+            record = ImportedRecord('record-1', ImportQuality.FULL)
+            report = ImportReport(fingerprint(source), 'test', [record])
+
+            object.__setattr__(record, 'quality', 'partial')
+            with self.assertRaisesRegex(TypeError, 'quality must be an ImportQuality'):
+                report.validate()
+            with self.assertRaisesRegex(TypeError, 'quality must be an ImportQuality'):
+                _ = report.counts
+
+    def test_report_revalidates_frozen_source_scalars_after_low_level_mutation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'mutated-source.pgn'
+            path.write_text('x', encoding='utf-8')
+            source = fingerprint(path)
+            report = ImportReport(source, 'test')
+
+            object.__setattr__(source, 'sha256', 'not-a-digest')
+            with self.assertRaisesRegex(ValueError, 'canonical lowercase hex'):
+                report.validate()
+
+    def test_source_fingerprint_rejects_ambiguous_scalar_shapes(self):
+        with self.assertRaises(ValueError):
+            from acs.import_contract import SourceFingerprint
+            SourceFingerprint(path='x', size=True, sha256='0' * 64, suffix='.pgn')
+        with self.assertRaises(ValueError):
+            from acs.import_contract import SourceFingerprint
+            SourceFingerprint(path='x', size=1, sha256='A' * 64, suffix='.pgn')
+        with self.assertRaises(ValueError):
+            from acs.import_contract import SourceFingerprint
+            SourceFingerprint(path='x', size=1, sha256='0' * 64, suffix='.PGN')
+
     def test_summary_keeps_categories_separate(self):
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / 'x.pgn'
