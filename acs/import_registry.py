@@ -344,7 +344,14 @@ class ImportRegistry:
         source = self._coerce_source_path(path)
         safe_source = report_safe_name(source)
         source_suffix = source.suffix.lower()
-        importer = self._by_suffix.get(source_suffix)
+
+        # Linearize route selection at one host-owned snapshot. Previously the
+        # importer was read first and the snapshot was captured afterwards, so
+        # a concurrent replacement in that narrow window could make the old
+        # importer execute under the new registration's identity/token.
+        registration_snapshot = self._registration_snapshot()
+        by_suffix, format_names, tokens = registration_snapshot
+        importer = by_suffix.get(source_suffix)
         if importer is None:
             if (
                 source_suffix
@@ -359,11 +366,10 @@ class ImportRegistry:
             raise ImportRegistryError(
                 f"No read-only importer registered for suffix: {suffix_label}"
             )
-        registered_format_name = self._format_name_by_suffix.get(source_suffix)
-        registration_token = self._registration_token_by_suffix.get(source_suffix)
+        registered_format_name = format_names.get(source_suffix)
+        registration_token = tokens.get(source_suffix)
         if registered_format_name is None or registration_token is None:
             raise ImportRegistryError("Importer registration state is inconsistent")
-        registration_snapshot = self._registration_snapshot()
 
         before = fingerprint(source)
         try:
