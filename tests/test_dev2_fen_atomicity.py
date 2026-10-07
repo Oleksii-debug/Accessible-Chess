@@ -11,12 +11,12 @@ class Dev2FenAtomicityTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     Board(value)
 
-    def test_abbreviated_fen_compatibility_preserves_stage1_defaults(self):
+    def test_abbreviated_fen_compatibility_is_four_field_only(self):
         four = Board("7k/8/8/8/8/8/8/K7 w - -")
         self.assertEqual(four.fen(), "7k/8/8/8/8/8/8/K7 w - - 0 1")
 
-        five = Board("7k/8/8/8/8/8/8/K7 b - - 17")
-        self.assertEqual(five.fen(), "7k/8/8/8/8/8/8/K7 b - - 17 1")
+        with self.assertRaisesRegex(ValueError, "4 або 6 полів"):
+            Board("7k/8/8/8/8/8/8/K7 b - - 17")
 
         six = Board("7k/8/8/8/8/8/8/K7 w - - 17 23")
         self.assertEqual(six.fen(), "7k/8/8/8/8/8/8/K7 w - - 17 23")
@@ -63,6 +63,7 @@ class Dev2FenAtomicityTests(unittest.TestCase):
             0,
             [],
             "7k/8/8/8/8/8/8/K7 w -",
+            "7k/8/8/8/8/8/8/K7 b - - 17",
             "7k/8/8/8/8/8/8/K7 w - - 0 1 extra",
             "7k/8/8/8/8/8/8/K7 w - - +0 1",
             "7k/8/8/8/8/8/8/K7 w - - 0 +1",

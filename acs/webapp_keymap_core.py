@@ -212,9 +212,14 @@ class KeymapAwareAccessibleChessAPI(AccessibleChessAPI):
         state["entitlement"] = semantic_contract(entitlement_view)
         displayed_fen = str(state["fen"])
         try:
-            self.analysis_ui.sync_position(displayed_fen)
-            if self.analysis_ui.enabled and not self.analysis_ui.target_locked:
-                self._analysis_origin_node_id = self._display_review().node_id
+            # Editable roots are allowed to be structurally incomplete while the
+            # user builds a position.  Never forward such a FEN to Stockfish;
+            # keep any existing target stale until an explicit reset path either
+            # reanchors a valid position or stops analysis.
+            if state["positionComplete"]:
+                self.analysis_ui.sync_position(displayed_fen)
+                if self.analysis_ui.enabled and not self.analysis_ui.target_locked:
+                    self._analysis_origin_node_id = self._display_review().node_id
             snapshot = self.analysis_ui.snapshot(displayed_fen)
             analysis = snapshot.as_dict()
             for projected, line in zip(analysis["lines"], snapshot.lines):
@@ -244,6 +249,15 @@ class KeymapAwareAccessibleChessAPI(AccessibleChessAPI):
             state["whitePieces"] = self._pieces_text("w", board)
             state["blackPieces"] = self._pieces_text("b", board)
             state["gameStatus"] = self._game_status(board)
+            state["positionComplete"] = self._position_playable(board)
+            state["positionEditor"] = {
+                "turn": board.turn,
+                "castling": board.castling or "-",
+                "enPassant": "-" if board.ep is None else _webapp.sq_name(board.ep),
+                "halfmove": board.halfmove,
+                "fullmove": board.fullmove,
+                "editable": False,
+            }
             state["lastMove"] = _shared_spoken_san(exploration.san, self.lang)
             state["reviewStatus"] = (
                 f"Тимчасовий перегляд варіанта {exploration.line.multipv}, "
@@ -272,16 +286,27 @@ class KeymapAwareAccessibleChessAPI(AccessibleChessAPI):
             else "Return from the temporary Stockfish variation first."
         )
 
-    def _reanchor_analysis_after_reset(self) -> None:
+    def _displayed_position_playable(self) -> bool:
+        try:
+            return self._position_playable(self._display_board())
+        except Exception:
+            return False
+
+    def _reanchor_analysis_after_reset(self) -> bool:
         if not self.analysis_ui.enabled:
             self._analysis_origin_node_id = self.review_history.cursor_node_id
-            return
+            return False
         displayed = self._display_review()
+        if not self._displayed_position_playable():
+            self.analysis_ui.disable()
+            self._analysis_origin_node_id = displayed.node_id
+            return True
         if self.analysis_ui.target_locked:
             self.analysis_ui.unlock_target(displayed.fen)
         else:
             self.analysis_ui.sync_position(displayed.fen)
         self._analysis_origin_node_id = displayed.node_id
+        return False
 
     def _canonical_reset_result(self, operation: Any) -> dict[str, Any]:
         blocked = self._temporary_exploration_error()
@@ -291,13 +316,20 @@ class KeymapAwareAccessibleChessAPI(AccessibleChessAPI):
         if not result.get("ok"):
             return result
         message = str(result.get("announcement") or "")
+        stopped_for_invalid_position = False
         try:
-            self._reanchor_analysis_after_reset()
+            stopped_for_invalid_position = self._reanchor_analysis_after_reset()
         except Exception:
             try:
                 self.analysis_ui.disable()
             except Exception:
                 pass
+        if stopped_for_invalid_position:
+            message += (
+                " Аналіз Stockfish зупинено, доки позиція не стане коректною."
+                if self.lang == "uk"
+                else " Stockfish analysis stopped until the position is valid."
+            )
         return self._ok(message)
 
     def new_game(self) -> dict[str, Any]:
@@ -314,6 +346,31 @@ class KeymapAwareAccessibleChessAPI(AccessibleChessAPI):
 
     def set_fen(self, fen: str) -> dict[str, Any]:
         return self._canonical_reset_result(lambda: super(KeymapAwareAccessibleChessAPI, self).set_fen(fen))
+
+    def edit_position_piece(self, square: str, piece: str) -> dict[str, Any]:
+        return self._canonical_reset_result(
+            lambda: super(KeymapAwareAccessibleChessAPI, self).edit_position_piece(
+                square, piece
+            )
+        )
+
+    def edit_position_metadata(
+        self,
+        turn: str,
+        castling: str,
+        en_passant: str,
+        halfmove_text: str,
+        fullmove_text: str,
+    ) -> dict[str, Any]:
+        return self._canonical_reset_result(
+            lambda: super(KeymapAwareAccessibleChessAPI, self).edit_position_metadata(
+                turn, castling, en_passant, halfmove_text, fullmove_text
+            )
+        )
+
+    def validate_position_editor(self) -> dict[str, Any]:
+        blocked = self._temporary_exploration_error()
+        return blocked if blocked is not None else super().validate_position_editor()
 
     def review_previous(self) -> dict[str, Any]:
         blocked = self._temporary_exploration_error()
@@ -344,6 +401,12 @@ class KeymapAwareAccessibleChessAPI(AccessibleChessAPI):
 
     def start_analysis(self) -> dict[str, Any]:
         displayed = self._display_review()
+        if not self._displayed_position_playable():
+            return self._error(
+                "Спочатку зробіть позицію коректною для гри."
+                if self.lang == "uk"
+                else "Make the position valid for play before starting Stockfish analysis."
+            )
         try:
             if not self.analysis_ui.enabled:
                 self.analysis_ui.enable(displayed.fen)
@@ -372,8 +435,17 @@ class KeymapAwareAccessibleChessAPI(AccessibleChessAPI):
             )
 
     def restart_analysis(self) -> dict[str, Any]:
+        blocked = self._temporary_exploration_error()
+        if blocked is not None:
+            return blocked
         try:
             displayed = self._display_review()
+            if not self.analysis_ui.target_locked and not self._displayed_position_playable():
+                return self._error(
+                    "Спочатку зробіть позицію коректною для гри."
+                    if self.lang == "uk"
+                    else "Make the position valid for play before restarting Stockfish analysis."
+                )
             self.analysis_ui.restart(displayed.fen)
             if not self.analysis_ui.target_locked:
                 self._analysis_origin_node_id = displayed.node_id
@@ -386,6 +458,9 @@ class KeymapAwareAccessibleChessAPI(AccessibleChessAPI):
             return self._error("Stockfish недоступний." if self.lang == "uk" else "Stockfish unavailable.")
 
     def configure_analysis(self, multipv: int, depth: int) -> dict[str, Any]:
+        blocked = self._temporary_exploration_error()
+        if blocked is not None:
+            return blocked
         if not self.analysis_ui.available:
             return self._error("Stockfish недоступний." if self.lang == "uk" else "Stockfish unavailable.")
         try:
@@ -405,7 +480,16 @@ class KeymapAwareAccessibleChessAPI(AccessibleChessAPI):
             )
 
     def toggle_analysis_lock(self) -> dict[str, Any]:
+        blocked = self._temporary_exploration_error()
+        if blocked is not None:
+            return blocked
         displayed = self._display_review()
+        if not self._displayed_position_playable():
+            return self._error(
+                "Поточна позиція некоректна для аналізу."
+                if self.lang == "uk"
+                else "The current position is not valid for analysis."
+            )
         try:
             if self.analysis_ui.target_locked:
                 self.analysis_ui.unlock_target(displayed.fen)
@@ -437,6 +521,9 @@ class KeymapAwareAccessibleChessAPI(AccessibleChessAPI):
         return self.read_analysis_pv(index)
 
     def select_relative_analysis_pv(self, delta: int) -> dict[str, Any]:
+        blocked = self._temporary_exploration_error()
+        if blocked is not None:
+            return blocked
         try:
             line = self.analysis_ui.select_relative_pv(delta, self._display_review().fen)
             return self._ok(self._analysis_line_message(line.multipv))
@@ -480,9 +567,13 @@ class KeymapAwareAccessibleChessAPI(AccessibleChessAPI):
         try:
             if not self._analysis_origin_matches():
                 raise RuntimeError("analysis origin changed")
-            self.review_history.select_node(self._analysis_origin_node_id)
+            candidate_history, candidate_adapter = self._clone_review_transaction()
+            candidate_history.select_node(self._analysis_origin_node_id)
+            # Analysis exploration is the fallible owner here.  Clear it before
+            # publishing the detached review cursor so a failed return cannot
+            # partially move live history.
             self.analysis_ui.return_from_exploration()
-            self.selected_source = None
+            self._publish_review_transaction(candidate_history, candidate_adapter)
             return self._ok(
                 "Повернено точну вихідну позицію аналізу."
                 if self.lang == "uk"
@@ -527,13 +618,17 @@ class KeymapAwareAccessibleChessAPI(AccessibleChessAPI):
                         },
                     )
                 )
-            inserted = self.review_history.append_branch(
+            candidate_history, candidate_adapter = self._clone_review_transaction()
+            inserted = candidate_history.append_branch(
                 self._analysis_origin_node_id,
                 tuple(snapshots),
             )
-            self.review_history.select_node(self._analysis_origin_node_id)
+            candidate_history.select_node(self._analysis_origin_node_id)
+            # Keep the new variation detached until the temporary analysis view
+            # has been released.  A bridge/adapter failure therefore cannot
+            # publish a hidden branch while reporting insertion failure.
             self.analysis_ui.return_from_exploration()
-            self.selected_source = None
+            self._publish_review_transaction(candidate_history, candidate_adapter)
             subject = "Хід" if one_move else "Варіант"
             subject_en = "Move" if one_move else "Variation"
             status = "додано" if inserted.created_count else "вже існує"
@@ -594,27 +689,19 @@ class KeymapAwareAccessibleChessAPI(AccessibleChessAPI):
         blocked = self._temporary_exploration_error()
         if blocked is not None:
             return blocked
-        text = (text or "").strip()
+        if type(text) is not str or len(text) > _webapp.MAX_MOVE_ENTRY_CHARS:
+            return super().make_move(text)
+        text = text.strip()
         if not text:
-            return self._error("Введіть хід." if self.lang == "uk" else "Enter a move.")
+            return super().make_move(text)
         resolution = self.keymap_service.resolve_alias(BindingContext.MOVE_ENTRY.value, text)
         if resolution is not None:
             return self._dispatch_move_entry_action(str(resolution["actionId"]))
-        if not self._at_history_end():
-            return self._error(self._t("review_before_move"))
-        if not self._position_complete(self.board):
-            return self._error(self._t("setup_incomplete"))
-        try:
-            side = self.board.turn
-            san = self.board.push_text(text)
-            self.sans.append(san)
-            self.move_sides.append(side)
-            self.redo_meta.clear()
-            self.selected_source = None
-            self._record_position_after_move(san, side)
-            return self._ok(("Зіграно: " if self.lang == "uk" else "Played: ") + _shared_spoken_san(san, self.lang))
-        except Exception:
-            return self._error(self._t("move_invalid"))
+        # Do not fall back to AccessibleChessAPI.make_move here: that method
+        # owns the legacy one-letter aliases.  A remapped central keymap must
+        # not silently reactivate those defaults.  Reuse only its canonical
+        # chess-move transaction after central alias resolution has declined.
+        return self._play_move_text(text)
 
     def _dispatch_move_entry_action(self, action_id: str) -> dict[str, Any]:
         handlers = {

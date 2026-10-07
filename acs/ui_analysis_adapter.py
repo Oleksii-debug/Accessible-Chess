@@ -361,6 +361,7 @@ class AnalysisPresentationAdapter:
         self._follow_position = True
         self._selected_pv = 1
         self._exploration: AnalysisExploration | None = None
+        self._exploration_follow_position: bool | None = None
 
     @property
     def available(self) -> bool:
@@ -405,6 +406,7 @@ class AnalysisPresentationAdapter:
         self._follow_position = True
         self._selected_pv = 1
         self._exploration = None
+        self._exploration_follow_position = None
 
     def disable(self) -> None:
         if self._service is not None:
@@ -415,6 +417,7 @@ class AnalysisPresentationAdapter:
         self._follow_position = True
         self._selected_pv = 1
         self._exploration = None
+        self._exploration_follow_position = None
 
     def sync_position(self, fen: str) -> None:
         """Feed the newest displayed FEN without ever restarting the UI layer."""
@@ -427,6 +430,7 @@ class AnalysisPresentationAdapter:
         self._fen = fen
         self._last_error = None
         self._exploration = None
+        self._exploration_follow_position = None
 
     def configure(self, *, multipv: int, depth: int) -> None:
         """Apply bounded settings atomically and invalidate the old result."""
@@ -445,18 +449,26 @@ class AnalysisPresentationAdapter:
         self._depth = depth
         self._selected_pv = min(self._selected_pv, multipv)
         self._last_error = None
+        if self._exploration is not None and self._exploration_follow_position is not None:
+            self._follow_position = self._exploration_follow_position
         self._exploration = None
+        self._exploration_follow_position = None
 
     def restart(self, displayed_fen: str) -> None:
         if self._service is None:
             raise RuntimeError("analysis service is not configured")
         displayed_fen = self._normalize_fen(displayed_fen)
-        target = self._fen if self.target_locked and self._fen is not None else displayed_fen
+        follow_position = self._follow_position
+        if self._exploration is not None and self._exploration_follow_position is not None:
+            follow_position = self._exploration_follow_position
+        target = self._fen if not follow_position and self._fen is not None else displayed_fen
         self._service.start(target, multipv=self._multipv, depth=self._depth)
         self._fen = target
         self._enabled = True
         self._last_error = None
+        self._follow_position = follow_position
         self._exploration = None
+        self._exploration_follow_position = None
 
     def lock_target(self) -> None:
         if not self._enabled or self._fen is None:
@@ -479,6 +491,7 @@ class AnalysisPresentationAdapter:
         self._follow_position = True
         self._last_error = None
         self._exploration = None
+        self._exploration_follow_position = None
 
     def select_pv(self, index: int, displayed_fen: str) -> AnalysisPresentationLine:
         index = self._normalize_pv_index(index)
@@ -489,7 +502,10 @@ class AnalysisPresentationAdapter:
                 code=EngineContractErrorCode.INVALID_RESULT,
             )
         self._selected_pv = index
+        if self._exploration is not None and self._exploration_follow_position is not None:
+            self._follow_position = self._exploration_follow_position
         self._exploration = None
+        self._exploration_follow_position = None
         return snap.lines[index - 1]
 
     def select_relative_pv(self, delta: int, displayed_fen: str) -> AnalysisPresentationLine:
@@ -506,16 +522,28 @@ class AnalysisPresentationAdapter:
             )
         selected = max(1, min(len(snap.lines), self._selected_pv + delta))
         self._selected_pv = selected
+        if self._exploration is not None and self._exploration_follow_position is not None:
+            self._follow_position = self._exploration_follow_position
         self._exploration = None
+        self._exploration_follow_position = None
         return snap.lines[selected - 1]
 
     def begin_exploration(self, displayed_fen: str) -> AnalysisExploration:
+        previous_follow_position = (
+            self._exploration_follow_position
+            if self._exploration is not None
+            and self._exploration_follow_position is not None
+            else self._follow_position
+        )
         line = self.select_pv(self._selected_pv, displayed_fen)
         if not line.pv or len(line.position_fens) != len(line.pv):
             raise EngineContractError(
                 "selected analysis PV has no validated moves",
                 code=EngineContractErrorCode.INVALID_RESULT,
             )
+        # Temporary PV viewing must not permanently change whether analysis was
+        # following the live board or intentionally locked before exploration.
+        self._exploration_follow_position = previous_follow_position
         self._follow_position = False
         self._exploration = AnalysisExploration(line, 1)
         return self._exploration
@@ -537,7 +565,11 @@ class AnalysisPresentationAdapter:
         return self._exploration
 
     def return_from_exploration(self) -> None:
+        previous_follow_position = self._exploration_follow_position
         self._exploration = None
+        self._exploration_follow_position = None
+        if previous_follow_position is not None:
+            self._follow_position = previous_follow_position
 
     def selected_line(self, displayed_fen: str) -> AnalysisPresentationLine:
         if self._exploration is not None:
@@ -553,6 +585,7 @@ class AnalysisPresentationAdapter:
         self._follow_position = True
         self._selected_pv = 1
         self._exploration = None
+        self._exploration_follow_position = None
         if service is not None:
             service.close()
 

@@ -92,6 +92,85 @@ class UIAnalysisWebAppTests(unittest.TestCase):
         )
         return api, fake
 
+    def test_board_semantic_queries_fail_closed_on_invalid_editor_position(self):
+        api, _fake = self.make_api()
+        self.assertTrue(api.clear_board()["ok"])
+        self.assertTrue(api.edit_position_piece("e1", "K")["ok"])
+        self.assertTrue(api.edit_position_piece("e2", "k")["ok"])
+
+        legal = api.dispatch_action("board.legal_moves", "e1")
+        attackers = api.dispatch_action("board.attackers", "e1")
+        current = api.dispatch_action("board.current", "e1")
+
+        self.assertFalse(legal["ok"])
+        self.assertFalse(attackers["ok"])
+        self.assertIn("не готова", legal["announcement"])
+        self.assertIn("не готова", attackers["announcement"])
+        self.assertTrue(current["ok"])
+        self.assertIn("e 1", current["announcement"])
+
+    def test_final_facade_preserves_locked_analysis_across_normal_move(self):
+        api, fake = self.make_api()
+        self.assertTrue(api.toggle_engine()["ok"])
+        origin = api.get_state()["fen"]
+        fake.set_result(origin)
+        self.assertTrue(api.toggle_analysis_lock()["ok"])
+
+        moved = api.make_move("e4")
+
+        self.assertTrue(moved["ok"])
+        self.assertTrue(moved["analysis"]["targetLocked"])
+        self.assertEqual(moved["analysis"]["fen"], origin)
+        self.assertEqual(fake.updated, [])
+
+    def test_final_facade_keeps_temporary_analysis_view_mutation_fenced(self):
+        api, fake = self.make_api()
+        self.assertTrue(api.toggle_engine()["ok"])
+        origin = api.get_state()["fen"]
+        fake.set_result(origin)
+        self.assertTrue(api.explore_analysis_pv()["ok"])
+
+        blocked = api.make_move("e4")
+
+        self.assertFalse(blocked["ok"])
+        self.assertIn("поверніться", blocked["announcement"].lower())
+        self.assertEqual(api.board.fen(), origin)
+        self.assertTrue(blocked["analysisViewingTemporaryPosition"])
+
+    def test_composed_move_entry_blocks_invalid_editor_position_atomically(self):
+        api, _fake = self.make_api()
+        self.assertTrue(api.clear_board()["ok"])
+        self.assertTrue(api.edit_position_piece("e1", "K")["ok"])
+        self.assertTrue(api.edit_position_piece("e2", "k")["ok"])
+        before = api.board.fen()
+
+        result = api.make_move("Ke2")
+
+        self.assertFalse(result["ok"])
+        self.assertIn("Некоректна позиція", result["announcement"])
+        self.assertEqual(api.board.fen(), before)
+        self.assertEqual(api.sans, [])
+
+    def test_composed_move_entry_history_failure_cannot_partially_publish_move(self):
+        api, _fake = self.make_api()
+        before_fen = api.board.fen()
+        before_tree = api.review_history.export_tree()
+        original = api._prepare_live_presentation
+
+        def fail(*_args, **_kwargs):
+            raise RuntimeError("simulated presentation failure")
+
+        api._prepare_live_presentation = fail
+        try:
+            result = api.make_move("e4")
+        finally:
+            api._prepare_live_presentation = original
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(api.board.fen(), before_fen)
+        self.assertEqual(api.review_history.export_tree(), before_tree)
+        self.assertEqual(api.sans, [])
+
     def test_missing_composed_engine_is_explicit_not_fake_enabled_state(self):
         with tempfile.TemporaryDirectory() as temp:
             api = KeymapAwareAccessibleChessAPI(keymap_path=Path(temp) / "keymap.json")
@@ -101,6 +180,55 @@ class UIAnalysisWebAppTests(unittest.TestCase):
             result = api.toggle_engine()
             self.assertFalse(result["ok"])
             self.assertFalse(result["engineEnabled"])
+
+    def test_analysis_refuses_incomplete_editor_position_without_touching_engine(self):
+        api, fake = self.make_api()
+        self.assertTrue(api.clear_board()["ok"])
+
+        result = api.start_analysis()
+
+        self.assertFalse(result["ok"])
+        self.assertIn("коректною", result["announcement"])
+        self.assertEqual(fake.started, [])
+        self.assertFalse(result["engineEnabled"])
+
+    def test_enabled_analysis_stops_before_invalid_cleared_root_reaches_engine(self):
+        api, fake = self.make_api()
+        self.assertTrue(api.toggle_engine()["ok"])
+        self.assertEqual(len(fake.started), 1)
+
+        cleared = api.clear_board()
+
+        self.assertTrue(cleared["ok"])
+        self.assertFalse(cleared["engineEnabled"])
+        self.assertEqual(fake.stopped, 1)
+        self.assertEqual(fake.updated, [])
+        self.assertIn("Stockfish зупинено", cleared["announcement"])
+
+    def test_piece_editor_stops_analysis_instead_of_forwarding_invalid_fen(self):
+        api, fake = self.make_api()
+        self.assertTrue(api.toggle_engine()["ok"])
+
+        edited = api.edit_position_piece("e8", "-")
+
+        self.assertTrue(edited["ok"])
+        self.assertFalse(edited["positionComplete"])
+        self.assertFalse(edited["engineEnabled"])
+        self.assertEqual(fake.stopped, 1)
+        self.assertEqual(fake.updated, [])
+        self.assertIn("Stockfish зупинено", edited["announcement"])
+
+    def test_valid_piece_editor_reanchors_running_analysis(self):
+        api, fake = self.make_api()
+        self.assertTrue(api.toggle_engine()["ok"])
+
+        edited = api.edit_position_piece("a3", "N")
+
+        self.assertTrue(edited["ok"])
+        self.assertTrue(edited["positionComplete"])
+        self.assertTrue(edited["engineEnabled"])
+        self.assertEqual(fake.stopped, 0)
+        self.assertEqual(fake.updated[-1], edited["fen"])
 
     def test_engine_enable_starts_real_service_with_multipv_five(self):
         api, fake = self.make_api()
@@ -231,6 +359,12 @@ class UIAnalysisWebAppTests(unittest.TestCase):
         self.assertTrue(explored["ok"])
         self.assertTrue(explored["analysisViewingTemporaryPosition"])
         self.assertNotEqual(explored["fen"], origin_fen)
+        temporary_board = Board(explored["fen"])
+        self.assertFalse(explored["positionEditor"]["editable"])
+        self.assertEqual(explored["positionEditor"]["turn"], temporary_board.turn)
+        self.assertEqual(explored["positionEditor"]["castling"], temporary_board.castling or "-")
+        self.assertEqual(explored["positionEditor"]["halfmove"], temporary_board.halfmove)
+        self.assertEqual(explored["positionEditor"]["fullmove"], temporary_board.fullmove)
         self.assertEqual(api.board.fen(), origin_fen)
         self.assertEqual(api.review_history.cursor_node_id, origin_node)
         advanced = api.step_analysis_exploration(1)
@@ -256,6 +390,9 @@ class UIAnalysisWebAppTests(unittest.TestCase):
             api.new_game,
             lambda: api.set_fen(origin_fen),
             lambda: api.activate_square("e2"),
+            lambda: api.edit_position_piece("a3", "N"),
+            lambda: api.edit_position_metadata("w", "-", "-", "0", "1"),
+            api.validate_position_editor,
         ):
             with self.subTest(operation=operation):
                 result = operation()
@@ -263,7 +400,64 @@ class UIAnalysisWebAppTests(unittest.TestCase):
                 self.assertIn("поверніться", result["announcement"].lower())
                 self.assertEqual(api.board.fen(), origin_fen)
 
+        for operation in (
+            api.restart_analysis,
+            lambda: api.configure_analysis(3, 20),
+            api.toggle_analysis_lock,
+            lambda: api.select_relative_analysis_pv(1),
+        ):
+            with self.subTest(analysis_operation=operation):
+                result = operation()
+                self.assertFalse(result["ok"])
+                self.assertIn("поверніться", result["announcement"].lower())
+                self.assertTrue(result["analysisViewingTemporaryPosition"])
+
         self.assertTrue(api.return_from_analysis()["ok"])
+
+    def test_failed_analysis_return_does_not_move_live_review_cursor(self):
+        api, fake = self.make_api()
+        api.toggle_engine()
+        origin_fen = api.get_state()["fen"]
+        fake.set_result(origin_fen)
+        self.assertTrue(api.explore_analysis_pv()["ok"])
+        before_tree = api.review_history.export_tree()
+        before_cursor = api.review_history.cursor_node_id
+        original = api.analysis_ui.return_from_exploration
+
+        def fail():
+            raise RuntimeError("simulated analysis return failure")
+
+        api.analysis_ui.return_from_exploration = fail
+        try:
+            result = api.return_from_analysis()
+        finally:
+            api.analysis_ui.return_from_exploration = original
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(api.review_history.export_tree(), before_tree)
+        self.assertEqual(api.review_history.cursor_node_id, before_cursor)
+        self.assertTrue(api.analysis_ui.exploration is not None)
+
+    def test_failed_analysis_insert_does_not_publish_hidden_history_branch(self):
+        api, fake = self.make_api()
+        api.toggle_engine()
+        origin_fen = api.get_state()["fen"]
+        fake.set_result(origin_fen)
+        before_tree = api.review_history.export_tree()
+        original = api.analysis_ui.return_from_exploration
+
+        def fail():
+            raise RuntimeError("simulated analysis return failure")
+
+        api.analysis_ui.return_from_exploration = fail
+        try:
+            result = api.insert_analysis_line()
+        finally:
+            api.analysis_ui.return_from_exploration = original
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(api.review_history.export_tree(), before_tree)
+        self.assertEqual(api.review_history.node_count, 1)
 
     def test_canonical_reset_releases_obsolete_locked_target(self):
         api, fake = self.make_api()
@@ -299,6 +493,16 @@ class UIAnalysisWebAppTests(unittest.TestCase):
         self.assertTrue(repeated["ok"])
         self.assertEqual(api.review_history.node_count, 3)
         self.assertIn("вже існує", repeated["announcement"])
+
+    def test_temporary_analysis_view_disables_conflicting_webview_controls(self):
+        html = (Path(__file__).resolve().parents[1] / "web" / "index.html").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("el('analysis-restart').disabled=!enabled||exploring", html)
+        self.assertIn("el('analysis-lock').disabled=!enabled||exploring", html)
+        self.assertIn("['analysis-multipv','analysis-depth','analysis-apply'].forEach(id=>el(id).disabled=exploring)", html)
+        self.assertIn("['analysis-prev-pv','analysis-next-pv'].forEach(id=>el(id).disabled=!hasLines||exploring)", html)
+        self.assertIn("el('analysis-return').disabled=!exploring", html)
 
     def test_web_state_contains_san_and_never_raw_uci_or_provider_path(self):
         api, fake = self.make_api()

@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 import re, copy
-from .input_limits import MAX_FEN_CHARS
+from .input_limits import MAX_FEN_CHARS, MAX_SAN_CHARS
 from .squares import FILES, parse_square, square_name
 
 PIECE_UA={'P':'білий пішак','N':'білий кінь','B':'білий слон','R':'біла тура','Q':'білий ферзь','K':'білий король',
@@ -69,7 +69,7 @@ class Board:
         if type(clear_history) is not bool:
             raise ValueError('clear_history має бути логічним значенням')
         parts=fen.strip().split()
-        if len(parts)<4 or len(parts)>6: raise ValueError('FEN має містити від 4 до 6 полів')
+        if len(parts) not in (4, 6): raise ValueError('FEN має містити 4 або 6 полів')
         rows=parts[0].split('/')
         if len(rows)!=8: raise ValueError('FEN: потрібно 8 горизонталей')
         bd=[None]*64
@@ -91,12 +91,17 @@ class Board:
         if turn not in ('w','b'): raise ValueError('FEN: хід має бути w або b')
         castling='' if parts[2]=='-' else parts[2]
         if any(ch not in 'KQkq' for ch in castling) or len(set(castling))!=len(castling): raise ValueError('FEN: неправильні права рокіровки')
+        canonical_castling=''.join(ch for ch in 'KQkq' if ch in castling)
+        if castling != canonical_castling: raise ValueError('FEN: права рокіровки мають порядок KQkq')
         ep=None if parts[3]=='-' else parse_sq(parts[3])
+        if ep is not None and sq_name(ep) != parts[3]:
+            raise ValueError('FEN: поле en passant має бути канонічним нижнім регістром')
         if any(not text.isascii() or not text.isdecimal() for text in parts[4:6]):
             raise ValueError('FEN: лічильники мають бути невід’ємними десятковими числами')
         try:
-            halfmove=int(parts[4]) if len(parts)>4 else 0
-            fullmove=int(parts[5]) if len(parts)>5 else 1
+            has_explicit_counters=len(parts)==6
+            halfmove=int(parts[4]) if has_explicit_counters else 0
+            fullmove=int(parts[5]) if has_explicit_counters else (2 if ep is not None and turn=='w' else 1)
         except ValueError:
             raise ValueError('FEN: лічильники мають бути невід’ємними десятковими числами') from None
         if halfmove<0: raise ValueError('FEN: halfmove не може бути від’ємним')
@@ -118,6 +123,10 @@ class Board:
             moved_pawn='p' if turn=='w' else 'P'
             if bd[moved_sq]!=moved_pawn or bd[origin_sq] is not None:
                 raise ValueError('FEN: en passant не відповідає попередньому подвійому ходу пішака')
+            if halfmove != 0:
+                raise ValueError('FEN: halfmove має дорівнювати 0 після подвійного ходу пішака')
+            if turn=='w' and fullmove < 2:
+                raise ValueError('FEN: fullmove має бути не менше 2 після подвійного ходу чорного пішака')
 
         # Commit only after every syntactic and structural check has passed.
         self.board=bd; self.turn=turn; self.castling=castling; self.ep=ep
@@ -234,7 +243,14 @@ class Board:
     def legal_moves(self):
         c=self.turn
         out=[]
+        enemy_king='k' if c=='w' else 'K'
         for m in self.pseudo_moves(c):
+            # Attack maps may target the opposing king, but a canonical legal
+            # Move never captures it.  Malformed/historically impossible FEN
+            # must therefore fail closed here instead of publishing a
+            # king-capture Move that would remove the rules authority's king.
+            if self.board[m.to] == enemy_king:
+                continue
             b=self.clone(); b._apply(m)
             if not b.in_check(c): out.append(m)
         return out
@@ -288,7 +304,18 @@ class Board:
     def norm_san(s):
         if type(s) is not str:
             raise ValueError('Хід має бути текстом')
-        return s.strip().replace('0','O').replace('–','-').replace('—','-').replace(' ','').rstrip('!?')
+        if len(s) > MAX_SAN_CHARS:
+            raise ValueError('Хід занадто довгий')
+        token=s.strip().replace('–','-').replace('—','-').rstrip('!?')
+        # Preserve only the explicitly supported all-zero legacy castling
+        # spellings. Mixed 0/O forms are not SAN and must not be silently
+        # repaired into canonical castling.
+        for legacy,canonical in (('0-0-0','O-O-O'),('0-0','O-O')):
+            if token.startswith(legacy):
+                suffix=token[len(legacy):]
+                if suffix in ('','+','#'):
+                    return canonical+suffix
+        return token
     def parse_move(self,text):
         if type(text) is not str:
             raise ValueError('Хід має бути текстом')
@@ -299,10 +326,20 @@ class Board:
                 if (m.frm,m.to,m.promotion)==(frm,to,pr): return m
             raise ValueError('Нелегальний координатний хід')
         candidates=[]
+        # Preserve the historical convenience that a human may omit a
+        # generated check/checkmate suffix, but never accept a suffix that
+        # contradicts canonical Board SAN.  Explicit +/# is a semantic claim.
+        explicit_suffix = t[-1] if t.endswith(('+', '#')) else ''
+        target = t[:-1] if explicit_suffix else t
         for m in self.legal_moves():
-            s=self.norm_san(self.san(m)).rstrip('+#')
-            target=t.rstrip('+#')
-            if s==target: candidates.append(m)
+            canonical=self.norm_san(self.san(m))
+            canonical_suffix = canonical[-1] if canonical.endswith(('+', '#')) else ''
+            canonical_core = canonical[:-1] if canonical_suffix else canonical
+            if canonical_core != target:
+                continue
+            if explicit_suffix and explicit_suffix != canonical_suffix:
+                continue
+            candidates.append(m)
         if len(candidates)==1: return candidates[0]
         if not candidates: raise ValueError('Не вдалося розпізнати або хід нелегальний: '+text)
         raise ValueError('Хід неоднозначний: '+text)
