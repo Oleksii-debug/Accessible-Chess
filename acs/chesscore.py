@@ -99,8 +99,9 @@ class Board:
         if any(not text.isascii() or not text.isdecimal() for text in parts[4:6]):
             raise ValueError('FEN: лічильники мають бути невід’ємними десятковими числами')
         try:
-            halfmove=int(parts[4]) if len(parts)>4 else 0
-            fullmove=int(parts[5]) if len(parts)>5 else 1
+            has_explicit_counters=len(parts)==6
+            halfmove=int(parts[4]) if has_explicit_counters else 0
+            fullmove=int(parts[5]) if has_explicit_counters else (2 if ep is not None and turn=='w' else 1)
         except ValueError:
             raise ValueError('FEN: лічильники мають бути невід’ємними десятковими числами') from None
         if halfmove<0: raise ValueError('FEN: halfmove не може бути від’ємним')
@@ -124,6 +125,8 @@ class Board:
                 raise ValueError('FEN: en passant не відповідає попередньому подвійому ходу пішака')
             if halfmove != 0:
                 raise ValueError('FEN: halfmove має дорівнювати 0 після подвійного ходу пішака')
+            if turn=='w' and fullmove < 2:
+                raise ValueError('FEN: fullmove має бути не менше 2 після подвійного ходу чорного пішака')
 
         # Commit only after every syntactic and structural check has passed.
         self.board=bd; self.turn=turn; self.castling=castling; self.ep=ep
