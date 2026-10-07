@@ -462,3 +462,25 @@ hooks.
 
 This remains the same six-path #2346 lineage and adds no parser, decoder,
 report, format or chess authority.
+
+
+### Strict multi-source iterable authority fence
+
+A further Section-0.5 audit found that the non-aborting batch API already
+protected provider-owned outer iterable creation/advance, but strict
+`inspect_many()` still iterated the caller object directly. A custom iterable
+could therefore replace a registered importer between yields and make the next
+strict source execute under attacker-selected routing without any adapter-level
+route mutation.
+
+`inspect_many()` now reuses the same host-owned iterator authority fence as
+`inspect_batch()`. Iterator creation, each advance, terminal StopIteration and
+direct process-control all preserve the pre-advance registration snapshot:
+ordinary route drift is restored and fails closed; KeyboardInterrupt/SystemExit
+remain unswallowed only after canonical routing is restored.
+
+Regressions cover strict iterable-creation mutation, mutation between two real
+sources, and direct KeyboardInterrupt after route replacement. No new format,
+parser, decoder, report or chess authority is introduced.
+
+This remains the same exact six-path canonical PR #2346 lineage.
