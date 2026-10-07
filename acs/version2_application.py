@@ -1583,16 +1583,10 @@ class Version2Application:
         try:
             return callback()
         except Exception:
-            snapshot = self.tactile_sync.snapshot()
-            announcement = (
-                "Не вдалося оновити тактильну дошку. Шахова позиція не змінена."
-                if self.shell.language is UILanguage.UA
-                else "Tactile board refresh failed. The chess position was not changed."
-            )
-            self._events.append(
-                {"kind": "status", "payload": {"announcement": announcement}}
-            )
-            return snapshot
+            # Automatic synchronization is an observer side effect. Keep failures
+            # queryable through tactile.status without adding unsolicited NVDA
+            # announcements to every Board/PGN/Book/Training navigation action.
+            return self.tactile_sync.snapshot()
 
     def _refresh_tactile_current_context(self):
         route_id = self.shell.current_route.route_id
@@ -1612,11 +1606,13 @@ class Version2Application:
         if action in {"tactile.status", "tactile.refresh"}:
             if payload:
                 raise ValueError("tactile commands accept no payload")
-            snapshot = (
-                self.tactile_sync.snapshot()
-                if action == "tactile.status"
-                else self._refresh_tactile_current_context()
-            )
+            if action == "tactile.status":
+                snapshot = self.tactile_sync.snapshot()
+            else:
+                try:
+                    snapshot = self._refresh_tactile_current_context()
+                except Exception:
+                    snapshot = self.tactile_sync.snapshot()
             self._announce_tactile_snapshot(snapshot)
             return self._tactile_snapshot_payload(snapshot)
 
