@@ -1,0 +1,264 @@
+name: Section 1 Whole Contract Qualification
+
+on:
+  pull_request:
+    branches:
+      - 'converge/section1-whole-contract-20261007-sol56'
+    paths:
+      - '.github/workflows/section1-whole-contract-qualification.yml'
+      - 'docs/automation/SECTION1_WHOLE_CONVERGENCE_QUALIFICATION.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: section1-whole-qualification-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+env:
+  EXPECTED_BASE_SHA: 7fc28a6cbe3224c843372e06b9b110be8ad94c94
+  INPUT_LIMITS_BLOB: 11972e4b4a949b9e6a8075b62656a9fa6d299ea6
+  NOTATION_BLOB: eed13c31993fa9979b6a2cbd608cce63c1ce74df
+  CHESSCORE_BLOB: a15d8845e3c58f2d8f6defcdfe9f9bcf0e5da674
+  SAN_TEST_BLOB: 22e493307ac650d14f7fa7300d80cffcd100f36b
+  POSITION_EDITOR_BLOB: ec28fca72bbe766c4bafc73eefcda719abe75c28
+  POSITION_RESOURCE_TEST_BLOB: ad6b0c0dbbe0e5d3cf47bb534a29d4d6a2925061
+  EDGE_CORPUS_BLOB: ed61ab2296d26727c4220c6e5abb437bb1e1ab5a
+  EDGE_TEST_BLOB: d4beb33a0131cb4b748e8495f4cacb89ffefc9a5
+  FEN_CORPUS_QUALIFIER_BLOB: 6a230daff4c511339669c330fb4aabc988c7f86f
+  FEN_CORPUS_TEST_BLOB: ff9b303ab9db4f61a707a6f3d53aa3b21596857d
+  IMPORT_CONTRACT_BLOB: b302b1666511289a70b5b3569ed5360b5cb66a95
+  QUALIFICATION_DOC_BLOB: 1d90dfea72f58af5dfd592410f87897c3f57226f
+  P0F_PROVENANCE_BLOB: 3298aed00ca000d27f607cd861abbba9483ff358
+  P0F_BUILDER_BLOB: b7b96a661652a17cb16e8ca4cabba3b8b373e483
+  PINNED_CORPUS_SHA256: aa40b3671fa3cf1072eb182892cd90b0e1e003a4a5943492f64b77e7f3fd1635
+
+jobs:
+  exact-head:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Prove exact qualification geometry
+        shell: bash
+        env:
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          expected_head="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
+          test "$(git rev-parse HEAD)" = "$expected_head"
+          test "$EVENT_BASE_REF" = "converge/section1-whole-contract-20261007-sol56"
+          test "$EVENT_BASE_SHA" = "$EXPECTED_BASE_SHA"
+          test "$(git merge-base "$EXPECTED_BASE_SHA" HEAD)" = "$EXPECTED_BASE_SHA"
+          git diff --check "$EXPECTED_BASE_SHA"...HEAD
+          changed="$(git diff --name-only "$EXPECTED_BASE_SHA"...HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/section1-whole-contract-qualification.yml' \
+            'docs/automation/SECTION1_WHOLE_CONVERGENCE_QUALIFICATION.md' | sort)"
+          test "$changed" = "$expected"
+          for ancestor in \
+            ff7798bdec33393cdd6ad79c1e30e0dba12d7b94 \
+            f6a2c6df5705eadcca1070564c517e6d8c13a248 \
+            3825a153c3f2a79d1164a0b3001afc2c740cf23d \
+            9209f6cd06ac0cbc8a4ee9ff040797df76ec1ae1 \
+            e604047873ec5de10db747e91f39eb36edab89c4
+          do
+            git merge-base --is-ancestor "$ancestor" HEAD
+          done
+
+      - name: Bind converged authorities
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:acs/input_limits.py)" = "$INPUT_LIMITS_BLOB"
+          test "$(git rev-parse HEAD:acs/notation.py)" = "$NOTATION_BLOB"
+          test "$(git rev-parse HEAD:acs/chesscore.py)" = "$CHESSCORE_BLOB"
+          test "$(git rev-parse HEAD:tests/test_section1_san_transition_contract.py)" = "$SAN_TEST_BLOB"
+          test "$(git rev-parse HEAD:acs/position_editor.py)" = "$POSITION_EDITOR_BLOB"
+          test "$(git rev-parse HEAD:tests/test_section1_positionstate_counter_boundary.py)" = "$POSITION_RESOURCE_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/data/fen_edge_corpus_v1.json)" = "$EDGE_CORPUS_BLOB"
+          test "$(git rev-parse HEAD:tests/test_fen_edge_corpus.py)" = "$EDGE_TEST_BLOB"
+          test "$(git rev-parse HEAD:tools/qualify_fen_position_corpus.py)" = "$FEN_CORPUS_QUALIFIER_BLOB"
+          test "$(git rev-parse HEAD:tests/test_qualify_fen_position_corpus.py)" = "$FEN_CORPUS_TEST_BLOB"
+          test "$(git rev-parse HEAD:acs/import_contract.py)" = "$IMPORT_CONTRACT_BLOB"
+          test "$(git rev-parse HEAD:docs/automation/SECTION1_WHOLE_CONVERGENCE_QUALIFICATION.md)" = "$QUALIFICATION_DOC_BLOB"
+          python - <<'PY'
+          from tools import qualify_fen_position_corpus as qualifier
+          from acs.import_contract import read_source_snapshot
+          assert qualifier.read_source_snapshot is read_source_snapshot
+          print("SECTION1_CANONICAL_SOURCE_READER=PASS")
+          PY
+
+      - name: Compile converged Section 1 surface
+        run: >-
+          python -m py_compile
+          acs/chesscore.py
+          acs/input_limits.py
+          acs/notation.py
+          acs/position_editor.py
+          tools/qualify_fen_position_corpus.py
+          tests/test_section1_san_transition_contract.py
+          tests/test_section1_positionstate_counter_boundary.py
+          tests/test_fen_edge_corpus.py
+          tests/test_qualify_fen_position_corpus.py
+
+      - name: Execute FEN SAN Position contracts
+        run: >-
+          python -m unittest -v
+          tests.test_section1_san_transition_contract
+          tests.test_section1_positionstate_counter_boundary
+          tests.test_fen_edge_corpus
+          tests.test_qualify_fen_position_corpus
+          tests.test_notation
+          tests.test_dev2_fen_atomicity
+          tests.test_fen_input_budget_current
+          tests.test_fen_position_editor_complete_user_flow
+          tests.test_position_editor
+          tests.test_position_editor_passive_boundary
+          tests.test_position_text_authority
+          tests.test_stage1_fen_history_atomicity_current
+          tests.test_stage1_move_history_atomicity_current
+          tests.test_stage1_engine_play_ui
+          tests.test_ui_analysis_adapter
+          tests.test_ui_analysis_webapp
+          tests.test_release_stockfish_composition
+          tests.test_import_contract
+          tests.test_pgn_open_source_binding
+          tests.test_pgn_open_direct_source
+
+      - name: Execute retained History EPD GameTree PGN adjacency
+        run: >-
+          python -m unittest -v
+          tests.test_history_review_complete_user_flow
+          tests.test_epd
+          tests.test_gametree
+          tests.test_gametree_accessible_completion
+          tests.test_pgn_workspace
+          tests.test_version2_pgn_commands
+
+      - name: Retained PGN browser DOM
+        run: node tests/js/pgn_surface_dom_test.js
+
+      - name: Core chess selftest
+        run: python -m acs.selftest
+
+  lawful-fen-corpus:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Bind lawful corpus sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:docs/P0F_STARTER_CONTENT_PROVENANCE.md)" = "$P0F_PROVENANCE_BLOB"
+          test "$(git rev-parse HEAD:tools/p0f_lawful_starter_bundle.py)" = "$P0F_BUILDER_BLOB"
+          test "$(git rev-parse HEAD:tools/qualify_fen_position_corpus.py)" = "$FEN_CORPUS_QUALIFIER_BLOB"
+          test "$(git rev-parse HEAD:tests/test_qualify_fen_position_corpus.py)" = "$FEN_CORPUS_TEST_BLOB"
+
+      - name: Install qualified corpus decompressor
+        run: python -m pip install -q zstandard==0.23.0
+
+      - name: Build pinned CC0 real-game sample
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH="$PWD" python tools/p0f_lawful_starter_bundle.py .fen-lawful
+
+      - name: Bind pre-qualification lawful bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          root = Path(".fen-lawful")
+          manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+          source = manifest["starter_source"]
+          starter = root / "starter_uk.pgn"
+          entry = manifest["files"]["starter_uk.pgn"]
+          digest = hashlib.sha256(starter.read_bytes()).hexdigest()
+          assert source["compressed_sha256"] == os.environ["PINNED_CORPUS_SHA256"]
+          assert source["license_id"] == "CC0-1.0"
+          assert int(source["selected_games"]) >= 200
+          assert entry["license_id"] == "CC0-1.0"
+          assert entry["sha256"] == digest
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env:
+              env.write(f"LAWFUL_FEN_STARTER_SHA256={digest}\n")
+          print("LAWFUL_FEN_CORPUS_PROVENANCE=PASS")
+          PY
+
+      - name: Qualify real FEN Position corpus
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH="$PWD" python tools/qualify_fen_position_corpus.py \
+            .fen-lawful/starter_uk.pgn \
+            --min-games 200 \
+            --min-positions 5000 \
+            --require-edge-coverage \
+            --json-out .fen-lawful/fen_position_qualification.json
+
+      - name: Bind report to exact lawful bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          root = Path(".fen-lawful")
+          starter = root / "starter_uk.pgn"
+          manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+          report = json.loads(
+              (root / "fen_position_qualification.json").read_text(encoding="utf-8")
+          )
+          entry = manifest["files"]["starter_uk.pgn"]
+          expected = os.environ["LAWFUL_FEN_STARTER_SHA256"]
+          current_digest = hashlib.sha256(starter.read_bytes()).hexdigest()
+          assert len(expected) == 64
+          assert entry["sha256"] == expected
+          assert current_digest == expected
+          assert report["source_sha256"] == expected
+          assert int(report["game_count"]) >= 200
+          assert int(report["position_count"]) >= 5000
+          for key in (
+              "white_to_move_count",
+              "black_to_move_count",
+              "castling_rights_count",
+              "no_castling_rights_count",
+              "en_passant_count",
+              "halfmove_nonzero_count",
+              "fullmove_gt_one_count",
+          ):
+              assert int(report[key]) >= 1, key
+          print("LAWFUL_FEN_CORPUS_REPORT_BINDING=PASS")
+          PY
