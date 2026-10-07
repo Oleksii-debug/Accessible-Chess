@@ -1,0 +1,86 @@
+name: YouTube IFrame Playback Adapter
+
+on:
+  push:
+    branches:
+      - feat/youtube-iframe-playback-20261006-sol56v8
+    paths:
+      - web/youtube_iframe_playback_adapter.js
+      - tests/js/youtube_iframe_playback_adapter_test.js
+      - .github/workflows/youtube-iframe-playback-adapter.yml
+  pull_request:
+    branches:
+      - fix/recorded-media-player-browser-boundary-20261006-ac7m2
+    paths:
+      - web/youtube_iframe_playback_adapter.js
+      - tests/js/youtube_iframe_playback_adapter_test.js
+      - .github/workflows/youtube-iframe-playback-adapter.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: youtube-iframe-playback-${{ github.event.pull_request.number || github.ref }}-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prove exact recorded-media parent and bounded scope
+        shell: bash
+        env:
+          EXPECTED_PARENT_BRANCH: fix/recorded-media-player-browser-boundary-20261006-ac7m2
+          EXPECTED_PARENT: 8afbf9cde0373be49497000ce90ebb6b2d500487
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          git fetch --no-tags origin "+refs/heads/$EXPECTED_PARENT_BRANCH:refs/remotes/origin/youtube-media-parent"
+          live_parent="$(git rev-parse refs/remotes/origin/youtube-media-parent)"
+          test "$live_parent" = "$EXPECTED_PARENT" || {
+            printf 'YOUTUBE_IFRAME_PARENT_MOVED expected=%s live=%s\n' "$EXPECTED_PARENT" "$live_parent" >&2
+            exit 1
+          }
+          test "$(git merge-base "$EXPECTED_PARENT" HEAD)" = "$EXPECTED_PARENT"
+          git diff --check "$EXPECTED_PARENT"...HEAD
+          changed="$(git diff --name-only "$EXPECTED_PARENT"...HEAD | LC_ALL=C sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/youtube-iframe-playback-adapter.yml' \
+            'tests/js/youtube_iframe_playback_adapter_test.js' \
+            'web/youtube_iframe_playback_adapter.js' | LC_ALL=C sort)"
+          test "$changed" = "$expected" || {
+            printf 'YOUTUBE_IFRAME_PLAYBACK_SCOPE_DRIFT\n%s\n' "$changed" >&2
+            exit 1
+          }
+          test -z "$(git grep -nE '^(<<<<<<<|=======|>>>>>>>)' -- \
+            web/youtube_iframe_playback_adapter.js \
+            tests/js/youtube_iframe_playback_adapter_test.js \
+            .github/workflows/youtube-iframe-playback-adapter.yml || true)"
+
+      - name: Enforce documented playback-only provider boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          ! grep -Eqi 'yt-dlp|youtube-dl|googlevideo|videoplayback|timedtext|captions/download|XMLHttpRequest|\bfetch\s*\(|WebSocket' \
+            web/youtube_iframe_playback_adapter.js
+
+      - name: Check adapter and regression syntax
+        run: |
+          node --check web/youtube_iframe_playback_adapter.js
+          node --check tests/js/youtube_iframe_playback_adapter_test.js
+
+      - name: Run YouTube IFrame playback contract
+        run: node tests/js/youtube_iframe_playback_adapter_test.js

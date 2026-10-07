@@ -1,0 +1,83 @@
+name: Recorded Media Command Button Recovery
+
+on:
+  push:
+    branches:
+      - fix/recorded-media-command-button-recovery-20261006-sol56v8
+    paths:
+      - web/recorded_media_accessible_player.js
+      - tests/js/recorded_media_accessible_player_dom_test.js
+      - .github/workflows/recorded-media-command-button-recovery.yml
+  pull_request:
+    branches:
+      - feat/youtube-iframe-playback-20261006-sol56v8
+    paths:
+      - web/recorded_media_accessible_player.js
+      - tests/js/recorded_media_accessible_player_dom_test.js
+      - .github/workflows/recorded-media-command-button-recovery.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: recorded-media-command-recovery-${{ github.event.pull_request.number || github.ref }}-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prove exact YouTube-media parent and bounded scope
+        shell: bash
+        env:
+          EXPECTED_PARENT_BRANCH: feat/youtube-iframe-playback-20261006-sol56v8
+          EXPECTED_PARENT: b3af600711108871a79a610cccad3929a1be34b0
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          git fetch --no-tags origin "+refs/heads/$EXPECTED_PARENT_BRANCH:refs/remotes/origin/recorded-command-parent"
+          live_parent="$(git rev-parse refs/remotes/origin/recorded-command-parent)"
+          test "$live_parent" = "$EXPECTED_PARENT" || {
+            printf 'RECORDED_COMMAND_PARENT_MOVED expected=%s live=%s\n' "$EXPECTED_PARENT" "$live_parent" >&2
+            exit 1
+          }
+          test "$(git merge-base "$EXPECTED_PARENT" HEAD)" = "$EXPECTED_PARENT"
+          git diff --check "$EXPECTED_PARENT"...HEAD
+          changed="$(git diff --name-only "$EXPECTED_PARENT"...HEAD | LC_ALL=C sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/recorded-media-command-button-recovery.yml' \
+            'tests/js/recorded_media_accessible_player_dom_test.js' \
+            'web/recorded_media_accessible_player.js' | LC_ALL=C sort)"
+          test "$changed" = "$expected" || {
+            printf 'RECORDED_COMMAND_RECOVERY_SCOPE_DRIFT\n%s\n' "$changed" >&2
+            exit 1
+          }
+          test -z "$(git grep -nE '^(<<<<<<<|=======|>>>>>>>)' -- \
+            web/recorded_media_accessible_player.js \
+            tests/js/recorded_media_accessible_player_dom_test.js \
+            .github/workflows/recorded-media-command-button-recovery.yml || true)"
+
+      - name: Check browser contracts
+        run: |
+          node --check web/recorded_media_accessible_player.js
+          node --check tests/js/recorded_media_accessible_player_dom_test.js
+          node --check web/youtube_iframe_playback_adapter.js
+          node --check tests/js/youtube_iframe_playback_adapter_test.js
+
+      - name: Run recorded-media and YouTube provider regressions
+        run: |
+          node tests/js/recorded_media_accessible_player_dom_test.js
+          node tests/js/youtube_iframe_playback_adapter_test.js

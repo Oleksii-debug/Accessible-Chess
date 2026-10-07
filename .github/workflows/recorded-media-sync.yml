@@ -1,0 +1,109 @@
+name: Recorded Media Canonical Synchronization
+
+on:
+  push:
+    branches:
+      - work/accessible-chess-20261005-recorded-media-preprocess-fafa04-v2
+    paths:
+      - acs/media_preprocess.py
+      - acs/media_preprocess_executor.py
+      - acs/recorded_media_sync.py
+      - tests/test_media_preprocess.py
+      - tests/test_media_preprocess_executor.py
+      - tests/test_recorded_media_sync.py
+      - .github/workflows/recorded-media-sync.yml
+  pull_request:
+    branches:
+      - work/accessible-chess-20261005-media-core-sol56n4q8
+    paths:
+      - acs/media_preprocess.py
+      - acs/media_preprocess_executor.py
+      - acs/recorded_media_sync.py
+      - tests/test_media_preprocess.py
+      - tests/test_media_preprocess_executor.py
+      - tests/test_recorded_media_sync.py
+      - .github/workflows/recorded-media-sync.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: recorded-media-sync-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  recorded-media-sync:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Verify exact Media Core parent and bounded scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_parent='7bf0a28dc65d5ceef45f78af0a5f023503b79a28'
+          parent_ref='refs/heads/work/accessible-chess-20261005-media-core-sol56n4q8'
+          live_parent="$(git ls-remote origin "$parent_ref" | awk '{print $1}')"
+          if [ "$live_parent" != "$expected_parent" ]; then
+            echo "MEDIA_CORE_PARENT_MOVED expected=$expected_parent live=$live_parent" >&2
+            exit 1
+          fi
+          merge_base="$(git merge-base "$expected_parent" HEAD)"
+          if [ "$merge_base" != "$expected_parent" ]; then
+            echo "RECORDED_MEDIA_NOT_DESCENDANT expected=$expected_parent merge_base=$merge_base" >&2
+            exit 1
+          fi
+          mapfile -t changed < <(git diff --name-only "$expected_parent" HEAD | sort)
+          printf '%s\n' "${changed[@]}"
+          expected=(
+            '.github/workflows/recorded-media-sync.yml'
+            'acs/media_preprocess.py'
+            'acs/media_preprocess_executor.py'
+            'acs/recorded_media_sync.py'
+            'tests/test_media_preprocess.py'
+            'tests/test_media_preprocess_executor.py'
+            'tests/test_recorded_media_sync.py'
+          )
+          if [ "${#changed[@]}" -ne "${#expected[@]}" ]; then
+            echo "RECORDED_MEDIA_SCOPE_DRIFT" >&2
+            exit 1
+          fi
+          for i in "${!expected[@]}"; do
+            if [ "${changed[$i]}" != "${expected[$i]}" ]; then
+              echo "RECORDED_MEDIA_SCOPE_DRIFT expected=${expected[$i]} actual=${changed[$i]}" >&2
+              exit 1
+            fi
+          done
+
+      - name: Compile recorded-media surfaces
+        run: >-
+          python -m py_compile
+          acs/media_core.py
+          acs/media_preprocess.py
+          acs/media_preprocess_executor.py
+          acs/recorded_media_sync.py
+          tests/test_media_core.py
+          tests/test_media_preprocess.py
+          tests/test_media_preprocess_executor.py
+          tests/test_recorded_media_sync.py
+
+      - name: Run Media Core and recorded-media regressions
+        run: >-
+          python -m unittest -v
+          tests.test_media_core
+          tests.test_media_preprocess
+          tests.test_media_preprocess_executor
+          tests.test_recorded_media_sync
