@@ -1,0 +1,174 @@
+name: Section 3 ACSDB Library Closure
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/section3-acsdb-library-closure.yml'
+      - 'docs/automation/SECTION3_CLOSURE_AUDIT.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: section3-acsdb-library-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  SECTION2_ACCEPTED_SHA: 706e54da9ef157d84b08ea9e1037e0c7a6751db2
+  HISTORICAL_CORPUS_HEAD: f2993ef7d79369ef5e7161ba1d75273e7c9a24d3
+  HISTORICAL_CORPUS_ORACLE_BLOB: 37ba40f7127e5e92791ba7ee6452a70361a56ea5
+
+jobs:
+  whole-contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@a26af69be951213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Prove accepted Section 2 ancestry and evidence-only scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git merge-base "$SECTION2_ACCEPTED_SHA" HEAD)" = "$SECTION2_ACCEPTED_SHA"
+          git diff --check "$SECTION2_ACCEPTED_SHA"...HEAD
+          changed="$(git diff --name-only "$SECTION2_ACCEPTED_SHA"...HEAD | sort)"
+          expected="$(printf '%s\n'             '.github/workflows/section3-acsdb-library-closure.yml'             'docs/automation/SECTION3_CLOSURE_AUDIT.md' | sort)"
+          test "$changed" = "$expected"
+
+      - name: Compile canonical ACSDB Library Search surface
+        run: >-
+          python -m py_compile
+          acs/acsdb.py
+          acs/search_policy.py
+          acs/search_service.py
+          acs/library_import_service.py
+          acs/library_export_service.py
+          acs/library_export_workspace.py
+          acs/library_source_service.py
+          acs/library_webview_bridge.py
+          acs/library_webview_projection.py
+
+      - name: Execute Section 3 semantic persistence search import export contract
+        run: >-
+          python -m unittest -v
+          tests.test_acsdb
+          tests.test_d07_acsdb_migration_atomicity
+          tests.test_v2_library_integrity_repair
+          tests.test_v2_library_acsdb_search_v4
+          tests.test_v2_library_player_identity_search
+          tests.test_v2_library_date_filter_v5
+          tests.test_v2_library_search_service_v4
+          tests.test_d07_library_search_cancellation
+          tests.test_d07_search_semantic_equivalence
+          tests.test_d07_search_scalar_equivalence
+          tests.test_d07_library_import_service
+          tests.test_d07_library_import_start_lock
+          tests.test_d07_library_import_transaction_ownership
+          tests.test_d07_library_import_exact_source_order
+          tests.test_d07_library_import_reuse_final_cancel
+          tests.test_d07_library_export_service
+          tests.test_d07_library_export_reachability
+          tests.test_v2_library_source_catalog
+
+      - name: Core chess selftest
+        run: python -m acs.selftest
+
+  indexed-performance-100k:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+      - name: Validate deterministic indexed search on 100k games
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH=. python tools/v2_library_acsdb_search_v4_benchmark.py --games 100000
+          PYTHONPATH=. python tools/v2_library_date_filter_v5_benchmark.py --games 100000 --repeats 3
+
+  lawful-real-library-corpus:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+      - name: Install pinned corpus decompressor
+        run: python -m pip install -q zstandard==0.23.0
+      - name: Materialize exact lawful corpus oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "$HISTORICAL_CORPUS_HEAD"
+          test "$(git rev-parse "$HISTORICAL_CORPUS_HEAD:scripts/pgn_real_corpus_oracle.py")" = "$HISTORICAL_CORPUS_ORACLE_BLOB"
+          git show "$HISTORICAL_CORPUS_HEAD:scripts/pgn_real_corpus_oracle.py" > scripts/pgn_real_corpus_oracle.py
+          python -m py_compile scripts/pgn_real_corpus_oracle.py scripts/qualify_pgn_conversion_corpus.py
+      - name: Build a verified 1000-game CC0 sample
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .section3-corpus
+          python - <<'PY'
+          import hashlib
+          from pathlib import Path
+          from scripts.pgn_real_corpus_oracle import CORPORA, _download_verified, _open_zstd_text, iter_complete_records
+
+          root = Path(".section3-corpus")
+          spec = CORPORA[0]
+          archive = root / "source.pgn.zst"
+          sample = root / "sample-1000.pgn"
+          _download_verified(spec, archive)
+          source, reader, text = _open_zstd_text(archive)
+          try:
+              records = list(iter_complete_records(text, limit=1000))
+          finally:
+              text.close()
+              try:
+                  reader.close()
+              finally:
+                  source.close()
+          if len(records) != 1000:
+              raise AssertionError(f"expected 1000 records, got {len(records)}")
+          payload = ("\n".join(record.rstrip() for record in records) + "\n").encode("utf-8")
+          sample.write_bytes(payload)
+          digest = hashlib.sha256(payload).hexdigest()
+          Path(".section3-corpus/sample.sha256").write_text(digest, encoding="ascii")
+          print(f"SECTION3_CC0_SAMPLE_SHA256={digest}")
+          PY
+      - name: Qualify real ACSDB import restart search export round-trip
+        shell: bash
+        run: |
+          set -euo pipefail
+          digest="$(cat .section3-corpus/sample.sha256)"
+          python scripts/qualify_pgn_conversion_corpus.py             .section3-corpus/sample-1000.pgn             --expect-source-sha256 "$digest"             --expected-games 1000 2>&1 | tee section3-library-roundtrip.txt
+          grep -F '"library_restart_search_export": "PASS"' section3-library-roundtrip.txt
+          grep -F '"sqlite_integrity": "ok"' section3-library-roundtrip.txt
+          grep -F '"source_unchanged": true' section3-library-roundtrip.txt
+      - name: Remove materialized QA-only oracle
+        if: always()
+        shell: bash
+        run: rm -f scripts/pgn_real_corpus_oracle.py
