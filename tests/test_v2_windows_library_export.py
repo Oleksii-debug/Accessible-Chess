@@ -192,7 +192,7 @@ class Version2WindowsLibraryExportTests(unittest.TestCase):
                 return real_replace(src, dst)
 
             events: list[object] = []
-            with mock.patch("acs.pgn_service.os.replace", side_effect=racing_replace):
+            with mock.patch("acs.pgn_service._replace_published_path", side_effect=racing_replace):
                 event = self._delegate(_Dialogs(destination), events, [])(
                     "library.export",
                     request.browser_payload(),
