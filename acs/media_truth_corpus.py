@@ -225,7 +225,6 @@ class RecordedMediaTruthCorpus:
         frames: list[TruthCorpusFrame] = []
         assets: dict[int, bytes] = {}
         seen_times: set[int] = set()
-        seen_assets: set[str] = set()
         previous = -1
         for row in rows:
             if type(row) is not dict or frozenset(row) != _ALLOWED_FRAME_KEYS:
@@ -239,13 +238,15 @@ class RecordedMediaTruthCorpus:
             seen_times.add(timestamp)
 
             asset_path = _safe_asset_path(corpus_root, row["asset"])
-            if asset_path.name in seen_assets:
-                _fail("truth-corpus asset names must be unique")
-            seen_assets.add(asset_path.name)
             digest = _text(row["sha256"], "asset sha256", limit=64)
             if len(digest) != 64 or any(ch not in "0123456789abcdef" for ch in digest):
                 _fail("invalid truth-corpus asset SHA-256")
-            data = _read_bounded(asset_path, MAX_ASSET_BYTES, "truth-corpus asset")
+            raw_data = _read_bounded(
+                asset_path, MAX_ASSET_BYTES, "truth-corpus asset"
+            )
+            data = raw_data.replace(b"\r\n", b"\n")
+            if b"\r" in data:
+                _fail("truth-corpus SVG has unsupported line endings")
             _validate_svg(data)
             if hashlib.sha256(data).hexdigest() != digest:
                 _fail("truth-corpus asset SHA-256 mismatch")
