@@ -3,11 +3,48 @@ name: Section 1 FEN Corpus Source Snapshot
 on:
   pull_request:
     branches:
-      - 'section1/san-transition-boundary-20261007-sol56'
+      - 'section0/import-batch-runtime-isolation-20261007-sol56'
     paths:
+      - '.github/workflows/current-fen-history-section1-convergence.yml'
+      - '.github/workflows/section1-fen-castling-order.yml'
       - '.github/workflows/section1-fen-corpus-source-snapshot.yml'
-      - 'tools/qualify_fen_position_corpus.py'
+      - '.github/workflows/section1-fen-edge-corpus.yml'
+      - '.github/workflows/section1-fen-en-passant-fullmove.yml'
+      - '.github/workflows/section1-fen-en-passant-halfmove.yml'
+      - '.github/workflows/section1-fen-field-count.yml'
+      - '.github/workflows/section1-king-capture-boundary.yml'
+      - '.github/workflows/section1-positionstate-counter-boundary.yml'
+      - '.github/workflows/section1-san-internal-whitespace.yml'
+      - '.github/workflows/section1-san-transition-contract.yml'
+      - '.github/workflows/section1-whole-contract-convergence.yml'
+      - 'acs/chesscore.py'
+      - 'acs/input_limits.py'
+      - 'acs/notation.py'
+      - 'acs/position_editor.py'
+      - 'acs/stage1_release_ui_core.py'
+      - 'acs/ui_analysis_adapter.py'
+      - 'acs/webapp.py'
+      - 'acs/webapp_keymap.py'
+      - 'acs/webapp_keymap_core.py'
+      - 'docs/automation/SECTION1_CLOSURE_CANDIDATE.md'
+      - 'tests/data/fen_edge_corpus_v1.json'
+      - 'tests/test_dev2_fen_atomicity.py'
+      - 'tests/test_fen_edge_corpus.py'
+      - 'tests/test_fen_position_editor_complete_user_flow.py'
       - 'tests/test_qualify_fen_position_corpus.py'
+      - 'tests/test_section1_fen_castling_order.py'
+      - 'tests/test_section1_fen_en_passant_fullmove.py'
+      - 'tests/test_section1_fen_en_passant_halfmove.py'
+      - 'tests/test_section1_fen_field_count.py'
+      - 'tests/test_section1_king_capture_boundary.py'
+      - 'tests/test_section1_positionstate_counter_boundary.py'
+      - 'tests/test_section1_san_internal_whitespace.py'
+      - 'tests/test_section1_san_transition_contract.py'
+      - 'tests/test_stage1_engine_play_ui.py'
+      - 'tests/test_ui_analysis_adapter.py'
+      - 'tests/test_ui_analysis_webapp.py'
+      - 'tools/qualify_fen_position_corpus.py'
+      - 'web/index.html'
   workflow_dispatch:
 
 permissions:
@@ -18,10 +55,11 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  EXPECTED_BASE_SHA: ff7798bdec33393cdd6ad79c1e30e0dba12d7b94
+  SECTION0_PREDECESSOR_SHA: 3714172861b9bc2b28dbb4de58027aea522eba55
+  SECTION1_SUCCESSOR_SHA: dffbacbbb2ca52812774a20aa58341caad407898
   TOOL_BLOB: 6a230daff4c511339669c330fb4aabc988c7f86f
   TEST_BLOB: ff9b303ab9db4f61a707a6f3d53aa3b21596857d
-  IMPORT_CONTRACT_BLOB: b302b1666511289a70b5b3569ed5360b5cb66a95
+  IMPORT_CONTRACT_BLOB: d9855d173f8c73440e190482a107299be28949c5
   P0F_PROVENANCE_BLOB: 3298aed00ca000d27f607cd861abbba9483ff358
   P0F_BUILDER_BLOB: b7b96a661652a17cb16e8ca4cabba3b8b373e483
   PINNED_CORPUS_SHA256: aa40b3671fa3cf1072eb182892cd90b0e1e003a4a5943492f64b77e7f3fd1635
@@ -45,7 +83,7 @@ jobs:
         with:
           python-version: '3.12.10'
 
-      - name: Prove exact child geometry
+      - name: Prove predecessor-aware Section 1 geometry
         shell: bash
         env:
           EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -56,19 +94,57 @@ jobs:
           expected_head="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
           test "$(git rev-parse HEAD)" = "$expected_head"
           if [ -n "${EVENT_BASE_REF:-}" ]; then
-            test "$EVENT_BASE_REF" = "section1/san-transition-boundary-20261007-sol56"
-            test "$EVENT_BASE_SHA" = "$EXPECTED_BASE_SHA"
+            test "$EVENT_BASE_REF" = "section0/import-batch-runtime-isolation-20261007-sol56"
+            test "$EVENT_BASE_SHA" = "$SECTION0_PREDECESSOR_SHA"
           fi
-          test "$(git merge-base "$EXPECTED_BASE_SHA" HEAD)" = "$EXPECTED_BASE_SHA"
-          git diff --check "$EXPECTED_BASE_SHA"...HEAD
-          changed="$(git diff --name-only "$EXPECTED_BASE_SHA"...HEAD | sort)"
+          test "$(git merge-base "$SECTION0_PREDECESSOR_SHA" HEAD)" = "$SECTION0_PREDECESSOR_SHA"
+          git merge-base --is-ancestor "$SECTION1_SUCCESSOR_SHA" HEAD
+          git diff --check "$SECTION0_PREDECESSOR_SHA"...HEAD
+          changed="$(git diff --name-only "$SECTION0_PREDECESSOR_SHA"...HEAD | sort)"
           expected="$(printf '%s\n' \
-            '.github/workflows/section1-fen-corpus-source-snapshot.yml' \
-            'tools/qualify_fen_position_corpus.py' \
-            'tests/test_qualify_fen_position_corpus.py' | sort)"
+            '.github/workflows/current-fen-history-section1-convergence.yml' \\
+            '.github/workflows/section1-fen-castling-order.yml' \\
+            '.github/workflows/section1-fen-corpus-source-snapshot.yml' \\
+            '.github/workflows/section1-fen-edge-corpus.yml' \\
+            '.github/workflows/section1-fen-en-passant-fullmove.yml' \\
+            '.github/workflows/section1-fen-en-passant-halfmove.yml' \\
+            '.github/workflows/section1-fen-field-count.yml' \\
+            '.github/workflows/section1-king-capture-boundary.yml' \\
+            '.github/workflows/section1-positionstate-counter-boundary.yml' \\
+            '.github/workflows/section1-san-internal-whitespace.yml' \\
+            '.github/workflows/section1-san-transition-contract.yml' \\
+            '.github/workflows/section1-whole-contract-convergence.yml' \\
+            'acs/chesscore.py' \\
+            'acs/input_limits.py' \\
+            'acs/notation.py' \\
+            'acs/position_editor.py' \\
+            'acs/stage1_release_ui_core.py' \\
+            'acs/ui_analysis_adapter.py' \\
+            'acs/webapp.py' \\
+            'acs/webapp_keymap.py' \\
+            'acs/webapp_keymap_core.py' \\
+            'docs/automation/SECTION1_CLOSURE_CANDIDATE.md' \\
+            'tests/data/fen_edge_corpus_v1.json' \\
+            'tests/test_dev2_fen_atomicity.py' \\
+            'tests/test_fen_edge_corpus.py' \\
+            'tests/test_fen_position_editor_complete_user_flow.py' \\
+            'tests/test_qualify_fen_position_corpus.py' \\
+            'tests/test_section1_fen_castling_order.py' \\
+            'tests/test_section1_fen_en_passant_fullmove.py' \\
+            'tests/test_section1_fen_en_passant_halfmove.py' \\
+            'tests/test_section1_fen_field_count.py' \\
+            'tests/test_section1_king_capture_boundary.py' \\
+            'tests/test_section1_positionstate_counter_boundary.py' \\
+            'tests/test_section1_san_internal_whitespace.py' \\
+            'tests/test_section1_san_transition_contract.py' \\
+            'tests/test_stage1_engine_play_ui.py' \\
+            'tests/test_ui_analysis_adapter.py' \\
+            'tests/test_ui_analysis_webapp.py' \\
+            'tools/qualify_fen_position_corpus.py' \\
+            'web/index.html' | sort)"
           test "$changed" = "$expected"
 
-      - name: Bind canonical source authority and repaired bytes
+      - name: Bind canonical source authority and accepted-predecessor candidate bytes
         shell: bash
         run: |
           set -euo pipefail
@@ -87,6 +163,7 @@ jobs:
           python -m py_compile
           tools/qualify_fen_position_corpus.py
           tests/test_qualify_fen_position_corpus.py
+          acs/import_contract.py
 
       - name: Run focused source and FEN regressions
         run: >-
@@ -123,6 +200,7 @@ jobs:
           test "$(git rev-parse HEAD:tools/p0f_lawful_starter_bundle.py)" = "$P0F_BUILDER_BLOB"
           test "$(git rev-parse HEAD:tools/qualify_fen_position_corpus.py)" = "$TOOL_BLOB"
           test "$(git rev-parse HEAD:tests/test_qualify_fen_position_corpus.py)" = "$TEST_BLOB"
+          test "$(git rev-parse HEAD:acs/import_contract.py)" = "$IMPORT_CONTRACT_BLOB"
 
       - name: Install qualified corpus decompressor
         run: python -m pip install -q zstandard==0.23.0
@@ -153,6 +231,8 @@ jobs:
           assert int(source["selected_games"]) >= 200
           assert entry["license_id"] == "CC0-1.0"
           assert entry["sha256"] == digest
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env:
+              env.write(f"LAWFUL_FEN_STARTER_SHA256={digest}\n")
           print("LAWFUL_FEN_CORPUS_PROVENANCE=PASS")
           PY
           PYTHONPATH="$PWD" python tools/qualify_fen_position_corpus.py \
@@ -161,3 +241,38 @@ jobs:
             --min-positions 5000 \
             --require-edge-coverage \
             --json-out .fen-lawful/fen_position_qualification.json
+
+      - name: Bind report to the same lawful source bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          root = Path(".fen-lawful")
+          starter = root / "starter_uk.pgn"
+          manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+          report = json.loads((root / "fen_position_qualification.json").read_text(encoding="utf-8"))
+          entry = manifest["files"]["starter_uk.pgn"]
+          expected = os.environ["LAWFUL_FEN_STARTER_SHA256"]
+          current_digest = hashlib.sha256(starter.read_bytes()).hexdigest()
+          assert len(expected) == 64
+          assert entry["sha256"] == expected
+          assert current_digest == expected
+          assert report["source_sha256"] == expected
+          assert int(report["game_count"]) >= 200
+          assert int(report["position_count"]) >= 5000
+          for key in (
+              "white_to_move_count",
+              "black_to_move_count",
+              "castling_rights_count",
+              "no_castling_rights_count",
+              "en_passant_count",
+              "halfmove_nonzero_count",
+              "fullmove_gt_one_count",
+          ):
+              assert int(report[key]) >= 1, key
+          print("SECTION1_LAWFUL_FEN_REPORT_BINDING=PASS")
+          PY
