@@ -40,6 +40,14 @@ class SourceProvenanceError(ImportRegistryError):
     """Raised when an adapter report does not describe the inspected source."""
 
 
+class _AdapterInspectionFailure(Exception):
+    """Batch-only envelope distinguishing adapter-owned text from registry evidence."""
+
+    def __init__(self, error: Exception) -> None:
+        super().__init__()
+        self.error = error
+
+
 @dataclass(frozen=True)
 class ImporterRegistration:
     importer: ReadOnlyImporter
@@ -91,9 +99,16 @@ def _same_source(left: SourceFingerprint, right: SourceFingerprint) -> bool:
 def _batch_error_text(exc: Exception, source: Path) -> str:
     """Render batch evidence without exposing workstation/importer path text."""
 
+    adapter_owned = isinstance(exc, _AdapterInspectionFailure)
+    if adapter_owned:
+        original = exc.error
+        if not isinstance(original, OSError):
+            return f"Importer rejected source: {report_safe_name(source)}"
+        exc = original
+
     if isinstance(exc, ImportRegistryError):
-        # Registry-owned diagnostics are bounded below to suffix/format state
-        # or report-safe source names. Preserve those useful contract reasons.
+        # These are now registry-owned failures only: adapter-originated
+        # exceptions are wrapped above before they reach batch rendering.
         return str(exc)
     if isinstance(exc, OSError):
         names: list[str] = []
@@ -115,10 +130,7 @@ def _batch_error_text(exc: Exception, source: Path) -> str:
             context += f" (errno {errno})"
         return f"{context}: {' -> '.join(names)}"
 
-    # Adapter exception text and __str__ implementations are untrusted. Strict
-    # inspect() still re-raises the original exception for internal callers.
     return f"Importer rejected source: {report_safe_name(source)}"
-
 
 class ImportRegistry:
     def __init__(self) -> None:
@@ -166,6 +178,9 @@ class ImportRegistry:
         return self._by_suffix.get(Path(path).suffix.lower())
 
     def inspect(self, path: str | Path) -> ImportReport:
+        return self._inspect(path, batch_context=False)
+
+    def _inspect(self, path: str | Path, *, batch_context: bool) -> ImportReport:
         source = Path(path)
         safe_source = report_safe_name(source)
         source_suffix = source.suffix.lower()
@@ -205,6 +220,10 @@ class ImportRegistry:
                 raise ImportRegistryError(
                     "Read-only importer registration changed during inspection"
                 ) from exc
+            if isinstance(exc, SourceReadCancelledError):
+                raise
+            if batch_context:
+                raise _AdapterInspectionFailure(exc) from exc
             raise
 
         try:
@@ -265,7 +284,7 @@ class ImportRegistry:
         for raw_path in paths:
             source = Path(raw_path)
             try:
-                report = self.inspect(source)
+                report = self._inspect(source, batch_context=True)
             except SourceReadCancelledError:
                 # Cooperative source-read cancellation is a trusted control
                 # signal even though it intentionally subclasses RuntimeError.
