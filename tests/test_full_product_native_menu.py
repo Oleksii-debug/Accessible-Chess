@@ -584,7 +584,10 @@ class FullProductNativeMenuTests(unittest.TestCase):
         self.assertEqual("MenuBar", menu.AccessibleRole)
         self.assertEqual(14, len(menu.Items))
         self.assertIs(form.MainMenuStrip, menu)
-        library_top = next(\n            top for top in menu.Items\n            if top.Text in {"Librar&y", "&Бібліотека"}\n        )
+        library_top = next(
+            top for top in menu.Items
+            if top.Text in {"Librar&y", "&Бібліотека"}
+        )
         library_top.DropDownItems[0].Click.fire()
         self.assertEqual("route", commands[-1].kind)
         self.assertEqual("library", commands[-1].payload["route_id"])
