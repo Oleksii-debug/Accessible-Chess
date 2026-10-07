@@ -256,6 +256,36 @@ class FullProductNativeMenuTests(unittest.TestCase):
                 (language, menu_alt_bindings & default_plain_alt_bindings),
             )
 
+    def test_section12_game_menu_exposes_local_lifecycle_through_registry(self) -> None:
+        controller, calls, commands, _exits = make_controller()
+        game_menu = next(menu for menu in controller.spec() if menu.menu_id == "game")
+        actions = {
+            item.action_id: item
+            for item in game_menu.items
+            if item.kind is NativeMenuItemKind.ACTION
+        }
+        expected = {
+            "game.offer_draw",
+            "game.accept_draw",
+            "game.decline_draw",
+            "game.resign",
+        }
+        self.assertTrue(expected.issubset(actions))
+
+        delegated = controller.activate(actions["game.resign"])
+        self.assertEqual("delegated", delegated.kind)
+        self.assertEqual([("game.resign", {})], calls)
+        self.assertEqual([delegated], commands)
+
+        ua = build_full_product_menu_spec(
+            build_full_product_action_registry(),
+            language=UILanguage.UA,
+        )
+        ua_game = next(menu for menu in ua if menu.menu_id == "game")
+        ua_labels = {item.action_id: item.label for item in ua_game.items}
+        self.assertEqual("Запропонувати нічию", ua_labels["game.offer_draw"])
+        self.assertEqual("Здатися", ua_labels["game.resign"])
+
     def test_books_menu_exposes_bidirectional_semantic_navigation(self) -> None:
         controller, calls, commands, _exits = make_controller()
         books_menu = next(menu for menu in controller.spec() if menu.menu_id == "books")
