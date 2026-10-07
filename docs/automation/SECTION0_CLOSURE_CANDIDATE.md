@@ -84,6 +84,8 @@ The composed stack now requires:
 - format-identity rejection to be source-preserving and batch-recoverable;
 - non-aborting `inspect_batch()` to isolate ordinary adapter/parser exceptions such as KeyError/IndexError per source and continue to later independent sources;
 - failed batch items to carry a non-empty diagnostic even when an exception has empty text;
+- registry-owned mutation/unverifiable/provenance diagnostics to expose only report-safe source identity, never private workstation parent paths;
+- batch adapter exception text to remain untrusted: OSError evidence is reduced to bounded errno/safe filename context, while ordinary adapter diagnostics (including adapter-raised ImportRegistryError) become stable source-scoped messages instead of republishing private decoder/path text;
 - strict single-source `inspect()` to remain strict and expose the original ordinary adapter exception;
 - process-control exceptions derived directly from BaseException to remain unswallowed;
 - trusted cooperative `SourceReadCancelledError` to remain control flow rather than per-source batch evidence, so Cancel stops later source inspection;
