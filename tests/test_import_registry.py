@@ -195,6 +195,19 @@ class ImportRegistryTests(unittest.TestCase):
         self.assertIs(registry.importer_for('x.foo'), replacement)
         self.assertIsNotNone(registry.importer_for('x.bar'))
 
+    def test_replace_updates_registered_format_identity_atomically(self):
+        registry = ImportRegistry()
+        registry.register(FakeImporter())
+        replacement = SecondFooImporter()
+        registry.register(replacement, replace=True)
+
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / 'source.foo'
+            path.write_bytes(b'replacement-source')
+            report = registry.inspect(path)
+
+        self.assertEqual(report.format_name, replacement.format_name)
+
     def test_unknown_source_is_explicit_error_not_silent_drop(self):
         registry = ImportRegistry()
         registry.register(FakeImporter())
