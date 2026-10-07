@@ -284,7 +284,7 @@ class AccessibleChessAPI:
         live = records.get(self.live_history_node)
         if root is None or root.snapshot.fen != self.start_fen:
             return None
-        if live is None or live.snapshot.fen != self.board.fen():
+        if live is None or live.snapshot.fen != self._board_representation_fen(self.board):
             return None
         for ply, (san, side) in enumerate(
             zip(self.sans, self.move_sides),
@@ -421,6 +421,33 @@ class AccessibleChessAPI:
                 })
         return cells
 
+    @staticmethod
+    def _position_state_from_board_representation(board: Board) -> PositionState:
+        """Project mutable editor state without weakening playable Board.fen()."""
+        if not isinstance(board, Board):
+            raise PositionValidationError("editor board must use canonical Board")
+        if type(board.board) is not list or len(board.board) != 64:
+            raise PositionValidationError("editor board has invalid square storage")
+        if type(board.turn) is not str or board.turn not in {"w", "b"}:
+            raise PositionValidationError("editor board has invalid side to move")
+        if type(board.castling) is not str:
+            raise PositionValidationError("editor board has invalid castling rights")
+        if board.ep is not None and (
+            type(board.ep) is not int or not 0 <= board.ep < 64
+        ):
+            raise PositionValidationError("editor board has invalid en-passant square")
+        return PositionState(
+            tuple(board.board),
+            turn=board.turn,
+            castling=board.castling if board.castling else "-",
+            en_passant="-" if board.ep is None else sq_name(board.ep),
+            halfmove=board.halfmove,
+            fullmove=board.fullmove,
+        )
+
+    def _board_representation_fen(self, board: Board) -> str:
+        return self._position_state_from_board_representation(board).to_fen()
+
     def _prepare_root_state(
         self,
         candidate_board: Board,
@@ -431,7 +458,7 @@ class AccessibleChessAPI:
         candidate_board.undo_stack = []
         candidate_board.redo_stack = []
         candidate_board.last_move = None
-        candidate_start_fen = candidate_board.fen()
+        candidate_start_fen = self._board_representation_fen(candidate_board)
         candidate_history = ReviewHistory(candidate_start_fen)
         candidate_adapter = ReviewPresentationAdapter(
             candidate_history,
@@ -526,7 +553,7 @@ class AccessibleChessAPI:
         # Board. Historical nodes must at least be renderable by chesscore
         # before the review cursor becomes externally visible.
         if view.node_id == self.live_history_node:
-            if view.fen != self.board.fen():
+            if view.fen != self._board_representation_fen(self.board):
                 raise RuntimeError("live review node does not match live board")
             return
         Board(view.fen)
@@ -816,7 +843,7 @@ class AccessibleChessAPI:
         return self._ok("Дошку очищено. Введіть позицію в редакторі." if self.lang == "uk"
                         else "Board cleared. Enter a position in the editor.")
     def _position_state_from_live_board(self) -> PositionState:
-        return PositionState.from_fen(self.board.fen())
+        return self._position_state_from_board_representation(self.board)
 
     def _commit_position_editor_state(self, state: PositionState, message_uk: str, message_en: str) -> dict[str, Any]:
         if not self._at_history_end():

@@ -73,9 +73,9 @@ class FenPositionEditorCompleteUserFlowTests(unittest.TestCase):
         api = AccessibleChessAPI(lang="en")
         self.assertTrue(api.make_move("e4")["ok"])
         live_fen = api.board.fen()
-        live_tree = api.review_history.export_tree()
         self.assertTrue(api.review_previous()["ok"])
         self.assertFalse(api.get_state()["atHistoryEnd"])
+        review_tree = api.review_history.export_tree()
 
         operations = (
             api.clear_board,
@@ -88,7 +88,7 @@ class FenPositionEditorCompleteUserFlowTests(unittest.TestCase):
                 self.assertFalse(result["ok"])
                 self.assertIn("Return to the end of history", result["announcement"])
                 self.assertEqual(api.board.fen(), live_fen)
-                self.assertEqual(api.review_history.export_tree(), live_tree)
+                self.assertEqual(api.review_history.export_tree(), review_tree)
 
     def test_side_to_move_action_clears_stale_en_passant_and_preserves_position(self):
         api = AccessibleChessAPI(lang="en")
@@ -152,11 +152,11 @@ class FenPositionEditorCompleteUserFlowTests(unittest.TestCase):
     def test_validation_reports_incomplete_position_without_mutating_it(self):
         api = AccessibleChessAPI(lang="en")
         api.clear_board()
-        before = api.board.fen()
+        before = api.get_state()["fen"]
         result = api.validate_position_editor()
         self.assertFalse(result["ok"])
         self.assertIn("not yet playable", result["announcement"])
-        self.assertEqual(api.board.fen(), before)
+        self.assertEqual(api.get_state()["fen"], before)
 
     def test_direct_piece_editor_bounds_untrusted_text_before_normalization(self):
         api = AccessibleChessAPI(lang="en")
@@ -196,7 +196,7 @@ class FenPositionEditorCompleteUserFlowTests(unittest.TestCase):
         self.assertTrue(api.clear_board()["ok"])
         self.assertTrue(api.edit_position_piece("e1", "K")["ok"])
         self.assertTrue(api.edit_position_piece("e2", "k")["ok"])
-        before = api.board.fen()
+        before = api.get_state()["fen"]
 
         self.assertFalse(api.get_state()["positionComplete"])
         self.assertFalse(api.validate_position_editor()["ok"])
@@ -204,12 +204,12 @@ class FenPositionEditorCompleteUserFlowTests(unittest.TestCase):
         moved = api.make_move("Ke2")
         self.assertFalse(moved["ok"])
         self.assertIn("Invalid position", moved["announcement"])
-        self.assertEqual(api.board.fen(), before)
+        self.assertEqual(api.get_state()["fen"], before)
 
         selected = api.click_square("e1")
         self.assertFalse(selected["ok"])
         self.assertIn("Invalid position", selected["announcement"])
-        self.assertEqual(api.board.fen(), before)
+        self.assertEqual(api.get_state()["fen"], before)
 
     def test_editor_state_with_inconsistent_en_passant_blocks_gameplay(self):
         api = AccessibleChessAPI(lang="en")
@@ -217,7 +217,7 @@ class FenPositionEditorCompleteUserFlowTests(unittest.TestCase):
 
         edited = api.edit_position_metadata("w", "KQkq", "e6", "0", "1")
         self.assertTrue(edited["ok"])
-        invalid_fen = api.board.fen()
+        invalid_fen = api.get_state()["fen"]
         self.assertNotEqual(invalid_fen, before)
         self.assertFalse(api.get_state()["positionComplete"])
         self.assertFalse(api.validate_position_editor()["ok"])
@@ -225,7 +225,7 @@ class FenPositionEditorCompleteUserFlowTests(unittest.TestCase):
         moved = api.make_move("e4")
         self.assertFalse(moved["ok"])
         self.assertIn("Invalid position", moved["announcement"])
-        self.assertEqual(api.board.fen(), invalid_fen)
+        self.assertEqual(api.get_state()["fen"], invalid_fen)
 
     def test_position_editor_lock_composes_history_and_analysis_reasons(self):
         html = (Path(__file__).resolve().parents[1] / "web" / "index.html").read_text(

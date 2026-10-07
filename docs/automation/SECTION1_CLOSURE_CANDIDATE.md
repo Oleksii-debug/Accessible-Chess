@@ -58,6 +58,20 @@ Exact repaired Version2 profile blob:
 Exact repaired source/corpus workflow blob:
 - `.github/workflows/section1-fen-corpus-source-snapshot.yml = 6757c3a064d696804285a37a083a1ec66994c2bb`
 
+### Editable representation vs playable Board publication repair
+
+Exact frozen source-boundary run `37633066532`, Windows job `112832270428`, passed exact geometry/blob binding/compilation and then exposed eight Position Editor flow failures. The common root cause was not Windows-specific chess behavior: strict `Board.fen()` publication correctly revalidates a playable Board and therefore rejects deliberately incomplete/non-playable editor states such as an empty board, adjacent kings, or temporarily inconsistent en-passant metadata.
+
+Section 1 requires both boundaries without creating a second chess authority. The repair keeps `Board.fen()` strict (including the existing low-level missing-king publication regression) and restores the editor's representation-only serialization through canonical `PositionState.to_fen()`. Root editor history, live-line coherence and subsequent editor mutations compare that representation FEN while gameplay still requires canonical `Board` validation before any move publication.
+
+The review-blocking regression also now snapshots the review tree after the cursor intentionally moves off the live node, so rejected editor mutations are required to preserve the actual reviewed state rather than an obsolete pre-review cursor snapshot.
+
+Exact repaired blobs:
+- `acs/webapp.py = 18e41885299bc05e03d8a3419bbad838fc2bfd68`
+- `tests/test_fen_position_editor_complete_user_flow.py = 77e6b6a3925d3af9fb065862acb6435826afef6e`
+
+This changes no FEN grammar, move legality, SAN authority, PositionState schema, or 48-path predecessor-relative geometry.
+
 ## Exact predecessor-relative geometry
 
 Accepted predecessor: `dfdd077247e82e45596a044e5a606ec6c39ba17a`

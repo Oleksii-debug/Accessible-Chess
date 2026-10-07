@@ -80,7 +80,7 @@ env:
   INPUT_LIMITS_BLOB: 11972e4b4a949b9e6a8075b62656a9fa6d299ea6
   NOTATION_BLOB: eed13c31993fa9979b6a2cbd608cce63c1ce74df
   CHESSCORE_BLOB: fa1bbadfce9cec2547014ab9bd63a0f91bee1a0d
-  WEBAPP_BLOB: ff382335de37dee2e88754dda14a948f826504c4
+  WEBAPP_BLOB: 18e41885299bc05e03d8a3419bbad838fc2bfd68
   POSITION_EDITOR_BLOB: 8f1a41df8142bf7e7689f4c5f5cf335d8523a4a9
   VERSION2_PROFILE_BLOB: 87ed363d64e8c3d6de291dd63376a42e059b0a29
   EPD_BLOB: c1454f2af145729874283fa3b2c9cc29ecac6250
@@ -102,6 +102,7 @@ env:
   POSITION_SERIALIZATION_TEST_BLOB: a566cf563934037f523e7f25cd59ef83b0e910af
   EPD_TEST_BLOB: 36f0e3c478491acb6665578c9e0bfb89484ce7d2
   UI_WEBAPP_TEST_BLOB: c529587bfc65fff315b3ca96c8f5a581ca7cab44
+  POSITION_EDITOR_FLOW_TEST_BLOB: 77e6b6a3925d3af9fb065862acb6435826afef6e
 
   RECEIPT_WORKFLOW_BLOB: b8991a98b6c13118736907b7dce9e297b2b07ea2
   SOURCE_WORKFLOW_BLOB: 6757c3a064d696804285a37a083a1ec66994c2bb
@@ -116,7 +117,7 @@ env:
   EP_FULLMOVE_WORKFLOW_BLOB: fe3f379c88bf2c86d487af16d78b561014cb557d
   POSITION_SERIALIZATION_WORKFLOW_BLOB: 8194108042e2f9fde5d25fcb8b1f679a90a4e893
   EPD_WORKFLOW_BLOB: 88c9880aed687330dfb3cac5ac07c92813af289d
-  CLOSURE_DOC_BLOB: c88770e33688afa65d3b483bbdde14f90b959a0d
+  CLOSURE_DOC_BLOB: 4a87c06fda560828e4eab0e6adc160a76ea46acd
 
   P0F_PROVENANCE_BLOB: 3298aed00ca000d27f607cd861abbba9483ff358
   P0F_BUILDER_BLOB: 1137eac8804bbef600921853c37a69a77588f03c
@@ -244,6 +245,7 @@ jobs:
           test "$(git rev-parse HEAD:tests/test_section1_positionstate_serialization_boundary.py)" = "$POSITION_SERIALIZATION_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_epd.py)" = "$EPD_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_ui_analysis_webapp.py)" = "$UI_WEBAPP_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_fen_position_editor_complete_user_flow.py)" = "$POSITION_EDITOR_FLOW_TEST_BLOB"
           test "$(git rev-parse HEAD:tools/p0f_lawful_starter_bundle.py)" = "$P0F_BUILDER_BLOB"
           test "$(git rev-parse HEAD:tests/test_p0f_lawful_starter_bundle.py)" = "$P0F_BUILDER_TEST_BLOB"
 
