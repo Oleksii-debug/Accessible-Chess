@@ -42,7 +42,7 @@ jobs:
         with:
           python-version: '3.12.10'
 
-      - name: Prove exact child geometry
+      - name: Prove exact successor geometry
         shell: bash
         env:
           EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -51,14 +51,18 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
-          test "$EVENT_BASE_REF" = "converge/section0-whole-contract-v2-20261007-s56"
-          test "$EVENT_BASE_SHA" = "$EXPECTED_BASE_SHA"
+          if [ -n "${EVENT_BASE_REF:-}" ]; then
+            test "$EVENT_BASE_REF" = "converge/section0-whole-contract-v2-20261007-s56"
+            test "$EVENT_BASE_SHA" = "$EXPECTED_BASE_SHA"
+          fi
           test "$(git merge-base "$EXPECTED_BASE_SHA" HEAD)" = "$EXPECTED_BASE_SHA"
           git diff --check "$EXPECTED_BASE_SHA"...HEAD
           changed="$(git diff --name-only "$EXPECTED_BASE_SHA"...HEAD | sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/section0-import-batch-exception-isolation.yml' \
+            '.github/workflows/section0-whole-contract-convergence.yml' \
             'acs/import_registry.py' \
+            'docs/automation/SECTION0_CLOSURE_CANDIDATE.md' \
             'tests/test_import_registry.py' | sort)"
           test "$changed" = "$expected"
 
