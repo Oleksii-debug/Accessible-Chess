@@ -1,0 +1,204 @@
+name: Media Agent Intake Convergence
+
+on:
+  pull_request:
+    branches:
+      - work/full-product-teacher-education-reachability-20260911
+  push:
+    branches:
+      - work/media-agent-crossrepo-intake-20261005
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: media-agent-intake-convergence-${{ github.event.pull_request.number || github.ref }}-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove exact intake authority and bounded scope
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          BASE_REF: work/full-product-teacher-education-reachability-20260911
+          BASE_SHA: 0a92698bbb923ef6d7bc2d672e3fd30554fb0138
+          INTAKE_REF: work/media-agent-crossrepo-intake-20261005
+          INITIAL_INTAKE_HEAD: e2aa2402e19f793a7f0fa1c0876ca57a0df62178
+          PROVIDER_HEAD: a5ea861baa33305a20bffd4226ca32af9d8825be
+          PROVIDER_MERGE: 94fa7ae543bc8895c9abd6b69f41704693237d64
+          PROTOCOL_HEAD: c7c497343c3e6e21e49949d904eef0c9cb1b1720
+          PROTOCOL_MERGE: fbbfe50eaaf9b716edb9eb9f830ce48bc53ab0a8
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+
+          git fetch --no-tags origin "+refs/heads/$BASE_REF:refs/remotes/origin/media-agent-base"
+          live_base="$(git rev-parse refs/remotes/origin/media-agent-base)"
+          test "$live_base" = "$BASE_SHA" || {
+            printf 'MEDIA_AGENT_BASE_MOVED expected=%s live=%s\n' "$BASE_SHA" "$live_base" >&2
+            exit 1
+          }
+
+          git fetch --no-tags origin "+refs/heads/$INTAKE_REF:refs/remotes/origin/media-agent-live"
+          live_intake="$(git rev-parse refs/remotes/origin/media-agent-live)"
+          if [ "${{ github.event_name }}" = "push" ]; then
+            test "$live_intake" = "$EXPECTED_HEAD"
+          fi
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            test "${{ github.event.pull_request.base.ref }}" = "$BASE_REF"
+            git fetch --no-tags origin "refs/pull/${{ github.event.pull_request.number }}/head"
+            test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_HEAD"
+          fi
+
+          test "$(git show -s --format=%P "$PROVIDER_MERGE")" = "$INITIAL_INTAKE_HEAD $PROVIDER_HEAD"
+          test "$(git show -s --format=%P "$PROTOCOL_MERGE")" = "$PROVIDER_MERGE $PROTOCOL_HEAD"
+          for source in "$INITIAL_INTAKE_HEAD" "$PROVIDER_HEAD" "$PROTOCOL_HEAD" "$PROVIDER_MERGE" "$PROTOCOL_MERGE"; do
+            git merge-base --is-ancestor "$source" HEAD
+          done
+
+          git merge-base --is-ancestor "$BASE_SHA" HEAD
+          test "$(git merge-base "$BASE_SHA" HEAD)" = "$BASE_SHA"
+          git diff --check "$BASE_SHA"...HEAD
+          changed="$(git diff --name-only "$BASE_SHA"...HEAD | LC_ALL=C sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/agent-protocol-json-safety.yml' \
+            '.github/workflows/agent-provider-response-authority.yml' \
+            '.github/workflows/media-agent-intake-convergence.yml' \
+            'acs/agent_accessibility.py' \
+            'acs/agent_budget.py' \
+            'acs/agent_checkpoint.py' \
+            'acs/agent_model_contracts.py' \
+            'acs/agent_model_gateway.py' \
+            'acs/agent_resource_budget.py' \
+            'acs/agent_retry.py' \
+            'acs/agent_task_state.py' \
+            'acs/agent_tools.py' \
+            'acs/agent_verification.py' \
+            'acs/assistive_announcement.py' \
+            'acs/assistive_announcements.py' \
+            'acs/chess_agent_tools.py' \
+            'acs/media_audio.py' \
+            'acs/media_errors.py' \
+            'acs/media_files.py' \
+            'acs/media_foundation.py' \
+            'acs/media_hashing.py' \
+            'acs/media_privacy.py' \
+            'acs/media_process.py' \
+            'acs/media_timeline_store.py' \
+            'acs/media_transcribers.py' \
+            'acs/media_transcription.py' \
+            'acs/keyed_async_lock.py' \
+            'acs/pinned_directory.py' \
+            'acs/public_errors.py' \
+            'acs/universal_chess_agent.py' \
+            'docs/CROSS_REPO_CODE_INTAKE_2026-10-05.md' \
+            'tests/test_agent_checkpoint_crossrepo.py' \
+            'tests/test_agent_model_response_authority.py' \
+            'tests/test_agent_protocol_json_safety.py' \
+            'tests/test_agent_retry_crossrepo.py' \
+            'tests/test_chess_agent_tools_crossrepo.py' \
+            'tests/test_crossrepo_agent_model_numeric.py' \
+            'tests/test_crossrepo_media_process_files.py' \
+            'tests/test_crossrepo_runtime_integration.py' \
+            'tests/test_media_agent_intake_convergence_20261005.py' \
+            'tests/test_media_audio_crossrepo.py' \
+            'tests/test_media_agent_safety_primitives_20261005.py' \
+            'tests/test_media_foundation_crossrepo.py' \
+            'tests/test_media_timeline_store.py' \
+            'tests/test_universal_chess_agent_crossrepo.py' | LC_ALL=C sort)"
+          test "$changed" = "$expected" || {
+            printf 'Unexpected Media/Agent intake scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
+
+          test "$(git rev-parse HEAD:acs/agent_model_gateway.py)" = 'e9127b209ec8c1fb50dd4f916753763084d783f1'
+          test "$(git rev-parse HEAD:acs/universal_chess_agent.py)" = '1190dd7e39a88692f3de5dfcba92c698913e711c'
+          test "$(git rev-parse HEAD:tests/test_agent_model_response_authority.py)" = '682bd87b21a3f440e563965a0cbb07c63b29d5c8'
+          test "$(git rev-parse HEAD:tests/test_agent_protocol_json_safety.py)" = '816f35f3baca039115d8d9db33adb3d9bb1d31bf'
+          test "$(git rev-parse HEAD:acs/chess_agent_tools.py)" = 'cf73c95d3f26c1ad4ae3ec255ef012ba52d35637'
+          test "$(git rev-parse HEAD:tests/test_chess_agent_tools_crossrepo.py)" = '0ab21c0b8529e8ece4b722392a2f907a65672763'
+          test "$(git rev-parse HEAD:acs/agent_accessibility.py)" = '647d431c7e079f0e9b716d9fe80fca2289bc243b'
+          test "$(git rev-parse HEAD:acs/agent_resource_budget.py)" = 'ec501c7facf9723d8696b6cf88b9680e26c7f44d'
+          test "$(git rev-parse HEAD:acs/agent_verification.py)" = '1300eb8284692ef89bcda508d0aff579a45598cf'
+          test "$(git rev-parse HEAD:acs/assistive_announcements.py)" = 'b195a5d2866da4286b1ecbdaa681e960875c1612'
+          test "$(git rev-parse HEAD:acs/keyed_async_lock.py)" = '2d8aae760d3d7cda4d4f3a34139f069fdd1e4e78'
+          test "$(git rev-parse HEAD:acs/public_errors.py)" = 'a065506d150df96de97bba9b2b506a5b4ab9243b'
+          test "$(git rev-parse HEAD:tests/test_media_agent_safety_primitives_20261005.py)" = '5d466ecdb39b49549f2183c4c04263ca427ee1c3'
+          echo 'MEDIA_AGENT_INTAKE_GEOMETRY=PASS'
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Install retained test dependency
+        run: python -m pip install pytest==8.4.2
+
+      - name: Compile Agent and Media runtime
+        run: >-
+          python -m compileall -q
+          acs/agent_accessibility.py
+          acs/agent_budget.py
+          acs/agent_checkpoint.py
+          acs/agent_model_contracts.py
+          acs/agent_model_gateway.py
+          acs/agent_resource_budget.py
+          acs/agent_retry.py
+          acs/agent_task_state.py
+          acs/agent_tools.py
+          acs/agent_verification.py
+          acs/assistive_announcement.py
+          acs/assistive_announcements.py
+          acs/chess_agent_tools.py
+          acs/media_audio.py
+          acs/media_errors.py
+          acs/media_files.py
+          acs/media_foundation.py
+          acs/media_hashing.py
+          acs/media_privacy.py
+          acs/media_process.py
+          acs/media_timeline_store.py
+          acs/media_transcribers.py
+          acs/media_transcription.py
+          acs/keyed_async_lock.py
+          acs/pinned_directory.py
+          acs/public_errors.py
+          acs/universal_chess_agent.py
+          tests/test_media_agent_intake_convergence_20261005.py
+          tests/test_media_agent_safety_primitives_20261005.py
+
+      - name: Execute provider protocol tool and durability regressions
+        run: >-
+          python -m unittest -v
+          tests.test_agent_model_response_authority
+          tests.test_agent_protocol_json_safety
+          tests.test_crossrepo_runtime_integration
+          tests.test_crossrepo_agent_model_numeric
+          tests.test_universal_chess_agent_crossrepo
+          tests.test_chess_agent_tools_crossrepo
+          tests.test_agent_checkpoint_crossrepo
+          tests.test_agent_retry_crossrepo
+
+      - name: Execute Media foundation persistence and process regressions
+        run: >-
+          python -m unittest -v
+          tests.test_crossrepo_media_process_files
+          tests.test_media_audio_crossrepo
+          tests.test_media_foundation_crossrepo
+          tests.test_media_timeline_store
+          tests.test_media_agent_intake_convergence_20261005
+          tests.test_media_agent_safety_primitives_20261005
