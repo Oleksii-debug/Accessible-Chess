@@ -1584,15 +1584,14 @@ class Version2Application:
             return callback()
         except Exception:
             snapshot = self.tactile_sync.snapshot()
-            if snapshot.state is not TactileSyncState.ERROR:
-                announcement = (
-                    "Не вдалося оновити тактильну дошку. Шахова позиція не змінена."
-                    if self.shell.language is UILanguage.UA
-                    else "Tactile board refresh failed. The chess position was not changed."
-                )
-                self._events.append(
-                    {"kind": "status", "payload": {"announcement": announcement}}
-                )
+            announcement = (
+                "Не вдалося оновити тактильну дошку. Шахова позиція не змінена."
+                if self.shell.language is UILanguage.UA
+                else "Tactile board refresh failed. The chess position was not changed."
+            )
+            self._events.append(
+                {"kind": "status", "payload": {"announcement": announcement}}
+            )
             return snapshot
 
     def _refresh_tactile_current_context(self):
