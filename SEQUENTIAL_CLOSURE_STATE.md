@@ -2,28 +2,27 @@
 
 This file is the durable GitHub mirror for ordered Section/Subsection closure.
 
-## Binding closure lifecycle v2
+## Binding worker policy
 
-This registry obeys the root `AGENTS.md` **Terminal Section Closure Protocol v2**. The following invariants are mandatory when selecting or updating a front:
+This registry follows the **current root `AGENTS.md`**. The former repository-level
+Terminal Section Closure Protocol v2 was removed from the live root policy and must
+not be treated here as a higher-priority orchestration rule.
 
-- **Closure is the optimization target.** Commit/PR count, execution-unit floors, depth targets and elapsed worker time do not justify additional mutation.
-- **One mutation front.** Mutate only the earliest actionable unfinished Section, except for a minimal named direct dependency required to close it.
-- **Audit existing first.** If acceptance-critical implementation already exists, qualify/close it instead of rebuilding or expanding it.
-- **One canonical finisher.** Record/reuse one Section finisher lineage; intermediate feature/integration/prequal merges are not closure.
-- **Candidate freeze.** Once internally controllable acceptance requirements are satisfied, designate and freeze an exact candidate SHA. No unrelated hardening or speculative edge-case work after freeze.
-- **Exact-SHA qualification.** Pending CI freezes the candidate; it does not authorize a new SHA. A failed gate permits only the smallest proven gating repair before refreeze.
-- **Integration then readback.** DONE requires required canonical integration plus post-merge/readback evidence, not merely an intermediate merge.
-- **External-only remainder.** Use `INTERNAL_DONE_BLOCKED_EXTERNAL` when internal scope is exhausted and a genuinely external fact remains. This is not DONE, but the frozen Section becomes immutable for autonomous sequencing until the unblock condition changes.
-- **No reconvergence carousel.** Do not repeatedly propagate a moving predecessor into later Sections. Later work waits for a frozen/accepted predecessor or the explicit external-block escape.
-- **Acceptance boundary is fixed.** New non-gating improvements discovered after freeze go to later/backlog scope. They do not silently enlarge the current Section.
-- **Reopen narrowly.** A DONE Section may reopen only for a demonstrated regression, invalid evidence, changed acceptance contract or breaking later integration; record the exact reason first.
+Current durable-state interpretation:
+- the canonical Section plan still determines ordered product scope and DONE truth;
+- exact-SHA qualification and post-integration readback remain evidence requirements
+  whenever a Section's acceptance contract uses them;
+- queued/pending CI is not PASS, but it is also not a reason for an autonomous worker
+  to terminate or idle when safe, useful, non-conflicting work remains;
+- parallel claims/leases are advisory; prefer disjoint work and reconcile real overlap;
+- never weaken correctness, integrity, accessibility, licensing, privacy, release,
+  or test truth merely to increase throughput;
+- preserve meaningful implementation and blocker state outside chat in repository
+  code, tests, PRs/comments and this registry.
 
-Recommended lifecycle states are:
-`OPEN -> IMPLEMENTING -> CANDIDATE_FROZEN -> QUALIFYING -> DONE`,
-or `... -> INTERNAL_DONE_BLOCKED_EXTERNAL` when only an external unblock remains.
-`REOPENED` is exceptional and must name the invalidated surface.
-
-For the current front, durable state should identify: **canonical finisher**, **candidate SHA if frozen**, **remaining acceptance-critical gap**, and **exact unblock condition if externally blocked**.
+Recommended state labels remain descriptive rather than orchestration locks:
+`OPEN`, `IMPLEMENTING`, `CANDIDATE_FROZEN`, `QUALIFYING`,
+`INTERNAL_DONE_BLOCKED_EXTERNAL`, `DONE`, and exceptional `REOPENED`.
 
 ## Rules
 
@@ -39,5 +38,5 @@ For the current front, durable state should identify: **canonical finisher**, **
 | Section / Subsection | State | Canonical evidence / lineage | Accepted source / build | Notes |
 | --- | --- | --- | --- | --- |
 | Section 0 | DONE | Canonical finisher PR #2346; frozen accepted candidate `dfdd077247e82e45596a044e5a606ec6c39ba17a`; focused run `37626867433` SUCCESS on Ubuntu + Windows; Whole V3 run `37626867408` SUCCESS on Ubuntu + Windows; integrated by merge commit `71a191075d489edb1dcddaae6801f2e8cff80050` into `converge/section0-whole-contract-v2-20261007-s56`. | Accepted source candidate `dfdd077247e82e45596a044e5a606ec6c39ba17a`; post-merge branch head `71a191075d489edb1dcddaae6801f2e8cff80050`. | Post-merge readback proves the accepted candidate is the exact merge-base/second parent and the merge commit is ahead by one with **zero file delta** from the qualified candidate. Canonical Section plan revision `AHj4eMRgmsXXWqlCWeR_5F-46Ih3m_cfXBnu0AmnMUpGQPqYY1C4kuw6vk_it1ujhxcUx6rkI7tx6mcmEDrW7XxWNQQ2k4X3Ko91JiCnng` still names Section 0 first; no human/NVDA claim is required for this data-contract closure. |
-| Section 1 | CANDIDATE_FROZEN — QUALIFYING | Canonical finisher PR #2356; frozen exact candidate `45192b7e79b7c262fcff2c6164fc273610d25922`; accepted Section-0 predecessor `dfdd077247e82e45596a044e5a606ec6c39ba17a`; dependency child PR #2365 is consumed. Source/corpus run `37629357825`; Whole run `37629357557`. | Not accepted until terminal exact-SHA qualification plus required integration/readback | Exact predecessor-relative geometry is 45 paths with behind=0 and exact merge-base; `AGENTS.md` is byte-identical to the accepted predecessor and excluded from the product delta. Frozen source/corpus workflow `e029ba243391d83a9e5393d6b67f3fdc36ed10fa`, Whole workflow `fcb2f54fb9829441b8766b5342efd1c29d723c23`, `acs/chesscore.py` `fa1bbadfce9cec2547014ab9bd63a0f91bee1a0d`, FEN atomicity test `ea42876debc013130040099c2d208362d1aebd6d`, and closure receipt `8d8d7d1d43f91f0614fe819e52d3ef6fea5815dd` are exact-bound. The earlier `a04b8ff...` freeze was superseded only by the minimal qualification-binding repair that removed stale `AGENTS.md` expectations. No further mutation unless exact-SHA qualification proves a gating failure. |
+| Section 1 | CANDIDATE_FROZEN — QUALIFYING | Canonical finisher PR #2356; refrozen exact candidate `1f3a60ba27f144c8b44ce11827e68dbd16f833e6`; accepted Section-0 predecessor `dfdd077247e82e45596a044e5a606ec6c39ba17a`; dependency child #2365 and proven gate-repair child #2367 are consumed. Source/corpus run `37629876577`; Whole run `37629876837`. | Not accepted until terminal exact-SHA qualification plus required integration/readback | Prior 45-path candidate `45192b7e79b7c262fcff2c6164fc273610d25922` was superseded only after its lawful-corpus gate had already proven an acceptance failure: strict PGN parsing admitted game 9 with `Rd1d2`, while canonical GameTree legality rejected it. #2367 now filters curation through `acs.gametree_legality.validate_game_legality` without expanding SAN/Board authority. Exact predecessor-relative geometry is 47 paths, behind=0, exact merge-base. Source workflow `9fc6b77578ac211182a5a1ccbc720e990c0e99a3`, Whole workflow `62800ab6bbf2be90193341a78d58c5423fe70bf2`, lawful builder `1137eac8804bbef600921853c37a69a77588f03c`, builder regression `b564cc35d7c336559370ed43b05d58d9b1a4e8b0`, and closure receipt `712e6d0e44cfad1fffbed0b5096be9c9d121f634` are exact-bound. Runs are currently queued; queued is not PASS. |
 | _Backfill only from exact current evidence; do not guess historical closure._ | OPEN | — | — | Add DONE rows only after exact current acceptance evidence exists. |
