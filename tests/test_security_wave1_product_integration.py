@@ -1,3 +1,4 @@
+from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -12,6 +13,7 @@ from acs.protection_boundary import (
 )
 from acs.protection_locked_ui import ProtectionLockedAPI
 from acs.version2_release_app import create_version2_release_application
+from acs import version2_upgrade_status_release as shipping_release
 
 SAFE = ["help", "login", "own-data-export", "own-data-read", "recovery", "update"]
 
@@ -186,3 +188,48 @@ def test_locked_ui_retry_closes_only_after_authorization():
     assert second["authorized"] is True
     assert api.authorized is True
     assert window.destroyed is True
+
+
+def test_real_shipping_main_runs_locked_shell_then_retries_authorized_product(monkeypatch, tmp_path):
+    events = []
+    decision = ProtectionDecision(
+        state="locked",
+        reason="unverified",
+        safe_operations=frozenset(SAFE),
+        capabilities=frozenset(),
+        build_id="build-1",
+    )
+    client = ProtectionRuntimeClient(
+        application_dir=tmp_path / "app",
+        state_root=tmp_path / "state",
+        module_loader=lambda name: _module(state="locked", reason="unverified"),
+    )
+    calls = {"create": 0}
+
+    def create(*args, **kwargs):
+        calls["create"] += 1
+        events.append(f"create-{calls['create']}")
+        if calls["create"] == 1:
+            raise ProtectedStartupLocked(decision, client)
+        return ("api", "application", "runtime", "native-files")
+
+    monkeypatch.setattr(
+        shipping_release._education_release,
+        "_final_product_mutation_bindings",
+        lambda: nullcontext(),
+    )
+    monkeypatch.setattr(shipping_release, "create_version2_release_application", create)
+    monkeypatch.setattr(
+        shipping_release._release_app,
+        "run_locked_security_window",
+        lambda locked_client, locked_decision: events.append("locked-shell") or True,
+    )
+    monkeypatch.setattr(
+        shipping_release._release_ui,
+        "run_version2_release_window",
+        lambda api, application, runtime, **kwargs: events.append("product-window"),
+    )
+
+    shipping_release.main()
+
+    assert events == ["create-1", "locked-shell", "create-2", "product-window"]
