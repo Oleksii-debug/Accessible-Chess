@@ -461,6 +461,9 @@ def create_version2_release_application(
             )
             resume_coordinator.restore(candidate)
             _share_v2_action_registry(api, candidate)
+            visual = getattr(candidate, "visual", None)
+            if visual is not None:
+                api.bind_visual_board_state(visual)
             api.bind_version2_application(candidate)
             application = candidate
             return candidate
