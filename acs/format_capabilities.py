@@ -86,7 +86,7 @@ FORMAT_CAPABILITIES: tuple[FormatCapability, ...] = (
         "built_in",
         "acs.epd over acs.position_editor.PositionState",
         "Current EPD position-format and composed GameTree qualification",
-        "Four FEN position fields are canonical; unknown operations remain opaque. Arbitrary engine-command semantics are not claimed.",
+        "Canonical position fields can be edited through PositionState; unknown operations remain opaque and operation editing/engine-command semantics are not claimed.",
     ),
     FormatCapability(
         "pgn",
