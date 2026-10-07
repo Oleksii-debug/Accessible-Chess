@@ -99,7 +99,7 @@ The batch-exception repair changes only the shared import routing boundary and i
 ## Qualification required before DONE
 
 The dedicated whole-Section dual-OS gate must be terminal GREEN on the exact current #2346 head. It checks:
-- exact #2345 base and five-path successor geometry;
+- exact #2345 base and six-path successor geometry;
 - #2341/#2332 and inherited capability/import convergence ancestry;
 - exact batch-isolation workflow, registry, registry-test, ImportReport, authority and capability blobs;
 - Section 0.1–0.5 executable contracts;
@@ -236,7 +236,7 @@ mutation hooks raise. No hostile mapping hook is executed; canonical routes are
 restored; ordinary batch work continues when appropriate; cancellation and
 process-control remain control flow.
 
-This remains the same five-path #2346 successor and introduces no new parser,
+This remains the same six-path #2346 successor and introduces no new parser,
 decoder, ImportReport, chess, provenance or reporting authority.
 
 ### Bounded registration-metadata transaction
@@ -266,7 +266,7 @@ suffix-iterator route mutation followed by a runtime failure, an infinite
 suffix iterator with an exact 65-call bound, and an active non-boolean
 `replace` argument whose coercion hook must never run.
 
-This stays inside the same #2346 five-path successor and does not change
+This stays inside the same #2346 six-path successor and does not change
 format capability truth, parser/chess semantics, ImportReport, provenance or
 reporting authority.
 
@@ -310,7 +310,7 @@ zero active tuple hooks, no accidental .x route publication, and the 65-element
 count rejection. This keeps the registry aligned with ReadOnlyImporter instead
 of broadening its API.
 
-This is the same five-path Section-0.5 lineage and adds no new importer API or
+This is the same six-path Section-0.5 lineage and adds no new importer API or
 format authority.
 
 ### Exact-tuple acceptance-test convergence
@@ -375,7 +375,7 @@ the replacement is the accepted route, and source bytes remain unchanged.
 Existing re-entrant route replacement tests continue to cover mutations after
 the snapshot.
 
-This remains the exact five-path #2346 Section-0.5 lineage and introduces no
+This remains the exact six-path #2346 Section-0.5 lineage and introduces no
 new parser, format, report or chess authority.
 
 ### Passive registration projections
@@ -393,7 +393,7 @@ hooks can run. Regression coverage poisons both the route and token maps with a
 hostile dict subclass, proves zero hook execution, then proves canonical
 projection values are unchanged after restoration.
 
-This remains the exact five-path #2346 Section-0.5 lineage and adds no parser,
+This remains the exact six-path #2346 Section-0.5 lineage and adds no parser,
 decoder, report, format or chess authority.
 
 ### Retained batch-runtime QA privacy convergence
