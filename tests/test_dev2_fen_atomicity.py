@@ -644,10 +644,15 @@ class Dev2FenAtomicityTests(unittest.TestCase):
             missing_king.fen()
         self.assertIsNone(missing_king.board[60])
 
-        huge_counter = Board()
-        huge_counter.halfmove = 10 ** MAX_FEN_CHARS
-        with self.assertRaisesRegex(ValueError, "занадто довгий"):
-            huge_counter.fen()
+        # This magnitude exceeds CPython's normal decimal int-to-string safety
+        # limit by a wide margin. Board.fen() must reject it numerically before
+        # attempting to render either counter into the candidate FEN.
+        for attr in ("halfmove", "fullmove"):
+            huge_counter = Board()
+            setattr(huge_counter, attr, 10 ** (MAX_FEN_CHARS * 4))
+            with self.subTest(attr=attr):
+                with self.assertRaisesRegex(ValueError, "занадто довгий"):
+                    huge_counter.fen()
 
         valid = Board()
         published = valid.fen()

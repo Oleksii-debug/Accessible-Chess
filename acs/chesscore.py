@@ -3,6 +3,11 @@ import re, copy
 from .input_limits import MAX_FEN_CHARS, MAX_SAN_CHARS
 from .squares import FILES, parse_square, square_name
 
+# Any decimal counter at or above this value alone exceeds the shared FEN
+# ingress budget. Fence exact ints numerically before f-string/str conversion so
+# corrupted mutable Board state cannot trigger CPython's huge-int rendering path.
+_MAX_FEN_COUNTER_EXCLUSIVE = 10 ** MAX_FEN_CHARS
+
 PIECE_UA={'P':'білий пішак','N':'білий кінь','B':'білий слон','R':'біла тура','Q':'білий ферзь','K':'білий король',
           'p':'чорний пішак','n':'чорний кінь','b':'чорний слон','r':'чорна тура','q':'чорний ферзь','k':'чорний король'}
 
@@ -166,6 +171,11 @@ class Board:
             raise ValueError('FEN: halfmove не може бути від’ємним')
         if type(self.fullmove) is not int or self.fullmove < 1:
             raise ValueError('FEN: fullmove має бути не менше 1')
+        if (
+            self.halfmove >= _MAX_FEN_COUNTER_EXCLUSIVE
+            or self.fullmove >= _MAX_FEN_COUNTER_EXCLUSIVE
+        ):
+            raise ValueError('FEN занадто довгий')
 
         rows=[]
         for rank in range(7,-1,-1):
