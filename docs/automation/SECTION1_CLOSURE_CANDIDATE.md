@@ -845,3 +845,26 @@ required.
 `HUMAN_TESTED=NO`
 
 `NVDA_VERIFIED=NO`
+
+### Re-convergence after passive registration-projection closure
+
+Section 0 advanced on canonical #2346 to 2850ace45870b3e6c13f0d8584dcf309773c4728 by making the public
+`registered_suffixes` / `registrations()` projections consume the same
+validated passive routing snapshot as inspection. This is Section-0-only
+host/import authority hardening.
+
+Prepared Section 1 is history-preservingly reconverged onto that exact
+predecessor with a two-parent merge. No Section-1 runtime commit is rebased,
+replayed, squashed or dropped. The predecessor's five Section-0 paths are
+inherited, while the effective Section-1 delta remains exactly 45 paths.
+
+Fresh predecessor-aware source/corpus and whole exact-head qualification is
+required.
+
+`SECTION_0_DONE=NO_PENDING_TERMINAL_CI`
+
+`SECTION_1_DONE=NO_PENDING_SECTION0_ACCEPTANCE_AND_EXACT_HEAD_QUALIFICATION`
+
+`HUMAN_TESTED=NO`
+
+`NVDA_VERIFIED=NO`

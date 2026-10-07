@@ -1876,5 +1876,65 @@ class ImportRegistryTests(unittest.TestCase):
             self.assertEqual(batch.errors, ())
 
 
+    def test_registration_projections_fail_closed_before_active_mapping_hooks(self):
+        registry = ImportRegistry()
+        importer = FakeImporter()
+        registry.register(importer)
+        self.assertEqual(registry.registered_suffixes, ('.bar', '.foo'))
+        registrations = registry.registrations()
+        self.assertEqual(len(registrations), 1)
+        self.assertIs(registrations[0].importer, importer)
+        self.assertEqual(registrations[0].suffixes, ('.bar', '.foo'))
+
+        class HostileRouteMap(dict):
+            touched = False
+
+            def _touch(self):
+                type(self).touched = True
+                raise AssertionError("active registration projection hook must not run")
+
+            def __iter__(self):
+                self._touch()
+
+            def __len__(self):
+                self._touch()
+
+            def keys(self):
+                self._touch()
+
+            def values(self):
+                self._touch()
+
+            def items(self):
+                self._touch()
+
+            def get(self, key, default=None):
+                self._touch()
+
+        original_by_suffix = registry._by_suffix
+        hostile_routes = HostileRouteMap(original_by_suffix)
+        registry._by_suffix = hostile_routes
+        HostileRouteMap.touched = False
+        with self.assertRaisesRegex(ImportRegistryError, "registration state is inconsistent"):
+            _ = registry.registered_suffixes
+        self.assertFalse(HostileRouteMap.touched)
+        registry._by_suffix = original_by_suffix
+
+        original_tokens = registry._registration_token_by_suffix
+        hostile_tokens = HostileRouteMap(original_tokens)
+        registry._registration_token_by_suffix = hostile_tokens
+        HostileRouteMap.touched = False
+        with self.assertRaisesRegex(ImportRegistryError, "registration state is inconsistent"):
+            registry.registrations()
+        self.assertFalse(HostileRouteMap.touched)
+        registry._registration_token_by_suffix = original_tokens
+
+        self.assertEqual(registry.registered_suffixes, ('.bar', '.foo'))
+        registrations = registry.registrations()
+        self.assertEqual(len(registrations), 1)
+        self.assertIs(registrations[0].importer, importer)
+        self.assertEqual(registrations[0].suffixes, ('.bar', '.foo'))
+
+
 if __name__ == '__main__':
     unittest.main()
