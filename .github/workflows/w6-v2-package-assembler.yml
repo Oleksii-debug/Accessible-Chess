@@ -62,7 +62,11 @@ jobs:
         run: |
           set -euo pipefail
           git merge-base --is-ancestor "$CURRENT_ASSEMBLER_PARENT" HEAD
-          git diff --check "$CURRENT_ASSEMBLER_PARENT" HEAD
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            git diff --check "${{ github.event.pull_request.base.sha }}"...HEAD
+          else
+            git diff --check "$CURRENT_ASSEMBLER_PARENT" HEAD
+          fi
 
           changed="$(git diff --name-only "$CURRENT_ASSEMBLER_PARENT" HEAD | sort)"
           expected="$(printf '%s\n' \
