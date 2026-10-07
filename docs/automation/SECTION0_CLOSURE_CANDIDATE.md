@@ -2,22 +2,20 @@
 
 Status: **PENDING_TERMINAL_CI — NOT DONE**
 
-This file is durable convergence evidence for the numerically earliest live plan Section. It does not promote Section 0 to DONE until the exact convergence head passes its dedicated terminal qualification and the live parents are rechecked immediately before closure.
+This file is durable convergence evidence for the numerically earliest live plan Section. It does not promote Section 0 to DONE until the exact successor head passes its dedicated terminal qualification and the live plan, base lineage, main, and CI are rechecked immediately before closure.
 
-## Live authorities composed by this candidate
+## Current convergence authority
 
-- source formats/history apex: #2326 @ `5854b528fbd3632cfa69553a70973123eaf14b54`;
-- 0.1 / 0.2 / 0.4 authority-boundary lane: #2329, inherited by the ImportReport stack;
-- 0.5 shared ImportReport lane: #2330 current owner, plus #2331 passive-record revalidation successor;
-- 0.3 canonical capability matrix lane: #2328 @ `6f8ae8547dfe7c0f15ed124bc0f44a6c660c0056`.
+This successor is stacked on the exact current Section 0 format-identity repair:
 
-The current convergence branch is history-preservingly reconverged on both live owner heads and the parallel convergence candidate:
-- #2331 @ `c80772e40d783694d3931768e66d246236f61aad`;
-- #2328 @ `6f8ae8547dfe7c0f15ed124bc0f44a6c660c0056`;
-- previous convergence candidate `b1df7ad557d9adf0e1d73f173d05735f0ab8e050` remains in ancestry;
-- parallel candidate #2333 @ `8a39f849950020e59f815b9315b2640dc394ca31` is also preserved in ancestry, including its conservative Markdown/DOCX/PDF/2CBZ capability corrections.
+- PR #2341 `section0/import-report-format-identity-20261007-sol56` at `f087ee53a1b47faee1a517e52aea79fcacba65e0`;
+- previous whole-Section candidate #2332 at `e9e0dceb21c1dc002b844c4e60563b3552f72744` remains in ancestry;
+- source formats/history apex #2326 at `5854b528fbd3632cfa69553a70973123eaf14b54` remains inherited;
+- 0.1 / 0.2 / 0.4 authority-boundary lineage #2329 remains inherited;
+- 0.5 ImportReport lineage #2330/#2331 remains inherited through #2332;
+- 0.3 capability matrix #2328 at `6f8ae8547dfe7c0f15ed124bc0f44a6c660c0056` remains inherited.
 
-The convergence gate requires both current owner heads, the previous convergence candidate, and #2333 to remain ancestors while the effective delta against #2331 stays exactly five paths. The stale component capability workflow is intentionally absent; the whole-Section gate is the composed qualification authority. No force-push, parser rewrite, chess-rules fork, GameTree fork, Library fork, provenance fork or second report model is introduced.
+The successor itself changes only this closure evidence and the whole-Section qualification workflow. It introduces no parser, chess rules, Position, GameTree, Library, provenance, report, or capability authority.
 
 ## Section contract mapping
 
@@ -25,15 +23,16 @@ The convergence gate requires both current owner heads, the previous convergence
 
 Executable contract: `tests/test_section0_format_authority_contract.py`.
 
-Authorities:
-- playable position / move / SAN / playable FEN: `acs.chesscore.Board` + `Move`;
+Authorities remain:
+
+- playable position / legal move / SAN / playable FEN: `acs.chesscore.Board` + `Move`;
 - editable/interchange position: `acs.position_editor.PositionState`;
 - EPD: `acs.epd` over the same PositionState;
 - PGN structure: exact `acs.gametree` types;
 - strict editable PGN persistence: `acs.pgn_roundtrip` over those exact types;
-- Library publication: existing `acs.library_import_service`;
-- semantic game identity: existing `acs.game_identity`;
-- provenance remains outside semantic GameTree identity.
+- Library publication: `acs.library_import_service`;
+- semantic game identity: `acs.game_identity`;
+- provenance stays outside semantic GameTree identity.
 
 ### 0.2 — format application boundaries
 
@@ -41,60 +40,81 @@ Authorities:
 
 `untrusted format -> bounded adapter -> canonical PositionState/GameTree -> canonical validation -> publication`
 
-and the reverse export direction through canonical serializers/atomic publication. Format adapters may own lexical/container grammar and limits, but not chess legality.
+and the reverse export direction through canonical serializers/atomic publication. Format adapters may own lexical/container grammar and resource limits, but not chess legality.
 
 ### 0.3 — honest capability matrix
 
-Typed authority: `acs.format_capabilities.FORMAT_CAPABILITIES`.
+Typed authority remains `acs.format_capabilities.FORMAT_CAPABILITIES`.
 
-Vocabulary is closed to:
+The vocabulary is closed to:
+
 - SUPPORTED
 - PARTIAL
 - UNSUPPORTED
 - BLOCKED
 
-The checked human projection is `docs/automation/CANONICAL_FORMAT_CAPABILITY_MATRIX.md`.
-
-PARTIAL/BLOCKED states are intentional product truth. In particular, FEN full editor/corpus closure belongs to Section 1; keeping its edit/round-trip status PARTIAL does not block Section 0 as long as the matrix remains truthful.
+The checked human projection remains `docs/automation/CANONICAL_FORMAT_CAPABILITY_MATRIX.md`. PARTIAL/BLOCKED are valid product truth and are not silently promoted by this convergence.
 
 ### 0.4 — convergence
 
-This candidate composes the active sibling lineages through a history-preserving convergence chain. The required current owner heads and reconciled candidate remain explicit ancestors; historical PRs remain evidence rather than alternate runtime authorities.
+The current successor preserves the previously reconciled Section 0 ancestry and composes the live #2341 Section 0.5 repair without opening a competing implementation. Historical PRs remain evidence rather than alternate runtime authorities.
+
+The exact successor gate requires:
+
+- #2341 exact head `f087ee53a1b47faee1a517e52aea79fcacba65e0` as its PR base;
+- #2332 exact whole-candidate head `e9e0dceb21c1dc002b844c4e60563b3552f72744` in ancestry;
+- the inherited capability/import convergence ancestors from #2332;
+- exactly two successor delta paths relative to #2341: this file and the whole-Section workflow.
+
+If #2341 moves before qualification, the gate must fail closed and the successor must be reconverged rather than accepted on stale source.
 
 ### 0.5 — malformed/partial input reporting
 
 Canonical report authority remains `acs.import_contract.ImportReport`.
 
-The current stack:
-- requires exact passive ImportReport ingress;
-- validates exact SourceFingerprint provenance scalars;
-- validates ImportedRecord scalar types and identifiers;
-- requires explicit loss/damage/warning evidence for non-FULL records;
-- revalidates mutable report collections;
-- revalidates exact ImportedRecord values before report observation/publication;
-- rejects malformed adapter reports at shared ImportRegistry ingress;
-- preserves source bytes and provenance verification;
-- never treats a warning/recovery as permission to publish fabricated chess state.
+The composed stack now requires all of the following:
+
+- exact passive ImportReport ingress;
+- exact SourceFingerprint provenance scalars;
+- exact ImportedRecord scalar types and identifiers;
+- explicit loss/damage/warning evidence for non-FULL records;
+- revalidation of mutable report collections and exact record values before observation/publication;
+- source-byte and provenance stability through ImportRegistry;
+- registered importer format identity to be frozen at registration and matched exactly by returned reports;
+- explicit replacement to update importer routing and registered format identity together;
+- a format-identity rejection to remain source-preserving and recoverable by batch inspection, so later independent sources are not hidden;
+- no warning/recovery path may authorize publication of fabricated chess state.
+
+The #2341 repair changes only the shared import boundary; it does not claim proprietary decoder compatibility.
 
 ## Qualification required before DONE
 
-The dedicated whole-Section dual-OS gate must be terminal GREEN on the exact convergence head. It checks:
-- required current owner/candidate ancestry;
-- exact effective geometry;
-- exact authority/report/capability blobs;
+The dedicated successor dual-OS gate must be terminal GREEN on the exact successor head. It checks:
+
+- exact base/head topology and two-path successor geometry;
+- #2332 and inherited Section 0 ancestry;
+- exact authority/report/registry/capability blobs, including the current #2341 registry/test blobs;
 - Section 0.1–0.5 executable contracts;
-- retained EPD/PGN/FEN authority, source-object, ChessBase capability/integrity, ACSDB and Version2 formats regressions;
+- the current format-identity regression suite;
+- retained EPD/PGN/FEN authority and source-object regressions;
+- ChessBase capability/integrity boundaries;
+- ACSDB and Version2 formats regressions;
 - core chess selftest.
 
-Queued, pending, cancelled, skipped or stale runs are **not PASS**.
+Queued, pending, cancelled, skipped, stale, or absent CI is **not PASS**.
 
 Immediately before any DONE marker, refresh:
-- canonical Section plan;
-- live #2328/#2329/#2330/#2331 heads/states;
-- exact convergence head and CI;
-- current main/shipping authority.
 
-HUMAN_TESTED=NO  
-NVDA_VERIFIED=NO
+- canonical ordered Section plan;
+- current project plan where it supplies live acceptance context;
+- main and `SEQUENTIAL_CLOSURE_STATE.md`;
+- #2341 base head/state and any newer overlapping Section 0 owner;
+- exact successor head and terminal CI.
 
-Physical NVDA evidence is not a hard dependency for this data-contract Section, but these flags remain false because no human NVDA claim is being made.
+`SECTION_0_DONE=NO_PENDING_TERMINAL_CI_AND_LIVE_REVALIDATION`
+
+`HUMAN_TESTED=NO`
+
+`NVDA_VERIFIED=NO`
+
+Physical NVDA evidence is not a hard dependency for this data-contract Section, but no human/NVDA claim is made here.
