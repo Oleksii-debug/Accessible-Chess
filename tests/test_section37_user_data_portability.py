@@ -162,7 +162,7 @@ class Section37PortabilityTests(unittest.TestCase):
             )
 
     def test_accessible_action_registry_exposes_all_portability_operations(self):
-        ids = {item.action_id for item in build_full_product_action_registry().actions}
+        ids = {item.action_id for item in build_full_product_action_registry().definitions()}
         self.assertTrue(
             {"data.backup", "data.restore", "data.export", "data.import"}.issubset(ids)
         )
