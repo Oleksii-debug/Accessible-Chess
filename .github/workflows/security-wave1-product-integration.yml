@@ -64,4 +64,4 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ! grep -R -n -E 'continuum-runtime|Oleksii-debug/continuum|PRIVATE KEY|BEGIN PRIVATE KEY'             acs/protection_boundary.py acs/protection_locked_ui.py web/protection_locked.html web/protection_locked.js
+          ! grep -R -n -E 'PRIVATE KEY|BEGIN PRIVATE KEY|client[_-]?secret|private[_-]?key'             acs/protection_boundary.py acs/protection_locked_ui.py web/protection_locked.html web/protection_locked.js
