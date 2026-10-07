@@ -947,3 +947,25 @@ repinned to the exact current ancestor.
 `SECTION0_ACCEPTED=NO_PENDING_TERMINAL_CI`
 
 `SECTION_1_DONE=NO_PENDING_SECTION0_ACCEPTANCE_AND_EXACT_HEAD_QUALIFICATION`
+
+### CURRENT LIVE AUTHORITY — reconvergence on bounded Section-0 metadata predecessor
+
+Canonical Section 0 PR #2346 is now `ada59caab1365b1fc90cdc99071cd36acdd780d8`.
+That same six-path lineage adds a raw 256-character importer `format_name`
+fence before whitespace normalization, with exact negative regression and
+repinned Section-0 focused/whole gates.
+
+Prepared Section 1 remains PR #2356. Its existing FEN/SAN/position source and
+history are preserved history-first: the current Section-0 commit is the first
+parent of the reconvergence and the previously prepared Section-1 head is the
+second parent. No Section-1 runtime, FEN/SAN source, corpus, or test history is
+rebased, squashed, or replayed.
+
+The Section-1 source/corpus and whole-section gates are rebound to exact
+predecessor `ada59caab1365b1fc90cdc99071cd36acdd780d8`; their own exact-head
+terminal qualification remains required after the final pin update.
+
+`SECTION0_ACCEPTED=NO_PENDING_TERMINAL_CI`
+
+`SECTION_1_DONE=NO_PENDING_SECTION0_ACCEPTANCE_AND_EXACT_HEAD_QUALIFICATION`
+
