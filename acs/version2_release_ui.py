@@ -15,13 +15,15 @@ from functools import wraps
 import threading
 from typing import Any, Callable
 
-from .chesscore import Board
+from .chesscore import Board, sq_name
 from .full_product_native_menu import install_full_product_windows_native_menu
 from .full_product_ui_shell import UILanguage
 from .stage1_release_ui import Stage1ReleaseAccessibleChessAPI, _asset_root
 from .ui_native_menu import _resolve_windows_host_form
 from .ui_review_adapter import ReviewView
 from .version2_profile import VERSION2_FULL_PRODUCT_ACTION_IDS, Version2NativeMenuController
+from .visual_board_contract import build_visual_board_contract
+from .visual_board_webview import VisualBoardWebViewError, VisualBoardWebViewState
 
 
 class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
@@ -41,6 +43,7 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
         self._version2_application: Any | None = None
         self._version2_language_refresh: Callable[[], bool] | None = None
         self._external_review_fen: str | None = None
+        self._visual_board: VisualBoardWebViewState | None = None
 
     def _bind_ui_owner(self, owner: Any, *, action_factory: Callable | None = None) -> None:
         """Trusted host seam: called on the actual Form thread before DB creation."""
@@ -538,10 +541,94 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
             return self._external_review_mutation_error()
         return super().resign_engine_game()
 
+    def bind_visual_board_state(self, visual: VisualBoardWebViewState) -> None:
+        """Bind one presentation-only visual authority shared with final-product surfaces."""
+
+        if not isinstance(visual, VisualBoardWebViewState):
+            raise TypeError("visual must be VisualBoardWebViewState")
+        if self._visual_board is not None and self._visual_board is not visual:
+            raise RuntimeError("visual board state is already bound")
+        self._visual_board = visual
+
+    def _visual_board_contract(self, *, include_assets: bool) -> dict[str, object] | None:
+        visual = self._visual_board
+        if visual is None:
+            return None
+        selected: str | None = None
+        legal: tuple[str, ...] = ()
+        last: tuple[str, str] | None = None
+        if not self._external_review_owned() and super()._at_history_end():
+            if self.selected_source is not None:
+                selected = sq_name(self.selected_source)
+                legal = tuple(
+                    sq_name(move.to)
+                    for move in self.board.legal_moves()
+                    if move.frm == self.selected_source
+                )
+            move = self.board.last_move
+            if move is not None:
+                last = (sq_name(move.frm), sq_name(move.to))
+        return build_visual_board_contract(
+            "play",
+            visual.snapshot(include_assets=include_assets),
+            selected_square=selected,
+            legal_squares=legal,
+            last_move=last,
+        )
+
+    def visual_snapshot(self) -> dict[str, object]:
+        contract = self._visual_board_contract(include_assets=True)
+        if contract is None:
+            return {"available": False}
+        return {"available": True, "visualBoard": contract}
+
+    def visual_update_field(self, field: object, value: object) -> dict[str, Any]:
+        visual = self._visual_board
+        if visual is None:
+            return self._concise_error(
+                "Візуальні налаштування недоступні.",
+                "Visual settings are unavailable.",
+            )
+        try:
+            visual.update_field(field, value)
+        except (TypeError, ValueError, VisualBoardWebViewError):
+            return self._concise_error(
+                "Некоректне візуальне налаштування.",
+                "Invalid visual setting.",
+            )
+        return self._ok(
+            "Вигляд дошки змінено."
+            if self.lang == "uk"
+            else "Board appearance updated."
+        )
+
+    def visual_reset(self) -> dict[str, Any]:
+        visual = self._visual_board
+        if visual is None:
+            return self._concise_error(
+                "Візуальні налаштування недоступні.",
+                "Visual settings are unavailable.",
+            )
+        try:
+            visual.reset()
+        except (TypeError, ValueError, VisualBoardWebViewError):
+            return self._concise_error(
+                "Не вдалося відновити вигляд дошки.",
+                "Board appearance could not be reset.",
+            )
+        return self._ok(
+            "Вигляд дошки відновлено."
+            if self.lang == "uk"
+            else "Board appearance reset."
+        )
+
     def get_state(self) -> dict[str, Any]:
         state = super().get_state()
         if self._external_review_active():
             state["historyLength"] = 0
+        contract = self._visual_board_contract(include_assets=True)
+        if contract is not None:
+            state["visualBoard"] = contract
         return state
 
     def v2_snapshot(self) -> dict[str, object]:
