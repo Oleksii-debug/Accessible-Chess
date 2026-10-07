@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from decimal import Decimal
 
 import pytest
 
@@ -14,6 +15,7 @@ from acs.agent_model_contracts import (
 )
 from acs.agent_model_gateway import ModelGateway
 from acs.agent_tools import ToolExecutor
+from acs.board_service import BoardCommandService, BoardSnapshot, MoveView
 from acs.chess_agent_tools import ChessAgentToolRegistry
 from acs.chesscore import Board
 from acs.universal_chess_agent import AgentRunPolicy, UniversalChessAgentRuntime
@@ -53,13 +55,37 @@ class _BlockingProvider(_ScriptedProvider):
         raise AssertionError("cancel should interrupt provider coroutine")
 
 
+def _board_commands(board: Board) -> BoardCommandService:
+    legal = tuple(
+        MoveView(
+            move.frm,
+            move.to,
+            board.san(move),
+            bool(board.board[move.to]) or move.en_passant,
+        )
+        for move in board.legal_moves()
+    )
+    attacks = {}
+    for target in range(64):
+        origins = tuple(board.attackers_of(target))
+        if origins:
+            attacks[target] = origins
+    last = board.last_move
+    last_view = None if last is None else MoveView(last.frm, last.to)
+    return BoardCommandService(
+        BoardSnapshot(tuple(board.board), board.turn, legal, attacks, last_view)
+    )
+
+
 def _runtime(provider, *, budget=None, max_steps=5):
     gateway = ModelGateway()
     gateway.register(provider)
     tools = ToolExecutor()
+    board = Board()
     ChessAgentToolRegistry(
         executor=tools,
-        board_provider=lambda: Board(),
+        board_provider=lambda: board,
+        board_commands_provider=lambda: _board_commands(board),
     ).register_all()
     return UniversalChessAgentRuntime(
         gateway=gateway,
@@ -98,8 +124,10 @@ def test_agent_executes_real_board_tool_then_returns_final_answer() -> None:
     assert second_messages[-1].role == "tool"
     assert '"tool_id":"board.current"' in second_messages[-1].content
     assert '"legalMoveCount":20' in second_messages[-1].content
-    assert budget.snapshot().incurred == budget.snapshot().ceiling * 0 + budget.snapshot().incurred
-    assert str(budget.snapshot().incurred) == "0.20"
+    snapshot = budget.snapshot()
+    assert snapshot.incurred == Decimal("0")
+    assert snapshot.estimated_unbilled == Decimal("0.20")
+    assert snapshot.available == Decimal("0.80")
 
 
 def test_agent_rejects_unregistered_tool_without_granting_authority() -> None:
