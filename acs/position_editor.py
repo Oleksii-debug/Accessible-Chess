@@ -75,6 +75,13 @@ class PositionState:
         if len(self.en_passant) > MAX_SQUARE_TEXT_CHARS:
             raise PositionValidationError("en-passant square text is too long")
         _validate_en_passant(self.en_passant, self.turn)
+        if (
+            self.en_passant != "-"
+            and self.en_passant != _canonical_en_passant_text(self.en_passant)
+        ):
+            raise PositionValidationError(
+                "en-passant square must use canonical lowercase text"
+            )
         if type(self.halfmove) is not int:
             raise PositionValidationError("halfmove clock must be an integer")
         if type(self.fullmove) is not int:
@@ -445,6 +452,11 @@ def _validate_castling(value: str) -> None:
         raise PositionValidationError("invalid castling rights")
     if len(set(value)) != len(value):
         raise PositionValidationError("castling rights must not contain duplicates")
+
+
+def _canonical_en_passant_text(value: str) -> str:
+    index = _square_index(value)
+    return FILES[index % 8] + str(index // 8 + 1)
 
 
 def _validate_en_passant(value: str, turn: str) -> None:
