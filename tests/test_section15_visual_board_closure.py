@@ -170,7 +170,7 @@ class Section15VisualBoardClosureTests(unittest.TestCase):
 
         for token in (
             'id="board-grid" role="grid"',
-            'role="gridcell"',
+            "setAttribute('role','gridcell')",
             'visual-board-theme',
             'visual-piece-theme',
             'visual-orientation',
