@@ -206,6 +206,23 @@ a competing persistence authority.
 Strengthened prepared workflow blob:
 `.github/workflows/section2-pgn-gametree-closure.yml = 804aa177f30052249449e4677066de9d48e5f924`.
 
+### Section 2.1 / 2.4 SetUp-FEN and passive-ingress fail-closed evidence
+
+The gate now exact-binds and executes three existing regressions that protect the
+canonical starting-position boundary and passive parser ingress:
+
+- `tests/test_pgn_document_setup_fen_integrity.py = 9b72b134abd1bce43d88e020eb9da58bdadad034`
+- `tests/test_pgn_document_new_game_position_integrity.py = e7b2e9ebca69b5b13c5a633ca32b125004b35ac4`
+- `tests/test_pgn_document_passive_ingress.py = 99706c1d76b9d2bbe4ce8179c21304100295b512`
+
+This strengthens Section 2.1 SetUp/FEN correctness and Section 2.4 malformed/partial
+fail-closed behavior: parser/document ingress must preserve or reject canonical
+position truth rather than inventing a playable state. No production parser,
+GameTree, or document implementation changed.
+
+Current strengthened prepared workflow blob:
+`.github/workflows/section2-pgn-gametree-closure.yml = 3cc6c156bd7abcc02a019f1a9c85ccfa7d2ef23f`.
+
 `SECTION_2_DONE=NO_PENDING_SECTION1_ACCEPTANCE_REPIN_AND_TERMINAL_GATE`
 `PRODUCT_MUTATION=NONE`
 
