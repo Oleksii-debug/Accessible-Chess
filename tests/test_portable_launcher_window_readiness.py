@@ -85,13 +85,19 @@ class PortableLauncherWindowReadinessTests(unittest.TestCase):
         self.assertLess(coalesce, report)
 
     def test_instance_lock_is_not_inherited_wholesale(self):
+        self.assertIn("static STARTUPINFOEXW g_startup;", self.source)
+        self.assertIn("PROC_THREAD_ATTRIBUTE_HANDLE_LIST", self.source)
+        self.assertIn("inherited_handles[0] = g_instance_lock;", self.source)
+        self.assertIn("inherited_handles[1] = root_guard;", self.source)
+        self.assertIn("inherited_handles[2] = app_guard;", self.source)
+        self.assertIn("inherited_handles[3] = data_guard;", self.source)
+        self.assertIn("SetHandleInformation(", self.source)
         self.assertIn(
-            "            FALSE,\n            CREATE_UNICODE_ENVIRONMENT | CREATE_SUSPENDED,",
+            "            TRUE,\n            CREATE_UNICODE_ENVIRONMENT | CREATE_SUSPENDED | EXTENDED_STARTUPINFO_PRESENT,",
             self.source,
         )
-        self.assertIn("DuplicateHandle(", self.source)
-        self.assertIn("DUPLICATE_SAME_ACCESS", self.source)
-        self.assertNotIn("bInheritHandle = TRUE", self.source)
+        self.assertNotIn("STARTF_USESTDHANDLES", self.source)
+        self.assertNotIn("DuplicateHandle(", self.source)
 
     def test_transient_window_must_remain_stable_before_success(self):
         for token in (
