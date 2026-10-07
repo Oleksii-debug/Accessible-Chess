@@ -33,6 +33,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from acs.acsdb import ACSDB_SCHEMA_VERSION, AcsDatabase  # noqa: E402
+from acs.gametree_legality import validate_game_legality  # noqa: E402
 from acs.pgn_roundtrip import PgnRoundTripError, parse_pgn_text  # noqa: E402
 from acs.starter_content import (  # noqa: E402
     CONTENT_LICENSE_ID,
@@ -161,6 +162,10 @@ def _candidate_evidence(record: str, source_index: int) -> tuple[dict[str, objec
         return None, "not_exactly_one_game"
 
     game = games[0]
+    legality = validate_game_legality(game)
+    if not legality.complete or legality.issues:
+        return None, "canonical_legality_failure"
+
     tag_result = game.tags.get("Result", "*").strip()
     line_result = game.line.result or "*"
     if tag_result not in CURATION_VALID_RESULTS or line_result != tag_result:
@@ -328,6 +333,7 @@ def _curate_complete_game_subset(
     return {
         "policy_id": CURATION_POLICY_ID,
         "parser": "acs.pgn_roundtrip.parse_pgn_text(strict=True)",
+        "legality": "acs.gametree_legality.validate_game_legality",
         "criteria": {
             "minimum_plies": CURATION_MIN_PLIES,
             "valid_results": sorted(CURATION_VALID_RESULTS),
@@ -461,6 +467,8 @@ def _validate_curation_manifest_evidence(
         raise ValueError("curation evidence has an unexpected policy identity")
     if evidence.get("parser") != "acs.pgn_roundtrip.parse_pgn_text(strict=True)":
         raise ValueError("curation evidence has an unexpected parser identity")
+    if evidence.get("legality") != "acs.gametree_legality.validate_game_legality":
+        raise ValueError("curation evidence has an unexpected legality authority")
     criteria = evidence.get("criteria")
     if not isinstance(criteria, dict):
         raise ValueError("curation evidence criteria are missing")
