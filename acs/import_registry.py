@@ -18,7 +18,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
-from .import_contract import ImportReport, ReadOnlyImporter, SourceFingerprint, fingerprint
+from .import_contract import (
+    ImportReport,
+    ReadOnlyImporter,
+    SourceFingerprint,
+    fingerprint,
+    validate_import_report,
+)
 
 
 class ImportRegistryError(ValueError):
@@ -124,13 +130,33 @@ class ImportRegistry:
             )
 
         before = fingerprint(source)
-        report = importer.inspect(source)
-        after = fingerprint(source)
+        try:
+            report = importer.inspect(source)
+        except Exception as adapter_error:
+            try:
+                after = fingerprint(source)
+            except (OSError, ValueError) as source_error:
+                raise SourceMutationError(
+                    f"Read-only importer left source unavailable or changed after inspection failure: {source}"
+                ) from source_error
+            if not _same_source(before, after):
+                raise SourceMutationError(
+                    f"Read-only importer modified source bytes before inspection failed: {source}"
+                ) from adapter_error
+            raise
 
+        try:
+            after = fingerprint(source)
+        except (OSError, ValueError) as exc:
+            raise SourceMutationError(
+                f"Read-only importer left source unavailable or changed after inspection: {source}"
+            ) from exc
         if not _same_source(before, after):
             raise SourceMutationError(
                 f"Read-only importer modified source bytes during inspection: {source}"
             )
+
+        validate_import_report(report)
         if not _same_source(before, report.source):
             raise SourceProvenanceError(
                 f"Importer report provenance does not match inspected source: {source}"
