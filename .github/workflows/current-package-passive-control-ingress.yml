@@ -14,6 +14,7 @@ on:
       - "tests/test_version2_portable_package.py"
       - "tests/test_version2_package_assembler.py"
       - "tests/test_version2_release_payload.py"
+      - "tests/test_v2_package_required_resources.py"
   workflow_dispatch:
 
 permissions:
@@ -25,14 +26,15 @@ concurrency:
 
 env:
   BASE_REF: converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
-  PREFLIGHT_BLOB: 8b54944644e68e512daee3b6b6f3f9c303d70d8d
+  PREFLIGHT_BLOB: b77dc0bf6200ba7725e8d4feef0dac8f1e990573
   PORTABLE_BLOB: a474d9698f0e702e206428cb7ec0b206b641ea0d
   ASSEMBLER_BLOB: 81b3ab5c5840eaa01da5b3263b2ab88495083bdb
-  RELEASE_PAYLOAD_BLOB: be02628203fd41880fbea082cb3fe3424e1f8cc2
-  PREFLIGHT_TEST_BLOB: 7bf2445152189091f5aa2351255a4a35bc1f980b
-  PORTABLE_TEST_BLOB: 2f375d8cdf9df70fcdd404fe346a95ed509aca1f
-  ASSEMBLER_TEST_BLOB: 3fcd41a86d7d637da7ba8adda3e898e3d6fcd56f
-  RELEASE_PAYLOAD_TEST_BLOB: 7821ef50c1ab375306321297658093114998e9dd
+  RELEASE_PAYLOAD_BLOB: 52d95cd4c9961f7e12e9acb025432124c8485ffd
+  PREFLIGHT_TEST_BLOB: 353d0400c37fe3c01f26546d21f32af0e0a9948b
+  PORTABLE_TEST_BLOB: 6f2028f526579ee0ccc0351be6dfabe1c4775cd4
+  ASSEMBLER_TEST_BLOB: 0e94f2f0b1d9369f46aaad95daa866a8e832f771
+  RELEASE_PAYLOAD_TEST_BLOB: de456e6d3d08d2e215d05971dbf52cc820b1a20b
+  REQUIRED_RESOURCES_TEST_BLOB: 9ce6fcce7921325e9f777bc3430f99baa916070c
 
 jobs:
   qualify:
@@ -73,21 +75,33 @@ jobs:
           git merge-base --is-ancestor "$base_sha" HEAD
           test "$(git merge-base "$base_sha" HEAD)" = "$base_sha"
           git diff --check "$base_sha"...HEAD
-          mapfile -t actual < <(git diff --name-only "$base_sha"...HEAD | sort)
-          expected=(
+          mapfile -t changed < <(git diff --name-only "$base_sha"...HEAD | sort)
+          allowed_package_paths=(
             ".github/workflows/current-package-passive-control-ingress.yml"
+            ".github/workflows/w6-v2-package-assembler.yml"
+            ".github/workflows/w6-v2-package-preflight-current-runtime.yml"
+            ".github/workflows/w6-v2-release-payload-current-assembler.yml"
             "acs/version2_package_assembler.py"
             "acs/version2_package_preflight.py"
             "acs/version2_portable_package.py"
             "acs/version2_release_payload.py"
+            "tests/test_v2_package_required_resources.py"
             "tests/test_version2_package_assembler.py"
+            "tests/test_version2_package_pe_identity.py"
             "tests/test_version2_package_preflight.py"
             "tests/test_version2_portable_package.py"
             "tests/test_version2_release_payload.py"
           )
-          test "${#actual[@]}" -eq "${#expected[@]}"
-          for i in "${!expected[@]}"; do
-            test "${actual[$i]}" = "${expected[$i]}"
+          for path in "${changed[@]}"; do
+            case "$path" in
+              acs/version2_package_*|acs/version2_portable_package.py|acs/version2_release_payload.py|tests/test_v2_package_required_resources.py|tests/test_version2_package_*|tests/test_version2_portable_package.py|tests/test_version2_release_payload.py|.github/workflows/*package*|.github/workflows/w6-v2-release-payload-current-assembler.yml)
+                found=false
+                for allowed in "${allowed_package_paths[@]}"; do
+                  if [[ "$path" == "$allowed" ]]; then found=true; break; fi
+                done
+                test "$found" = true || { echo "UNQUALIFIED_PACKAGE_SCOPE $path" >&2; exit 1; }
+                ;;
+            esac
           done
           test "$(git rev-parse "HEAD:acs/version2_package_preflight.py")" = "$PREFLIGHT_BLOB"
           test "$(git rev-parse "HEAD:acs/version2_portable_package.py")" = "$PORTABLE_BLOB"
@@ -97,6 +111,7 @@ jobs:
           test "$(git rev-parse "HEAD:tests/test_version2_portable_package.py")" = "$PORTABLE_TEST_BLOB"
           test "$(git rev-parse "HEAD:tests/test_version2_package_assembler.py")" = "$ASSEMBLER_TEST_BLOB"
           test "$(git rev-parse "HEAD:tests/test_version2_release_payload.py")" = "$RELEASE_PAYLOAD_TEST_BLOB"
+          test "$(git rev-parse "HEAD:tests/test_v2_package_required_resources.py")" = "$REQUIRED_RESOURCES_TEST_BLOB"
 
       - name: Compile package authorities and regressions
         shell: bash
@@ -109,7 +124,8 @@ jobs:
             tests/test_version2_package_preflight.py \
             tests/test_version2_portable_package.py \
             tests/test_version2_package_assembler.py \
-            tests/test_version2_release_payload.py
+            tests/test_version2_release_payload.py \
+            tests/test_v2_package_required_resources.py
 
       - name: Run focused and adjacent package contracts
         shell: bash
