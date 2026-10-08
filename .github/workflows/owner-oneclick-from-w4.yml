@@ -706,6 +706,9 @@ jobs:
           python -m tools.revised_section37_release_exclusion
           if($LASTEXITCODE -ne 0){throw 'OWNER_FINAL_PUBLIC_CORPUS_EXCLUSION_FAILED'}
           Write-Host 'OWNER_FINAL_PUBLIC_CORPUS_EXCLUSION=PASS'
+          # Descriptor-bound scanning must not invalidate the receipt-bound bytes.
+          $afterAudit=(Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash.ToLowerInvariant()
+          if($afterAudit -ne $actual -or $afterAudit -ne $receiptSha){throw 'OWNER_FINAL_POST_AUDIT_ZIP_DRIFT'}
 
       - name: Upload exact owner one-click candidate and receipt
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
