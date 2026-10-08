@@ -55,6 +55,7 @@ class CanonicalHighAssurancePaidCallback:
     def __call__(self, principal: AuthenticatedPrincipal, request: ApiRequest) -> bool:
         if (type(principal) is not AuthenticatedPrincipal
                 or type(request) is not ApiRequest
+                or request.workspace_id != principal.workspace_id
                 or request.operation != self._operation):
             return False
         try:
