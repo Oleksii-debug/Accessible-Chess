@@ -25,6 +25,28 @@ OUTPUT_DIR = ROOT / "_section38_39_master_matrix_qa"
 OUTPUT_FILE = "master-genre-format-800-cell-qa.json"
 _ALLOWED = {"FEN", "SAN", "EPD", "PGN", "ACSDB", "EPUB", "HTML", "TXT",
             "Markdown", "DOCX", "PDF", "CBH", "CBV", "CBF", "2CBH", "CBONE"}
+# Read operation facts ONLY from existing format_capabilities, never invent
+# a second status authority. Standalone SAN text has no registered importer:
+# SAN nested within PGN does not amount to a standalone file format PASS.
+_CANONICAL_FORMAT_BINDING = {
+    "FEN": "fen",
+    "SAN": None,
+    "EPD": "epd",
+    "PGN": "pgn",
+    "ACSDB": "acsdb",
+    "EPUB": "book-epub",
+    "HTML": "book-html",
+    "TXT": "book-txt",
+    "Markdown": "book-markdown",
+    "DOCX": "book-docx",
+    "PDF": "book-pdf",
+    "CBH": "chessbase-cbh",
+    "CBV": "chessbase-cbv",
+    "CBF": "chessbase-cbf-cbi",
+    "2CBH": "chessbase-2cbh",
+    "CBONE": "chessbase-cbone",
+}
+
 _FAMILY = {
     "FEN": ("fen",), "SAN": ("san",), "EPD": ("epd",),
     "PGN": ("pgn",), "ACSDB": ("acsdb",), "EPUB": ("epub",),
@@ -110,6 +132,11 @@ def build_master_qa_matrix() -> dict:
         raise ValueError("25 × 16 canonical genre-format contracts required")
     catalog = {source["id"]: source for source in load_catalog()}
     capabilities = {cap.format_id: cap for cap in FORMAT_CAPABILITIES}
+    if set(_CANONICAL_FORMAT_BINDING) != _ALLOWED:
+        raise ValueError("format QA cannot omit a declared chess format")
+    if any(ident not in capabilities for ident in _CANONICAL_FORMAT_BINDING.values()
+           if ident is not None):
+        raise ValueError("master matrix references an unregistered canonical format")
     indexed: list[dict] = []
     for genre in genre_rows:
         genre_id = genre.get("id")
@@ -124,6 +151,8 @@ def build_master_qa_matrix() -> dict:
             eligible.append(catalog[ident])
         for row in format_rows:
             fmt = row["format"]
+            capability_id = _CANONICAL_FORMAT_BINDING[fmt]
+            capability = capabilities[capability_id] if capability_id is not None else None
             matched = tuple(
                 source for source in eligible
                 if _candidate_matches_format(source["format"], fmt)
@@ -147,7 +176,28 @@ def build_master_qa_matrix() -> dict:
                             "source_kind": "ORIGINAL_OR_DERIVED_DECLARED_NOT_THIS_CELL_PROVEN",
                         } for x in matched
                     ],
-                    "format_capability_boundaries": "See acs.format_capabilities.FORMAT_CAPABILITIES",
+                    "format_capability_boundaries": "acs.format_capabilities.FORMAT_CAPABILITIES",
+                    "canonical_format_capability_id": capability_id,
+                    "canonical_registered_operations": (
+                        {
+                            "read": capability.read.value,
+                            "edit": capability.edit.value,
+                            "write": capability.write.value,
+                            "roundtrip": capability.round_trip.value,
+                            "availability": capability.availability,
+                            "source_authority": capability.authority,
+                        }
+                        if capability is not None else
+                        {
+                            "read": "NO_STANDALONE_IMPORTER",
+                            "edit": "NO_STANDALONE_IMPORTER",
+                            "write": "NO_STANDALONE_IMPORTER",
+                            "roundtrip": "NO_STANDALONE_IMPORTER",
+                            "availability": "PGN_MOVETEXT_ONLY",
+                            "source_authority": "acs.pgn_roundtrip / acs.chesscore embedded SAN",
+                        }
+                    ),
+                    "capability_status_is_not_evidence_for_this_original_source": True,
                     "independent_test_execution": "NOT_ATTESTED_IN_THIS_MATRIX",
                     "expected_vs_actual_readback": "NOT_EXECUTED_FOR_THIS_COMBINATION",
                     "windows_nvda_human_pass": False,
