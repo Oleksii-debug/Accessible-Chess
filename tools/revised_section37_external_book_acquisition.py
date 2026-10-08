@@ -144,6 +144,28 @@ def verify_original_book(record: dict, external_root: Path) -> dict:
         )
     ):
         raise LawfulCorpusError("external source license bytes changed")
+    rights_notice = None
+    if record["format"] == "md":
+        # The Markdown book itself declares CC BY-NC-SA, notwithstanding the
+        # repository's generic GPL LICENSE. Both originals must be retained as
+        # metadata-only evidence, and no release rights may be inferred.
+        rights_blob = record.get("external_book_rights_notice_git_blob")
+        if type(rights_blob) is not str or not _GIT_BLOB.fullmatch(rights_blob):
+            raise LawfulCorpusError("book-specific rights notice is not pinned")
+        rights_path = _direct_path(external_root, record.get("external_book_rights_notice_path"))
+        rights_raw = _bounded_direct_snapshot(rights_path, 128 * 1024)
+        if (
+            _git_blob(rights_raw) != rights_blob
+            or b"Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International" not in rights_raw
+        ):
+            raise LawfulCorpusError("original book-specific CC BY-NC-SA rights notice changed")
+        rights_notice = {
+            "git_blob": rights_blob,
+            "sha256": hashlib.sha256(rights_raw).hexdigest(),
+            "bytes": len(rights_raw),
+            "source_declared_book_license": "CC-BY-NC-SA-4.0",
+            "public_release": "EXCLUDED",
+        }
     # Never include raw text, owner secrets or absolute filesystem paths in reports.
     return {
         "source_id": identity,
@@ -156,6 +178,7 @@ def verify_original_book(record: dict, external_root: Path) -> dict:
         "license_git_blob": license_blob,
         "license_sha256": hashlib.sha256(license_raw).hexdigest(),
         "license_bytes": len(license_raw),
+        "book_rights_notice": rights_notice,
         "original_bytes": len(raw),
         "acquisition": "VERIFIED_EPHEMERAL_EXTERNAL",
         "redistribution": "NOT_CLEARED",
