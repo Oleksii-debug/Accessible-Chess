@@ -93,6 +93,39 @@ class Section45ProfilesTests(unittest.TestCase):
                 fresh._settings.set("design_profiles_json", '{"version":2}')
             self.assertEqual(ui(root).get_design_studio_state()["store"], value)
 
+    def test_corrupt_existing_settings_are_not_silently_overwritten(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "settings.json"
+            original = b'{"schema_version":2,"values":{"language":"uk",BAD}'
+            path.write_bytes(original)
+            api = ui(Path(d))
+            state = api.get_design_studio_state()
+            self.assertFalse(state["ok"])
+            self.assertEqual(state["reason"], "settings_corrupt_requires_recovery")
+            self.assertFalse(api.save_design_studio_state(
+                DEFAULT_STORE, "a" * 64)["ok"])
+            self.assertEqual(path.read_bytes(), original)
+
+    def test_legacy_setting_migration_preserves_existing_user_preferences(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "settings.json"
+            path.write_text(json.dumps({
+                "language": "en", "sounds": False, "volume": 63,
+            }), encoding="utf-8")
+            api = ui(Path(d))
+            before = api.get_design_studio_state()
+            self.assertTrue(before["ok"])
+            self.assertEqual(before["store"], DEFAULT_STORE)
+            after = api.save_design_studio_state(
+                {**DEFAULT_STORE, "selected": "Low Vision"}, before["revision"]
+            )
+            self.assertTrue(after["ok"])
+            reopened = ui(Path(d))
+            self.assertEqual(reopened._settings.get("language"), "en")
+            self.assertEqual(reopened._settings.get("sounds"), False)
+            self.assertEqual(reopened._settings.get("volume"), 63)
+            self.assertEqual(reopened.get_design_studio_state()["store"]["selected"], "Low Vision")
+
     def test_selected_profile_changes_never_change_chess_or_other_settings(self):
         with tempfile.TemporaryDirectory() as d:
             first = ui(Path(d))
