@@ -23,6 +23,8 @@ class RevisedSection40CollectionTests(unittest.TestCase):
             self.assertFalse(test_report["section40_done"])
             self.assertFalse(public_report["section40_done"])
             self.assertEqual(test_report["real_import_readback"]["game_count"], 512)
+            self.assertEqual(test_report["real_import_readback"]["advanced_annotated_game_count"], 4)
+            self.assertEqual(test_report["real_import_readback"]["total_database_games"], 516)
             self.assertIsNone(public_report["real_import_readback"])
             self.assertEqual(test_report["archive_sha256"],
                              hashlib.sha256(trial.read_bytes()).hexdigest())
@@ -35,6 +37,8 @@ class RevisedSection40CollectionTests(unittest.TestCase):
                 self.assertFalse(catalog["owner_accepted"])
                 self.assertEqual(catalog["real_import_readback"]["game_count"], 512)
                 self.assertIn("library/real-stockfish-first-512.acsdb", trial_names)
+                self.assertIn("library/real-lichess-four-annotated-original-games.pgn", trial_names)
+                self.assertGreaterEqual(z.read("library/real-lichess-four-annotated-original-games.pgn").count(b'[%eval '), 60)
                 self.assertIn("library/real-stockfish-first-32.pgn", trial_names)
                 self.assertIn("library/real-stockfish-first-128.pgn", trial_names)
                 self.assertIn("library/real-stockfish-first-512.pgn", trial_names)
