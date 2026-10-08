@@ -89,6 +89,26 @@ class RevisedCorpusContractTests(unittest.TestCase):
         cbh = records["chessbase_family_complete_real_samples"]
         self.assertEqual(cbh["acquisition"], "BLOCKED_NO_LAWFUL_COMPLETE_SAMPLE")
         self.assertEqual(cbh["redistribution"], "NOT_CLEARED")
+        for identifier in (
+            "lichess_standard_rated_2013_02",
+            "lichess_standard_rated_2013_03",
+        ):
+            with self.subTest(source=identifier):
+                candidate = records[identifier]
+                self.assertEqual(candidate["license"], "CC0")
+                self.assertEqual(candidate["acquisition"], "DISCOVERED_NOT_HASH_VERIFIED")
+                self.assertIsNone(candidate["sha256"])
+        for identifier in (
+            "gutenberg_chess_strategy_lasker",
+            "gutenberg_blue_book_chess_staunton",
+            "gutenberg_chess_and_checkers_lasker",
+            "gutenberg_szachy_warcaby_polish",
+        ):
+            with self.subTest(source=identifier):
+                candidate = records[identifier]
+                self.assertEqual(candidate["acquisition"], "SOURCE_PAGE_ONLY")
+                self.assertEqual(candidate["redistribution"], "NOT_CLEARED")
+                self.assertIsNone(candidate["sha256"])
 
     def _record(self, payload: bytes) -> dict:
         return {
