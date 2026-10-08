@@ -27,11 +27,14 @@ def compare_images(expected: Path, actual: Path, *, max_pixel_ratio: float = 0.0
             raise VisualBaselineError(
                 f"visual geometry changed: {baseline.size!r} versus {current.size!r}"
             )
+        # Keep large 200%/wide full-page screenshot comparisons bounded.
+        # A Python list of one boolean per pixel can exhaust CI RAM; image
+        # operations and a 256-bin histogram stay in the native Pillow core.
         diff = ImageChops.difference(baseline, current)
-        channels = diff.split()
-        dirty = [any(values) for values in zip(*(channel.getdata() for channel in channels))]
-        changed_pixels = sum(dirty)
+        red, green, blue = diff.split()
+        mask = ImageChops.lighter(red, ImageChops.lighter(green, blue))
         total_pixels = baseline.width * baseline.height
+        changed_pixels = total_pixels - mask.histogram()[0]
         ratio = changed_pixels / max(1, total_pixels)
         if ratio > max_pixel_ratio:
             raise VisualBaselineError(
