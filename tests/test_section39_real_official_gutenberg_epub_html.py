@@ -44,6 +44,17 @@ class OfficialGutenbergNonfictionImportTests(unittest.TestCase):
         with self.assertRaisesRegex(LawfulCorpusError, "unsafe member"):
             real._html_from_original_zip(output.getvalue())
 
+    def test_safe_original_html_archive_directory_does_not_become_traversal(self):
+        output = BytesIO()
+        with zipfile.ZipFile(output, "w") as archive:
+            archive.writestr("images/", b"")
+            archive.writestr("book/index.html", "<html><body>"
+                             + "<p>Historical chess narrative for testing.</p>" * 20
+                             + "</body></html>")
+        extracted, path = real._html_from_original_zip(output.getvalue())
+        self.assertEqual(path, "book/index.html")
+        self.assertIn(b"Historical chess narrative", extracted)
+
     def test_unauthorized_source_catalog_cannot_be_treated_as_real_book(self):
         untrusted = real.load_catalog
         def wrong():
