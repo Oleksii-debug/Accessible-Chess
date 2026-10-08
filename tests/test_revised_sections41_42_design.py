@@ -56,6 +56,19 @@ class RevisedBoardDesignTests(unittest.TestCase):
             if callable(close):
                 close()
 
+    def test_local_pinned_mit_tabler_icon_has_license_and_no_external_dependency(self):
+        asset = ROOT / "web" / "assets" / "tabler" / "chess-rook.svg"
+        settings = ROOT / "web" / "assets" / "tabler" / "adjustments.svg"
+        license_text = (ROOT / "web" / "assets" / "tabler" / "LICENSE").read_text(encoding="utf-8")
+        self.assertTrue(asset.is_file())
+        self.assertTrue(settings.is_file())
+        self.assertIn("MIT License", license_text)
+        self.assertIn("Copyright (c) 2020-2026 Paweł Kuna", license_text)
+        self.assertIn('class="ac-heading-icon"', self.html)
+        self.assertIn('aria-hidden="true" focusable="false"', self.html)
+        self.assertNotIn("cdn.jsdelivr.net", self.html)
+        self.assertNotIn("http://", self.html)
+
     def test_css_accessibility_safety_in_both_languages(self):
         for theme in ("classic_wood", "modern_graphite", "tournament_blue", "light_minimal"):
             self.assertIn(f"setOptionText('board-theme','{theme}',en?", self.html)
