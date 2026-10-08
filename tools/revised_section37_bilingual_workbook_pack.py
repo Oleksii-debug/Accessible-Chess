@@ -75,6 +75,17 @@ def load_advanced_workbook(path: Path = SOURCE) -> dict:
     return data
 
 
+def _canonical_solver_position(lesson: dict) -> str:
+    """Play the real opponent's last UCI on the canonical chess board.
+
+    Lichess publishes the BEFORE-opponent FEN. Presenting it as the solver's
+    actual exercise (wrong turn to move) would be misleading and inaccessible.
+    """
+    board = Board(lesson["fen_before_opponent_move"])
+    board.push_text(lesson["opponent_previous_move_uci"])
+    return board.fen()
+
+
 def _sections(data: dict, lang: str):
     if lang not in LANGS:
         raise ValueError("unsupported workbook language")
@@ -87,9 +98,10 @@ def _sections(data: dict, lang: str):
             ("h2", item["lesson_id"] + " — " + item[lang]["title"]),
             ("p", ("Складність задачі Lichess: " if lang == "uk" else "Lichess puzzle difficulty: ") +
              str(item["rating_lichess_puzzle"])),
-            ("fen", item["fen_before_opponent_move"]),
-            ("p", ("Попередній хід суперника: " if lang == "uk" else "Opponent's preceding move: ") +
+            ("p", ("Попередній хід суперника (вже застосовано): " if lang == "uk"
+                   else "Opponent's previous move (already applied): ") +
              item["opponent_previous_move_uci"]),
+            ("fen", _canonical_solver_position(item)),
             ("p", item[lang]["prompt"]),
         ]
     output.append(("h2", "Відповіді після самостійного розв'язання" if lang == "uk" else "Solutions — reveal only after independent analysis"))
@@ -323,17 +335,18 @@ def _build_pack(args) -> None:
             "source_id": source_id,
             "real_original_pgn": True,
         }
-    # FEN text is a factual export of real CC0 source positions, before the
-    # preceding opponent's move. No second FEN parser/chess rules authority.
-    fen_bytes = ("\n".join(item["fen_before_opponent_move"] for item in data["lessons"]) + "\n").encode("utf-8")
-    name = "original-advanced-before-opponent-move.fen"
+    # The user-facing FEN is an ACTUAL SOLVER POSITION: the opponent's
+    # preceding source UCI is already applied via the canonical chess board.
+    # Raw pre-opponent FEN is retained for source/provenance in the JSON.
+    fen_bytes = ("\n".join(_canonical_solver_position(item) for item in data["lessons"]) + "\n").encode("utf-8")
+    name = "original-advanced-after-opponent-solver-positions.fen"
     (args.output_dir / name).write_bytes(fen_bytes)
     receipt["generated_files"][name] = {
         "sha256": sha256(fen_bytes).hexdigest(),
         "bytes": len(fen_bytes),
         "position_count": len(data["lessons"]),
         "real_original_licensing": "Lichess CC0",
-        "first_opponent_move_not_applied": True,
+        "first_opponent_move_already_applied": True,
     }
     (args.output_dir / "section37-bilingual-manifest.json").write_text(
         json.dumps(receipt, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
