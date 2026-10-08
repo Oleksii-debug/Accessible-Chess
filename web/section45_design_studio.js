@@ -108,7 +108,7 @@ function nativeApi() {
   return bridge && typeof bridge.get_design_studio_state==="function" &&
     typeof bridge.save_design_studio_state==="function" ? bridge : null;
 }
-let store=blankStore(), revision=null, localBaseline=null, active={...defaults}, dirty=false, working={...defaults};
+let store=blankStore(), revision=null, localBaseline=null, localCorrupt=false, active={...defaults}, dirty=false, working={...defaults};
 function status(uk,english,error) {
   const n=el("ac45-status");
   if(n){n.textContent=say(uk,english);n.dataset.error=error?"true":"false";}
@@ -116,7 +116,9 @@ function status(uk,english,error) {
 function localRead() {
   try {
     localBaseline=window.localStorage.getItem(STORE_KEY);
-    return safeParse(localBaseline);
+    const parsed=localBaseline===null?null:safeParse(localBaseline);
+    localCorrupt=localBaseline!==null&&!parsed;
+    return parsed;
   } catch (_) { localBaseline=null;return null; }
 }
 function localWrite(value) {
@@ -125,7 +127,7 @@ function localWrite(value) {
   try {
     // Web has no server-side profile authority: refuse a stale local tab
     // instead of silently overwriting another tab's changed profile.
-    if(window.localStorage.getItem(STORE_KEY)!==localBaseline)return false;
+    if(localCorrupt||window.localStorage.getItem(STORE_KEY)!==localBaseline)return false;
     window.localStorage.setItem(STORE_KEY,data);
     localBaseline=data;
     return true;
@@ -312,7 +314,10 @@ async function hydrate(){
     }
   }else{
     store=localRead()||blankStore();
-    status("Вебпрофілі локальні. Передача між пристроями — лише через експорт/імпорт.",
+    if(localCorrupt){
+      status("Пошкоджені вебпрофілі збережені без змін. Щоб відновити типові значення, натисніть Скинути, тоді Застосувати.",
+        "Corrupt Web profiles preserved. To replace with defaults choose Reset and then Apply.",true);
+    }else status("Вебпрофілі локальні. Передача між пристроями — лише через експорт/імпорт.",
       "Web profiles are local. Sync between devices requires explicit export/import.");
   }
   active=currentPrefs();working={...active};
@@ -370,6 +375,9 @@ function init(){
     status("Незбережені зміни скасовано.","Uncommitted changes cancelled.");
   });
   button(actions,"ac45-reset","Скинути","Reset",()=>{
+    // Reset is an explicit user choice to replace an unreadable Web blob.
+    // Preview and Cancel alone never authorize destruction of old bytes.
+    localCorrupt=false;
     working={...defaults};refreshControls();preview();
     status("Показано типові значення. Для збереження виберіть Застосувати.",
       "Defaults previewed. Select Apply to save.");
