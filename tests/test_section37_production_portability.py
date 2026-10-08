@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import tempfile
+import hashlib
+import json
+import zipfile
 from pathlib import Path
 import unittest
 
@@ -106,6 +109,29 @@ class Section37ProductionPortabilityTests(unittest.TestCase):
             self.assertEqual((layout.root / "credential-token.txt").read_text("utf-8"), "local-secret")
             self.assertFalse((layout.root / "old-user-note.txt").exists())
             tx.commit()
+
+
+    def test_archive_rejects_windows_ambiguous_member_path(self):
+        with tempfile.TemporaryDirectory() as raw:
+            base = Path(raw)
+            archive = base / "malicious.acdata"
+            payload = b"x"
+            relative = "folder\\\\..\\\\secret.txt"
+            manifest = {
+                "schema": 1,
+                "kind": BundleKind.PORTABLE.value,
+                "entries": [{
+                    "path": relative,
+                    "size": len(payload),
+                    "sha256": hashlib.sha256(payload).hexdigest(),
+                }],
+            }
+            with zipfile.ZipFile(archive, "w") as zf:
+                zf.writestr("manifest.json", (json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\\n").encode())
+                zf.writestr(f"data/{relative}", payload)
+            with self.assertRaisesRegex(UserDataArchiveError, "unsafe|Windows-portable"):
+                validate_user_data_archive(archive, expected_kind=BundleKind.PORTABLE)
+
 
     def test_host_uses_native_dialog_results_and_rejects_browser_paths(self):
         with tempfile.TemporaryDirectory() as raw:
