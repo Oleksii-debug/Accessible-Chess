@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "section": 46,
+  "status": "INTERNAL_COMPLETE_EXTERNAL_BLOCKED",
+  "automated": {
+    "dom_aria_keyboard": ["tests/test_stage1_release_composition_ui.py", "tests/test_stage1_webview2_accessibility_boundary.py", "tests/test_section41_design_system.py", "tests/test_section42_board_themes.py"],
+    "reduced_motion_forced_colors": "local CSS/source assertions PASS",
+    "native_selection_copy": "existing semantic text tests",
+    "large_data": "Section 38/39 real PGN and ACSDB evidence"
+  },
+  "not_run": ["Windows screenshot baselines", "100/125/150/200% DPI visual diff", "axe browser run", "physical UIA/NVDA", "human visual review", "media performance diff"],
+  "release_dependency": "Section 46 cannot be DONE until visual baselines and clean Windows accessibility evidence exist",
+  "license_boundary": "no new unlicensed graphics or CDN dependency introduced"
+}

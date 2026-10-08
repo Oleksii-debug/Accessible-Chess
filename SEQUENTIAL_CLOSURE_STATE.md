@@ -146,6 +146,21 @@ Durable evidence: `docs/corpus/SECTION44_UI_SURFACE_EVIDENCE.json`.
 
 The next dependency-safe closure front is Section 45.
 
+## Section 46 — current closure front
+
+**Status: `INTERNAL_COMPLETE_EXTERNAL_BLOCKED` (not DONE).**
+
+Durable evidence: `docs/corpus/SECTION46_QUALITY_GATE_EVIDENCE.json`.
+
+| Subsection | State | Evidence / exact limitation |
+|---|---|---|
+| 46.1–46.2 | `BLOCKED` | No physical Windows screenshot baselines or 100/125/150/200% DPI visual diff run in this environment. |
+| 46.3 | `PARTIAL` | Existing DOM/ARIA/keyboard plus local forced-colors/reduced-motion source gates are recorded; axe/UIA/NVDA physical runs are absent. |
+| 46.4–46.5 | `BLOCKED` | Media/performance screenshot diff and human visual review were not run. |
+| 46.6 | `PASS` | No new unlicensed graphics/CDN dependency was introduced; local CSS remains offline. |
+
+The next dependency-safe closure front is Section 47.
+
 ## Section 43 — current closure front
 
 **Status: `INTERNAL_COMPLETE_EXTERNAL_BLOCKED` (not DONE).**
