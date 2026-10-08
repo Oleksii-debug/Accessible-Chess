@@ -24,6 +24,10 @@ from .section40_advanced_training_runtime import (
     ADVANCED_BOOK_KEY, ADVANCED_MATERIAL_ID, build_advanced_offline_material,
     EXTREME_BOOK_KEY, EXTREME_MATERIAL_ID, build_extreme_offline_material,
 )
+from .section40_historical_reti_runtime import (
+    HISTORICAL_RETI_BOOK_KEY, HISTORICAL_RETI_MATERIAL_ID,
+    build_historical_reti_offline_material,
+)
 from .version2_application import _BookBrowserLeaseRejected
 from .version2_book_workspace import build_version2_book_webview
 from .version2_education_mutation_application import Version2EducationMutationApplication
@@ -38,14 +42,14 @@ _CATALOGUE_LABELS = {
         "heading": "Офлайнова шахова бібліотека",
         "label": "Матеріал",
         "open": "Відкрити матеріал",
-        "description": "24 посібники, стартовий курс, 16 задач Lichess 2200+ і 4 задачі 3000+ (це рейтинг задач, не FIDE) доступні офлайн.",
+        "description": "24 посібники, стартовий курс, 16 задач Lichess 2200+, 4 задачі 3000+ (не FIDE) і оригінальний етюд Реті 1921 року доступні офлайн.",
         "opened": "Відкрито матеріал",
     },
     UILanguage.EN: {
         "heading": "Offline chess learning library",
         "label": "Material",
         "open": "Open material",
-        "description": "24 booklets, starter course, 16 genuine Lichess 2200+ and four 3000+ puzzles (puzzle ratings, not FIDE) open offline.",
+        "description": "24 booklets, starter course, 16 Lichess 2200+ and four 3000+ rated puzzles (not FIDE), plus an original Reti 1921 endgame study, open offline.",
         "opened": "Opened material",
     },
 }
@@ -72,9 +76,16 @@ class Version2StarterContentApplication(Version2EducationMutationApplication):
         self._extreme_offline_document_en, extreme_en_tasks = (
             build_extreme_offline_material(language="en")
         )
+        self._historical_reti_document, self._historical_reti_content = (
+            build_historical_reti_offline_material(language="uk")
+        )
+        self._historical_reti_document_en, historical_en_content = (
+            build_historical_reti_offline_material(language="en")
+        )
         # Language is presentation only. Never fork puzzle moves, answer or FEN.
         if (advanced_en_tasks != self._advanced_offline_tasks
-            or extreme_en_tasks != self._extreme_offline_tasks):
+            or extreme_en_tasks != self._extreme_offline_tasks
+            or historical_en_content != self._historical_reti_content):
             raise RuntimeError("advanced UK/EN chess authority diverged")
         self._starter_material_documents: dict[str, BookDocument] = {}
         self._starter_material_entries: tuple[dict[str, str], ...] = ()
@@ -109,12 +120,16 @@ class Version2StarterContentApplication(Version2EducationMutationApplication):
         if type(expected_count) is not int or expected_count != len(entries) or expected_count < 24:
             raise RuntimeError("starter release material count is below the accepted P0-F gate")
 
-        if (ADVANCED_MATERIAL_ID in documents or EXTREME_MATERIAL_ID in documents
+        if (ADVANCED_MATERIAL_ID in documents
+            or EXTREME_MATERIAL_ID in documents
+            or HISTORICAL_RETI_MATERIAL_ID in documents
             or len(self._advanced_offline_tasks) != 16
-            or len(self._extreme_offline_tasks) != 4):
+            or len(self._extreme_offline_tasks) != 4
+            or self._historical_reti_content.get("game_count") != 1):
             raise RuntimeError("genuine advanced offline materials are unavailable")
         documents[ADVANCED_MATERIAL_ID] = self._advanced_offline_document
         documents[EXTREME_MATERIAL_ID] = self._extreme_offline_document
+        documents[HISTORICAL_RETI_MATERIAL_ID] = self._historical_reti_document
         self._starter_material_documents = documents
         self._starter_material_entries = tuple(entries)
 
@@ -232,6 +247,12 @@ class Version2StarterContentApplication(Version2EducationMutationApplication):
                           if self.shell.language is UILanguage.EN
                           else self._extreme_offline_document.title),
             },
+            {
+                "material_id": HISTORICAL_RETI_MATERIAL_ID,
+                "title": (self._historical_reti_document_en.title
+                          if self.shell.language is UILanguage.EN
+                          else self._historical_reti_document.title),
+            },
         )
         return {
             "heading": labels["heading"],
@@ -242,6 +263,7 @@ class Version2StarterContentApplication(Version2EducationMutationApplication):
             "booklet_count": len(self._starter_material_entries),
             "advanced_puzzle_count": len(self._advanced_offline_tasks),
             "extreme_puzzle_count": len(self._extreme_offline_tasks),
+            "original_study_count": self._historical_reti_content["game_count"],
             "items": items,
         }
 
@@ -294,6 +316,13 @@ class Version2StarterContentApplication(Version2EducationMutationApplication):
                 else self._extreme_offline_document
             )
             book_key = EXTREME_BOOK_KEY + (":en" if is_en else "")
+        elif material_id == HISTORICAL_RETI_MATERIAL_ID:
+            is_en = self.shell.language is UILanguage.EN
+            document = (
+                self._historical_reti_document_en if is_en
+                else self._historical_reti_document
+            )
+            book_key = HISTORICAL_RETI_BOOK_KEY + (":en" if is_en else "")
         else:
             document = self._starter_material_documents.get(material_id)
             if document is None:
