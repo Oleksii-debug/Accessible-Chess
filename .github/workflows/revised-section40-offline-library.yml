@@ -9,6 +9,7 @@ on:
       - 'tools/revised_section40_user_library_seed_bridge.py'
       - 'tools/revised_section40_advanced_training.py'
       - 'acs/section40_advanced_licensed_dataset.py'
+      - 'acs/section40_extreme_licensed_dataset.py'
       - 'acs/section40_advanced_training_runtime.py'
       - 'acs/version2_starter_content_application.py'
       - 'tests/test_revised_section40_offline_test_library.py'
@@ -42,7 +43,7 @@ jobs:
         with:
           python-version: '3.12.10'
       - name: Compile Section 40 builder and regression suite
-        run: python -m py_compile acs/section40_advanced_licensed_dataset.py acs/section40_advanced_training_runtime.py acs/version2_starter_content_application.py tools/revised_section40_offline_test_library.py tools/revised_section40_user_library_seed_bridge.py tools/revised_section40_advanced_training.py tests/test_revised_section40_product_books_advanced_integration.py tests/test_revised_section40_advanced_training.py tests/test_revised_section40_offline_test_library.py tests/test_revised_section40_user_library_seed_bridge.py
+        run: python -m py_compile acs/section40_advanced_licensed_dataset.py acs/section40_extreme_licensed_dataset.py acs/section40_advanced_training_runtime.py acs/version2_starter_content_application.py tools/revised_section40_offline_test_library.py tools/revised_section40_user_library_seed_bridge.py tools/revised_section40_advanced_training.py tests/test_revised_section40_product_books_advanced_integration.py tests/test_revised_section40_advanced_training.py tests/test_revised_section40_offline_test_library.py tests/test_revised_section40_user_library_seed_bridge.py
       - name: Real source, persistent Library, bilingual book and rights regression
         run: python -m unittest -v tests.test_revised_section40_offline_test_library tests.test_revised_section40_user_library_seed_bridge tests.test_revised_section40_advanced_training tests.test_revised_section40_product_books_advanced_integration tests.test_w3_p0f_starter_books_training_content tests.test_revised_section37_offline_collection_readback tests.test_revised_section38_stockfish_real_library
       - name: Build TEST_BUILD archive with real chess games and canonical course
