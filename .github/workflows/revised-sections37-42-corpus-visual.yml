@@ -10,6 +10,7 @@ on:
       - 'docs/automation/REVISED_SECTIONS37_42_PROGRESS_AND_ASSET_PROVENANCE.md'
       - 'web/index.html'
       - 'tests/test_revised_sections37_40_corpus.py'
+      - 'tools/revised_section37_real_cc0_readback.py'
       - 'tests/test_revised_sections41_42_design.py'
       - 'tests/test_section15_visual_board_contract.py'
       - '.github/workflows/revised-sections37-42-corpus-visual.yml'
@@ -61,11 +62,15 @@ jobs:
         run: python -m pip install 'zstandard==0.25.0'
       - name: Actually fetch SHA256-verified CC0 Lichess file and import 5000 real games
         run: python -m tools.v2_library_source_catalog_real_corpus
+      - name: Acquire two additional official SHA-pinned CC0 corpora and parse real samples
+        run: python -m tools.revised_section37_real_cc0_readback
       - name: Preserve non-private exact corpus qualification facts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: revised-section38-39-real-corpus-evidence
-          path: source-catalog-real-evidence.json
+          path: |
+            source-catalog-real-evidence.json
+            revised-section37-live-cc0-readback.json
           if-no-files-found: ignore
           retention-days: 14
