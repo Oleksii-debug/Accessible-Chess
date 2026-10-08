@@ -87,6 +87,7 @@ def _qualified_url(url: str) -> str:
         raise LawfulCorpusError("original source URL has invalid path encoding") from exc
     if (
         decoded.startswith("//")
+        or "%" in decoded  # no remaining nested encoding after the bound
         or any(ord(char) < 32 or ord(char) == 92 or char in ("?", "#")
                for char in decoded)
         or any(component in (".", "..") for component in decoded.split("/"))
