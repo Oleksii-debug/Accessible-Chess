@@ -158,6 +158,35 @@ class RevisedCorpusContractTests(unittest.TestCase):
                             ),
                         )
 
+    def test_official_cbv_free_sample_is_discovery_only_and_never_auto_fetched(self):
+        records = {entry["id"]: entry for entry in load_catalog()}
+        cbv = records["chessbase_official_free_rossolimo_cbv_sample"]
+        self.assertEqual(cbv["format"], "cbv")
+        self.assertEqual(cbv["acquisition"], "DISCOVERED_NOT_HASH_VERIFIED")
+        self.assertEqual(cbv["redistribution"], "NOT_CLEARED")
+        self.assertIsNone(cbv["sha256"])
+        self.assertEqual(cbv["max_bytes"], 0)
+        self.assertEqual(
+            cbv["source_page"],
+            "https://shop.chessbase.com/en/products/chessbase_17_starter_package",
+        )
+        self.assertEqual(
+            cbv["download_url"],
+            "https://de.chessbase.com/Portals/3/files/2013/CBM155Leseprobe/B30SicilianRossolimo155.cbv",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            network = Mock(side_effect=AssertionError("CBV discovery must never fetch"))
+            with self.assertRaises(LawfulCorpusError):
+                acquire_cc0_source(cbv, Path(tmp), opener=network)
+            network.assert_not_called()
+            # A forged caller-side CC0 label also cannot repurpose the pinned
+            # PGN transfer capability into a ChessBase-origin downloader.
+            spoof = {**self._record(b"dummy"), "download_url": cbv["download_url"]}
+            with self.assertRaisesRegex(LawfulCorpusError, "host not authorized"):
+                acquire_cc0_source(spoof, Path(tmp), opener=network)
+            network.assert_not_called()
+            self.assertEqual(list(Path(tmp).iterdir()), [])
+
     def test_genuine_upstream_cc0_source_bytes_license_and_tamper_refusal(self):
         from acs.lawful_corpus_registry import _https_url
         records = {record["id"]: record for record in load_catalog()}
