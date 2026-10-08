@@ -2,6 +2,47 @@
 
 This file is the durable GitHub mirror for ordered Section/Subsection closure.
 
+## Canonical product plan revision — 2026-10-08 (scope identity lock)
+
+**Current owner-edited authority:** Google Drive document
+[ACCESSIBLE CHESS — SECTION PLAN ДО ПОВНІСТЮ ЗАВЕРШЕНОГО ПРОДУКТУ](https://docs.google.com/document/d/1ITsUBFwwETRICctcOWLd6atuMcCFZg6v5-wVFumIyxE/edit).
+The owner replaced the old 0–39 product numbering with **0–53**. As of the
+2026-10-08 revision, Section 37 is *Lawful chess source corpus*, 38 is
+*Real multi-format acquisition/integration*, 39 is *Real format matrix
+and roundtrips*, 40 is *Preloaded offline test Library*, 41 is
+*Professional accessible design system*, and 42 is *Premium chessboards,
+pieces and visual effects*.
+
+**Non-equivalence invariant:** every historical row below labelled
+`Section 37 | DONE` (formerly persistence and user-data portability),
+and any historical Section 38 (formerly release infrastructure) or
+Section 39 (formerly whole-product convergence) evidence is **archived
+under the OLD numbered scope**. It DOES NOT constitute acceptance,
+closure, or authority to skip the NEW Sections 37–42. The old provenance
+is retained for historical audit only. Under the revised plan, user-data
+portability is Section 51, release infrastructure Section 52, and
+whole-product final convergence Section 53; mapping does not itself
+establish that any of those new scopes are closed.
+
+**Revised 37–42 status on revision:** OPEN / IN DEVELOPMENT; none may
+be promoted to `DONE — TERMINAL` merely by citing an old row or an
+unmerged PR. Source/test progress is tracked in current-shipping
+[PR #2494](https://github.com/Oleksii-debug/Accessible-Chess/pull/2494)
+and `docs/automation/REVISED_SECTIONS37_42_PROGRESS_AND_ASSET_PROVENANCE.md`.
+Real downloaded lawful corpora, actual import/readback, preloaded
+rights-clean test/public packages, third-party icon/piece licensing,
+finished visual product and attributable dual-OS gates are required
+for individual new closures. No `HUMAN_TESTED` / `NVDA_VERIFIED` /
+`FINAL_WINDOWS_ZIP` claim can be inferred from a repository test.
+
+**Worker direction:** use the CURRENT owner-edited Drive plan to
+interpret section numbers, preserve one canonical shipping branch and
+state owners, reuse historically accepted implementations by function
+rather than by obsolete section number, and do not reopen completed
+0–36 sections without a demonstrated regression. Do not invent scope
+for a non-existent old Product Section 40; the newly approved Section
+40 now exists in the revised plan as the offline-library workline.
+
 ## Binding worker policy
 
 This registry follows the **current root `AGENTS.md`**. Its
