@@ -4,7 +4,7 @@ on:
   pull_request:
     paths:
       - "acs/agent_cloud_provider.py"
-      - "tests/test_section49*.py"
+      - "tests/test_section49_cloud_provider.py"
       - "tests/test_section49_50_evidence.py"
       - "tools/section49_50_live_qualification.py"
       - ".github/workflows/section49-cloud-provider-qualification.yml"
@@ -33,6 +33,6 @@ jobs:
       - name: Compile bounded model adapter and tests
         run: python -m py_compile acs/agent_cloud_provider.py tools/section49_50_live_qualification.py tests/test_section49_cloud_provider.py tests/test_section49_50_evidence.py
       - name: Execute offline adversarial integration through canonical gateway
-        run: python -m unittest discover -s tests -p "test_section49_cloud_provider.py" -v
+        run: python -m unittest discover -s tests -p "test_section49*.py" -v
       - name: Assert no account/API keys are required for offline qualification
         run: python -c "from acs.agent_cloud_provider import provider_availability; assert all(not p.configured for p in provider_availability()); print('NO_KEYS_OFFLINE=PASS')"
