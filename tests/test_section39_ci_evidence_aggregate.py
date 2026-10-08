@@ -181,6 +181,52 @@ class EvidenceJoinSafety(unittest.TestCase):
             merge_real_receipts(base, positions, books, catalog, HEAD,
                                 training=mock_puzzles)
 
+    def test_stockfish_chess960_actual_original_records_cannot_be_faked(self):
+        catalog, base, positions, books = synthetic_evidence()
+        lookup = {entry["id"]: entry for entry in catalog}
+        original_ids = (
+            "stockfish_frc_openings_epd_zip",
+            "stockfish_4mvs_90_99_epd_zip",
+        )
+        rows = [{
+            "source_id": name,
+            "source_zip_sha256": lookup[name]["sha256"],
+            "original_member_sha256": "0" * 64,
+            "original_record_count": 900,
+            "actual_canonical_position_roundtrip_count": 900,
+            "unsupported_original_record_count": 0,
+            "qualification": "PASS",
+            "real_source_read": False,
+            "mocked": True,
+        } for name in original_ids]
+        mock = {
+            "schema": "acs-section39-authentic-stockfish-chess960-epd-v1",
+            "source_commit_sha": HEAD,
+            "source_count": 2,
+            "sources": rows,
+        }
+        with self.assertRaisesRegex(LawfulCorpusError, "Chess960 source identity"):
+            merge_real_receipts(base, positions, books, catalog, HEAD, chess960=mock)
+
+    def test_official_epub_html_observed_sha_is_not_prequalified(self):
+        catalog, base, positions, books = synthetic_evidence()
+        falsely_done = {
+            "schema": "accessible-chess-section39-real-external-gutenberg-ebooks-v1",
+            "source_commit_sha": HEAD,
+            "source_count": 2,
+            "sources": [
+                {"source_id": "capablanca_chess_fundamentals_epub3",
+                 "original_sha256_prepinned_in_catalog": True},
+                {"source_id": "gutenberg_chess_strategy_lasker",
+                 "original_sha256_prepinned_in_catalog": False},
+            ],
+            "downloaded_original_ebook_bytes_packaged": False,
+            "full_original_independent_sha_prequalified": False,
+        }
+        with self.assertRaisesRegex(LawfulCorpusError, "fake or rights"):
+            merge_real_receipts(base, positions, books, catalog, HEAD,
+                                gutenberg=falsely_done)
+
     def test_missing_external_format_cannot_be_called_complete(self):
         catalog, base, positions, books = synthetic_evidence()
         books["sources"].pop()
