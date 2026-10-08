@@ -117,6 +117,14 @@ class Section40RealWindowsQAPackageTests(unittest.TestCase):
                         if entry["id"].startswith("section37_bilingual_original_workbook_")
                     ]
                     self.assertEqual(len(bilingual), 10)
+                    license_member = "licenses/SECTION37_ADVANCED_AUTHORED_LICHESS_CC0_UK_EN.txt"
+                    self.assertIn(license_member, corpus.namelist())
+                    license_raw = corpus.read(license_member)
+                    self.assertIn(b"CC0-1.0", license_raw)
+                    for record in bilingual:
+                        self.assertEqual(record["license_path"], license_member)
+                        self.assertEqual(record["license_sha256"],
+                                         hashlib.sha256(license_raw).hexdigest())
                     self.assertEqual(
                         {(item["language"], item["format"]) for item in bilingual},
                         {(lang, extension) for lang in ("uk", "en")
