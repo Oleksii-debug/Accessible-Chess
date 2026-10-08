@@ -86,8 +86,14 @@ class Section52CorpusQualificationTests(unittest.TestCase):
         original.rename(self.stage / "books" / "Партія.pgn")
         self.doc["assets"][0]["path"] = "books/Партія.pgn"
         self.assertEqual(self.verify()["qualified_asset_count"], 1)
-        (self.stage / "books" / "партія.pgn").write_bytes(self.content)
+        alias = dict(self.doc["assets"][0])
+        alias["path"] = "books/партія.pgn"
+        self.doc["assets"].append(alias)
         self.deny()
+        self.doc["assets"].pop()
+        (self.stage / "books" / "партія.pgn").write_bytes(self.content)
+        if len(list((self.stage / "books").iterdir())) > 1:
+            self.deny()  # Distinct case aliases only exist on case-sensitive hosts.
 
     def test_traversal_device_names_and_urls_are_denied(self):
         for value in ("../sample.pgn", "/etc/passwd", "books/../sample.pgn",
@@ -141,8 +147,12 @@ class Section52CorpusQualificationTests(unittest.TestCase):
         self.doc["assets"][0]["source_url"] = "https://example.org/\\nsample"
         self.deny()
         self.doc["assets"][0]["source_url"] = "https://example.org/sample.pgn"
-        (self.stage / "Books").mkdir()
-        self.deny()
+        try:
+            (self.stage / "Books").mkdir()
+        except FileExistsError:
+            pass  # Windows case-insensitive filesystem: the alias cannot exist.
+        else:
+            self.deny()
 
 
 if __name__ == "__main__":
