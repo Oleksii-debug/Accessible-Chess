@@ -89,7 +89,8 @@ $result = [ordered]@{
   SignerThumbprint = $(if ($null -ne $sig.SignerCertificate) { [string]$sig.SignerCertificate.Thumbprint } else { $null })
   TimestampSubject = $(if ($null -ne $sig.TimeStamperCertificate) { [string]$sig.TimeStamperCertificate.Subject } else { $null })
 }
-$result | ConvertTo-Json -Compress
+$json = $result | ConvertTo-Json -Compress
+[Console]::Out.Write("ACS_AUTHENTICODE_JSON:" + $json)
 """.strip()
 
         env = dict(os.environ)
@@ -131,8 +132,14 @@ $result | ConvertTo-Json -Compress
         if completed.returncode != 0:
             return AuthenticodeEvidence(AuthenticodeStatus.ERROR, False)
 
+        stdout = completed.stdout if isinstance(completed.stdout, str) else ""
+        marker = "ACS_AUTHENTICODE_JSON:"
+        if marker in stdout:
+            raw_payload = stdout.rsplit(marker, 1)[1].strip()
+        else:
+            raw_payload = stdout.strip()
         try:
-            payload = json.loads(completed.stdout)
+            payload = json.loads(raw_payload)
         except (json.JSONDecodeError, TypeError):
             return AuthenticodeEvidence(AuthenticodeStatus.ERROR, False)
 
