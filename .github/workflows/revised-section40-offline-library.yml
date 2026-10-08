@@ -20,6 +20,8 @@ on:
       - 'tests/test_revised_section40_windows_qa_assembler.py'
       - 'tools/section39_section40_delivery_qualification.py'
       - 'tests/test_section39_section40_delivery_qualification.py'
+      - 'acs/section40_bilingual_master_workbook_runtime.py'
+      - 'tests/test_section40_bilingual_master_workbook_product.py'
       - 'tools/section39_section37_bilingual_workbook_qualification.py'
       - 'tests/test_section39_section37_bilingual_workbook_qualification.py'
       - 'tools/revised_section37_bilingual_workbook_pack.py'
@@ -67,6 +69,10 @@ jobs:
         run: |
           python -m py_compile tools/section39_section37_bilingual_workbook_qualification.py tests/test_section39_section37_bilingual_workbook_qualification.py
           python -m unittest -v tests.test_section39_section37_bilingual_workbook_qualification
+      - name: Qualify original Section37 twelve-lesson UK/EN workbook in actual program Books menu
+        run: |
+          python -m py_compile acs/section40_bilingual_master_workbook_runtime.py tests/test_section40_bilingual_master_workbook_product.py
+          python -m unittest -v tests.test_section40_bilingual_master_workbook_product
       - name: Build TEST_BUILD archive with real chess games and canonical course
         run: python -m tools.revised_section40_offline_test_library TEST_BUILD artifacts/section40-test-build.zip
       - name: Materialize owner TEST_BUILD runtime Library seed through existing ACSDB ingress
