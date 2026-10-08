@@ -12,3 +12,8 @@ tests/real_corpus/lichess_openings_COPYING.txt -text
 tests/real_corpus/books/gitenberg_capablanca_33870.txt -text
 tests/real_corpus/stockfish/LICENSE -text
 tests/real_corpus/stockfish/*.zip -text
+# Original Section 37 bilingual Chess/Study assets are byte-pinned and
+# used as byte-identical QA/product publication inputs on Windows and Linux.
+tests/real_corpus/advanced_training/*.json -text
+tests/real_corpus/advanced_training/*.pgn -text
+tests/real_corpus/advanced_training/*.md -text

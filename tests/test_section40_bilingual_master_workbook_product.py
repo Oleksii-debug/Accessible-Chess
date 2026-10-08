@@ -48,6 +48,16 @@ class GenuineTwelveAdvancedWorkbookProductTests(unittest.TestCase):
             )
             for block in document.exercises():
                 self.assertEqual(Board(block.fen).fen(), block.fen)
+            original_positions = [
+                block for block in document.blocks if block.kind == "Position"
+            ]
+            self.assertEqual(len(original_positions), 12)
+            self.assertTrue(all(
+                original.caption and
+                ("Position before" in original.caption if document.language == "en"
+                 else "Позиція перед" in original.caption)
+                for original in original_positions
+            ))
 
     def test_actual_program_books_menu_can_open_training_and_board_offline(self):
         with tempfile.TemporaryDirectory(prefix="acs-section40-original-12-") as temp:
