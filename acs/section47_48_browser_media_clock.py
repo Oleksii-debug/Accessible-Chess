@@ -15,6 +15,9 @@ from .media_core import (
     MediaPlaybackState,
     MediaSession,
     MediaSourceKind,
+    MediaPositionTimeline,
+    MediaReconciliationState,
+    TimelineResolution,
 )
 
 LOCAL_PROVIDER = "html5_local_file_v1"
@@ -157,3 +160,31 @@ def accept_browser_clock(
         source_revision=authority.source_revision,
         clock=clock,
     )
+
+
+def resolve_only_verified_canonical_position(
+    session: MediaSession,
+    timeline: MediaPositionTimeline,
+) -> TimelineResolution | None:
+    """Read existing qualified timeline at real media time; never infer chess.
+
+    A genuine MediaClock snapshot by itself contains ZERO chess evidence.
+    Return a position only when the *existing canonical* MediaPositionTimeline
+    was built for the same verified source revision and says VERIFIED. Missing,
+    stale, candidate, ambiguous and explicit resync barriers yield no position.
+    """
+    if type(session) is not MediaSession or type(timeline) is not MediaPositionTimeline:
+        raise BrowserMediaClockError("canonical MediaSession and timeline required")
+    if timeline.source_id != session.source_id or timeline.identity is None:
+        raise BrowserMediaClockError("missing or mismatched canonical timeline identity")
+    if timeline.identity.source_revision != session.source_revision:
+        raise BrowserMediaClockError("stale timeline source revision")
+    result = timeline.resolve_at_or_before(session.clock.position_ms)
+    if (
+        result.resolved
+        and result.qualification is MediaReconciliationState.VERIFIED
+        and result.barrier is None
+        and result.chess_ref is not None
+    ):
+        return result
+    return None
