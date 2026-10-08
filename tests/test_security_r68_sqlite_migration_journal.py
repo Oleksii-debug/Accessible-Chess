@@ -130,3 +130,81 @@ def test_r68_no_unknown_side_effect_retry_even_after_worker_crash(tmp_path):
     assert recovered.begin(record) is False
     # A guessed success cannot bypass the original canonical readback sequence.
     assert recovered.record(record.migration_id, "COMMITTED", record.snapshot_sha256) is False
+
+
+def test_r68_full_neutral_cutover_with_real_sqlite_journal_recovers_after_restart(tmp_path):
+    # Local transactional fixture exercises original neutral MigrationCutover,
+    # not a duplicated product migration authority or a live database cutover.
+    from continuum_runtime.backend_migration import MigrationCutover
+    from acs.protection_backend_migration_binding import (
+        CanonicalMigrationOperatorBoundary, TrustedMigrationJob,
+    )
+    from acs.server_application_boundary import AuthenticatedPrincipal
+
+    signed = proof()
+    original_snapshot = b"snapshot"
+    verified_backup = b"backup"
+
+    class Source:
+        def snapshot(self):
+            return 7, original_snapshot
+        def fence(self, revision, digest, migration_id):
+            return (revision == 7 and digest == signed.snapshot_sha256
+                    and migration_id == signed.migration_id)
+
+    class Target:
+        staged = None
+        def stage(self, current_proof, payload):
+            if current_proof != signed:
+                return False
+            self.staged = payload
+            return True
+        def readback(self, scope):
+            if scope != signed.scope_id or self.staged is None:
+                return -1, b"unknown"
+            return 7, self.staged
+
+    class Router:
+        route = "old.one"
+        def read(self, scope):
+            if scope != signed.scope_id:
+                raise ValueError("unknown scope")
+            return self.route
+        def compare_and_swap(self, scope, expected, new, migration_id):
+            if (scope != signed.scope_id or self.route != expected
+                    or migration_id != signed.migration_id):
+                return False
+            self.route = new
+            return True
+
+    source, target, router = Source(), Target(), Router()
+    path = tmp_path / "integration.sqlite3"
+    job = TrustedMigrationJob(signed, verified_backup)
+    actor = AuthenticatedPrincipal(
+        "operator.one", "workspace.one", "session.one",
+        frozenset({"migration.operator"}), frozenset({"backend.migrate"}),
+    )
+
+    def build_boundary():
+        neutral = MigrationCutover(
+            source=source, target=target, router=router,
+            journal=SqliteMigrationJournal(path),
+            verify_proof=lambda p: p == signed,
+            verify_backup=lambda p, b: (p == signed and b == verified_backup),
+        )
+        return CanonicalMigrationOperatorBoundary(
+            cutover=neutral,
+            authorize_operator=lambda current_actor, current_proof: (
+                current_actor == actor and current_proof == signed
+            ),
+            load_approved_job=lambda: job,
+        )
+
+    first = build_boundary()
+    assert first.execute(actor) == "COMMITTED"
+    assert target.staged == original_snapshot
+    # A new process reads durable SQL, not an ephemeral in-memory admission.
+    recovered = build_boundary()
+    assert recovered.reconcile(actor) == "COMMITTED"
+    assert recovered.execute(actor) == "UNKNOWN_FAIL_CLOSED"
+    assert SqliteMigrationJournal(path).status(signed.migration_id) == "COMMITTED"
