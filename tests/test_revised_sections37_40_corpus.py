@@ -592,7 +592,7 @@ class RevisedCorpusContractTests(unittest.TestCase):
         """Real upstream CC0 archive bytes, not a claim of full format roundtrip."""
         import zipfile
         from acs.lawful_corpus_registry import read_verified_zip_member
-        from acs.epd import parse_epd, serialize_epd
+        from acs.position_editor import PositionState
 
         records = {entry["id"]: entry for entry in load_catalog()}
         root = Path(__file__).resolve().parents[1]
@@ -629,8 +629,8 @@ class RevisedCorpusContractTests(unittest.TestCase):
                     self.assertIsNone(zf.testzip())
                 if identifier == "stockfish_startpos_epd_zip":
                     first = content.decode("utf-8").strip().splitlines()[0]
-                    parsed = parse_epd(first)
-                    self.assertEqual(parse_epd(serialize_epd(parsed)), parsed)
+                    position = PositionState.from_fen(first)
+                    self.assertEqual(position.to_fen(), first)
                 with tempfile.TemporaryDirectory() as tmp:
                     tampered = Path(tmp) / "tampered.zip"
                     raw = bytearray(archive_path.read_bytes())
