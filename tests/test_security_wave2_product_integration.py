@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
 import inspect
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
+from acs import version2_upgrade_status_release as shipping_release
 from acs.protection_boundary import (
     ProtectionDecision,
     ProtectionRuntimeClient,
@@ -508,10 +511,15 @@ def test_r26_monitor_blocks_immediately_on_revocation_without_waiting_for_next_a
             )
     monitor = ProtectionLifecycleMonitor(client, lifecycle=Lifecycle())
     blocked = []
+    blocked_event = threading.Event()
+    def on_block(snapshot):
+        blocked.append(snapshot)
+        blocked_event.set()
     monitor.start(
         warning_callback=lambda snapshot: None,
-        block_callback=lambda snapshot: blocked.append(snapshot),
+        block_callback=on_block,
     )
+    assert blocked_event.wait(2.0)
     monitor.stop()
     assert monitor.blocked_or_failed
     assert monitor.blocked is not None
@@ -577,3 +585,108 @@ def test_compiled_launcher_requires_private_protection_runtime_package():
         encoding="utf-8"
     )
     assert "--include-package=accessible_chess_protection_runtime" in launcher
+
+
+def test_shipping_host_passes_v3_monitor_into_real_product_window(monkeypatch, tmp_path):
+    runtime = _runtime_v3()
+    runtime.evaluate_startup = lambda **kwargs: {
+        "api_version": 3,
+        "state": "authorized",
+        "reason": "none",
+        "safe_operations": list(SAFE),
+        "capabilities": ["local-chess"],
+        "build_id": "build-3",
+    }
+    client = _client(tmp_path, runtime)
+    session = ProtectionStartupSession(
+        decision=ProtectionDecision(
+            state="authorized",
+            reason="none",
+            safe_operations=frozenset(SAFE),
+            capabilities=frozenset({"local-chess"}),
+            build_id="build-3",
+        ),
+        client=client,
+    )
+    api = SimpleNamespace(_protection_session=session)
+    monitor = SimpleNamespace(blocked_or_failed=False)
+    seen = {}
+
+    monkeypatch.setattr(
+        shipping_release._education_release,
+        "_final_product_mutation_bindings",
+        lambda: nullcontext(),
+    )
+    monkeypatch.setattr(
+        shipping_release,
+        "create_version2_release_application",
+        lambda **kwargs: (api, "application", "runtime", "native-files"),
+    )
+    monkeypatch.setattr(
+        shipping_release,
+        "ProtectionLifecycleMonitor",
+        lambda actual_client: monitor if actual_client is client else (_ for _ in ()).throw(AssertionError()),
+    )
+    def run_window(api_value, application, runtime_value, **kwargs):
+        seen["monitor"] = kwargs.get("protection_monitor")
+    monkeypatch.setattr(shipping_release._release_ui, "run_version2_release_window", run_window)
+
+    shipping_release.main()
+    assert seen["monitor"] is monitor
+
+
+def test_shipping_host_returns_live_revocation_to_locked_shell(monkeypatch, tmp_path):
+    runtime = _runtime_v3()
+    client = _client(tmp_path, runtime)
+    session = ProtectionStartupSession(
+        decision=ProtectionDecision(
+            state="authorized",
+            reason="none",
+            safe_operations=frozenset(SAFE),
+            capabilities=frozenset({"local-chess"}),
+            build_id="build-3",
+        ),
+        client=client,
+    )
+    api = SimpleNamespace(_protection_session=session)
+    blocked = EntitlementLifecycleSnapshot(
+        state="revoked",
+        reason="device_revoked",
+        actions=("recover",),
+        live_region="assertive",
+        retry_after_seconds=0,
+        lease_remaining_seconds=None,
+    )
+    monitor = SimpleNamespace(
+        blocked_or_failed=True,
+        blocked=blocked,
+        failure_reason=None,
+    )
+    shell = []
+
+    monkeypatch.setattr(
+        shipping_release._education_release,
+        "_final_product_mutation_bindings",
+        lambda: nullcontext(),
+    )
+    monkeypatch.setattr(
+        shipping_release,
+        "create_version2_release_application",
+        lambda **kwargs: (api, "application", "runtime", "native-files"),
+    )
+    monkeypatch.setattr(shipping_release, "ProtectionLifecycleMonitor", lambda _client: monitor)
+    monkeypatch.setattr(
+        shipping_release._release_ui,
+        "run_version2_release_window",
+        lambda *args, **kwargs: None,
+    )
+    def locked_shell(actual_client, decision):
+        shell.append((actual_client, decision))
+        return False
+    monkeypatch.setattr(shipping_release._release_app, "run_locked_security_window", locked_shell)
+
+    shipping_release.main()
+    assert len(shell) == 1
+    assert shell[0][0] is client
+    assert shell[0][1].reason == "device_revoked"
+    assert shell[0][1].state == "locked"
