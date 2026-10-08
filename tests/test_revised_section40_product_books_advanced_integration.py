@@ -60,12 +60,12 @@ class GenuineAdvancedMaterialProductTests(unittest.TestCase):
                         next_block = app.browser_command("books", "book.next")
                         self.assertEqual(next_block["kind"], "render")
                     self.assertEqual(app.reader.location().kind, "Exercise")
-                    position = app.reader.location().block.fen
+                    position = app.reader.location().position_fen
                     board_open = app.browser_command("books", "book.open_position")
                     self.assertEqual(board_open["kind"], "delegated")
                     self.assertTrue(app.book_workflow.active)
                     self.assertEqual(app.shell.current_route.route_id, "board")
-                    self.assertEqual(app.reader.location().block.fen, position)
+                    self.assertEqual(app.reader.location().position_fen, position)
                 finally:
                     app.shutdown()
             finally:
