@@ -115,11 +115,19 @@ def audit_public_archive(path: Path, records: tuple[dict, ...] | None = None) ->
                     rawname = info.filename
                     normalized = rawname.replace("\\", "/")
                     path_parts = PurePosixPath(normalized).parts
+                    # On extraction, redundant separators/dot segments and
+                    # Windows-trimmed trailing dots/spaces alias other paths.
+                    # Reject before filename-rights checks or duplicate checks.
                     if (
                         normalized.startswith("/")
-                        or re.match(r"^[A-Za-z]:", normalized)
+                        or ":" in normalized
+                        or normalized.rstrip("/") != PurePosixPath(normalized).as_posix()
+                        or "//" in normalized
                         or not path_parts
-                        or any(part in ("..", ".") for part in path_parts)
+                        or any(
+                            part in ("..", ".") or part.endswith((".", " "))
+                            for part in path_parts
+                        )
                     ):
                         raise LawfulCorpusError("release archive contains unsafe member path")
                     folded = normalized.casefold().rstrip("/")
