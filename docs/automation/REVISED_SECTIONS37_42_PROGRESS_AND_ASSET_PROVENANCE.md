@@ -1,6 +1,8 @@
-# Revised Accessible Chess Sections 37–42: implementation and rights ledger
+# Accessible Chess Sections 37–42: current product implementation and evidence ledger
 
-The owner revised the canonical Drive plan on 2026-10-08. **Sections 37–42 now have new meanings.** Historical GitHub DONE receipts for Section 37 (persistence), 38 (release infrastructure) and 39 (whole-product convergence) are **not acceptance for their new section numbers**.
+**Єдиний продуктний план:** [ACCESSIBLE CHESS — SECTION PLAN ДО ПОВНІСТЮ ЗАВЕРШЕНОГО ПРОДУКТУ](https://docs.google.com/document/d/1ITsUBFwwETRICctcOWLd6atuMcCFZg6v5-wVFumIyxE/edit), Sections 0–53.
+
+Цей файл містить датовані технічні докази, тести й залишки роботи, а не альтернативну систему нумерації або окремий план DONE. Чинний статус розділів 37–42 визначається **тільки** цим планом, `SEQUENTIAL_CLOSURE_STATE.md` та точним CI/integration readback. Перші реальні тестові зрізи форматів не означають завершення повної матриці.
 
 ## 2026-10-08 — Section 37 official corpus hashes and copyright correction
 
@@ -301,3 +303,12 @@ Following authentic-CBH 11-file original source qualification, added three expli
 - Exact GitHub source commits: release-audit `c3519c8b3eb7bcd7f30ab1d79d479832c63f92dc`, adversarial test `9870201ebac6a46d78a0009877aa9635403cea3f`, finalizer hook `b99773ba8bb30e703ebb37c572418a9fa9c3e1b1`, publication test `0311ba2c8419937192ec99840bd0f003a097db92`. Readback confirmed resulting audit/test/workflow Git blobs `4e2ab595c8eb929698648beef5aa361f175506e4`, `2945728c2ed104a35116b83b681ec759721f1e14`, `1118a401788cd55da6b2741f30d8e7cb4f6ee6a9` respectively, and that the fail-closed check precedes upload.
 - **Qualification truth:** source readback and marker/order checks are static, NOT actual execution of a repository test. Latest exact-SHA workflow `37829847654` for revised corpus and `37829847538` for owner finalizer contract were **QUEUED** at inspection, not GREEN. No real final owner ZIP was supplied, no live publication/upload or physical acceptance is claimed. The developer container cannot resolve `github.com` for a full checkout.
 - **Still OPEN:** Section 37 requires broader authentic source acquisitions, rights, fully qualified samples for remaining source formats, exact real-source readback and overall 37.1–37.6 completion. Section 38 remains pending genuine all-format imports, semantics, restart/cancellation and application integration. Neither is `DONE — TERMINAL`; do not use the archival old Section 37/38 labels, queued Actions, or an absent owner/NVDA test as closure evidence.
+
+## 2026-10-08 — Section 39 genuine-format qualification implementation (OPEN)
+
+- Extended existing Product PR #2494, retaining canonical `acs.pgn_service`, `acs.acsdb`, `acs.book_text_import`, `acs.position_editor`, `acs.lawful_corpus_registry`; no extra PGN/FEN/Book parser or chess authority.
+- Added `tools/section39_real_format_qualification.py`: explicitly lists the 16 plan formats; consumes only immutable hash-verified original corpus bytes and honestly distinguishes real input, derived ACSDB, verified bytes without semantic qualification, and unacquired file families.
+- Performed pathways implemented for CI: original Stockfish PGN ZIP first 24 complete games → canonical parse → save/reopen → original semantic tags/moves/result comparison → import ACSDB → process restart → read back every stored game; original full-FEN zip → canonical FEN re-import; actual GITenberg Capablanca TXT → semantic BookDocument read. External rights/ChessBase cannot become PASS from an extension or mock.
+- Added `tests/test_section39_real_format_qualification.py` for all 16 rows, source digests, explicit real/derived classification, bounded persistence, and negative anti-fake PASS. Linked to existing dual-OS workflow `.github/workflows/revised-sections37-42-corpus-visual.yml` with a source-bound report artifact `section39-real-format-qualification.json`.
+- The new tool sets `terminal_done=false`, `ci_completion=NOT_ATTESTED_BY_THIS_REPORT`, `manual_nvda_verified=false`, and `windows_packaged_verified=false`. Those fields must never be promoted automatically.
+- **Current Section 39: OPEN / NOT DONE.** The complete original-file format families, annotations/RAV/NAG/Chess960 matrix, stress/recovery combinations, Windows packaged checks, internal closure of dependencies 37/38 and exact-SHA terminal CI/integration readback remain necessary. Hosted test requests initially queued; not represented as passing.
