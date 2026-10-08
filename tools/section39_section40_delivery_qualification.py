@@ -203,6 +203,30 @@ def qualify_built_delivery(test_path: Path, public_path: Path,
     if {name.removeprefix("books/") for name in sample_rows} != set(original_bilingual_books):
         raise LawfulCorpusError("bilingual native chess test files were silently replaced")
 
+    from acs.section40_bilingual_master_workbook_runtime import (
+        build_real_bilingual_master_workbook, ORIGINAL_SOURCE_GIT_BLOB,
+    )
+    from tools.revised_section37_bilingual_workbook_pack import SOURCE
+    published = SOURCE.read_bytes()
+    import hashlib
+    published_blob = hashlib.sha1(
+        b"blob " + str(len(published)).encode("ascii") + bytes((0,)) + published
+    ).hexdigest()
+    if published_blob != ORIGINAL_SOURCE_GIT_BLOB:
+        raise LawfulCorpusError("integrated offline Books menu does not match original Section37 workbook source")
+    menu_uk, truth_uk = build_real_bilingual_master_workbook(language="uk")
+    menu_en, truth_en = build_real_bilingual_master_workbook(language="en")
+    if (
+        truth_uk != truth_en
+        or len(truth_uk) != 12
+        or len(menu_uk.exercises()) != 12
+        or len(menu_en.exercises()) != 12
+        or [e.fen for e in menu_uk.exercises()] !=
+            [e.fen for e in menu_en.exercises()]
+        or BookDocument.from_dict(menu_uk.as_dict()).as_dict() != menu_uk.as_dict()
+        or BookDocument.from_dict(menu_en.as_dict()).as_dict() != menu_en.as_dict()
+    ):
+        raise LawfulCorpusError("actual offline product bilingual Books menu cannot open original Section37 source")
     # Contents authored by this project are materialized in BookDocument form,
     # never conflated with the restricted original Gutenberg TXT.
     starter = BookDocument.from_dict(json.loads(tests["books/accessible-chess-starter-course.json"]))
@@ -300,6 +324,8 @@ def qualify_built_delivery(test_path: Path, public_path: Path,
         "bilingual_advanced_chess_positions": "PASS",
         "section37_bilingual_native_original_derived_book_files": 10,
         "section37_bilingual_original_lessons": 12,
+        "integrated_product_books_menu_12_lessons_uk_en": "PASS",
+        "product_menu_source_git_blob_sha1": ORIGINAL_SOURCE_GIT_BLOB,
         "section37_workbook_source_sha256": original_workbook["workbook_source_sha256"],
         "runtime_user_library_restart": "PASS",
         "public_rights_separation": "PASS",
