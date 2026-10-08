@@ -555,6 +555,7 @@ class TactileInputController:
         action_registry: ActionRegistryPort,
         dispatch: Callable[[str, Mapping[str, object]], object],
         settings_store: TactileDeviceSettingsStore,
+        product_security_guard: Callable[[str], None] | None = None,
     ) -> None:
         if not isinstance(profiles, TactileProfileRegistry):
             raise TypeError("profiles must be TactileProfileRegistry")
@@ -568,7 +569,10 @@ class TactileInputController:
             raise TypeError(
                 "settings_store must be TactileDeviceSettingsStore"
             )
+        if product_security_guard is not None and not callable(product_security_guard):
+            raise TypeError("product_security_guard must be callable or None")
         self._profiles = profiles
+        self._product_security_guard = product_security_guard
         self._action_registry = action_registry
         self._dispatch = dispatch
         self._store = settings_store
@@ -577,6 +581,15 @@ class TactileInputController:
         self._generation: dict[str, int] = {}
         self._validate_profile_actions()
         self._validate_saved_profile_ids()
+
+    def _require_device_security(self) -> None:
+        if self._product_security_guard is not None:
+            self._product_security_guard("BND.AC-S09-TACTILE-HW")
+            self._product_security_guard("BND.AC-S11-TACTILE-INPUT")
+
+    def _require_input_security(self) -> None:
+        if self._product_security_guard is not None:
+            self._product_security_guard("BND.AC-S11-TACTILE-INPUT")
 
     @property
     def settings(self) -> TactileSettings:
@@ -606,6 +619,7 @@ class TactileInputController:
         profile_id: str | None = None,
         remember: bool = True,
     ) -> TactileConnection:
+        self._require_device_security()
         _validate_device_id(device_id)
         if not isinstance(capabilities, TactileDeviceCapabilities):
             raise TypeError(
@@ -638,6 +652,7 @@ class TactileInputController:
         device_id: str,
         capabilities: TactileDeviceCapabilities,
     ) -> TactileConnection | None:
+        self._require_device_security()
         _validate_device_id(device_id)
         if not self._settings.reconnect_enabled:
             return None
@@ -665,6 +680,7 @@ class TactileInputController:
         *,
         remember: bool = True,
     ) -> TactileConnection:
+        self._require_device_security()
         current = self.connection(device_id)
         if current is None:
             raise TactileInputError("tactile device is not connected")
@@ -676,6 +692,7 @@ class TactileInputController:
         )
 
     def handle(self, event: TactileInputEvent) -> TactileInputResult:
+        self._require_input_security()
         if not isinstance(event, TactileInputEvent):
             raise TypeError("event must be TactileInputEvent")
         connection = self._connections.get(event.device_id)
@@ -878,12 +895,14 @@ def build_default_tactile_input_controller(
     settings_path: str | Path,
     action_registry: ActionRegistryPort,
     dispatch: Callable[[str, Mapping[str, object]], object],
+    product_security_guard: Callable[[str], None] | None = None,
 ) -> TactileInputController:
     return TactileInputController(
         TactileProfileRegistry(default_tactile_profiles()),
         action_registry=action_registry,
         dispatch=dispatch,
         settings_store=TactileDeviceSettingsStore(settings_path),
+        product_security_guard=product_security_guard,
     )
 
 
