@@ -22,6 +22,10 @@ from urllib.parse import urlsplit
 from urllib.request import Request, build_opener, HTTPSHandler, HTTPRedirectHandler
 
 from acs.lawful_corpus_registry import LawfulCorpusError
+from acs.acsdb import AcsDatabase
+from acs.gametree import parse_games
+from acs.library_import_service import LibraryImportService
+from acs.library_source_service import LibrarySourceCatalogService
 from acs.pgn_roundtrip import parse_pgn_text
 from tools.section38_39_mit_cbvault_oracle import (
     _bounded_file_digest, _original_games_signature, _run_external_pgn,
@@ -162,6 +166,67 @@ def qualify_original_publisher_pair(
         decoded_games = tuple(parse_pgn_text(
             decoded_raw.decode("utf-8-sig", errors="strict"), strict=False
         ))
+        if not 1 <= len(decoded_games) <= MAX_GAME_COUNT:
+            raise LawfulCorpusError("real CBV decoder returned invalid game count")
+        # Semantic qualification must not end at stdout PGN. Persist genuine
+        # CBV-derived games through the *existing* canonical Library importer,
+        # restart the actual SQLite database and search by source ID.
+        database_file = root / "real-original-cbv.acsdb"
+        source_digest = hashlib.sha256(cbv_raw).hexdigest()
+        with AcsDatabase(database_file) as database:
+            imported = LibraryImportService(database).import_games(
+                decoded_games,
+                source_name="Northwest Chess 2013-01 original annotated CBV",
+                source_format="cbv",
+                source_sha256=source_digest,
+            )
+            if imported.game_count != len(decoded_games):
+                raise LawfulCorpusError("original CBV Library publication was partial")
+            database.verify_integrity()
+        with AcsDatabase(database_file) as database:
+            sources = LibrarySourceCatalogService(database)
+            source = sources.get_source(imported.source_id)
+            if (source is None or source.source_sha256 != source_digest
+                or source.game_count != len(decoded_games)):
+                raise LawfulCorpusError("original CBV source identity lost at DB restart")
+            page = sources.source_games(imported.source_id,
+                                        limit=min(len(decoded_games), 200))
+            if not page.items:
+                raise LawfulCorpusError("real original CBV game Search is empty")
+            # Pagination across the *full* source; partial first page is not
+            # evidence of a complete 400+ game source.
+            stored_games = []
+            after_id = None
+            while True:
+                search_page = sources.source_games(
+                    imported.source_id, after_game_id=after_id, limit=200
+                )
+                for result in search_page.items:
+                    record = database.get_game(result.game_id)
+                    if record is None:
+                        raise LawfulCorpusError("original CBV stored source game missing")
+                    parsed = parse_games(str(record["pgn_text"]))
+                    if len(parsed) != 1:
+                        raise LawfulCorpusError("original CBV stored PGN invalid")
+                    stored_games.append((result.source_index, parsed[0]))
+                if not search_page.has_more:
+                    break
+                after_id = search_page.next_after_game_id
+                if after_id is None:
+                    raise LawfulCorpusError("original CBV source paging cursor absent")
+            stored_games.sort(key=lambda item: item[0])
+            storage_matches = (
+                len(stored_games) == len(decoded_games)
+                and _original_games_signature(tuple(x[1] for x in stored_games))
+                    == _original_games_signature(decoded_games)
+            )
+            repeated = LibraryImportService(database).import_games(
+                decoded_games, source_name="Northwest Chess 2013-01 original annotated CBV",
+                source_format="cbv", source_sha256=source_digest,
+            )
+            if (not repeated.reused or repeated.source_id != imported.source_id):
+                raise LawfulCorpusError("original CBV DB import is not idempotent")
+            database.verify_integrity()
     after = _bounded_file_digest(binary, max_bytes=120 * 1024 * 1024)
     if before != after:
         raise LawfulCorpusError("MIT original CBV decoder binary changed during test")
@@ -189,6 +254,10 @@ def qualify_original_publisher_pair(
         "cbv_decoder_actual_games": len(decoded_games),
         "actual_decoder_export_sha256": hashlib.sha256(decoded_raw).hexdigest(),
         "same_game_count": same_count,
+        "actual_acsdb_imported_games": imported.game_count,
+        "actual_acsdb_restart_game_count": len(stored_games),
+        "acsdb_restart_full_semantic_match": storage_matches,
+        "acsdb_reimport_reused": repeated.reused,
         "full_semantic_game_tree_match": same_tree,
         "source_acquisition": "ORIGINAL_EXTERNAL_HTTP200_TEST_ONLY_UNPINNED_OBSERVATION",
         "qualification": "PARTIAL" if same_tree else "FAIL",
