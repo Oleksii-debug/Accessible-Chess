@@ -34,8 +34,9 @@ on:
       - '.github/workflows/revised-section42-cc0-piece-qualification.yml'
   workflow_dispatch: {}
 concurrency:
-  group: section42-source-qualified-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  # Keep a fixed-SHA qualification alive despite unrelated corpus-worker pushes.
+  group: section42-source-qualified-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: false
 permissions:
   contents: read
 jobs:
