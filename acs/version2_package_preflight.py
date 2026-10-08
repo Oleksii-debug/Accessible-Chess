@@ -1729,10 +1729,11 @@ def _validate_required_runtime_resources(
     # assets, MIT notice and source manifest. It cannot silently fall back to
     # an unstyled page or remote CDN after the release preflight says PASS.
     web_index = root / "AccessibleChess" / "web" / "index.html"
-    index_info = _safe_lstat(web_index, label="packaged HTML theme entrypoint")
-    if index_info.st_size <= 0 or index_info.st_size > 4 * 1024 * 1024:
-        _fail("packaged HTML theme entrypoint size is invalid")
-    index_bytes = web_index.read_bytes()
+    index_bytes = _read_stable_bytes_file(
+        web_index,
+        label="packaged HTML theme entrypoint",
+        max_bytes=4 * 1024 * 1024,
+    )
     if b'assets/accessible_chess_design.css' in index_bytes:
         for relative in (
             "AccessibleChess/web/assets/accessible_chess_design.css",
