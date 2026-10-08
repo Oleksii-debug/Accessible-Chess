@@ -47,6 +47,7 @@ jobs:
             '.github/workflows/multiplayer-coordination-contract.yml'
             '.github/workflows/ui-semantic-gate.yml'
             'tests/test_accessible_webui.py'
+            'tests/test_p0_semantic_document_copy.py'
             'tests/test_stage1_packaged_focus_origin_contract.py'
             'tests/test_stage1_release_composition_ui.py'
             'tests/test_ui_semantic_gate_workflow.py'
