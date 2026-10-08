@@ -16,7 +16,7 @@ from acs.gametree import CanonicalPgnGameFramer
 from acs.lawful_corpus_registry import (
     LawfulCorpusError, load_catalog, read_verified_zip_member, verified_local_source,
 )
-from acs.library_import_service import LibraryImportService
+from acs.library_import_service import LibraryImportService, LibraryImportCancelledError
 from acs.library_source_service import LibrarySourceCatalogService
 from acs.pgn_roundtrip import parse_pgn_text
 from acs.pgn_service import open_pgn, save_pgn_atomic
@@ -171,6 +171,73 @@ class OriginalStockfishCanonicalIntegrationTests(unittest.TestCase):
         state = PositionState.from_fen(first)
         self.assertEqual(state.to_fen(), first)
         self.assertFalse(state.validate_playable())
+
+    def test_genuine_stockfish_import_cancellation_is_atomic_and_restartable(self):
+        """Section 38.3: real upstream bytes, cancellation and durable recovery."""
+        record, original = _original_member(ORIGINAL_PGN_ID)
+        self.assertEqual(record["format"], "pgn.zip")
+        framer = CanonicalPgnGameFramer(max_frame_bytes=256 * 1024)
+        framed = []
+        for line in original.decode("utf-8-sig", errors="strict").splitlines():
+            complete = framer.feed_line(line)
+            if complete is not None:
+                framed.append(complete.text)
+                if len(framed) >= 32:
+                    break
+        self.assertEqual(len(framed), 32)
+        text = "\n".join(framed)
+        games = parse_pgn_text(text, strict=False)
+        self.assertEqual(len(games), 32)
+        for index, game in enumerate(games):
+            game.source_index = index
+        source_sha = hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+        with tempfile.TemporaryDirectory(prefix="acs-real-stockfish-cancel-") as temp:
+            destination = Path(temp) / "cancelled-stockfish.acsdb"
+            should_cancel = False
+            observed_staging = []
+
+            def on_progress(update):
+                nonlocal should_cancel
+                observed_staging.append(update.processed_games)
+                if update.processed_games >= 3:
+                    should_cancel = True
+
+            def cancelled():
+                return should_cancel
+
+            with AcsDatabase(destination) as database:
+                with self.assertRaises(LibraryImportCancelledError):
+                    LibraryImportService(database).import_games(
+                        games, source_name="official Stockfish 32 real records",
+                        source_format="pgn", source_sha256=source_sha,
+                        cancel_check=cancelled, progress_callback=on_progress,
+                    )
+                self.assertTrue(any(count >= 3 for count in observed_staging))
+                self.assertEqual(
+                    LibrarySourceCatalogService(database).list_sources().items, (),
+                    "cancelled genuine-source batch must publish no partial games",
+                )
+                database.verify_integrity()
+
+            # The durable cancelled-attempt receipt may remain, but no game
+            # source may leak; a clean retry after process restart must succeed.
+            with AcsDatabase(destination) as database:
+                self.assertEqual(
+                    LibrarySourceCatalogService(database).list_sources().items, ()
+                )
+                result = LibraryImportService(database).import_games(
+                    games, source_name="official Stockfish retry after cancellation",
+                    source_format="pgn", source_sha256=source_sha,
+                )
+                self.assertFalse(result.reused)
+                self.assertEqual(result.game_count, 32)
+                self.assertEqual(
+                    len(LibrarySourceCatalogService(database).source_games(
+                        result.source_id, limit=32,
+                    ).items), 32,
+                )
+                database.verify_integrity()
 
     def test_invalid_member_and_altered_bytes_fail_before_publication(self):
         record, content = _original_member(ORIGINAL_PGN_ID)
