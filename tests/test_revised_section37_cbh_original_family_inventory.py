@@ -7,6 +7,7 @@ oracle bytes separately, at a pinned Git revision.
 from __future__ import annotations
 
 from pathlib import Path
+import hashlib
 import tempfile
 import unittest
 
@@ -42,12 +43,22 @@ def sample_fixture(root: Path) -> dict:
         "external_oracle_git_blob": _raw_git_blob(ORACLE),
         "external_license_git_blob": _raw_git_blob(LICENSE),
         "external_companion_git_blobs": {},
+        "external_companion_source_checksums": {},
+        "external_oracle_source_checksum": {
+            "name": "Reference.pgn",
+            "bytes": len(ORACLE),
+            "sha256": hashlib.sha256(ORACLE).hexdigest(),
+        },
     }
     for ext in sorted(SUFFIXES):
         name = "Sample" + ext
         data = ("original test-only companion " + name).encode()
         (root / "gtest/Annotation" / name).write_bytes(data)
         record["external_companion_git_blobs"][name] = _raw_git_blob(data)
+        record["external_companion_source_checksums"][name] = {
+            "bytes": len(data),
+            "sha256": hashlib.sha256(data).hexdigest(),
+        }
     (root / "gtest/Annotation/Reference.pgn").write_bytes(ORACLE)
     return record
 
@@ -70,6 +81,8 @@ class OriginalGPLCompanionTests(unittest.TestCase):
                 self.assertEqual(set(companions), {stem + ext for ext in SUFFIXES})
                 self.assertTrue(all(len(digest) == 40 for digest in companions.values()))
                 self.assertEqual(len(entry["external_oracle_git_blob"]), 40)
+                self.assertEqual(set(entry["external_companion_source_checksums"]), set(companions))
+                self.assertEqual(len(entry["external_oracle_source_checksum"]["sha256"]), 64)
 
     def test_original_complete_source_family_verified_without_mutation(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -129,6 +142,8 @@ class OriginalGPLCompanionTests(unittest.TestCase):
                 {"external_fixture_stem": "Other"},
                 {"external_oracle_git_blob": "0" * 40},
                 {"upstream_commit": "0" * 40},
+                {"external_companion_source_checksums": {}},
+                {"external_oracle_source_checksum": {"bytes": 1, "sha256": "0" * 64}},
             ):
                 with self.subTest(tamper=tamper):
                     with self.assertRaises(LawfulCorpusError):
