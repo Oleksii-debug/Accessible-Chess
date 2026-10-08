@@ -1,0 +1,70 @@
+name: Sections 43-46 Design Workspace Quality
+
+on:
+  pull_request:
+    paths:
+      - 'acs/design_studio.py'
+      - 'acs/visual_preferences.py'
+      - 'acs/visual_pack_store.py'
+      - 'acs/visual_board_webview.py'
+      - 'acs/version2_release_ui.py'
+      - 'web/index.html'
+      - 'web/accessible_chess_design.css'
+      - 'web/accessible_chess_workspaces.js'
+      - 'tests/test_sections43_46_design_workspace.py'
+      - 'scripts/capture_sections43_46_visual_baselines.py'
+      - '.github/workflows/sections43-46-design-quality.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  design-quality:
+    name: design-quality (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile design and V2 presentation authority
+        run: >-
+          python -m py_compile
+          acs/design_studio.py
+          acs/visual_preferences.py
+          acs/visual_pack_store.py
+          acs/visual_board_webview.py
+          acs/version2_release_ui.py
+          scripts/capture_sections43_46_visual_baselines.py
+          tests/test_sections43_46_design_workspace.py
+
+      - name: Run Sections 43-46 design workspace contracts
+        run: python -m unittest -v tests.test_sections43_46_design_workspace
+
+      - name: Run canonical product selftest
+        run: python -m acs.selftest
+
+      - name: Validate workspace JavaScript syntax
+        run: node --check web/accessible_chess_workspaces.js
+
+      - name: Capture real browser visual baselines
+        run: python scripts/capture_sections43_46_visual_baselines.py
+
+      - name: Upload visual baseline evidence
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
+        with:
+          name: sections43-46-visual-baselines-${{ matrix.os }}
+          path: artifacts/sections43-46-visual-baselines/
+          if-no-files-found: error
+          retention-days: 30
