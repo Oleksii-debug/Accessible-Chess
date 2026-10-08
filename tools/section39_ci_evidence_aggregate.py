@@ -32,7 +32,8 @@ def _valid_digest(value: object, length: int) -> bool:
 
 def merge_real_receipts(base: dict, original_positions: dict, original_books: dict,
                         catalog: tuple[dict, ...], expected_sha: str,
-                        cbh: dict | None = None) -> dict:
+                        cbh: dict | None = None,
+                        advanced: dict | None = None) -> dict:
     if not _valid_digest(expected_sha, 40):
         raise LawfulCorpusError("Section 39 merge lacks exact source SHA")
     reports = (base, original_positions, original_books)
@@ -67,6 +68,51 @@ def merge_real_receipts(base: dict, original_positions: dict, original_books: di
         raise LawfulCorpusError("original licensed external-file matrices incomplete")
 
     imported_external = []
+    # Section 37 keeps adding real original chess files on this workline.
+    # Reuse those exact bytes and their observed end-to-end semantic verdicts.
+    if advanced is not None:
+        adv_id = "lichess_cc0_high_level_4_original_annotated_games"
+        entry = sources.get(adv_id)
+        actual = advanced.get("actual", {})
+        if (
+            entry is None
+            or advanced.get("schema") != "accessible-chess-section39-new-section37-annotated-source-v1"
+            or advanced.get("source_commit_sha") != expected_sha
+            or advanced.get("source_id") != adv_id
+            or advanced.get("real_source_read") is not True
+            or advanced.get("mocked") is not False
+            or advanced.get("original_sha256") != entry.get("sha256")
+            or advanced.get("original_bytes") != entry.get("indexed_bytes")
+            or advanced.get("original_game_count") != 4
+            or entry.get("acquisition") != "VENDORED_SOURCE_VERIFIED"
+            or entry.get("redistribution") != "permitted"
+            or advanced.get("qualification") != "PASS"
+            or actual.get("full_game_tree_equal_after_pgn_export") is not True
+            or actual.get("full_game_tree_equal_after_acsdb_restart") is not True
+            or actual.get("search_result_games") != 4
+            or actual.get("source_indexes") != [0, 1, 2, 3]
+        ):
+            raise LawfulCorpusError("new original Section37 annotated source not fully qualified")
+        receipt = base_receipts[adv_id]
+        if receipt.get("actual_sha256") is not None:
+            raise LawfulCorpusError("original annotated source already attributed to another candidate")
+        receipt.update({
+            "actual_sha256": advanced["original_sha256"],
+            "actual_bytes": advanced["original_bytes"],
+            "status": "PASS",
+            "actual_importer": advanced["actual_importer"],
+            "note": "genuine original Section37 annotated PGN, full GameTree export/reimport/search/SQLite restart",
+        })
+        pgn_row = rows["PGN"]
+        pgn_row["genuine_external_sources"] = list(pgn_row.get("genuine_external_sources", [])) + [{
+            "source_id": adv_id, "actual_sha256": advanced["original_sha256"],
+            "qualification": advanced["qualification"],
+            "actual_importer": advanced["actual_importer"],
+            "full_game_tree_equal": True,
+            "annotated_game_count": 4,
+        }]
+        pgn_row["source_ids"] = sorted(set(pgn_row["source_ids"]) | {adv_id})
+
     # The CBH authority is the already-existing original libcbh test adapter.
     # Retain the full 11-file companion identity for each of three real families.
     if cbh is not None:
@@ -260,7 +306,7 @@ def merge_real_receipts(base: dict, original_positions: dict, original_books: di
     return {
         "schema": "accessible-chess-section39-combined-external-genuine-evidence-v1",
         "section": 39, "source_commit_sha": expected_sha,
-        "original_source_count": len(imported_external) + (3 if cbh is not None else 0),
+        "original_source_count": len(imported_external) + (3 if cbh is not None else 0) + (1 if advanced is not None else 0),
         "format_count": 16, "format_rows": [rows[r["format"]] for r in original_rows],
         "source_receipts": [base_receipts[r["source_id"]] for r in base["source_receipts"]],
         "full_matrix_completed": False,
@@ -291,11 +337,12 @@ def main() -> None:
     parser.add_argument("--positions", type=Path, required=True)
     parser.add_argument("--books", type=Path, required=True)
     parser.add_argument("--cbh", type=Path, required=True)
+    parser.add_argument("--advanced", type=Path, required=True)
     args = parser.parse_args()
     head = _source_head()
     result = merge_real_receipts(
         _read(args.base), _read(args.positions), _read(args.books),
-        load_catalog(), head, _read(args.cbh),
+        load_catalog(), head, _read(args.cbh), _read(args.advanced),
     )
     staged = REPORT.with_suffix(".tmp")
     try:
