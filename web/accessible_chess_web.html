@@ -15,12 +15,14 @@ button,input,select,textarea{font:inherit;padding:.45rem}.route-button[aria-curr
 .grid button{min-height:2.7rem}.status{min-height:1.5rem}
 progress{width:min(32rem,100%)}
 </style>
+<link rel="stylesheet" href="assets/accessible_chess_design.css">
 </head>
 <body>
 <a class="skip" href="#workspace">До основного вмісту</a>
 <header>
 <h1>Accessible Chess Web</h1>
 <p id="account-context" class="readable"></p>
+<div class="ac41-theme-control"><label for="ac41-theme">Тема інтерфейсу</label><select id="ac41-theme"><option value="system">Системна</option><option value="light">Світла</option><option value="dark">Темна</option><option value="contrast">Контрастна</option></select></div>
 </header>
 <nav aria-label="Розділи">
 <ul id="routes">
@@ -59,6 +61,7 @@ progress{width:min(32rem,100%)}
 <div id="commands"></div>
 </section>
 </main>
+<script>document.getElementById("ac41-theme").addEventListener("change",event=>{const t=event.currentTarget.value;if(["system","light","dark","contrast"].includes(t))document.documentElement.dataset.acUiTheme=t});</script>
 <script src="/assets/accessible_chess_web.js"></script>
 </body>
 </html>
