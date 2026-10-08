@@ -184,5 +184,23 @@ class Section52CorpusQualificationTests(unittest.TestCase):
             )
 
 
+    def test_credential_format_files_are_never_transferrable_corpus(self):
+        extra = self.stage / "books" / "signing-private-key.pfx"
+        extra.write_bytes(b"test fixture only")
+        self.deny()
+        extra.unlink()
+        extra = self.stage / "books" / "api-token.key"
+        extra.write_bytes(b"test fixture only")
+        self.deny()
+
+    def test_directory_amplification_is_bounded(self):
+        from unittest import mock
+        from acs import section52_distribution_qualification as gate
+        original = gate.MAX_DIRECTORIES
+        with mock.patch.object(gate, "MAX_DIRECTORIES", 0):
+            self.deny()
+        self.assertGreater(original, 0)
+
+
 if __name__ == "__main__":
     unittest.main()
