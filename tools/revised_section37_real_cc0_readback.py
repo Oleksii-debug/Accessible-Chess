@@ -30,6 +30,8 @@ from tools.v2_library_source_catalog_real_corpus import (
 SOURCE_IDS = (
     "lichess_standard_rated_2013_02",
     "lichess_standard_rated_2013_03",
+    "lichess_standard_rated_2013_04",
+    "lichess_standard_rated_2013_08",
 )
 SAMPLE_GAMES = 128
 REPORT_FILE = Path("revised-section37-live-cc0-readback.json")
@@ -46,6 +48,9 @@ def main() -> None:
             # no redirects, no owner-file overwrite and whole-source SHA256.
             compressed = acquire_cc0_source(record, cache)
             sha256 = verified_local_source(compressed, record)
+            indexed_bytes = record.get("indexed_bytes")
+            if indexed_bytes is not None and compressed.stat().st_size != indexed_bytes:
+                raise AssertionError(f"{source_id}: source listing byte count mismatch")
             subset = cache / (source_id + "-128.pgn")
             with compressed.open("rb") as raw:
                 with zstandard.ZstdDecompressor().stream_reader(raw) as decoded:
