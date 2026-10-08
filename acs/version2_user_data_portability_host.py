@@ -93,7 +93,7 @@ def _inside(path: Path, root: Path) -> bool:
 
 
 def _validated_relative(relative: str) -> str:
-    if type(relative) is not str or not relative or "\\x00" in relative or "\\" in relative:
+    if type(relative) is not str or not relative or chr(0) in relative or "\\" in relative:
         raise UserDataArchiveError("archive path is unsafe")
     token = PurePosixPath(relative)
     if token.is_absolute() or token.as_posix() != relative or any(part in {"", ".", ".."} for part in token.parts):
