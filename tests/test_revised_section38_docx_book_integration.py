@@ -9,6 +9,10 @@ import tempfile
 import unittest
 from zipfile import ZipFile, ZIP_DEFLATED
 
+from acs.acsdb import AcsDatabase
+from acs.analysis_service import AnalysisService
+from acs.book_progress_store import BookProgressStore
+from acs.engine_assisted_workflows import EngineAssistedWorkflowService
 from acs.book_docx_import import (
     MAX_DOCX_SOURCE_BYTES, DocxBookImportError, import_docx_book,
 )
@@ -153,6 +157,51 @@ class RealDocxIngressContractTests(unittest.TestCase):
                     archive.writestr(item.filename, payload)
         with self.assertRaisesRegex(DocxBookImportError, "genuine Word document"):
             import_docx_book(buffer.getvalue(), source_name="not-really-a-docx.docx")
+
+    def test_word_source_becomes_visible_books_route_and_resumes_after_app_restart(self):
+        """Not merely an importer: exercise the same UI + progress publication."""
+        with tempfile.TemporaryDirectory(prefix="acs-section38-windows-books-") as temp:
+            root = Path(temp)
+            source = root / "real-opc-book.docx"
+            source.write_bytes(_docx())
+            progress_file = root / "book-progress.json"
+            database = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                helper = EngineAssistedWorkflowService(analysis)
+                def new_app():
+                    return Version2Application(
+                        database,
+                        progress_store=BookProgressStore(progress_file),
+                        engine_assistance=helper,
+                        board_dispatch=lambda *_: None,
+                        board_position_projector=lambda fen: {"fen": fen},
+                    )
+
+                first = new_app()
+                count = first.commit_prepared_book_open(
+                    Version2Application.prepare_book_open(source)
+                )
+                self.assertIsInstance(count, int)
+                self.assertEqual(first.shell.current_route.route_id, "books")
+                self.assertIsNotNone(first.books)
+                self.assertEqual(first.reader.document.title, "Accessible Word Chess Book")
+                step = first.reader.next_block()
+                first.save_book_progress()
+
+                # The UI owner is rebuilt from the same actual source path and
+                # canonical progress store, with no test-only restore shortcut.
+                reopened = new_app()
+                reopened.commit_prepared_book_open(
+                    Version2Application.prepare_book_open(source)
+                )
+                self.assertEqual(reopened.shell.current_route.route_id, "books")
+                self.assertEqual(reopened.reader.location(), step)
+                self.assertEqual(reopened.reader.next_block().kind, "Note")
+                self.assertIsNotNone(reopened.books.projection.snapshot())
+            finally:
+                analysis.close()
+                database.close()
 
     def test_malformed_xml_package_navigation_and_limits_refused(self):
         for source in (
