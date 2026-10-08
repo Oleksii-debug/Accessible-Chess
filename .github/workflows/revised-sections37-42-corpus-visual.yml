@@ -89,6 +89,9 @@ jobs:
           tests/test_revised_section37_external_position_acquisition.py
           tools/revised_section37_release_exclusion.py
           tests/test_revised_section37_release_exclusion.py
+          tools/revised_section37_advanced_puzzle_curator.py
+          tests/test_revised_section37_advanced_puzzle_curator.py
+          tests/test_revised_section37_advanced_owner_training_source_policy.py
           tools/revised_section37_cbh_original_family_inventory.py
           tests/test_revised_section37_cbh_original_family_inventory.py
           tests/test_revised_sections41_42_design.py
@@ -107,6 +110,8 @@ jobs:
           tests.test_revised_section37_external_book_acquisition
           tests.test_revised_section37_external_position_acquisition
           tests.test_revised_section37_release_exclusion
+          tests.test_revised_section37_advanced_puzzle_curator
+          tests.test_revised_section37_advanced_owner_training_source_policy
           tests.test_revised_section37_advanced_puzzle_curator
           tests.test_revised_section37_cbh_original_family_inventory
           tests.test_revised_sections41_42_design
