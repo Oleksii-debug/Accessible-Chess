@@ -81,7 +81,10 @@ class CanonicalPaidOperationCallback:
 
     def __call__(self, principal: AuthenticatedPrincipal, request: ApiRequest) -> bool:
         if (type(principal) is not AuthenticatedPrincipal
-                or type(request) is not ApiRequest):
+                or type(request) is not ApiRequest
+                or request.workspace_id != principal.workspace_id
+                or request.operation == ""
+                or request.request_id == ""):
             return False
         try:
             ctx = self._transport(principal, request)
