@@ -27,7 +27,7 @@ from .recorded_media_sync import seek_recorded_media
 
 
 _MAX_SOURCE_TEXT = 4096
-_PROVIDER_KINDS = frozenset({"youtube", "host"})
+_PROVIDER_KINDS = frozenset({"youtube", "browser_local", "host"})
 _PLAYBACK_STATES = frozenset(
     {"unstarted", "playing", "paused", "buffering", "ended"}
 )
@@ -94,6 +94,7 @@ class MediaUserWorkflowContext:
     application: MediaApplicationService
     provider_kind: str
     playback: HostPlaybackPort | None = None
+    browser_source_url: str | None = None
     preprocess_provider: Callable[[], PreprocessCheckpoint | None] | None = None
     cancel_preprocess: Callable[[], object] | None = None
 
@@ -105,8 +106,20 @@ class MediaUserWorkflowContext:
         if self.provider_kind == "host":
             if self.playback is None or not isinstance(self.playback, HostPlaybackPort):
                 raise MediaUserWorkflowError("host media requires a playback port")
-        elif self.playback is not None:
-            raise MediaUserWorkflowError("browser media cannot bind a host playback port")
+            if self.browser_source_url is not None:
+                raise MediaUserWorkflowError("host media cannot expose a browser source URL")
+        else:
+            if self.playback is not None:
+                raise MediaUserWorkflowError("browser media cannot bind a host playback port")
+            if self.provider_kind == "browser_local":
+                if type(self.browser_source_url) is not str:
+                    raise MediaUserWorkflowError("browser-local media requires a source URL")
+                if not self.browser_source_url.startswith("file:///"):
+                    raise MediaUserWorkflowError("browser-local media requires a trusted file URL")
+                if "\x00" in self.browser_source_url or len(self.browser_source_url) > 8192:
+                    raise MediaUserWorkflowError("browser-local media source URL is invalid")
+            elif self.browser_source_url is not None:
+                raise MediaUserWorkflowError("YouTube media cannot expose a local source URL")
         if self.preprocess_provider is not None and not callable(self.preprocess_provider):
             raise TypeError("preprocess_provider must be callable or None")
         if self.cancel_preprocess is not None and not callable(self.cancel_preprocess):
@@ -226,7 +239,7 @@ class MediaUserWorkflowService:
         playback_state: str,
     ) -> dict[str, object]:
         context = self._context_or_error()
-        if context.provider_kind != "youtube":
+        if context.provider_kind not in {"youtube", "browser_local"}:
             raise MediaUserWorkflowError("browser playback is not active")
         snapshot = MediaPlaybackSnapshot(
             source_id=source_id,
@@ -315,6 +328,9 @@ class MediaUserWorkflowService:
             "ok": bool(player.get("ok")),
             "providerKind": context.provider_kind,
             "sourceTitle": context.application.source.title,
+            "browserSourceUrl": (
+                context.browser_source_url if context.provider_kind == "browser_local" else None
+            ),
             "revision": self._revision,
             "player": dict(player),
         }
@@ -331,7 +347,7 @@ class MediaUserWorkflowService:
         except RecordedMediaAccessibilityError as exc:
             raise MediaUserWorkflowError(str(exc)) from exc
 
-        if context.provider_kind == "youtube" and command.action in {"play", "pause", "seek"}:
+        if context.provider_kind in {"youtube", "browser_local"} and command.action in {"play", "pause", "seek"}:
             raise MediaUserWorkflowError(
                 "browser playback commands must be handled by the active provider adapter"
             )
