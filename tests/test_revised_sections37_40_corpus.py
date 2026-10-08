@@ -9,7 +9,7 @@ import unittest
 from unittest.mock import Mock
 
 from acs.lawful_corpus_registry import (
-    LawfulCorpusError, acquire_cc0_source, load_catalog, verified_local_source,
+    LawfulCorpusError, acquire_cc0_source, load_catalog, verified_local_source, qualify_offline_collection,
 )
 
 
@@ -95,6 +95,27 @@ class RevisedCorpusContractTests(unittest.TestCase):
                             opener=lambda *_a, **_kw: Response(content, final_url),
                         )
                     self.assertEqual(list(root.iterdir()), [])
+
+    def test_offline_test_and_public_release_split_never_leaks_unqualified_material(self):
+        payload = b"CC0 fixture bytes"
+        accepted = self._record(payload)
+        book = {**accepted, "id": "unverified_book", "license": "UNKNOWN", "redistribution": "NOT_CLEARED"}
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for mode in ("TEST_BUILD", "PUBLIC_RELEASE"):
+                self.assertEqual(qualify_offline_collection((accepted, book), root, distribution=mode), ())
+            target = root / (accepted["id"] + ".pgn.zst")
+            target.write_bytes(payload)
+            for mode in ("TEST_BUILD", "PUBLIC_RELEASE"):
+                result = qualify_offline_collection((accepted, book), root, distribution=mode)
+                self.assertEqual(len(result), 1)
+                self.assertEqual(result[0]["source_id"], accepted["id"])
+                self.assertEqual(result[0]["semantic_state"], "VERIFIED_BYTES_NOT_IMPORTED")
+            target.write_bytes(b"tampered")
+            with self.assertRaises(LawfulCorpusError):
+                qualify_offline_collection((accepted, book), root, distribution="PUBLIC_RELEASE")
+            with self.assertRaises(LawfulCorpusError):
+                qualify_offline_collection((accepted, book), root, distribution="production")
 
     def test_private_file_symlink_and_checksum_mutation_fail_closed(self):
         record = self._record(b"correct")
