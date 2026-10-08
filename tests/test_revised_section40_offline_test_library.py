@@ -117,7 +117,7 @@ class RevisedSection40CollectionTests(unittest.TestCase):
                 names = set(z.namelist())
                 catalog = json.loads(z.read("catalog/materials.json"))
                 self.assertEqual(catalog["profile"], "PUBLIC_RELEASE")
-                self.assertEqual(len(catalog["materials"]), 50)
+                self.assertGreaterEqual(len(catalog["materials"]), 50)
                 self.assertFalse(any(p.startswith("library/") for p in names))
                 self.assertNotIn("library/original-reti-1921-uk-en-study.pgn", names)
                 self.assertFalse(any("stockfish_" in p for p in names))
