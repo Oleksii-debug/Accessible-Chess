@@ -31,7 +31,7 @@ from acs.starter_books_training_release import (
     build_training_task_catalogue,
 )
 from acs.starter_books_training_runtime import build_training_ready_starter_course
-from tools.revised_section40_advanced_training import build_advanced_training
+from tools.revised_section40_advanced_training import build_complete_advanced_training
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -286,7 +286,7 @@ def build_collection(profile: str, output: Path, *, root: Path = ROOT) -> dict:
     book_assets, book_rows = _books_and_training()
     assets.update(book_assets)
     rows.extend(book_rows)
-    advanced_assets, advanced_rows = build_advanced_training(root=root)
+    advanced_assets, advanced_rows = build_complete_advanced_training(root=root)
     if set(assets) & set(advanced_assets):
         raise OfflineCollectionError("duplicate advanced training content key")
     assets.update(advanced_assets)
