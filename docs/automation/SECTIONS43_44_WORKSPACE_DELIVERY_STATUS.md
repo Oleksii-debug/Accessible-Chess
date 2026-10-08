@@ -57,7 +57,7 @@ Do not merge this feature into docs-only `main` while shipping ancestry remains 
   use shared responsive card-like layout for board, route text, status,
   command and video components. Media/YouTube native controls are not covered.
 - 44.6 Tests: **PARTIAL**. Added exact-source cross-OS workflow that executes
-  8 custom runtime/static contract groups plus six preexisting Books/Training,
+  9 custom runtime/static contract groups plus six preexisting Books/Training,
   Library, PGN, Teacher, Classroom and Education DOM test scripts and
   preexisting Web Python tests. CI is not yet qualified; module-specific
   performance, real multi-device visuals and full keyboard/zoom acceptance
@@ -65,15 +65,17 @@ Do not merge this feature into docs-only `main` while shipping ancestry remains 
 
 ## Local executed JS evidence
 
-Eight source-bound groups passed in a V8 harness that loaded live GitHub
+Nine source-bound groups passed in a V8 harness that loaded live GitHub
 blob bytes and executed the actual `web/index.html` inline layout script and
 extracted `web/version2_final_product_bootstrap.js` product-mode authority,
 including collapsed focus, restart/reset, invalid/oversized storage,
 previously-hidden child preservation, route-specific mode persistence, bilingual
-options, current service/CSS selector wiring, and WCAG AA text/action contrast checks for light, dark and high-contrast modes. This is not a claim that
+options, current service/CSS selector wiring, simulated private-WebView native restart, and WCAG AA text/action contrast checks for light, dark and high-contrast modes. This is not a claim that
 Node GitHub Actions or genuine Windows UI Automation ran.
 
 CI workflow: `.github/workflows/sections43-44-workspace-qualification.yml`.
+Native Settings tests: `tests/test_sections43_44_native_layout_persistence.py`.
+Independent manual checklist: `docs/automation/SECTIONS43_44_WINDOWS_NVDA_READBACK_UK_EN.md`.
 Tests: `tests/js/sections43_44_workspace_contract_test.js`.
 
 ## Terminal closure rule
