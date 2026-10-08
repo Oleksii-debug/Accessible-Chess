@@ -86,13 +86,13 @@ def qualified_mit_icons(*, root: Path = ROOT) -> tuple[dict, tuple[ComponentReco
         ))
     if len(qualified) != 2 or len({x["local"] for x in rows}) != 2:
         raise Section41AssetError("pinned Tabler icon selection changed")
-    if data["release_pinning"]["tabler_core"]["integration_status"] != "NOT_INSTALLED_NO_CLAIM":
+    if data["release_pinning"]["tabler_core"]["integration_status"] != "REVIEWED_CSS_COMPONENT_ONLY":
         raise Section41AssetError("unreviewed complete Tabler Core import cannot be claimed")
     return {
         "schema": "acs-section41-mit-asset-evidence-v1",
         "asset_count": len(rows), "items": rows,
         "icons_upstream_commit": obj["commit_sha"],
-        "tabler_core_status": "NOT_INSTALLED_NO_CLAIM",
+        "tabler_core_status": "REVIEWED_CSS_COMPONENT_ONLY",
         "paid_assets_included": False,
         "nvda_human_verified": False,
         "section41_done": False,
@@ -126,6 +126,12 @@ def qualified_mit_tabler_core(*, root: Path = ROOT) -> tuple[dict, ComponentReco
         or any(token in data.get("component_scope", ())
                for token in ("ApexCharts", "Tabler Pro"))):
         raise Section41AssetError("Tabler Core MIT source/derivative identity changed")
+    # The manifest cannot redirect a checksum-verified read outside the repo,
+    # even if its listed Git object digests happen to remain unchanged.
+    if (data.get("source_path") != "docs/third_party/tabler-core-1.6.1-accessibility.scss"
+        or data.get("license_path") != "web/assets/tabler-core/LICENSE"
+        or data.get("compiled_css") != "web/assets/tabler-core/accessibility.css"):
+        raise Section41AssetError("Tabler Core provenance path redirect refused")
     pinned = (
         (data["source_path"], required["source_git_blob"], 32 * 1024),
         (data["license_path"], required["original_license_git_blob"], 16 * 1024),
