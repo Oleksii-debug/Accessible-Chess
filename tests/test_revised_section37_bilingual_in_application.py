@@ -30,8 +30,12 @@ class BilingualOwnerBooksProductReadback(unittest.TestCase):
                     prepared = Version2Application.prepare_book_open(source)
                     self.assertGreater(len(prepared.document.blocks), 20)
                     self.assertTrue(prepared.book_key)
-                    self.assertEqual(prepared.document.title.startswith("Advanced Chess Laboratory") or
-                                     prepared.document.title.startswith("Майстерська шахова лабораторія"), True)
+                    self.assertTrue(prepared.document.title)
+                    self.assertTrue(
+                        prepared.document.title.startswith("Advanced Chess Laboratory")
+                        or prepared.document.title.startswith("Майстерська шахова лабораторія")
+                        or source.suffix == ".txt",  # Plain TXT has no semantic title declaration.
+                    )
                     if source.suffix in (".md", ".html", ".epub"):
                         self.assertTrue(any(block.kind == "Position" for block in prepared.document.blocks))
                     if source.suffix in (".txt", ".docx"):
