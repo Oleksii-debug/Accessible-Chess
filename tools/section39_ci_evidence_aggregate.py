@@ -119,6 +119,10 @@ def merge_real_receipts(base: dict, original_positions: dict, original_books: di
                 or type(row.get("derived_bytes")) is not int or row["derived_bytes"] < 250
                 or type(row.get("semantic_blocks")) is not int or row["semantic_blocks"] < 20
                 or row.get("explicit_fen_positions") != (12 if ext in ("MD", "HTML", "EPUB") else 0)
+                or row.get("source_fen_sequence_identical") !=
+                    (True if ext in ("MD", "HTML", "EPUB")
+                     else "NO_EXPLICIT_FEN_METADATA_IN_TEXT_DOCX")
+                or row.get("all_twelve_original_prompts_present") is not True
                 or row.get("bookdocument_semantic_reimport") != "PASS"
                 or row.get("book_progress_disk_restart") != "PASS"
                 or row.get("source_kind") != "AUTHORED_DERIVED_FROM_PINNED_ORIGINAL_CC0_POSITIONS"
