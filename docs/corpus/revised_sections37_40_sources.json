@@ -435,6 +435,7 @@
       "indexed_bytes": 262824,
       "license": "Project Gutenberg ebook #33870; public domain in the USA, retain full Gutenberg notice/license; other jurisdictions must be evaluated",
       "redistribution": "NOT_CLEARED",
+      "public_release": "EXCLUDED",
       "acquisition": "VENDORED_SOURCE_VERIFIED",
       "upstream_commit": "6d533e519e965dfb29df2b5c053cab3b3a5685dd",
       "upstream_git_blob": "c9a674d3281ccd8a39de7ca673467b79902a103a",
