@@ -10,7 +10,7 @@ import unittest
 from acs.spdx_sbom import validate_spdx_document
 from tools.revised_section41_mit_asset_qualification import (
     ROOT, Section41AssetError, build_asset_fixture_spdx,
-    git_blob_sha1, qualified_mit_icons,
+    git_blob_sha1, qualified_mit_icons, qualified_mit_tabler_core,
 )
 
 
@@ -37,15 +37,16 @@ class Section41RealDesignTests(unittest.TestCase):
         self.assertEqual(receipt["asset_count"],2)
         self.assertEqual(len(components),2)
         self.assertFalse(receipt["section41_done"])
-        self.assertEqual(receipt["tabler_core_status"],"NOT_INSTALLED_NO_CLAIM")
+        self.assertEqual(receipt["tabler_core_status"],"REVIEWED_CSS_COMPONENT_ONLY")
         for item in receipt["items"]:
             blob=(ROOT/item["local"]).read_bytes()
             self.assertEqual(git_blob_sha1(blob),item["git_blob_sha1"])
             self.assertEqual(hashlib.sha256(blob).hexdigest(),item["sha256"])
         evidence,spdx=build_asset_fixture_spdx(root=ROOT,exact_commit="a"*40)
         validate_spdx_document(spdx)
-        self.assertEqual(evidence,receipt)
-        self.assertEqual(len(spdx["packages"]),3)
+        self.assertEqual(evidence["items"],receipt["items"])
+        self.assertEqual(evidence["tabler_core"]["version"],"1.6.1")
+        self.assertEqual(len(spdx["packages"]),4)
         self.assertTrue(all(p["licenseDeclared"]=="MIT" for p in spdx["packages"][1:]))
 
     def test_poisoned_svg_and_edited_license_fail_closed(self):
@@ -118,7 +119,7 @@ class Section41RealDesignTests(unittest.TestCase):
             html=package/"AccessibleChess/web/index.html"
             html.write_text(
                 '<!doctype html><html><head><link rel="stylesheet" '
-                'href="assets/accessible_chess_design.css"></head><body>fixture</body></html>',
+                'href="assets/accessible_chess_design.css"><link rel="stylesheet" href="assets/tabler-core/accessibility.css"></head><body>fixture</body></html>',
                 encoding="utf-8",
             )
             _write_checksums(package)
@@ -130,6 +131,9 @@ class Section41RealDesignTests(unittest.TestCase):
                 "web/assets/tabler/adjustments.svg",
                 "web/assets/tabler/LICENSE",
                 "web/assets/tabler/SECTION41_PROVENANCE.json",
+                "web/assets/tabler-core/accessibility.css",
+                "web/assets/tabler-core/LICENSE",
+                "web/assets/tabler-core/SECTION41_CORE_PROVENANCE.json",
             ):
                 dest=package/"AccessibleChess"/relative
                 dest.parent.mkdir(parents=True,exist_ok=True)
@@ -142,6 +146,7 @@ class Section41RealDesignTests(unittest.TestCase):
             with self.subTest(path=path):
                 s=(ROOT/path).read_text(encoding="utf-8")
                 self.assertIn('href="assets/accessible_chess_design.css"',s)
+                self.assertIn('href="assets/tabler-core/accessibility.css"',s)
                 self.assertIn('for="ac41-theme"',s)
                 self.assertIn('id="ac41-theme"',s)
                 for mode in ("system","light","dark","contrast"):
