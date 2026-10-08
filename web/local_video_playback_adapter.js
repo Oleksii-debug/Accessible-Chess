@@ -83,7 +83,17 @@
       };
       video.addEventListener("loadedmetadata", () => publish(video.paused ? "paused" : "playing"));
       video.addEventListener("durationchange", () => this.emit());
-      video.addEventListener("timeupdate", () => this.emit());
+      // Browser timeupdate can fire several times per second. Sending every
+      // observation through Python re-renders NVDA controls and drops focus.
+      // Play/pause/seeked/error remain immediate; periodic progress is bounded.
+      this._lastTimedEmission = -Infinity;
+      video.addEventListener("timeupdate", () => {
+        const now = global.performance && typeof global.performance.now === "function"
+          ? global.performance.now() : Date.now();
+        if (now - this._lastTimedEmission < 900) return;
+        this._lastTimedEmission = now;
+        this.emit();
+      });
       video.addEventListener("seeked", () => this.emit());
       video.addEventListener("play", () => publish("playing"));
       video.addEventListener("playing", () => publish("playing"));

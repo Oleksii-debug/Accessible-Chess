@@ -127,7 +127,8 @@ def verify_real_video(entry: RealVideoEntry, path: str | Path) -> dict[str, obje
     actual = sha256_file(source)
     if actual != entry.expected_sha256:
         raise LocalVideoCatalogError("real-video SHA-256 mismatch")
-    prefix = source.read_bytes()[:16]
+    with source.open("rb") as stream:
+        prefix = stream.read(16)
     suffix = source.suffix.lower()
     if suffix == ".webm" and not prefix.startswith(b"\x1aE\xdf\xa3"):
         raise LocalVideoCatalogError("WebM EBML signature is invalid")

@@ -153,6 +153,10 @@ def _make_tree(root: Path) -> None:
     web.mkdir()
     web_files = (
         "index.html",
+        "recorded_media_accessible_player.js",
+        "local_video_playback_adapter.js",
+        "youtube_iframe_playback_adapter.js",
+        "version2_media_user_workflow.js",
         "stage1_release_bootstrap.js",
         "stage1_board_actions.js",
         "full_product_pgn.js",

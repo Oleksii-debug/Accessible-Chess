@@ -17,6 +17,12 @@
   let activeProviderKind = null;
   let activeSourceText = "";
   let youtubePromise = null;
+  let activeSourceId = "";
+  let providerGeneration = 0;
+  let openRequestSerial = 0;
+  let announcedSourceIdentity = "";
+  let youtubeClockTimer = null;
+  let synchronizationSequence = 0;
 
   function language() {
     return documentRef.documentElement && documentRef.documentElement.lang === "en"
@@ -113,7 +119,8 @@
 
   function setStatus(message, urgent) {
     sourceStatus.setAttribute("aria-live", urgent ? "assertive" : "polite");
-    sourceStatus.textContent = String(message || "").slice(0, 4096);
+    const nextMessage = String(message || "").slice(0, 4096);
+    if (sourceStatus.textContent !== nextMessage) sourceStatus.textContent = nextMessage;
   }
 
   function playerRenderer() {
@@ -147,6 +154,13 @@
   }
 
   function destroyProvider() {
+    providerGeneration += 1;
+    synchronizationSequence += 1;
+    if (youtubeClockTimer !== null) {
+      global.clearInterval(youtubeClockTimer);
+      youtubeClockTimer = null;
+    }
+    activeSourceId = "";
     if (activeAdapter && typeof activeAdapter.destroy === "function") {
       try {
         activeAdapter.destroy();
@@ -160,27 +174,79 @@
   }
 
   function hostCommand(command) {
+    const generation = providerGeneration;
+    const sourceAtInvocation = activeSourceId;
     const invoke = requiredApi("media_workflow_command");
     const position = command && Number.isSafeInteger(command.positionMs)
       ? command.positionMs
       : null;
     return invoke(String(command.action || ""), position).then(function (next) {
+      if (generation !== providerGeneration || sourceAtInvocation !== activeSourceId) {
+        throw new Error("stale media command response");
+      }
       renderEnvelope(next, true);
       return validateEnvelope(next).player;
     });
   }
 
-  function syncYouTubeSnapshot(snapshot) {
+  function syncYouTubeSnapshot(snapshot, observedGeneration) {
+    // The embedded player's callbacks are untrusted timing observations.
+    // A callback issued before a different local/YouTube source was opened
+    // must never republish a prior source over the new canonical chess state.
+    const generation = observedGeneration === undefined
+      ? providerGeneration : observedGeneration;
+    if (!snapshot || typeof snapshot !== "object" ||
+        typeof snapshot.sourceId !== "string" ||
+        snapshot.sourceId !== activeSourceId ||
+        generation !== providerGeneration) {
+      return Promise.resolve(null);
+    }
+    if (snapshot.providerId === "youtube_iframe_v1" &&
+        (snapshot.ok !== true || snapshot.ready !== true)) {
+      synchronizationSequence += 1;
+      if (snapshot.ok === false) {
+        const code = snapshot.errorCode;
+        const reason = code === 101 || code === 150
+          ? uiText("Автор заборонив вбудовування відео.", "Video embedding is disabled by its owner.")
+          : code === 100
+            ? uiText("Відео приватне або видалене.", "Video is private or unavailable.")
+            : code === 153
+              ? uiText("YouTube не отримав HTTP Referer або ідентифікатор клієнта.",
+                       "YouTube requires an HTTP Referer or client identity.")
+              : uiText("YouTube відхилив відтворення.", "YouTube could not play this source.");
+        setStatus(reason, true);
+      }
+      return Promise.resolve(null);
+    }
+    if (snapshot.providerId === "youtube_iframe_v1" && snapshot.autoplayBlocked === true) {
+      setStatus(uiText(
+        "YouTube заблокував автоматичне або програмне відтворення. Натисніть кнопку програвача.",
+        "YouTube playback was blocked. Use the player's own Play button."
+      ), true);
+    }
+    if (!Number.isSafeInteger(snapshot.positionMs) || snapshot.positionMs < 0 ||
+        (snapshot.durationMs !== null &&
+         (!Number.isSafeInteger(snapshot.durationMs) ||
+          snapshot.durationMs < snapshot.positionMs))) {
+      synchronizationSequence += 1;
+      setStatus(uiText("Некоректний час відео.", "Invalid video timing."), true);
+      return Promise.resolve(null);
+    }
     const synchronize = requiredApi("media_workflow_sync_playback");
+    const requestSequence = ++synchronizationSequence;
     return synchronize(
       snapshot.sourceId,
       snapshot.positionMs,
       snapshot.durationMs,
       snapshot.playbackState
     ).then(function (next) {
+      if (generation !== providerGeneration ||
+          requestSequence !== synchronizationSequence ||
+          snapshot.sourceId !== activeSourceId) return null;
       renderEnvelope(next, false);
       return validateEnvelope(next);
     }).catch(function () {
+      if (generation !== providerGeneration) return null;
       setStatus(
         uiText(
           "Не вдалося безпечно синхронізувати час медіа з шаховою позицією.",
@@ -227,7 +293,8 @@
     }
 
     const snapshot = activeAdapter.snapshot();
-    return syncYouTubeSnapshot(snapshot).then(function () {
+    return syncYouTubeSnapshot(snapshot).then(function (qualified) {
+      if (qualified === null) throw new Error("stale or unconfirmed media clock");
       return hostCommand(command);
     });
   }
@@ -256,7 +323,8 @@
       return Promise.resolve(undefined);
     }
     const snapshot = activeAdapter.snapshot();
-    return syncYouTubeSnapshot(snapshot).then(function () {
+    return syncYouTubeSnapshot(snapshot).then(function (qualified) {
+      if (qualified === null) throw new Error("stale or unconfirmed media clock");
       return hostCommand(command);
     });
   }
@@ -265,7 +333,8 @@
     const state = validateEnvelope(value);
     const renderer = playerRenderer();
     activeProviderKind = state.providerKind;
-    if (state.sourceTitle) {
+    if (state.sourceTitle && announcedSourceIdentity !== state.sourceId) {
+      announcedSourceIdentity = state.sourceId;
       setStatus(
         uiText(
           "Відкрито медіа: " + state.sourceTitle,
@@ -289,7 +358,20 @@
       : state.providerKind === "browser_local"
         ? localVideoCommand
         : hostCommand;
+    const focused = documentRef.activeElement;
+    const preserveFocusId = focused && typeof focused.id === "string" &&
+      focused.id && typeof playerHost.contains === "function" &&
+      playerHost.contains(focused) ? focused.id : "";
     renderer.render(playerHost, state.player, runner, focusAfterRender === true);
+    // Media progress can refresh while a blind user operates the controls.
+    // Retain focus on the same semantic button/slider instead of losing it
+    // when the accessible player replaces its children.
+    if (preserveFocusId && typeof documentRef.getElementById === "function") {
+      const nextFocused = documentRef.getElementById(preserveFocusId);
+      if (nextFocused && typeof nextFocused.focus === "function") {
+        nextFocused.focus();
+      }
+    }
     return true;
   }
 
@@ -343,10 +425,17 @@
       });
       (documentRef.head || documentRef.documentElement).appendChild(script);
     });
+    youtubePromise = youtubePromise.catch(function (error) {
+      // Failed network loads must be retryable after reconnection.
+      youtubePromise = null;
+      throw error;
+    });
     return youtubePromise;
   }
 
   function activateYouTube(envelope, sourceText) {
+    const requested = openRequestSerial;
+    const expectedGeneration = providerGeneration;
     renderEnvelope(envelope, false);
     setStatus(
       uiText(
@@ -356,6 +445,7 @@
       false
     );
     return ensureYouTubeApi().then(function (YT) {
+      if (requested !== openRequestSerial || expectedGeneration !== providerGeneration) return false;
       const namespace = global.AccessibleChessYouTubeIframePlayback;
       if (
         !namespace ||
@@ -364,6 +454,8 @@
         throw new Error("YouTube playback adapter unavailable");
       }
       destroyProvider();
+      activeSourceId = envelope.sourceId;
+      const generation = providerGeneration;
       const mount = documentRef.createElement("div");
       mount.id = "section20-youtube-player";
       providerHost.appendChild(mount);
@@ -376,12 +468,22 @@
         source: sourceText,
         origin: origin,
         onSnapshot: function (snapshot) {
-          syncYouTubeSnapshot(snapshot);
+          syncYouTubeSnapshot(snapshot, generation);
         },
       });
       activeProviderKind = "youtube";
+      youtubeClockTimer = global.setInterval(function () {
+        if (generation !== providerGeneration || !activeAdapter) return;
+        try {
+          const current = activeAdapter.snapshot();
+          if (current.ok === true && current.ready === true) activeAdapter.refresh();
+        } catch (_error) {
+          // The provider state remains uncertain; no chess clock promotion.
+        }
+      }, 1000);
       return true;
     }).catch(function () {
+      if (requested !== openRequestSerial) return false;
       setStatus(
         uiText(
           "YouTube IFrame Player недоступний. Джерело не запущено; шахова позиція не змінена.",
@@ -405,6 +507,8 @@
     }
     try {
       destroyProvider();
+      activeSourceId = envelope.sourceId;
+      const generation = providerGeneration;
       const mount = documentRef.createElement("div");
       mount.id = "section47-local-video-player";
       providerHost.appendChild(mount);
@@ -413,7 +517,7 @@
         sourceUrl: envelope.browserSourceUrl,
         sourceId: envelope.sourceId,
         onSnapshot: function (snapshot) {
-          syncYouTubeSnapshot(snapshot);
+          syncYouTubeSnapshot(snapshot, generation);
         },
       });
       activeProviderKind = "browser_local";
@@ -454,6 +558,7 @@
       return Promise.resolve(false);
     }
     pastedOpen.disabled = true;
+    const request = ++openRequestSerial;
     activeSourceText = sourceText;
     let invoke;
     try {
@@ -467,8 +572,10 @@
       return Promise.resolve(false);
     }
     return invoke(sourceText).then(function (value) {
+      if (request !== openRequestSerial) return false;
       return activateOpened(value, sourceText);
     }).catch(function () {
+      if (request !== openRequestSerial) return false;
       setStatus(
         uiText(
           "Не вдалося відкрити вставлене медіа.",
@@ -483,6 +590,7 @@
   }
 
   function openLocal() {
+    const request = ++openRequestSerial;
     localOpen.disabled = true;
     let invoke;
     try {
@@ -496,9 +604,11 @@
       return Promise.resolve(false);
     }
     return invoke().then(function (value) {
+      if (request !== openRequestSerial) return false;
       activeSourceText = "";
       return activateOpened(value, "");
     }).catch(function () {
+      if (request !== openRequestSerial) return false;
       setStatus(
         uiText(
           "Не вдалося відкрити локальне медіа.",

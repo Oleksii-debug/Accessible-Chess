@@ -1,0 +1,147 @@
+name: Canonical Sections 47-48 Real Video Qualification
+on:
+  push:
+    branches:
+      - repair/sections47-48-canonical-video-integration-20261008
+  pull_request:
+    paths:
+      - 'acs/version2_media_runtime.py'
+      - 'web/version2_media_user_workflow.js'
+      - 'web/youtube_iframe_playback_adapter.js'
+      - 'web/local_video_playback_adapter.js'
+      - 'docs/media/section47_real_video_catalog.json'
+      - 'tools/section47_download_commons_corpus.py'
+      - 'tests/test_section47_real_commons_originals.py'
+      - 'tests/test_section48_native_youtube_url_contract.py'
+      - 'tests/test_section47_48_windows_media_composition.py'
+      - 'tests/test_version2_release_payload.py'
+      - 'tests/test_version2_package_preflight.py'
+      - 'acs/version2_release_ui.py'
+      - 'acs/version2_release_app.py'
+      - 'acs/version2_release_payload.py'
+      - 'acs/version2_package_preflight.py'
+      - 'tests/js/youtube_iframe_playback_adapter_test.js'
+      - 'tests/js/section47_canonical_browser_playback.js'
+      - 'tests/js/section48_canonical_youtube_live_smoke.js'
+      - 'tests/js/section47_48_workflow_generation_test.js'
+      - '.github/workflows/section47-48-canonical-video-qualification.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: canonical-47-48-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  source-and-negative:
+    name: Canonical source and security (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 18
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Python real-original tool and host ingress syntax
+        run: python -m py_compile tools/section47_download_commons_corpus.py acs/version2_media_runtime.py
+      - name: Native Windows WebView Media composition contract
+        run: python -m unittest discover -s tests -p test_section47_48_windows_media_composition.py -v
+      - name: Existing release payload regression suite
+        run: python -m unittest discover -s tests -p test_version2_release_payload.py -v
+      - name: Existing package preflight regression suite
+        run: python -m unittest discover -s tests -p test_version2_package_preflight.py -v
+      - name: Native YouTube host URL negative suite
+        run: python -m unittest discover -s tests -p test_section48_native_youtube_url_contract.py -v
+      - name: Real-original checksums and URL tamper suite
+        run: python -m unittest discover -s tests -p test_section47_real_commons_originals.py -v
+      - name: Accepted documented YouTube IFrame adapter suite
+        run: node tests/js/youtube_iframe_playback_adapter_test.js
+      - name: Canonical WebView Media callback generation / stale-source tests
+        run: node tests/js/section47_48_workflow_generation_test.js
+      - name: Existing canonical browser local and media workflow syntax
+        run: node --check web/local_video_playback_adapter.js
+      - run: node --check web/version2_media_user_workflow.js
+      - run: node --check web/youtube_iframe_playback_adapter.js
+      - run: node --check tests/js/section47_canonical_browser_playback.js
+      - run: node --check tests/js/section48_canonical_youtube_live_smoke.js
+
+  real-originals:
+    name: Four genuine Wikimedia originals + H264 derivative
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Real ffprobe and ffmpeg availability
+        run: ffmpeg -version | head -1
+      - name: Download lawful original streams and hash+decode each
+        run: python tools/section47_download_commons_corpus.py --output "${{ runner.temp }}/section47-videos" --decode --derive-mp4
+      - name: Verify real SHA256 receipt set (NOT chess accuracy)
+        shell: python
+        run: |
+          from pathlib import Path
+          import json, os
+          receipt = Path(os.environ['RUNNER_TEMP'])/'section47-videos'/'RECEIPT.json'
+          data = json.loads(receipt.read_text(encoding='utf-8'))
+          assert data['evidence_class'] == 'EXTERNAL_ORIGINAL_BYTES'
+          assert data['count'] >= 4
+          assert data['all_original_bytes_verified'] is True
+          assert data['all_decoded'] is True
+          assert len(data['derivatives']) == 1
+          assert all(e['original_bytes_verified'] and e['decoded'] and len(e['sha256']) == 64 for e in data['receipts'])
+          assert data['derivatives'][0]['video_codec'] == 'h264'
+          assert data['board_pgn_fen_qualification'] == 'NOT_RUN'
+          assert data['windows_player_acceptance'] == 'NOT_RUN'
+          print('Verified four REAL originals and one derived MP4. Windows/Chess still NOT_RUN.')
+      - uses: actions/upload-artifact@v4
+        with:
+          name: section47-original-chess-videos-private-qualification
+          path: ${{ runner.temp }}/section47-videos/
+          retention-days: 7
+          if-no-files-found: error
+
+  windows-real-video:
+    name: Physical Windows Chromium WebM + H264 MP4
+    runs-on: windows-2025
+    needs: real-originals
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/download-artifact@v4
+        with:
+          name: section47-original-chess-videos-private-qualification
+          path: ${{ runner.temp }}/section47-videos
+      - run: npm install --no-save --no-package-lock playwright@1.56.1
+      - run: npx playwright install chromium
+      - name: Actual WebM decode, controls and restart
+        shell: pwsh
+        run: |
+          $original = Join-Path "${{ runner.temp }}/section47-videos" "Byrne_vs_Fischer_Game_of_the_Century.webm"
+          node tests/js/section47_canonical_browser_playback.js "$original"
+      - name: Actual H264 MP4 decode, controls and restart
+        shell: pwsh
+        run: |
+          $derived = Join-Path "${{ runner.temp }}/section47-videos" "Joaquin_Perkins_blitz_chess_vs_USCF_expert.qa.mp4"
+          node tests/js/section47_canonical_browser_playback.js "$derived"
+
+  live-iframe:
+    name: Real YouTube chess provider (not a mock)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --no-save --no-package-lock playwright@1.56.1
+      - run: npx playwright install chromium --with-deps
+      - run: node tests/js/section48_canonical_youtube_live_smoke.js k4BS-4O1iI0

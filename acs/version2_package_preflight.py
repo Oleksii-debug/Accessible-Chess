@@ -190,6 +190,10 @@ _REQUIRED_I386_MANAGED_DESKTOP_RUNTIME_FILES = frozenset(
 )
 _REQUIRED_WEB_FILES = (
     "AccessibleChess/web/index.html",
+    "AccessibleChess/web/recorded_media_accessible_player.js",
+    "AccessibleChess/web/local_video_playback_adapter.js",
+    "AccessibleChess/web/youtube_iframe_playback_adapter.js",
+    "AccessibleChess/web/version2_media_user_workflow.js",
     "AccessibleChess/web/stage1_release_bootstrap.js",
     "AccessibleChess/web/stage1_board_actions.js",
     "AccessibleChess/web/full_product_pgn.js",

@@ -772,6 +772,23 @@ def create_version2_release_application(
         # Trusted local-only seam used by the final-product Media workflow.
         # The browser never chooses or supplies an arbitrary filesystem path.
         api._local_media_open_dialog = book_dialogs.open_media
+        # Bind the accepted Media application to the existing native owner.
+        # Verified FEN refs may be restored through canonical chesscore only;
+        # unknown/opaque refs can never become an unverified board mutation.
+        from .version2_media_runtime import build_packaged_media_workflow
+
+        def restore_verified_media_fen(ref: str) -> object:
+            if type(ref) is not str or not ref.startswith("fen:"):
+                raise RuntimeError("media position has no verified FEN reference")
+            return api.set_fen(ref[4:])
+
+        api.bind_media_workflow(
+            build_packaged_media_workflow(
+                open_local_path=book_dialogs.open_media,
+                restore_chess_ref=restore_verified_media_fen,
+                language=language.value,
+            )
+        )
         application.confirm_book_progress_recovery = book_dialogs.confirm_recover_book_progress
         application.confirm_document_replace = file_runtime.file_dialogs.confirm_discard_unsaved_pgn
         return file_runtime

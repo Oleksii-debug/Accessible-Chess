@@ -282,6 +282,45 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
             raise TypeError("Version 2 application requires its accepted WebView adapter")
         self._version2_application = application
 
+    def bind_media_workflow(self, service: Any) -> None:
+        from .media_user_workflow import MediaUserWorkflowService
+
+        if type(service) is not MediaUserWorkflowService:
+            raise TypeError("canonical Media workflow required")
+        if getattr(self, "_media_service", None) is not None:
+            raise RuntimeError("Media workflow already bound")
+        self._media_service = service
+
+    def _media(self) -> Any:
+        service = getattr(self, "_media_service", None)
+        if service is None:
+            raise RuntimeError("Media workflow unavailable")
+        return service
+
+    def media_workflow_open_local(self) -> dict[str, object]:
+        return self._invoke_ui(self._media().open_local)
+
+    def media_workflow_open_pasted(self, source: str) -> dict[str, object]:
+        return self._invoke_ui(lambda: self._media().open_pasted(source))
+
+    def media_workflow_sync_playback(
+        self, source_id: str, position_ms: int,
+        duration_ms: int | None, playback_state: str,
+    ) -> dict[str, object]:
+        return self._invoke_ui(
+            lambda: self._media().sync_browser_playback(
+                source_id=source_id, position_ms=position_ms,
+                duration_ms=duration_ms, playback_state=playback_state,
+            )
+        )
+
+    def media_workflow_command(
+        self, action: str, position_ms: int | None = None,
+    ) -> dict[str, object]:
+        return self._invoke_ui(
+            lambda: self._media().command(action, position_ms=position_ms)
+        )
+
     def bind_version2_language_refresh(self, callback: Callable[[], bool]) -> None:
         """Bind the owner-host refresh used to rebuild localized native menus."""
 
@@ -852,6 +891,10 @@ def _resource_sources() -> tuple[tuple[str, str], ...]:
         ("V2 Library surface", root / "full_product_library.js"),
         ("V2 Books surface", root / "full_product_books_training.js"),
         ("V2 release bootstrap", root / "version2_release_bootstrap.js"),
+        ("Media accessible player", root / "recorded_media_accessible_player.js"),
+        ("Media local playback", root / "local_video_playback_adapter.js"),
+        ("Media YouTube IFrame", root / "youtube_iframe_playback_adapter.js"),
+        ("Media workflow", root / "version2_media_user_workflow.js"),
     )
     output: list[tuple[str, str]] = []
     for label, path in resources:
