@@ -107,6 +107,21 @@ class Section40RealWindowsQAPackageTests(unittest.TestCase):
                 self.assertIn(archive_path + "TEST_COLLECTION.zip", members)
                 self.assertIn(archive_path + "READ_FIRST_UK.txt", members)
                 self.assertIn(archive_path + "READ_FIRST_EN.txt", members)
+                rights_file = archive_path + "TEST_ONLY_NOT_FOR_PUBLIC_RELEASE.json"
+                self.assertIn(rights_file, members)
+                rights = json.loads(archive.read(rights_file))
+                self.assertEqual(rights["schema"], "acs-section40-owner-test-rights-v1")
+                self.assertTrue(rights["test_only"])
+                self.assertFalse(rights["public_release_approved"])
+                self.assertTrue(rights["never_delete_existing_owner_library"])
+                self.assertTrue(rights["clean_up_after_owner_acceptance_only"])
+                self.assertEqual(rights["canonical_code_sha"], _SHA)
+                self.assertEqual(rights["added_library_sources"], 3)
+                self.assertEqual(rights["added_library_games"], 517)
+                self.assertEqual(rights["ready_to_open_native_books"], 10)
+                self.assertEqual(
+                    rights["collection_sha256"], report["bundled_offline_collection_sha256"],
+                )
                 self.assertIn(b"517", archive.read(archive_path + "READ_FIRST_UK.txt"))
                 self.assertIn(b"517", archive.read(archive_path + "READ_FIRST_EN.txt"))
                 corpus_zip = archive.read(archive_path + "TEST_COLLECTION.zip")
