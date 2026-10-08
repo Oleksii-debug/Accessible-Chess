@@ -1,0 +1,1079 @@
+{
+  "schema": "accessible-chess-38-39-master-libraries-by-genre-v1",
+  "plan": "SECTION38_AND_39_OF_CANONICAL_0_53",
+  "status": "SPECIFICATION_WITH_PARTIAL_EXECUTED_CORPUS_NOT_TERMINAL_DONE",
+  "languages": [
+    "uk",
+    "en"
+  ],
+  "scope": "candidate-master through IM/GM work; puzzle difficulty != fide elo",
+  "contains_book_binary": false,
+  "original_ua_workbook_path": "tests/real_corpus/advanced_training/section37_master_workbook_bilingual.json",
+  "original_ua_advanced_material": "acs.section40_advanced_training_runtime",
+  "original_en_advanced_material": "acs.section40_advanced_training_runtime.build_advanced_offline_material(language='en')",
+  "genre_count": 25,
+  "genres": [
+    {
+      "id": "calculation",
+      "uk": "Розрахунок складних варіантів",
+      "en": "Advanced calculation",
+      "level_scope": "CM-IM-GM",
+      "original_or_derived_source_candidates": [
+        {
+          "catalog_source_id": "lichess_cc0_advanced_16_original_derived",
+          "role": "16 CC0 original-selected advanced puzzles",
+          "qualification_status": "VENDORED_DERIVED_SOURCE_PINNED"
+        },
+        {
+          "catalog_source_id": "lichess_cc0_extreme_4_original_derived_puzzles",
+          "role": "4 original-selected 3000+ difficulty puzzles",
+          "qualification_status": "VENDORED_DERIVED_SOURCE_PINNED"
+        },
+        {
+          "catalog_source_id": "lichess_cc0_high_level_4_original_annotated_games",
+          "role": "4 complete high-level annotated games",
+          "qualification_status": "VENDORED_ORIGINAL_PGN_PINNED"
+        }
+      ],
+      "professional_book_references": [
+        {
+          "title": "Grandmaster Preparation: Calculation",
+          "author": "Jacob Aagaard",
+          "language": "en",
+          "provider_url": "https://www.qualitychess.co.uk/ebooks/CALCULATION-excerpt.pdf",
+          "availability": "BIBLIOGRAPHY_ONLY_NOT_IMPORTED",
+          "book_binary_in_repo": false,
+          "licensed_copy_proven": false
+        },
+        {
+          "title": "Perfect Your Chess",
+          "author": "Andrei Volokitin and Vladimir Grabinsky",
+          "language": "en",
+          "provider_url": "https://www.newinchess.com/perfect-your-chess",
+          "availability": "BIBLIOGRAPHY_ONLY_NOT_IMPORTED",
+          "book_binary_in_repo": false,
+          "licensed_copy_proven": false
+        }
+      ],
+      "tested_material_scope": "RAV branch navigation and multiple candidates",
+      "full_genre_qualification_obtained": false,
+      "no_beginners": true,
+      "available_languages_for_self_authored_test_briefs": [
+        "uk",
+        "en"
+      ]
+    },
+    {
+      "id": "combinations",
+      "uk": "Багатоходові комбінації й жертви",
+      "en": "Deep combinations and sacrifices",
+      "level_scope": "CM-IM-GM",
+      "original_or_derived_source_candidates": [
+        {
+          "catalog_source_id": "lichess_cc0_advanced_16_original_derived",
+          "role": "16 CC0 original-selected advanced puzzles",
+          "qualification_status": "VENDORED_DERIVED_SOURCE_PINNED"
+        },
+        {
+          "catalog_source_id": "lichess_cc0_extreme_4_original_derived_puzzles",
+          "role": "4 original-selected 3000+ difficulty puzzles",
+          "qualification_status": "VENDORED_DERIVED_SOURCE_PINNED"
+        },
+        {
+          "catalog_source_id": "lichess_cc0_high_level_4_original_annotated_games",
+          "role": "4 complete high-level annotated games",
+          "qualification_status": "VENDORED_ORIGINAL_PGN_PINNED"
+        }
+      ],
+      "professional_book_references": [
+        {
+          "title": "Grandmaster Preparation: Calculation",
+          "author": "Jacob Aagaard",
+          "language": "en",
+          "provider_url": "https://www.qualitychess.co.uk/ebooks/CALCULATION-excerpt.pdf",
+          "availability": "BIBLIOGRAPHY_ONLY_NOT_IMPORTED",
+          "book_binary_in_repo": false,
+          "licensed_copy_proven": false
+        },
+        {
+          "title": "Тактика для всіх — вибірково 200 задач КМС/МС/ММ",
+          "author": "Микола Боднар",
+          "language": "uk-publisher-page-edition-language-to-verify",
+          "provider_url": "https://bodnarchess.com.ua/tactics.html",
+          "availability": "BIBLIOGRAPHY_ONLY_NOT_IMPORTED",
+          "book_binary_in_repo": false,
+          "licensed_copy_proven": false
+        }
+      ],
+      "tested_material_scope": "long solution/defence, NAG/comments",
+      "full_genre_qualification_obtained": false,
+      "no_beginners": true,
+      "available_languages_for_self_authored_test_briefs": [
+        "uk",
+        "en"
+      ]
+    },
+    {
+      "id": "tactics",
+      "uk": "Складна тактика КМС—ММ",
+      "en": "Candidate-master to international-master tactics",
+      "level_scope": "CM-IM-GM",
+      "original_or_derived_source_candidates": [
+        {
+          "catalog_source_id": "lichess_cc0_advanced_16_original_derived",
+          "role": "16 CC0 original-selected advanced puzzles",
+          "qualification_status": "VENDORED_DERIVED_SOURCE_PINNED"
+        },
+        {
+          "catalog_source_id": "lichess_cc0_extreme_4_original_derived_puzzles",
+          "role": "4 original-selected 3000+ difficulty puzzles",
+          "qualification_status": "VENDORED_DERIVED_SOURCE_PINNED"
+        }
+      ],
+      "professional_book_references": [
+        {
+          "title": "Тактика для всіх — вибірково 200 задач КМС/МС/ММ",
+          "author": "Микола Боднар",
+          "language": "uk-publisher-page-edition-language-to-verify",
+          "provider_url": "https://bodnarchess.com.ua/tactics.html",
+          "availability": "BIBLIOGRAPHY_ONLY_NOT_IMPORTED",
+          "book_binary_in_repo": false,
+          "licensed_copy_proven": false
+        },
+        {
+          "title": "Perfect Your Chess",
+          "author": "Andrei Volokitin and Vladimir Grabinsky",
+          "language": "en",
+          "provider_url": "https://www.newinchess.com/perfect-your-chess",
+          "availability": "BIBLIOGRAPHY_ONLY_NOT_IMPORTED",
+          "book_binary_in_repo": false,
+          "licensed_copy_proven": false
+        }
+      ],
+      "tested_material_scope": "no beginner mates, real long problem source",
+      "full_genre_qualification_obtained": false,
+      "no_beginners": true,
+      "available_languages_for_self_authored_test_briefs": [
+        "uk",
+        "en"
+      ]
+    },
+    {
+      "id": "attack",
+      "uk": "Атака на короля й конверсія ініціативи",
+      "en": "King attacks and attacking technique",
+      "level_scope": "CM-IM-GM",
+      "original_or_derived_source_candidates": [
+        {
+          "catalog_source_id": "lichess_cc0_high_level_4_original_annotated_games",
+          "role": "4 complete high-level annotated games",
+          "qualification_status": "VENDORED_ORIGINAL_PGN_PINNED"
+        }
+      ],
+      "professional_book_references": [
+        {
+          "title": "Perfect Your Chess",
+          "author": "Andrei Volokitin and Vladimir Grabinsky",
+          "language": "en",
+          "provider_url": "https://www.newinchess.com/perfect-your-chess",
+          "availability": "BIBLIOGRAPHY_ONLY_NOT_IMPORTED",
+          "book_binary_in_repo": false,
+          "licensed_copy_proven": false
+        }
+      ],
+      "tested_material_scope": "annotated sacrificed-piece critical moves",
+      "full_genre_qualification_obtained": false,
+      "no_beginners": true,
+      "available_languages_for_self_authored_test_briefs": [
+        "uk",
+        "en"
+      ]
+    },
+    {
+      "id": "defence",
+      "uk": "Оборона, профілактика й контргра",
+      "en": "Defence, prophylaxis and counterplay",
+      "level_scope": "CM-IM-GM",
+      "original_or_derived_source_candidates": [
+        {
+          "catalog_source_id": "lichess_cc0_advanced_16_original_derived",
+          "role": "16 CC0 original-selected advanced puzzles",
+          "qualification_status": "VENDORED_DERIVED_SOURCE_PINNED"
+        },
+        {
+          "catalog_source_id": "lichess_cc0_extreme_4_original_derived_puzzles",
+          "role": "4 original-selected 3000+ difficulty puzzles",
+          "qualification_status": "VENDORED_DERIVED_SOURCE_PINNED"
+        },
+        {
+          "catalog_source_id": "lichess_cc0_high_level_4_original_annotated_games",
+          "role": "4 complete high-level annotated games",
+          "qualification_status": "VENDORED_ORIGINAL_PGN_PINNED"
+        }
+      ],
+      "professional_book_references": [
+        {
+          "title": "Grandmaster Preparation: Positional Play",
+          "author": "Jacob Aagaard",
+          "language": "en",
+          "provider_url": "https://www.qualitychess.co.uk/ebooks/PositionalPlay-excerpt.pdf",
+          "availability": "BIBLIOGRAPHY_ONLY_NOT_IMPORTED",
+          "book_binary_in_repo": false,
+          "licensed_copy_proven": false
+        }
+      ],
+      "tested_material_scope": "quiet move/recovery/alternative search",
+      "full_genre_qualification_obtained": false,
+      "no_beginners": true,
+      "available_languages_for_self_authored_test_briefs": [
+        "uk",
+        "en"
+      ]
+    },
+    {
+      "id": "positional",
+      "uk": "Позиційна оцінка й план",
+      "en": "Positional evaluation and planning",
+      "level_scope": "CM-IM-GM",
+      "original_or_derived_source_candidates": [
+        {
+          "catalog_source_id": "lichess_cc0_high_level_4_original_annotated_games",
+          "role": "4 complete high-level annotated games",
+          "qualification_status": "VENDORED_ORIGINAL_PGN_PINNED"
+        }
+      ],
+      "professional_book_references": [
+        {
+          "title": "Grandmaster Preparation: Positional Play",
+          "author": "Jacob Aagaard",
+          "language": "en",
+          "provider_url": "https://www.qualitychess.co.uk/ebooks/PositionalPlay-excerpt.pdf",
+          "availability": "BIBLIOGRAPHY_ONLY_NOT_IMPORTED",
+          "book_binary_in_repo": false,
+          "licensed_copy_proven": false
+        },
+        {
+          "title": "Chess Structures: A Grandmaster Guide",
+          "author": "Mauricio Flores Rios",
+          "language": "en",
+          "provider_url": "https://www.simonandschuster.com/books/Chess-Structures/Mauricio-Flores-Rios/9781784830007",
+          "availability": "BIBLIOGRAPHY_ONLY_NOT_IMPORTED",
+          "book_binary_in_repo": false,
+          "licensed_copy_proven": false
+        }
+      ],
+      "tested_material_scope": "strong/weak squares, plans and practice",
+      "full_genre_qualification_obtained": false,
+      "no_beginners": true,
+      "available_languages_for_self_authored_test_briefs": [
+        "uk",
+        "en"
+      ]
+    },
+    {
+      "id": "pawnstructures",
+      "uk": "Пішакові структури",
+      "en": "Pawn structures",
+      "level_scope": "CM-IM-GM",
+      "original_or_derived_source_candidates": [
+        {
+          "catalog_source_id": "lichess_openings_original_eco_a_tsv",
+          "role": "ECO source book A",
+          "qualification_status": "VENDORED_ORIGINAL_BYTES_HASH_PINNED"
+        },
+        {
+          "catalog_source_id": "lichess_openings_original_eco_b_tsv",
+          "role": "ECO source book B",
+          "qualification_status": "VENDORED_ORIGINAL_BYTES_HASH_PINNED"
+        },
+        {
+          "catalog_source_id": "lichess_openings_original_eco_c_tsv",
+          "role": "ECO source book C",
+          "qualification_status": "VENDORED_ORIGINAL_BYTES_HASH_PINNED"
+        },
+        {
+          "catalog_source_id": "lichess_openings_original_eco_d_tsv",
+          "role": "ECO source book D",
+          "qualification_status": "VENDORED_ORIGINAL_BYTES_HASH_PINNED"
+        },
+        {
+          "catalog_source_id": "lichess_openings_original_eco_e_tsv",
+          "role": "ECO source book E",
+          "qualification_status": "VENDORED_ORIGINAL_BYTES_HASH_PINNED"
+        }
+      ],
+      "professional_book_references": [
+        {
+          "title": "Chess Structures: A Grandmaster Guide",
+          "author": "Mauricio Flores Rios",
+          "language": "en",
+          "provider_url": "https://www.simonandschuster.com/books/Chess-Structures/Mauricio-Flores-Rios/9781784830007",
+          "availability": "BIBLIOGRAPHY_ONLY_NOT_IMPORTED",
+          "book_binary_in_repo": false,
+          "licensed_copy_proven": false
+        }
+      ],
+      "tested_material_scope": "isolated, hanging, IQP, Carlsbad, pawn chains",
+      "full_genre_qualification_obtained": false,
+      "no_beginners": true,
+      "available_languages_for_self_authored_test_briefs": [
+        "uk",
+        "en"
+      ]
+    },
+    {
+      "id": "middlegame",
+      "uk": "Мітельшпіль, маневрування, трансформація переваги",
+      "en": "Middlegame and manoeuvring",
+      "level_scope": "CM-IM-GM",
+      "original_or_derived_source_candidates": [
+        {
+          "catalog_source_id": "lichess_cc0_high_level_4_original_annotated_games",
+          "role": "4 complete high-level annotated games",
+          "qualification_status": "VENDORED_ORIGINAL_PGN_PINNED"
+        }
+      ],
+      "professional_book_references": [
+        {
+          "title": "Perfect Your Chess",
+          "author": "Andrei Volokitin and Vladimir Grabinsky",
+          "language": "en",
+          "provider_url": "https://www.newinchess.com/perfect-your-chess",
+          "availability": "BIBLIOGRAPHY_ONLY_NOT_IMPORTED",
+          "book_binary_in_repo": false,
+          "licensed_copy_proven": false
+        },
+        {
+          "title": "Grandmaster Preparation: Positional Play",
+          "author": "Jacob Aagaard",
+          "language": "en",
+          "provider_url": "https://www.qualitychess.co.uk/ebooks/PositionalPlay-excerpt.pdf",
+          "availability": "BIBLIOGRAPHY_ONLY_NOT_IMPORTED",
+          "book_binary_in_repo": false,
+          "licensed_copy_proven": false
+        }
+      ],
+      "tested_material_scope": "master annotated game critical branches",
+      "full_genre_qualification_obtained": false,
+      "no_beginners": true,
+      "available_languages_for_self_authored_test_briefs": [
+        "uk",
+        "en"
+      ]
+    },
+    {
+      "id": "openingrepertoire",
+      "uk": "Дебютний репертуар КМС+",
+      "en": "Advanced opening repertoire",
+      "level_scope": "CM-IM-GM",
+      "original_or_derived_source_candidates": [
+        {
+          "catalog_source_id": "lichess_openings_original_eco_a_tsv",
+          "role": "ECO source book A",
+          "qualification_status": "VENDORED_ORIGINAL_BYTES_HASH_PINNED"
+        },
+        {
+          "catalog_source_id": "lichess_openings_original_eco_b_tsv",
+          "role": "ECO source book B",
+          "qualification_status": "VENDORED_ORIGINAL_BYTES_HASH_PINNED"
+        },
+        {
+          "catalog_source_id": "lichess_openings_original_eco_c_tsv",
+          "role": "ECO source book C",
+          "qualification_status": "VENDORED_ORIGINAL_BYTES_HASH_PINNED"
+        },
+        {
+          "catalog_source_id": "lichess_openings_original_eco_d_tsv",
+          "role": "ECO source book D",
+          "qualification_status": "VENDORED_ORIGINAL_BYTES_HASH_PINNED"
+        },
+        {
+          "catalog_source_id": "lichess_openings_original_eco_e_tsv",
+          "role": "ECO source book E",
+          "qualification_status": "VENDORED_ORIGINAL_BYTES_HASH_PINNED"
+        },
+        {
+          "catalog_source_id": "lichess_cc0_high_level_4_original_annotated_games",
+          "role": "4 complete high-level annotated games",
+          "qualification_status": "VENDORED_ORIGINAL_PGN_PINNED"
+        }
+      ],
+      "professional_book_references": [
+        {
+          "title": "Perfect Your Chess",
+          "author": "Andrei Volokitin and Vladimir Grabinsky",
+          "language": "en",
+          "provider_url": "https://www.newinchess.com/perfect-your-chess",
+          "availability": "BIBLIOGRAPHY_ONLY_NOT_IMPORTED",
+          "book_binary_in_repo": false,
+          "licensed_copy_proven": false
+        }
+      ],
+      "tested_material_scope": "ECO names != move-tree theory; deepen annotated RAV",
+      "full_genre_qualification_obtained": false,
+      "no_beginners": true,
+      "available_languages_for_self_authored_test_briefs": [
+        "uk",
+        "en"
+      ]
+    },
+    {
+      "id": "openingnovelties",
+      "uk": "Дебютні новинки, підготовка опонентів",
+      "en": "Theoretical novelties and opponent preparation",
+      "level_scope": "CM-IM-GM",
+      "original_or_derived_source_candidates": [
+        {
+          "catalog_source_id": "lichess_openings_original_eco_a_tsv",
+          "role": "ECO source book A",
+          "qualification_status": "VENDORED_ORIGINAL_BYTES_HASH_PINNED"
+        },
+        {
+          "catalog_source_id": "lichess_openings_original_eco_b_tsv",
+          "role": "ECO source book B",
+          "qualification_status": "VENDORED_ORIGINAL_BYTES_HASH_PINNED"
+        },
+        {
+          "catalog_source_id": "lichess_openings_original_eco_c_tsv",
+          "role": "ECO source book C",
+          "qualification_status": "VENDORED_ORIGINAL_BYTES_HASH_PINNED"
+        },
+        {
+          "catalog_source_id": "lichess_openings_original_eco_d_tsv",
+          "role": "ECO source book D",
+          "qualification_status": "VENDORED_ORIGINAL_BYTES_HASH_PINNED"
+        },
+        {
+          "catalog_source_id": "lichess_openings_original_eco_e_tsv",
+          "role": "ECO source book E",
+          "qualification_status": "VENDORED_ORIGINAL_BYTES_HASH_PINNED"
+        },
+        {
+          "catalog_source_id": "lichess_cc0_high_level_4_original_annotated_games",
+          "role": "4 complete high-level annotated games",
+          "qualification_status": "VENDORED_ORIGINAL_PGN_PINNED"
+        }
+      ],
+      "professional_book_references": [
+        {
+          "title": "Grandmaster Preparation: Thinking Inside the Box",
+          "author": "Jacob Aagaard",
+          "language": "en",
+          "provider_url": "https://www.simonandschuster.com/books/Grandmaster-Preparation/Jacob-Aagaard/9781907982347",
+          "availability": "BIBLIOGRAPHY_ONLY_NOT_IMPORTED",
+          "book_binary_in_repo": false,
+          "licensed_copy_proven": false
+        }
+      ],
+      "tested_material_scope": "source dated real games, no invented player ELO",
+      "full_genre_qualification_obtained": false,
+      "no_beginners": true,
+      "available_languages_for_self_authored_test_briefs": [
+        "uk",
+        "en"
+      ]
+    },
+    {
+      "id": "endgamegeneral",
+      "uk": "Практичний складний ендшпіль",
+      "en": "Advanced practical endgames",
+      "level_scope": "CM-IM-GM",
+      "original_or_derived_source_candidates": [
+        {
+          "catalog_source_id": "lichess_cc0_advanced_16_original_derived",
+          "role": "16 CC0 original-selected advanced puzzles",
+          "qualification_status": "VENDORED_DERIVED_SOURCE_PINNED"
+        },
+        {
+          "catalog_source_id": "lichess_cc0_extreme_4_original_derived_puzzles",
+          "role": "4 original-selected 3000+ difficulty puzzles",
+          "qualification_status": "VENDORED_DERIVED_SOURCE_PINNED"
+        }
+      ],
+      "professional_book_references": [
+        {
+          "title": "Grandmaster Preparation: Endgame Play",
+          "author": "Jacob Aagaard",
+          "language": "en",
+          "provider_url": "https://www.simonandschuster.com/books/Grandmaster-Preparation-Endgame-Play/Jacob-Aagaard/Grandmaster-Preparation/9781907982323",
+          "availability": "BIBLIOGRAPHY_ONLY_NOT_IMPORTED",
+          "book_binary_in_repo": false,
+          "licensed_copy_proven": false
+        },
+        {
+          "title": "The Art of The Endgame",
+          "author": "Jan Timman",
+          "language": "en",
+          "provider_url": "https://www.simonandschuster.com/books/The-Art-of-The-Endgame/Jan-Timman/9789083328409",
+          "availability": "BIBLIOGRAPHY_ONLY_NOT_IMPORTED",
+          "book_binary_in_repo": false,
+          "licensed_copy_proven": false
+        }
+      ],
+      "tested_material_scope": "endgame FEN, exact conversion and defence",
+      "full_genre_qualification_obtained": false,
+      "no_beginners": true,
+      "available_languages_for_self_authored_test_briefs": [
+        "uk",
+        "en"
+      ]
+    },
+    {
+      "id": "rookendings",
+      "uk": "Ладейні закінчення",
+      "en": "Rook endgames",
+      "level_scope": "CM-IM-GM",
+      "original_or_derived_source_candidates": [
+        {
+          "catalog_source_id": "lichess_cc0_advanced_16_original_derived",
+          "role": "16 CC0 original-selected advanced puzzles",
+          "qualification_status": "VENDORED_DERIVED_SOURCE_PINNED"
+        },
+        {
+          "catalog_source_id": "lichess_cc0_extreme_4_original_derived_puzzles",
+          "role": "4 original-selected 3000+ difficulty puzzles",
+          "qualification_status": "VENDORED_DERIVED_SOURCE_PINNED"
+        }
+      ],
+      "professional_book_references": [
+        {
+          "title": "Grandmaster Preparation: Endgame Play",
+          "author": "Jacob Aagaard",
+          "language": "en",
+          "provider_url": "https://www.simonandschuster.com/books/Grandmaster-Preparation-Endgame-Play/Jacob-Aagaard/Grandmaster-Preparation/9781907982323",
+          "availability": "BIBLIOGRAPHY_ONLY_NOT_IMPORTED",
+          "book_binary_in_repo": false,
+          "licensed_copy_proven": false
+        }
+      ],
+      "tested_material_scope": "Lucena/Philidor beyond basic treatment: calculation exercises",
+      "full_genre_qualification_obtained": false,
+      "no_beginners": true,
+      "available_languages_for_self_authored_test_briefs": [
+        "uk",
+        "en"
+      ]
+    },
+    {
+      "id": "pawnendings",
+      "uk": "Пішакові закінчення, цугцванг",
+      "en": "Pawn endings and zugzwang",
+      "level_scope": "CM-IM-GM",
+      "original_or_derived_source_candidates": [
+        {
+          "catalog_source_id": "lichess_cc0_advanced_16_original_derived",
+          "role": "16 CC0 original-selected advanced puzzles",
+          "qualification_status": "VENDORED_DERIVED_SOURCE_PINNED"
+        },
+        {
+          "catalog_source_id": "lichess_cc0_extreme_4_original_derived_puzzles",
+          "role": "4 original-selected 3000+ difficulty puzzles",
+          "qualification_status": "VENDORED_DERIVED_SOURCE_PINNED"
+        },
+        {
+          "catalog_source_id": "historical_reti_1921_original_bilingual_study_pgn",
+          "role": "1921 Réti study, own bilingual annotations",
+          "qualification_status": "VENDORED_HISTORICAL_BILINGUAL_PGN_PINNED"
+        }
+      ],
+      "professional_book_references": [
+        {
+          "title": "Grandmaster Preparation: Endgame Play",
+          "author": "Jacob Aagaard",
+          "language": "en",
+          "provider_url": "https://www.simonandschuster.com/books/Grandmaster-Preparation-Endgame-Play/Jacob-Aagaard/Grandmaster-Preparation/9781907982323",
+          "availability": "BIBLIOGRAPHY_ONLY_NOT_IMPORTED",
+          "book_binary_in_repo": false,
+          "licensed_copy_proven": false
+        }
+      ],
+      "tested_material_scope": "nontrivial opposition and triangulation",
+      "full_genre_qualification_obtained": false,
+      "no_beginners": true,
+      "available_languages_for_self_authored_test_briefs": [
+        "uk",
+        "en"
+      ]
+    },
+    {
+      "id": "minorendings",
+      "uk": "Легкофігурні й фортеці",
+      "en": "Minor-piece endings and fortresses",
+      "level_scope": "CM-IM-GM",
+      "original_or_derived_source_candidates": [
+        {
+          "catalog_source_id": "lichess_cc0_advanced_16_original_derived",
+          "role": "16 CC0 original-selected advanced puzzles",
+          "qualification_status": "VENDORED_DERIVED_SOURCE_PINNED"
+        },
+        {
+          "catalog_source_id": "lichess_cc0_extreme_4_original_derived_puzzles",
+          "role": "4 original-selected 3000+ difficulty puzzles",
+          "qualification_status": "VENDORED_DERIVED_SOURCE_PINNED"
+        }
+      ],
+      "professional_book_references": [
+        {
+          "title": "Grandmaster Preparation: Endgame Play",
+          "author": "Jacob Aagaard",
+          "language": "en",
+          "provider_url": "https://www.simonandschuster.com/books/Grandmaster-Preparation-Endgame-Play/Jacob-Aagaard/Grandmaster-Preparation/9781907982323",
+          "availability": "BIBLIOGRAPHY_ONLY_NOT_IMPORTED",
+          "book_binary_in_repo": false,
+          "licensed_copy_proven": false
+        },
+        {
+          "title": "Studies for Practical Players",
+          "author": "Mark Dvoretsky and Oleg Pervakov",
+          "language": "en",
+          "provider_url": "https://www.russell-enterprises.com/russell-enterprises/studies-for-practical-players",
+          "availability": "BIBLIOGRAPHY_ONLY_NOT_IMPORTED",
+          "book_binary_in_repo": false,
+          "licensed_copy_proven": false
+        }
+      ],
+      "tested_material_scope": "bishop/knight and fortresses",
+      "full_genre_qualification_obtained": false,
+      "no_beginners": true,
+      "available_languages_for_self_authored_test_briefs": [
+        "uk",
+        "en"
+      ]
+    },
+    {
+      "id": "queenendings",
+      "uk": "Ферзеві й складні взаємні шахи",
+      "en": "Queen endings and perpetual checks",
+      "level_scope": "CM-IM-GM",
+      "original_or_derived_source_candidates": [
+        {
+          "catalog_source_id": "historical_reti_1921_original_bilingual_study_pgn",
+          "role": "1921 Réti study, own bilingual annotations",
+          "qualification_status": "VENDORED_HISTORICAL_BILINGUAL_PGN_PINNED"
+        },
+        {
+          "catalog_source_id": "original_1851_kling_horwitz_endgame_studies_arves_archive_pdf",
+          "role": "original historic study book PDF",
+          "qualification_status": "SOURCE_PAGE_ONLY_RIGHTS_UNCLEARED"
+        }
+      ],
+      "professional_book_references": [
+        {
+          "title": "Grandmaster Preparation: Endgame Play",
+          "author": "Jacob Aagaard",
+          "language": "en",
+          "provider_url": "https://www.simonandschuster.com/books/Grandmaster-Preparation-Endgame-Play/Jacob-Aagaard/Grandmaster-Preparation/9781907982323",
+          "availability": "BIBLIOGRAPHY_ONLY_NOT_IMPORTED",
+          "book_binary_in_repo": false,
+          "licensed_copy_proven": false
+        }
+      ],
+      "tested_material_scope": "draw/win resource proof",
+      "full_genre_qualification_obtained": false,
+      "no_beginners": true,
+      "available_languages_for_self_authored_test_briefs": [
+        "uk",
+        "en"
+      ]
+    },
+    {
+      "id": "composedstudies",
+      "uk": "Авторські етюди й композиція",
+      "en": "Authored composed studies",
+      "level_scope": "CM-IM-GM",
+      "original_or_derived_source_candidates": [
+        {
+          "catalog_source_id": "historical_reti_1921_original_bilingual_study_pgn",
+          "role": "1921 Réti study, own bilingual annotations",
+          "qualification_status": "VENDORED_HISTORICAL_BILINGUAL_PGN_PINNED"
+        },
+        {
+          "catalog_source_id": "original_1851_kling_horwitz_endgame_studies_arves_archive_pdf",
+          "role": "original historic study book PDF",
+          "qualification_status": "SOURCE_PAGE_ONLY_RIGHTS_UNCLEARED"
+        }
+      ],
+      "professional_book_references": [
+        {
+          "title": "Studies for Practical Players",
+          "author": "Mark Dvoretsky and Oleg Pervakov",
+          "language": "en",
+          "provider_url": "https://www.russell-enterprises.com/russell-enterprises/studies-for-practical-players",
+          "availability": "BIBLIOGRAPHY_ONLY_NOT_IMPORTED",
+          "book_binary_in_repo": false,
+          "licensed_copy_proven": false
+        },
+        {
+          "title": "The Art of The Endgame",
+          "author": "Jan Timman",
+          "language": "en",
+          "provider_url": "https://www.simonandschuster.com/books/The-Art-of-The-Endgame/Jan-Timman/9789083328409",
+          "availability": "BIBLIOGRAPHY_ONLY_NOT_IMPORTED",
+          "book_binary_in_repo": false,
+          "licensed_copy_proven": false
+        }
+      ],
+      "tested_material_scope": "composer, stipulation, historical provenance and full source rights",
+      "full_genre_qualification_obtained": false,
+      "no_beginners": true,
+      "available_languages_for_self_authored_test_briefs": [
+        "uk",
+        "en"
+      ]
+    },
+    {
+      "id": "annotatedgames",
+      "uk": "Анотовані майстерські партії",
+      "en": "Annotated master games",
+      "level_scope": "CM-IM-GM",
+      "original_or_derived_source_candidates": [
+        {
+          "catalog_source_id": "lichess_cc0_high_level_4_original_annotated_games",
+          "role": "4 complete high-level annotated games",
+          "qualification_status": "VENDORED_ORIGINAL_PGN_PINNED"
+        }
+      ],
+      "professional_book_references": [
+        {
+          "title": "Perfect Your Chess",
+          "author": "Andrei Volokitin and Vladimir Grabinsky",
+          "language": "en",
+          "provider_url": "https://www.newinchess.com/perfect-your-chess",
+          "availability": "BIBLIOGRAPHY_ONLY_NOT_IMPORTED",
+          "book_binary_in_repo": false,
+          "licensed_copy_proven": false
+        }
+      ],
+      "tested_material_scope": "actual NAG/RAV/evaluation by provenance",
+      "full_genre_qualification_obtained": false,
+      "no_beginners": true,
+      "available_languages_for_self_authored_test_briefs": [
+        "uk",
+        "en"
+      ]
+    },
+    {
+      "id": "tournaments",
+      "uk": "Світові турніри й матчеві бази",
+      "en": "International tournament and match databases",
+      "level_scope": "CM-IM-GM",
+      "original_or_derived_source_candidates": [
+        {
+          "catalog_source_id": "lichess_official_broadcast_pgn",
+          "role": "official broadcast archive",
+          "qualification_status": "SOURCE_PAGE_ONLY_SA_LICENSE"
+        },
+        {
+          "catalog_source_id": "lichess_cc0_high_level_4_original_annotated_games",
+          "role": "4 complete high-level annotated games",
+          "qualification_status": "VENDORED_ORIGINAL_PGN_PINNED"
+        }
+      ],
+      "professional_book_references": [
+        {
+          "title": "Grandmaster Preparation: Thinking Inside the Box",
+          "author": "Jacob Aagaard",
+          "language": "en",
+          "provider_url": "https://www.simonandschuster.com/books/Grandmaster-Preparation/Jacob-Aagaard/9781907982347",
+          "availability": "BIBLIOGRAPHY_ONLY_NOT_IMPORTED",
+          "book_binary_in_repo": false,
+          "licensed_copy_proven": false
+        }
+      ],
+      "tested_material_scope": "master-game score, original broadcast PGN CC BY-SA vs standard CC0",
+      "full_genre_qualification_obtained": false,
+      "no_beginners": true,
+      "available_languages_for_self_authored_test_briefs": [
+        "uk",
+        "en"
+      ]
+    },
+    {
+      "id": "blindchess",
+      "uk": "Партії чемпіонатів незрячих",
+      "en": "Blind and visually impaired championship games",
+      "level_scope": "CM-IM-GM",
+      "original_or_derived_source_candidates": [
+        {
+          "catalog_source_id": "ibca_13th_world_individual_real_351_games",
+          "role": "external 351 source slots",
+          "qualification_status": "SOURCE_PAGE_ONLY_NOT_DOWNLOADED"
+        },
+        {
+          "catalog_source_id": "ibca_2019_world_individual_376_real_pgn_archive",
+          "role": "external 376 source slots",
+          "qualification_status": "SOURCE_PAGE_ONLY_NOT_DOWNLOADED"
+        }
+      ],
+      "professional_book_references": [],
+      "tested_material_scope": "official tournament score, no fabricated game moves",
+      "full_genre_qualification_obtained": false,
+      "no_beginners": true,
+      "available_languages_for_self_authored_test_briefs": [
+        "uk",
+        "en"
+      ]
+    },
+    {
+      "id": "chess960",
+      "uk": "Chess960 / Fischer Random",
+      "en": "Chess960 and Fischer Random",
+      "level_scope": "CM-IM-GM",
+      "original_or_derived_source_candidates": [
+        {
+          "catalog_source_id": "stockfish_frc_openings_epd_zip",
+          "role": "original Chess960 FRC EPD",
+          "qualification_status": "VENDORED_ORIGINAL_BYTES_HASH_PINNED"
+        },
+        {
+          "catalog_source_id": "stockfish_4mvs_90_99_epd_zip",
+          "role": "original Stockfish opening EPD",
+          "qualification_status": "VENDORED_ORIGINAL_BYTES_HASH_PINNED"
+        }
+      ],
+      "professional_book_references": [],
+      "tested_material_scope": "original FRC EPD; separate unsupported castling statuses",
+      "full_genre_qualification_obtained": false,
+      "no_beginners": true,
+      "available_languages_for_self_authored_test_briefs": [
+        "uk",
+        "en"
+      ]
+    },
+    {
+      "id": "engines",
+      "uk": "Аналіз із Stockfish, PV, критичні позиції",
+      "en": "Engine analysis and PV",
+      "level_scope": "CM-IM-GM",
+      "original_or_derived_source_candidates": [
+        {
+          "catalog_source_id": "stockfish_2moves_v2_pgn_zip",
+          "role": "Stockfish original openings",
+          "qualification_status": "VENDORED_ORIGINAL_BYTES_HASH_PINNED"
+        },
+        {
+          "catalog_source_id": "stockfish_frc_openings_epd_zip",
+          "role": "original Chess960 FRC EPD",
+          "qualification_status": "VENDORED_ORIGINAL_BYTES_HASH_PINNED"
+        },
+        {
+          "catalog_source_id": "stockfish_4mvs_90_99_epd_zip",
+          "role": "original Stockfish opening EPD",
+          "qualification_status": "VENDORED_ORIGINAL_BYTES_HASH_PINNED"
+        }
+      ],
+      "professional_book_references": [
+        {
+          "title": "Grandmaster Preparation: Thinking Inside the Box",
+          "author": "Jacob Aagaard",
+          "language": "en",
+          "provider_url": "https://www.simonandschuster.com/books/Grandmaster-Preparation/Jacob-Aagaard/9781907982347",
+          "availability": "BIBLIOGRAPHY_ONLY_NOT_IMPORTED",
+          "book_binary_in_repo": false,
+          "licensed_copy_proven": false
+        }
+      ],
+      "tested_material_scope": "do not present engine-generated lines as original annotation",
+      "full_genre_qualification_obtained": false,
+      "no_beginners": true,
+      "available_languages_for_self_authored_test_briefs": [
+        "uk",
+        "en"
+      ]
+    },
+    {
+      "id": "historicchess",
+      "uk": "Історія шахів та класична література",
+      "en": "Chess history and historical literature",
+      "level_scope": "CM-IM-GM",
+      "original_or_derived_source_candidates": [
+        {
+          "catalog_source_id": "gutenberg_chess_history_bird_original_txt",
+          "role": "historic textbook for format QA",
+          "qualification_status": "PINNED_NOT_DOWNLOADED_IN_THIS_PASS"
+        }
+      ],
+      "professional_book_references": [],
+      "tested_material_scope": "period/edition/rights; technical QA sources not treated as personalized master instruction",
+      "full_genre_qualification_obtained": false,
+      "no_beginners": true,
+      "available_languages_for_self_authored_test_briefs": [
+        "uk",
+        "en"
+      ]
+    },
+    {
+      "id": "biographies",
+      "uk": "Біографії та творчість гросмейстерів",
+      "en": "GM biographies and collected games",
+      "level_scope": "CM-IM-GM",
+      "original_or_derived_source_candidates": [
+        {
+          "catalog_source_id": "lichess_cc0_high_level_4_original_annotated_games",
+          "role": "4 complete high-level annotated games",
+          "qualification_status": "VENDORED_ORIGINAL_PGN_PINNED"
+        }
+      ],
+      "professional_book_references": [
+        {
+          "title": "Grandmaster Preparation: Thinking Inside the Box",
+          "author": "Jacob Aagaard",
+          "language": "en",
+          "provider_url": "https://www.simonandschuster.com/books/Grandmaster-Preparation/Jacob-Aagaard/9781907982347",
+          "availability": "BIBLIOGRAPHY_ONLY_NOT_IMPORTED",
+          "book_binary_in_repo": false,
+          "licensed_copy_proven": false
+        }
+      ],
+      "tested_material_scope": "historical factual biography is not a verified model-game PGN",
+      "full_genre_qualification_obtained": false,
+      "no_beginners": true,
+      "available_languages_for_self_authored_test_briefs": [
+        "uk",
+        "en"
+      ]
+    },
+    {
+      "id": "trainingcourses",
+      "uk": "Курси КМС, IM, GM; тренерський практикум",
+      "en": "Candidate-master and GM training curricula",
+      "level_scope": "CM-IM-GM",
+      "original_or_derived_source_candidates": [
+        {
+          "catalog_source_id": "lichess_cc0_advanced_16_original_derived",
+          "role": "16 CC0 original-selected advanced puzzles",
+          "qualification_status": "VENDORED_DERIVED_SOURCE_PINNED"
+        },
+        {
+          "catalog_source_id": "lichess_cc0_extreme_4_original_derived_puzzles",
+          "role": "4 original-selected 3000+ difficulty puzzles",
+          "qualification_status": "VENDORED_DERIVED_SOURCE_PINNED"
+        }
+      ],
+      "professional_book_references": [
+        {
+          "title": "Grandmaster Preparation: Calculation",
+          "author": "Jacob Aagaard",
+          "language": "en",
+          "provider_url": "https://www.qualitychess.co.uk/ebooks/CALCULATION-excerpt.pdf",
+          "availability": "BIBLIOGRAPHY_ONLY_NOT_IMPORTED",
+          "book_binary_in_repo": false,
+          "licensed_copy_proven": false
+        },
+        {
+          "title": "Тактика для всіх — вибірково 200 задач КМС/МС/ММ",
+          "author": "Микола Боднар",
+          "language": "uk-publisher-page-edition-language-to-verify",
+          "provider_url": "https://bodnarchess.com.ua/tactics.html",
+          "availability": "BIBLIOGRAPHY_ONLY_NOT_IMPORTED",
+          "book_binary_in_repo": false,
+          "licensed_copy_proven": false
+        }
+      ],
+      "tested_material_scope": "teach original multi-line real puzzles without solution leak",
+      "full_genre_qualification_obtained": false,
+      "no_beginners": true,
+      "available_languages_for_self_authored_test_briefs": [
+        "uk",
+        "en"
+      ]
+    },
+    {
+      "id": "sourceformats",
+      "uk": "Технічні бібліотеки форматів FEN/PGN/EPD/ACSDB/ChessBase",
+      "en": "Chess format corpora and databases",
+      "level_scope": "CM-IM-GM",
+      "original_or_derived_source_candidates": [
+        {
+          "catalog_source_id": "stockfish_frc_openings_epd_zip",
+          "role": "original Chess960 FRC EPD",
+          "qualification_status": "VENDORED_ORIGINAL_BYTES_HASH_PINNED"
+        },
+        {
+          "catalog_source_id": "stockfish_4mvs_90_99_epd_zip",
+          "role": "original Stockfish opening EPD",
+          "qualification_status": "VENDORED_ORIGINAL_BYTES_HASH_PINNED"
+        },
+        {
+          "catalog_source_id": "lichess_openings_original_eco_a_tsv",
+          "role": "ECO source book A",
+          "qualification_status": "VENDORED_ORIGINAL_BYTES_HASH_PINNED"
+        },
+        {
+          "catalog_source_id": "lichess_openings_original_eco_b_tsv",
+          "role": "ECO source book B",
+          "qualification_status": "VENDORED_ORIGINAL_BYTES_HASH_PINNED"
+        },
+        {
+          "catalog_source_id": "lichess_openings_original_eco_c_tsv",
+          "role": "ECO source book C",
+          "qualification_status": "VENDORED_ORIGINAL_BYTES_HASH_PINNED"
+        },
+        {
+          "catalog_source_id": "lichess_openings_original_eco_d_tsv",
+          "role": "ECO source book D",
+          "qualification_status": "VENDORED_ORIGINAL_BYTES_HASH_PINNED"
+        },
+        {
+          "catalog_source_id": "lichess_openings_original_eco_e_tsv",
+          "role": "ECO source book E",
+          "qualification_status": "VENDORED_ORIGINAL_BYTES_HASH_PINNED"
+        },
+        {
+          "catalog_source_id": "lichess_cc0_high_level_4_original_annotated_games",
+          "role": "4 complete high-level annotated games",
+          "qualification_status": "VENDORED_ORIGINAL_PGN_PINNED"
+        },
+        {
+          "catalog_source_id": "historical_reti_1921_original_bilingual_study_pgn",
+          "role": "1921 Réti study, own bilingual annotations",
+          "qualification_status": "VENDORED_HISTORICAL_BILINGUAL_PGN_PINNED"
+        },
+        {
+          "catalog_source_id": "original_1851_kling_horwitz_endgame_studies_arves_archive_pdf",
+          "role": "original historic study book PDF",
+          "qualification_status": "SOURCE_PAGE_ONLY_RIGHTS_UNCLEARED"
+        },
+        {
+          "catalog_source_id": "chessbase_family_complete_real_samples",
+          "role": "full CBH companions",
+          "qualification_status": "BLOCKED_NO_LAWFUL_COMPLETE_SAMPLE"
+        },
+        {
+          "catalog_source_id": "chessbase_official_cbf_cbi_format_external_gap",
+          "role": "proprietary CBF+CBI",
+          "qualification_status": "BLOCKED_NO_LAWFUL_COMPLETE_SAMPLE"
+        }
+      ],
+      "professional_book_references": [],
+      "tested_material_scope": "16 true format gates, never unsupported->pass",
+      "full_genre_qualification_obtained": false,
+      "no_beginners": true,
+      "available_languages_for_self_authored_test_briefs": [
+        "uk",
+        "en"
+      ]
+    }
+  ],
+  "original_material_requirements": [
+    "source URL and license",
+    "original bytes sha256 and size",
+    "original vs derived vs mock",
+    "expected verses actual chess semantics",
+    "Windows/NVDA keyboard test",
+    "Library Books Training Board Position Explorer Search Web",
+    "restart cancellation tampered/oversize and recover",
+    "RAV NAG annotations chess960 original tags",
+    "per-format READ WRITE ROUNDTRIP capability",
+    "owned packaged test collection before cleanup"
+  ],
+  "rights_constraints": [
+    "No protected publisher EPUB/PDF/DOCX/CBH redistributed without verified license",
+    "UK authored standalone study briefs never labeled publisher translation",
+    "Standard Lichess public games CC0 differs from broadcast CC BY-SA 4.0",
+    "Missing original CBV CBF 2CBH CBONE must stay BLOCKED",
+    "Lichess puzzle difficulty >=2200 is not FIDE ELO or proof of a GM title"
+  ],
+  "section38_terminal_done": false,
+  "section39_terminal_done": false
+}
