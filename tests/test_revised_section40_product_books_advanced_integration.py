@@ -36,6 +36,42 @@ class GenuineAdvancedMaterialProductTests(unittest.TestCase):
                             for task in tasks))
         self.assertTrue(any("endgame" in task["themes"] for task in tasks))
 
+    def test_advanced_exercise_opens_on_canonical_chessboard(self):
+        with tempfile.TemporaryDirectory(prefix="acs-section40-board-ui-") as raw:
+            root = Path(raw)
+            db = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                app = Version2StarterContentApplication(
+                    db,
+                    progress_store=BookProgressStore(root / "books.json"),
+                    engine_assistance=EngineAssistedWorkflowService(analysis),
+                    board_dispatch=lambda *_: None,
+                    board_position_projector=lambda _fen: {"ok": True},
+                )
+                try:
+                    app.browser_command("shell", "screen.books")
+                    opened = app.browser_command(
+                        "books", "book.open_starter_material",
+                        {"material_id": ADVANCED_MATERIAL_ID},
+                    )
+                    self.assertEqual(opened["kind"], "render")
+                    for _ in range(3):
+                        next_block = app.browser_command("books", "book.next")
+                        self.assertEqual(next_block["kind"], "render")
+                    self.assertEqual(app.reader.location().kind, "Exercise")
+                    position = app.reader.location().block.fen
+                    board_open = app.browser_command("books", "book.open_position")
+                    self.assertEqual(board_open["kind"], "delegated")
+                    self.assertTrue(app.book_workflow.active)
+                    self.assertEqual(app.shell.current_route.route_id, "board")
+                    self.assertEqual(app.reader.location().block.fen, position)
+                finally:
+                    app.shutdown()
+            finally:
+                analysis.close()
+                db.close()
+
     def test_real_books_ui_opens_advanced_and_preserves_training_navigation(self):
         with tempfile.TemporaryDirectory(prefix="acs-section40-advanced-prod-") as raw:
             root = Path(raw)
