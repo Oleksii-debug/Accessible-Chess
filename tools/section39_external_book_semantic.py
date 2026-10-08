@@ -157,6 +157,8 @@ def main() -> None:
         os.replace(staged, REPORT)
     finally:
         staged.unlink(missing_ok=True)
+    if any(r["qualification"] == "FAIL" for r in report["sources"]):
+        raise LawfulCorpusError("genuine third-party book semantic failure; see retained receipt")
     print(json.dumps({
         "source_commit_sha": head,
         "actual_external_chess_book_formats": [x["source_format"] for x in report["sources"]],
