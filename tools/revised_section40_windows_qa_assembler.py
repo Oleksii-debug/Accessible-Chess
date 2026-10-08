@@ -203,6 +203,13 @@ def build_section40_windows_test_package(
         actual_source, real_native_books = qualify_bilingual_books()
         with zipfile.ZipFile(copied) as contained:
             catalog = json.loads(contained.read("catalog/materials.json"))
+            original_collection_commit = catalog.get("source_commit_sha")
+            if (
+                type(original_collection_commit) is not str
+                or len(original_collection_commit) != 40
+                or any(ch not in "0123456789abcdef" for ch in original_collection_commit)
+            ):
+                raise OfflineCollectionError("Windows package original corpus exact-source commit missing")
             stored = {
                 row["source_path"]: row
                 for row in catalog["materials"]
@@ -268,6 +275,10 @@ def build_section40_windows_test_package(
             "schema": "acs-section40-owner-windows-test-package-v1",
             "profile": "TEST_BUILD_ONLY_NOT_PUBLIC_RELEASE",
             "source_sha": exact_source_sha,
+            "nested_original_source_sha": original_collection_commit,
+            "nested_original_source_matches_package_sha": (
+                original_collection_commit == exact_source_sha
+            ),
             "seed_sources": first.source_count,
             "seed_games": first.game_count,
             "original_seed_files_untouched": len(baseline_rows),
