@@ -14,6 +14,46 @@ from .section40_extreme_licensed_dataset import bundled_extreme_puzzles
 ADVANCED_MATERIAL_ID = "advanced-lichess-16-original"
 ADVANCED_BOOK_KEY = "section40:advanced-lichess-16-original"
 
+# Technical Lichess source tags stay unchanged in the source/Training oracle;
+# only user-facing BookDocument headings and prompts receive Ukrainian labels.
+# This is localization, NOT a new training taxonomy or chess authority.
+_THEMES_UK = {
+    "advancedPawn": "просунутий пішак",
+    "advantage": "здобуття переваги",
+    "attackingF2F7": "атака поля f2/f7",
+    "clearance": "звільнення лінії",
+    "crushing": "вирішальна перевага",
+    "defensiveMove": "захисний ресурс",
+    "doubleCheck": "подвійний шах",
+    "endgame": "ендшпіль",
+    "fork": "вилка",
+    "hangingPiece": "незахищена фігура",
+    "intermezzo": "проміжний хід",
+    "kingsideAttack": "атака на королівському фланзі",
+    "long": "довгий варіант",
+    "master": "майстерська складність задачі",
+    "mate": "матова атака",
+    "mateIn4": "мат за чотири ходи",
+    "middlegame": "мітельшпіль",
+    "opening": "дебют",
+    "pawnEndgame": "пішаковий ендшпіль",
+    "pin": "зв'язування",
+    "promotion": "перетворення пішака",
+    "queensideAttack": "атака на ферзевому фланзі",
+    "quietMove": "тихий хід",
+    "rookEndgame": "ладейний ендшпіль",
+    "sacrifice": "жертва",
+    "short": "короткий варіант",
+    "veryLong": "багатохідний розрахунок",
+    "zugzwang": "цугцванг",
+}
+
+
+def _display_themes(themes: list[str], language: str) -> str:
+    if language == "en":
+        return ", ".join(themes)
+    return ", ".join(_THEMES_UK.get(theme, theme) for theme in themes)
+
 
 def _apply_uci(board: Board, uci: str) -> None:
     if (type(uci) is not str or len(uci) not in (4, 5)
@@ -94,15 +134,15 @@ def build_advanced_offline_material(*, language: str = "uk") -> tuple[BookDocume
             "source_id": "lichess_cc0_advanced_16_original_derived",
         })
         blocks.append(Heading(
-            text=f"{'Puzzle' if language == 'en' else 'Задача'} {i:02d}. {', '.join(themes[:3])} — Lichess {rating}",
+            text=f"{'Puzzle' if language == 'en' else 'Задача'} {i:02d}. {_display_themes(themes[:3], language)} — Lichess {rating}",
             level=2, block_id=f"section40-advanced-{pid}-heading",
             source_anchor=f"section40:advanced:{pid}:heading",
         ))
         blocks.append(Exercise(
             fen=solver_fen,
-            prompt=(f"Find the best move and calculate the continuation. Themes: {', '.join(themes)}."
+            prompt=(f"Find the best move and calculate the continuation. Themes: {_display_themes(themes, language)}."
                     if language == "en" else
-                    f"Знайдіть найкращий хід і розрахуйте варіант. Теми: {', '.join(themes)}."),
+                    f"Знайдіть найкращий хід і розрахуйте варіант. Теми: {_display_themes(themes, language)}."),
             answer_text=answer,
             difficulty=f"Lichess puzzle {rating} ({'not FIDE' if language == 'en' else 'не FIDE'})",
             block_id=f"section40-advanced-{pid}-exercise",
