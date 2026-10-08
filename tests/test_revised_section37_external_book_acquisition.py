@@ -232,12 +232,15 @@ class ExternalOriginalBookTests(unittest.TestCase):
         self.assertEqual(record["external_license_git_blob"], "f288702d2fa16d3cdf0035b15a9fcbc552cd88e7")
         self.assertEqual(record["external_license_indexed_bytes"], 35149)
         self.assertEqual(record["external_license_sha256"], "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986")
+        self.assertEqual(record["external_book_rights_notice_git_blob"], "1b729a364e62d58718b0fa5dde9f07c0ffe49242")
+        self.assertIn("CC BY-NC-SA", record["license"])
         self.assertEqual(record["redistribution"], "NOT_CLEARED")
         self.assertEqual(record["public_release"], "EXCLUDED")
 
     def test_gpl_markdown_original_source_and_license_negative_readback(self):
         source = b"# Real chapter structure for isolated security fixture\\n## Introduction\\n"
         license_data = b"                    GNU GENERAL PUBLIC LICENSE\\nVersion 3\\n"
+        rights_notice = b"Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International\\n"
         record = {
             **fake_record(source),
             "format": "md",
@@ -246,6 +249,8 @@ class ExternalOriginalBookTests(unittest.TestCase):
             "external_license_git_blob": _git_blob(license_data),
             "external_license_sha256": hashlib.sha256(license_data).hexdigest(),
             "external_license_indexed_bytes": len(license_data),
+            "external_book_rights_notice_path": "markdown/README.md",
+            "external_book_rights_notice_git_blob": _git_blob(rights_notice),
         }
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -254,8 +259,11 @@ class ExternalOriginalBookTests(unittest.TestCase):
             license_file = root / "markdown/LICENSE"
             book.write_bytes(source)
             license_file.write_bytes(license_data)
+            rights_file = root / "markdown/README.md"
+            rights_file.write_bytes(rights_notice)
             result = verify_original_book(record, root)
             self.assertEqual(result["source_format"], "md")
+            self.assertEqual(result["book_rights_notice"]["source_declared_book_license"], "CC-BY-NC-SA-4.0")
             self.assertEqual(result["sha256"], hashlib.sha256(source).hexdigest())
             self.assertEqual(result["public_release"], "EXCLUDED")
             self.assertFalse(result["original_bytes_packaged"])
@@ -263,6 +271,10 @@ class ExternalOriginalBookTests(unittest.TestCase):
             with self.assertRaises(LawfulCorpusError):
                 verify_original_book(record, root)
             license_file.write_bytes(license_data)
+            rights_file.write_bytes(b"Creative Commons BY License unrelated")
+            with self.assertRaises(LawfulCorpusError):
+                verify_original_book(record, root)
+            rights_file.write_bytes(rights_notice)
             book.write_bytes(source + b"tampered")
             with self.assertRaises(LawfulCorpusError):
                 verify_original_book(record, root)
