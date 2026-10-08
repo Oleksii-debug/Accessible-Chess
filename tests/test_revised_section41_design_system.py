@@ -107,6 +107,50 @@ class Section41RealDesignTests(unittest.TestCase):
         css=(ROOT/"web/assets/accessible_chess_design.css").read_text(encoding="utf-8")
         self.assertIn('.ac41-skip:focus-visible',css)
 
+    def test_restart_persists_ui_theme_through_one_canonical_settings_owner(self):
+        from acs.settings import Settings, SettingsError
+        from acs.stage1_release_ui_core import Stage1ReleaseAccessibleChessAPI
+        with tempfile.TemporaryDirectory(prefix="ac41-settings-") as tmp:
+            location=Path(tmp)/"settings.json"
+            settings=Settings(location)
+            api=object.__new__(Stage1ReleaseAccessibleChessAPI)
+            api._settings=settings
+            self.assertEqual(api.get_ui_theme()["uiTheme"],"system")
+            for theme in ("dark","light","contrast","system"):
+                with self.subTest(theme=theme):
+                    result=api.set_ui_theme(theme)
+                    self.assertEqual(result,{"ok":True,"uiTheme":theme})
+                    reopened=Settings(location)
+                    after=object.__new__(Stage1ReleaseAccessibleChessAPI)
+                    after._settings=reopened
+                    self.assertEqual(after.get_ui_theme()["uiTheme"],theme)
+                    self.assertEqual(reopened.get("ui_theme"),theme)
+            settings.set("ui_theme","contrast")
+            self.assertEqual(api.get_ui_theme()["uiTheme"],"contrast")
+            for invalid in ("#fafafa","SYSTEM","<script>",None,42,True):
+                with self.subTest(invalid=invalid):
+                    self.assertFalse(api.set_ui_theme(invalid)["ok"])
+                    self.assertEqual(Settings(location).get("ui_theme"),"contrast")
+            no_settings=object.__new__(Stage1ReleaseAccessibleChessAPI)
+            no_settings._settings=None
+            self.assertFalse(no_settings.set_ui_theme("dark")["ok"])
+            self.assertEqual(no_settings.get_ui_theme()["uiTheme"],"system")
+            with self.assertRaises(SettingsError):
+                Settings(location).set("ui_theme","unexpected")
+
+    def test_production_webview_theme_change_roundtrips_only_via_durable_api(self):
+        html=(ROOT/"web/index.html").read_text(encoding="utf-8")
+        self.assertIn("async function loadAc41Theme()",html)
+        self.assertIn("await a.get_ui_theme()",html)
+        self.assertIn("await a.set_ui_theme(wanted)",html)
+        self.assertIn("if(!result||result.ok!==true||result.uiTheme!==wanted)",html)
+        self.assertIn("await loadAc41Theme();await loadKeymap()",html)
+        self.assertNotIn("localStorage.setItem",html)
+        # The first-party Web-only demo can be ephemeral; only desktop
+        # claims persistence after an acknowledged Settings.set.
+        self.assertIn("state[\"uiTheme\"] = self.get_ui_theme()",(
+            ROOT/"acs/stage1_release_ui_core.py").read_text(encoding="utf-8"))
+
     def test_windows_package_must_include_all_local_design_dependencies(self):
         from acs.version2_package_preflight import Version2PackagePreflightError
         from tests.test_version2_package_preflight import (
