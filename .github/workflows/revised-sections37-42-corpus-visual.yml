@@ -252,6 +252,13 @@ jobs:
           repository: lordlinks/Chess_Fundamentals
           path: upstream/pdf
           persist-credentials: false
+      - name: Checkout author-attributed GPL chess Markdown source at exact historical commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: chastitywhiterose/Chastity-Chess-Chapters
+          ref: 69f3b151c8c6230ff1ebb252a24eb09a9e015f60
+          path: upstream/markdown
+          persist-credentials: false
       - name: Assert exact product SHA and pinned original Git object identities
         shell: bash
         run: |
@@ -262,6 +269,9 @@ jobs:
           test "$(git -C upstream/checkmates rev-parse HEAD:4542.txt)" = "ab6af427f4de27d8e98c0cc25e025b1984cc60cb"
           test "$(git -C upstream/pdf rev-parse HEAD:chess_fundamentals.pdf)" = "eab7c13bdd5a21a33fa2bef863781e4c40794c2c"
           test "$(git -C upstream/pdf rev-parse HEAD:LICENSE)" = "0e259d42c996742e9e3cba14c677129b2c1b6311"
+          test "$(git -C upstream/markdown rev-parse HEAD)" = "69f3b151c8c6230ff1ebb252a24eb09a9e015f60"
+          test "$(git -C upstream/markdown rev-parse HEAD:book/ebook/ChastityChessChapters-ebook.md)" = "67839e7768b2df1e54ce7136f010f93883bdf170"
+          test "$(git -C upstream/markdown rev-parse HEAD:LICENSE)" = "f288702d2fa16d3cdf0035b15a9fcbc552cd88e7"
           for directory in blue bird checkmates; do
             test "$(git -C upstream/$directory rev-parse HEAD:LICENSE)" = "8d062dda262bcdc42d45b861bd796117feb6d0fe"
           done
@@ -269,7 +279,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p source-originals/blue source-originals/bird source-originals/checkmates source-originals/capablanca_pdf
+          mkdir -p source-originals/blue source-originals/bird source-originals/checkmates source-originals/capablanca_pdf source-originals/chess_markdown
           git -C upstream/blue show HEAD:16377.txt > source-originals/blue/16377.txt
           git -C upstream/blue show HEAD:LICENSE > source-originals/blue/LICENSE
           git -C upstream/bird show HEAD:4902.txt > source-originals/bird/4902.txt
@@ -278,6 +288,8 @@ jobs:
           git -C upstream/checkmates show HEAD:LICENSE > source-originals/checkmates/LICENSE
           git -C upstream/pdf show HEAD:chess_fundamentals.pdf > source-originals/capablanca_pdf/chess_fundamentals.pdf
           git -C upstream/pdf show HEAD:LICENSE > source-originals/capablanca_pdf/LICENSE
+          git -C upstream/markdown show HEAD:book/ebook/ChastityChessChapters-ebook.md > source-originals/chess_markdown/ChastityChessChapters-ebook.md
+          git -C upstream/markdown show HEAD:LICENSE > source-originals/chess_markdown/LICENSE
       - name: Setup Python 3.12
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
