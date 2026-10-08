@@ -21,6 +21,8 @@ on:
       - 'tests/test_revised_section38_official_openings_library.py'
       - 'tests/test_revised_section38_stockfish_real_library.py'
       - 'tests/test_revised_section38_docx_book_integration.py'
+      - 'tests/test_section38_39_advanced_bilingual_qa_catalog.py'
+      - 'docs/corpus/SECTION38_39_ADVANCED_BILINGUAL_QA_CATALOG.json'
       - 'tools/revised_section38_stockfish_owner_seed.py'
       - 'tests/test_revised_section38_owner_seed.py'
       - 'tests/test_section0_format_capabilities.py'
@@ -86,6 +88,7 @@ jobs:
           acs/version2_application.py
           acs/format_capabilities.py
           tests/test_revised_section38_docx_book_integration.py
+          tests/test_section38_39_advanced_bilingual_qa_catalog.py
           tools/revised_section38_stockfish_owner_seed.py
           tests/test_revised_section38_owner_seed.py
           acs/visual_board_contract.py
@@ -120,6 +123,7 @@ jobs:
           tests.test_revised_section38_official_openings_library
           tests.test_revised_section38_stockfish_real_library
           tests.test_revised_section38_docx_book_integration
+          tests.test_section38_39_advanced_bilingual_qa_catalog
           tests.test_revised_section38_owner_seed
           tests.test_section0_format_capabilities
           tests.test_revised_section37_38_offline_manifest
