@@ -21,6 +21,10 @@ on:
       - 'tests/test_version2_package_preflight.py'
       - '.github/workflows/revised-section41-design-assets.yml'
   workflow_dispatch: {}
+concurrency:
+  group: ${{ github.workflow }}-pr-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 jobs:
