@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from enum import StrEnum
 from math import isfinite
-from typing import Mapping
+from typing import Callable, Mapping
 
 from .agent_budget import ModelCostBudget
 from .agent_model_contracts import (
@@ -208,6 +208,7 @@ class UniversalChessAgentRuntime:
         model: str | None = None,
         policy: AgentRunPolicy | None = None,
         budget: ModelCostBudget | None = None,
+        product_security_guard: Callable[[str], None] | None = None,
     ) -> None:
         if type(gateway) is not ModelGateway:
             raise TypeError("gateway must be ModelGateway")
@@ -221,13 +222,23 @@ class UniversalChessAgentRuntime:
         self.tools = tools
         self.provider_id = provider_id
         self.model = model
+        if product_security_guard is not None and not callable(product_security_guard):
+            raise TypeError("product_security_guard must be callable or None")
         self.policy = policy or AgentRunPolicy()
         self.budget = budget
+        self._product_security_guard = product_security_guard
         self.system_prompt = _system_prompt(tools, product_instruction)
         self._active: dict[str, asyncio.Task[AgentRunResult]] = {}
         self._active_lock = asyncio.Lock()
 
+    def _require_product_security(self, boundary_id: str) -> None:
+        if self._product_security_guard is not None:
+            self._product_security_guard(boundary_id)
+
     async def run(self, *, run_id: str, user_text: str) -> AgentRunResult:
+        self._require_product_security("BND.AC-S21-AGENT-RUNTIME")
+        self._require_product_security("BND.AC-S23-AI-COACH")
+        self._require_product_security("BND.AC-S24-AGENT-VOICE")
         if type(run_id) is not str or not run_id or run_id != run_id.strip():
             raise ValueError("run_id must be non-empty canonical text")
         if type(user_text) is not str or not user_text.strip():
@@ -246,6 +257,7 @@ class UniversalChessAgentRuntime:
                     self._active.pop(run_id, None)
 
     async def cancel(self, run_id: str) -> bool:
+        self._require_product_security("BND.AC-S24-AGENT-SAFETY")
         async with self._active_lock:
             task = self._active.get(run_id)
             if task is None or task.done():
@@ -311,6 +323,7 @@ class UniversalChessAgentRuntime:
                 )
 
             assert arguments is not None
+            self._require_product_security("BND.AC-S22-AGENT-TOOLS")
             tool_calls += 1
             call_id = f"{run_id}:tool:{tool_calls}"
             result = await self.tools.execute(
