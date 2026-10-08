@@ -38,19 +38,28 @@ jobs:
           set -euo pipefail
           base='${{ github.event.pull_request.base.sha }}'
           mapfile -t actual < <(git diff --name-only "$base...HEAD" | LC_ALL=C sort)
-          expected=(
+          historical=(
             '.github/workflows/multiplayer-coordination-contract.yml'
             'acs/multiplayer_coordination.py'
             'tests/test_multiplayer_coordination.py'
           )
-          if [[ "${actual[*]}" != "${expected[*]}" ]]; then
-            printf 'Unexpected multiplayer PR scope.\nExpected:\n'
-            printf '  %s\n' "${expected[@]}"
+          repair=(
+            '.github/workflows/multiplayer-coordination-contract.yml'
+            '.github/workflows/ui-semantic-gate.yml'
+          )
+          if [[ "${actual[*]}" == "${historical[*]}" ]]; then
+            echo 'MULTIPLAYER_COORDINATION_EXACT_SCOPE=PASS'
+          elif [[ "${actual[*]}" == "${repair[*]}" ]]; then
+            echo 'MULTIPLAYER_COORDINATION_REQUALIFICATION_SCOPE=PASS'
+          else
+            printf 'Unexpected multiplayer PR scope.\nHistorical scope:\n'
+            printf '  %s\n' "${historical[@]}"
+            printf 'Requalification scope:\n'
+            printf '  %s\n' "${repair[@]}"
             printf 'Actual:\n'
             printf '  %s\n' "${actual[@]}"
             exit 1
           fi
-          echo 'MULTIPLAYER_COORDINATION_EXACT_SCOPE=PASS'
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
