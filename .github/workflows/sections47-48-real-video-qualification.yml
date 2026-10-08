@@ -1,0 +1,86 @@
+name: Sections 47-48 real-video qualification
+
+on:
+  push:
+    branches:
+      - feat/sections47-48-real-video-qualification-20261008
+  pull_request:
+    paths:
+      - '.github/workflows/sections47-48-real-video-qualification.yml'
+      - 'web/real_media_workbench.*'
+      - 'docs/SECTION47_48_REAL_MEDIA_CATALOG.json'
+      - 'docs/SECTION47_48_REAL_VIDEO_QUALIFICATION.md'
+      - 'tools/section47_download_commons_corpus.py'
+      - 'tests/test_section47_real_commons_originals.py'
+      - 'tests/js/section47_48_real_media_workbench_test.js'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deterministic-contracts:
+    name: Deterministic contracts (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Compile actual original downloader
+        run: python -m py_compile tools/section47_download_commons_corpus.py
+      - name: Original downloader adversarial checks (mock only)
+        run: python -m unittest discover -s tests -p test_section47_real_commons_originals.py -v
+      - name: Existing documented YouTube provider oracle (mock only)
+        run: node tests/js/youtube_iframe_playback_adapter_test.js
+      - name: New local-video and IFrame integrated UI test (mock only)
+        run: node tests/js/section47_48_real_media_workbench_test.js
+      - name: JavaScript static syntax
+        run: node --check web/real_media_workbench.js
+
+  actual-commons-originals:
+    name: Actual Wikimedia originals and ffmpeg decode (EXTERNAL)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    # This independently runs the external-source stage, not the mock tests.
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspect original video decoder
+        run: |
+          ffmpeg -version | head -1
+          ffprobe -version | head -1
+      - name: Fetch authentic original WebM files and decode all of them
+        run: python tools/section47_download_commons_corpus.py --output "${{ runner.temp }}/section47-originals" --decode
+      - name: Check receipt is real and complete
+        shell: python
+        run: |
+          import json
+          import os
+          from pathlib import Path
+          p = Path(os.environ['RUNNER_TEMP']) / 'section47-originals' / 'RECEIPT.json'
+          data = json.loads(p.read_text(encoding='utf-8'))
+          assert data['evidence_class'] == 'EXTERNAL_ORIGINAL_BYTES'
+          assert data['count'] >= 3
+          assert data['all_original_bytes_verified'] is True
+          assert data['all_decoded'] is True
+          assert all(len(e['sha256']) == 64 and e['decoded'] and e['original_bytes_verified'] for e in data['receipts'])
+          assert data['windows_player_acceptance'] == 'NOT_RUN'
+          assert data['board_pgn_fen_qualification'] == 'NOT_RUN'
+          print("External ORIGINAL+DECODE PASS; Windows browser/position qualification NOT_RUN")
+      - name: Preserve real original receipts and temporary test library
+        uses: actions/upload-artifact@v4
+        with:
+          name: section47-lawful-originals-private-test-corpus
+          path: ${{ runner.temp }}/section47-originals/
+          retention-days: 3
+          if-no-files-found: error
