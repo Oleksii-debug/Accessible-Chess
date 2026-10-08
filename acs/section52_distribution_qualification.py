@@ -59,7 +59,7 @@ def _relative(value: object) -> str:
         _reject()
     for part in token.parts:
         if (part in (".", "..") or part.startswith(".") or part.endswith((" ", "."))
-                or part.partition(".")[0].upper() in _RESERVED
+                or part.partition(".")[0].rstrip(" .").upper() in _RESERVED
                 or any(ord(char) < 32 or ord(char) == 127 for char in part)
                 or len(part.encode("utf-16-le")) > 480):
             _reject()
@@ -195,6 +195,8 @@ def qualify_distribution_corpus(
             found[relative] = path
             if len(found) > MAX_FILES:
                 _reject()
+    if folded.intersection(folded_dirs):
+        _reject()  # File/dir aliases are ambiguous on case-insensitive Windows.
     expected: dict[str, str] = {}
     counts = {"PUBLIC_REDISTRIBUTION": 0, "OWNER_TEST_TRANSFER": 0}
     for asset in doc["assets"]:
