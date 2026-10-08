@@ -108,7 +108,21 @@ def _https_url(url: object, *, source_page: bool = False) -> str:
     return url
 
 
+def _bounded_source_size(record: dict) -> int:
+    """Validate a caller-provided acquisition budget before any file or network I/O.
+
+    Catalog validation is not a substitute: source records may also be provided
+    directly by a QA caller. A bool, float('inf') or absent budget must never
+    accidentally disable source-size enforcement.
+    """
+    limit = record.get("max_bytes")
+    if type(limit) is not int or not 0 < limit <= 128 * 1024 * 1024:
+        raise LawfulCorpusError("source byte limit invalid")
+    return limit
+
+
 def verified_local_source(path: Path, record: dict) -> str:
+    max_bytes = _bounded_source_size(record)
     digest = record.get("sha256")
     if type(digest) is not str or not _HASH.fullmatch(digest):
         raise LawfulCorpusError("unverified source has no pinned checksum")
@@ -119,7 +133,7 @@ def verified_local_source(path: Path, record: dict) -> str:
             not stat.S_ISREG(before.st_mode)
             or stat.S_ISLNK(before.st_mode)
             or attrs & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
-            or not 0 < before.st_size <= record["max_bytes"]
+            or not 0 < before.st_size <= max_bytes
         ):
             raise LawfulCorpusError("source is not a bounded direct regular file")
         hasher = hashlib.sha256()
@@ -130,7 +144,7 @@ def verified_local_source(path: Path, record: dict) -> str:
             total = 0
             while block := stream.read(_CHUNK):
                 total += len(block)
-                if total > record["max_bytes"]:
+                if total > max_bytes:
                     raise LawfulCorpusError("source grew beyond declared byte bound")
                 hasher.update(block)
             opened_after = os.fstat(stream.fileno())
@@ -188,6 +202,7 @@ def iter_bounded_corpus_lines(
 
 def acquire_cc0_source(record: dict, cache_dir: Path, *, opener=None) -> Path:
     """Download *only* an explicit CC0 source with known digest; never publish it."""
+    max_bytes = _bounded_source_size(record)
     if (
         record.get("license") != "CC0" or record.get("redistribution") != "permitted"
         or record.get("acquisition") != "PINNED_NOT_DOWNLOADED_IN_THIS_PASS"
@@ -222,7 +237,7 @@ def acquire_cc0_source(record: dict, cache_dir: Path, *, opener=None) -> Path:
                 digest_actual = hashlib.sha256()
                 while chunk := response.read(_CHUNK):
                     total += len(chunk)
-                    if total > record["max_bytes"]:
+                    if total > max_bytes:
                         raise LawfulCorpusError("source exceeds declared byte bound")
                     digest_actual.update(chunk)
                     output.write(chunk)
