@@ -21,6 +21,8 @@
   let providerGeneration = 0;
   let openRequestSerial = 0;
   let announcedSourceIdentity = "";
+  let youtubeClockTimer = null;
+  let synchronizationSequence = 0;
 
   function language() {
     return documentRef.documentElement && documentRef.documentElement.lang === "en"
@@ -153,6 +155,11 @@
 
   function destroyProvider() {
     providerGeneration += 1;
+    synchronizationSequence += 1;
+    if (youtubeClockTimer !== null) {
+      global.clearInterval(youtubeClockTimer);
+      youtubeClockTimer = null;
+    }
     activeSourceId = "";
     if (activeAdapter && typeof activeAdapter.destroy === "function") {
       try {
@@ -333,7 +340,20 @@
       : state.providerKind === "browser_local"
         ? localVideoCommand
         : hostCommand;
+    const focused = documentRef.activeElement;
+    const preserveFocusId = focused && typeof focused.id === "string" &&
+      focused.id && typeof playerHost.contains === "function" &&
+      playerHost.contains(focused) ? focused.id : "";
     renderer.render(playerHost, state.player, runner, focusAfterRender === true);
+    // Media progress can refresh while a blind user operates the controls.
+    // Retain focus on the same semantic button/slider instead of losing it
+    // when the accessible player replaces its children.
+    if (preserveFocusId && typeof documentRef.getElementById === "function") {
+      const nextFocused = documentRef.getElementById(preserveFocusId);
+      if (nextFocused && typeof nextFocused.focus === "function") {
+        nextFocused.focus();
+      }
+    }
     return true;
   }
 
@@ -433,6 +453,15 @@
         },
       });
       activeProviderKind = "youtube";
+      youtubeClockTimer = global.setInterval(function () {
+        if (generation !== providerGeneration || !activeAdapter) return;
+        try {
+          const current = activeAdapter.snapshot();
+          if (current.ok === true && current.ready === true) activeAdapter.refresh();
+        } catch (_error) {
+          // The provider state remains uncertain; no chess clock promotion.
+        }
+      }, 1000);
       return true;
     }).catch(function () {
       setStatus(
