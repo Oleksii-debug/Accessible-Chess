@@ -511,8 +511,8 @@ def build_collection(profile: str, output: Path, *, root: Path = ROOT) -> dict:
                 or study_games[0].tags.get("FEN") != "7K/8/k1P5/7p/8/8/8/8 w - - 0 1"
                 or study_games[0].tags.get("SetUp") != "1"
                 or len(study_games[0].line.moves) != 11
-                or not any("EN:" in line and "UK:" in line
-                           for line in study_bytes.decode("utf-8").splitlines())
+                or b"EN:" not in study_bytes
+                or b"UK:" not in study_bytes
             ):
                 raise OfflineCollectionError("historical bilingual composed study semantic data changed")
             study_path = "library/original-reti-1921-uk-en-study.pgn"
