@@ -110,6 +110,15 @@ class BilingualOwnerBooksProductReadback(unittest.TestCase):
                 analysis.close()
                 db.close()
 
+    def test_original_uk_en_pdf_is_explicitly_not_falsely_claimed_as_native_book_import(self):
+        # PDF is generated for accessible external viewers in a separate job.
+        # Current canonical Book open does not include a PDF ingress adapter.
+        with tempfile.TemporaryDirectory(prefix="section37-pdf-native-truth-") as tmp:
+            source = Path(tmp) / "advanced-uk.pdf"
+            source.write_bytes(b"%PDF-1.4\\nnot a full PDF because only extension guard runs")
+            with self.assertRaisesRegex(ValueError, "unsupported book source"):
+                Version2Application.prepare_book_open(source)
+
     def test_malformed_derived_epub_or_docx_never_becomes_owner_book(self):
         files = make_pack(load_advanced_workbook())
         with tempfile.TemporaryDirectory(prefix="section37-corrupt-uk-en-") as tmp:
