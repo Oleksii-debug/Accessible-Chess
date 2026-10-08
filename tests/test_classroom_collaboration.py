@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 import sqlite3
+from contextlib import closing
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -625,7 +626,7 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         # later authoritative row. The public append boundary now correctly
         # rejects this shape, so seed the historical state below that boundary.
         later = history[2]
-        with sqlite3.connect(self.store.path) as db:
+        with closing(sqlite3.connect(self.store.path)) as db, db:
             db.execute(
                 """
                 INSERT INTO collaboration_messages(
@@ -673,7 +674,7 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         self.chat.ordered = list(messages)
         self.chat.messages = {message.message_id: message for message in messages}
         self.store.append_message(messages[0])
-        with sqlite3.connect(self.root / "collaboration.sqlite3") as db:
+        with closing(sqlite3.connect(self.root / "collaboration.sqlite3")) as db, db:
             db.execute(
                 """
                 INSERT INTO collaboration_messages(
@@ -823,7 +824,7 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         third = self.chat.send_message(
             ChatDraft("legacy-gap-2", "room-1", "teacher-1", "Third")
         )
-        with sqlite3.connect(self.store.path) as db:
+        with closing(sqlite3.connect(self.store.path)) as db, db:
             db.execute(
                 """
                 INSERT INTO collaboration_messages(
