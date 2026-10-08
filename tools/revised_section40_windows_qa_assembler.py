@@ -12,6 +12,9 @@ import tempfile
 import zipfile
 
 from acs.acsdb import AcsDatabase
+from acs.gametree import serialize_game
+from acs.pgn_roundtrip import parse_pgn_text
+from acs.lawful_corpus_registry import load_catalog, read_verified_source_snapshot
 from acs.user_library_seed import (
     BUNDLE_KIND, MANIFEST_NAME, SCHEMA_VERSION,
     import_user_library_seed, load_user_library_seed,
@@ -19,7 +22,7 @@ from acs.user_library_seed import (
 from acs.version2_package_assembler import (
     _copy_tree, assemble_version2_package_tree, write_version2_package_zip,
 )
-from .revised_section40_offline_test_library import OfflineCollectionError
+from .revised_section40_offline_test_library import OfflineCollectionError, ROOT
 from .revised_section40_user_library_seed_bridge import build_owner_test_seed
 
 _SOURCE_MEMBERS = (
@@ -104,12 +107,49 @@ def build_section40_windows_test_package(
                     raise OfflineCollectionError("Section 40 PGN seed bytes changed")
                 with (seed / name).open("xb") as handle:
                     handle.write(body)
+        # The owner QA corpus additionally carries one genuinely authored
+        # historical Réti endgame study. It is NOT a modern copyrighted
+        # composed-study collection or a fabricated puzzle rating.
+        original_study_id = "historical_reti_1921_original_bilingual_study_pgn"
+        originals = load_catalog(ROOT / "docs/corpus/revised_sections37_40_sources.json")
+        matches = [row for row in originals if row.get("id") == original_study_id]
+        if len(matches) != 1:
+            raise OfflineCollectionError("verified historical endgame study absent")
+        historical = matches[0]
+        if (historical.get("acquisition") != "VENDORED_SOURCE_VERIFIED"
+            or historical.get("public_release") != "INCLUDED_OWN_TEXT_HISTORICAL_COMPOSITION"
+            or not str(historical.get("redistribution", "")).startswith("permitted")):
+            raise OfflineCollectionError("historical study source rights not qualified")
+        study = read_verified_source_snapshot(
+            ROOT / historical["local_source"], historical)
+        with zipfile.ZipFile(verified_collection_zip) as collected:
+            if collected.read("library/original-reti-1921-uk-en-study.pgn") != study:
+                raise OfflineCollectionError("historical study corpus/source bytes differ")
+        studies = parse_pgn_text(study.decode("utf-8"), strict=False)
+        if (len(studies) != 1
+            or studies[0].tags.get("FEN") != "7K/8/k1P5/7p/8/8/8/8 w - - 0 1"
+            or studies[0].tags.get("SetUp") != "1"
+            or len(studies[0].line.moves) != 11):
+            raise OfflineCollectionError("historical study semantics have changed")
+        study_wire = (serialize_game(studies[0]).rstrip() + "\n").encode("utf-8")
+        if len(parse_pgn_text(study_wire.decode("utf-8"), strict=True)) != 1:
+            raise OfflineCollectionError("historical study strict PGN export failed")
+        study_name = "section40-original-reti-1921-uk-en-study.pgn"
+        if study_name.casefold() in known:
+            raise OfflineCollectionError("historical endgame study would overwrite owner data")
+        (seed / study_name).write_bytes(study_wire)
+        historical_entry = {
+            "file": study_name,
+            "display_name": "Original Réti 1921 endgame study (UK and EN)",
+            "bytes": len(study_wire),
+            "sha256": hashlib.sha256(study_wire).hexdigest(),
+        }
         merged = {
             "schema_version": SCHEMA_VERSION,
             "bundle_kind": BUNDLE_KIND,
             "runtime_network_required": False,
             "ai_required": False,
-            "files": [*baseline_rows, *new["files"]],
+            "files": [*baseline_rows, *new["files"], historical_entry],
         }
         (seed / MANIFEST_NAME).write_text(
             json.dumps(merged, sort_keys=True, ensure_ascii=False) + "\n",
@@ -125,7 +165,7 @@ def build_section40_windows_test_package(
             reopened.verify_integrity()
         if (first.source_count != len(merged["files"])
             or first.reused_source_count != 0
-            or first.game_count < 516
+            or first.game_count < 517
             or second.game_count != first.game_count
             or second.reused_source_count != first.source_count):
             raise OfflineCollectionError("merged real Library startup/restart failed")
@@ -147,8 +187,8 @@ def build_section40_windows_test_package(
             "seed_sources": first.source_count,
             "seed_games": first.game_count,
             "original_seed_files_untouched": len(baseline_rows),
-            "section40_added_sources": 2,
-            "section40_added_games": 516,
+            "section40_added_sources": 3,
+            "section40_added_games": 517,
             "restart_reused_sources": second.reused_source_count,
             "zip_sha256": hashlib.sha256(output_zip.read_bytes()).hexdigest(),
             "canonical_version2_package_readback": True,
