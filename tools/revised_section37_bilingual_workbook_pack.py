@@ -13,6 +13,7 @@ from __future__ import annotations
 from hashlib import sha256
 from html import escape as html_escape
 from io import BytesIO
+import os
 import json
 from pathlib import Path
 import re
@@ -417,7 +418,10 @@ def _build_pack(args) -> None:
                 raise ValueError("user ZIP external source exclusion audit refused")
             # Exact output bytes have been inspected, preventing leaks of
             # noncleared original ChessBase or chess-book corpora by SHA/name.
-            staging.rename(args.zip_output)
+            # Publish atomically, never overwrite another worker's completed
+            # ZIP between our initial existence check and final publication.
+            # The staged and final names are siblings on the same filesystem.
+            os.link(staging, args.zip_output)
             with ZipFile(args.zip_output, "r") as archive:
                 if set(archive.namelist()) != set(entries) or archive.testzip() is not None:
                     raise ValueError("public ZIP readback failed")
