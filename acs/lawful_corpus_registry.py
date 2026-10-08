@@ -128,6 +128,11 @@ def verified_local_source(path: Path, record: dict) -> str:
     digest = record.get("sha256")
     if type(digest) is not str or not _HASH.fullmatch(digest):
         raise LawfulCorpusError("unverified source has no pinned checksum")
+    indexed = record.get("indexed_bytes")
+    if indexed is not None and (
+        type(indexed) is not int or not 0 < indexed <= max_bytes
+    ):
+        raise LawfulCorpusError("invalid source byte count in provenance index")
     try:
         before = path.lstat()
         attrs = getattr(before, "st_file_attributes", 0)
@@ -159,6 +164,7 @@ def verified_local_source(path: Path, record: dict) -> str:
         not os.path.samestat(before, after)
         or not os.path.samestat(before, opened_after)
         or opened_after.st_size != before.st_size
+        or (indexed is not None and total != indexed)
         or hasher.hexdigest() != digest
     ):
         raise LawfulCorpusError("source identity or pinned SHA256 mismatch")
@@ -468,7 +474,7 @@ def inventory_vendored_corpus(
             "relative_path": entry["local_source"],
             "format": str(entry.get("format", "")),
             "sha256": source_digest,
-            "bytes": source_path.stat().st_size,
+            "bytes": entry["indexed_bytes"],
             "license_sha256": expected_license,
             "distribution": distribution,
             "semantic_state": "VERIFIED_BYTES_NOT_IMPORTED",
