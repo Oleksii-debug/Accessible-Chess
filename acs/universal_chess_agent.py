@@ -25,6 +25,8 @@ from .agent_model_contracts import (
     ModelMessage,
     ModelRequest,
     PrivacyClass,
+    ModelGatewayError,
+    ModelFailureEffect,
 )
 from .agent_model_gateway import ModelGateway
 from .agent_tools import ToolCall, ToolExecutor
@@ -300,10 +302,18 @@ class UniversalChessAgentRuntime:
                         temperature=0.0,
                     )
                 )
-            except BaseException:
+            except BaseException as failure:
                 if self.budget is not None and reservation > 0:
                     try:
-                        self.budget.release(request_id)
+                        if (type(failure) is ModelGatewayError
+                                and failure.failure_effect is ModelFailureEffect.NO_EFFECT):
+                            self.budget.release(request_id)
+                        else:
+                            # Unknown upstream effect may already have incurred a charge.
+                            # Retain conservative unbilled estimate; never refund an
+                            # uncertain live model request to the reusable budget.
+                            self.budget.settle(request_id, incurred=Decimal("0"),
+                                               estimated_unbilled=reservation)
                     except ValueError:
                         pass
                 raise
