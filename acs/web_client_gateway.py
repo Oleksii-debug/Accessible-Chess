@@ -125,11 +125,15 @@ class CanonicalWebGateway:
         command: Callable[
             [WebPrincipal, str, str, Mapping[str, object]], Mapping[str, object]
         ],
+        product_security_guard: Callable[[str], None] | None = None,
     ) -> None:
         if not callable(snapshot) or not callable(command):
             raise TypeError("snapshot and command must be callable")
+        if product_security_guard is not None and not callable(product_security_guard):
+            raise TypeError("product_security_guard must be callable or None")
         self._snapshot = snapshot
         self._command = command
+        self._product_security_guard = product_security_guard
 
     @staticmethod
     def _area(value: object) -> str:
@@ -146,6 +150,8 @@ class CanonicalWebGateway:
         return value
 
     def snapshot(self, principal: WebPrincipal) -> dict[str, object]:
+        if self._product_security_guard is not None:
+            self._product_security_guard("BND.AC-S34-WEB-PREMIUM")
         if type(principal) is not WebPrincipal:
             raise TypeError("authenticated WebPrincipal is required")
         value = self._snapshot(principal)
@@ -172,6 +178,12 @@ class CanonicalWebGateway:
             raise TypeError("authenticated WebPrincipal is required")
         clean_area = self._area(area)
         clean_command = self._command_id(command)
+        if self._product_security_guard is not None:
+            self._product_security_guard(
+                "BND.AC-S34-WEB-SAFETY"
+                if clean_area == "help"
+                else "BND.AC-S34-WEB-PREMIUM"
+            )
         if payload is None:
             clean_payload: dict[str, object] = {}
         elif type(payload) is dict:
