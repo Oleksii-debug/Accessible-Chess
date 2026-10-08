@@ -133,6 +133,20 @@ async function settle(){for(let i=0;i<12;i++)await Promise.resolve();}
  app.get("ac45-copy").click();await settle();
  assert.equal(app.get("ac45-profile").value,"My accessible view");
  assert.equal(app.get("ac45-profile").children.length,7);
+ // Real user-facing import path: file object -> strict profile decoder ->
+ // local persisted profiles. Invalid imported bytes must preserve old data.
+ const input=app.get("ac45-import");
+ const importSeed={version:1,selected:"Low Vision",profiles:{}};
+ const importText=JSON.stringify(importSeed);
+ input.files=[{size:importText.length,text:async()=>importText}];
+ input.dispatchEvent({type:"change"});await settle();
+ assert.equal(app.get("ac45-profile").value,"Low Vision");
+ assert.equal(JSON.parse(app.store["accessible-chess.design-profiles.v1"]).selected,"Low Vision");
+ const beforeMalicious=app.store["accessible-chess.design-profiles.v1"];
+ const maliciousImport='{"version":1,"version":2,"selected":"Classic","profiles":{}}';
+ input.files=[{size:maliciousImport.length,text:async()=>maliciousImport}];
+ input.dispatchEvent({type:"change"});await settle();
+ assert.equal(app.store["accessible-chess.design-profiles.v1"],beforeMalicious);
  const invalid=mount({storage:{
    "accessible-chess.design-profiles.v1":'{"version":1,"selected":"Classic","profiles":{},"userData":"secret"}'
  }});
@@ -188,5 +202,5 @@ async function settle(){for(let i=0;i<12;i++)await Promise.resolve();}
  assert.equal(durable.selected,"Low Vision");
  assert.equal(win.get("ac45-profile").value,"Low Vision");
  assert.equal(win.store["accessible-chess.design-profiles.v1"],undefined,"native private profile must not use localStorage");
- console.log("Section45 real studio DOM: 9 groups PASS (preview, Apply/Cancel, restart, input security, native CAS mock)");
+ console.log("Section45 real studio DOM: 10 groups PASS (preview, Apply/Cancel, restart, input security, native CAS mock)");
 })().catch(err=>{console.error(err);process.exitCode=1;});
