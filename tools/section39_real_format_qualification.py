@@ -245,9 +245,17 @@ def build_report() -> dict:
     receipts = []
     for item in catalog:
         current = receipt_by_id[item["id"]]
+        # A candidate source ID does not prove this particular source was
+        # opened. Only the exact original ID used by the executed readback,
+        # with the separately pinned observed original bytes, may be PASS.
         qualified = next(
-            (r for r in rows if r["qualification"] == "PASS"
-             and item["id"] in r["source_ids"]), None
+            (r for r in rows
+             if r["qualification"] == "PASS"
+             and isinstance(r["actual"], dict)
+             and r["actual"].get("source_id") == item["id"]
+             and current["actual_sha256"] is not None
+             and current["actual_sha256"] == item.get("sha256")
+             and current["actual_bytes"] == item.get("indexed_bytes")), None
         )
         receipts.append({
             "source_id": item["id"], "source_format": item["format"],
