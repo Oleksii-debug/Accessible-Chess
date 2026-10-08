@@ -10,11 +10,11 @@ The FEN is BEFORE the opponent's previous move. Play that move on the canonical 
 
 Lichess puzzle difficulty: 2539
 
-```fen
-r2qr1k1/pn1p2pp/bp3p2/2p1N3/2P5/1PB3Q1/P1P3PP/R4RK1 w - - 0 18
-```
+Opponent's previous move (already applied): f1f6
 
-Opponent's preceding move: f1f6
+```fen
+r2qr1k1/pn1p2pp/bp3R2/2p1N3/2P5/1PB3Q1/P1P3PP/R5K1 b - - 0 18
+```
 
 Find three candidate moves. Calculate every forcing branch through the defender's strongest reply until a quiet stabilization. Compare intermediate moves with direct conversion.
 
@@ -22,11 +22,11 @@ Find three candidate moves. Calculate every forcing branch through the defender'
 
 Lichess puzzle difficulty: 2627
 
-```fen
-2rr2k1/5p2/4p2p/4N1pQ/1p3P2/4P3/np3P1P/2q2BRK b - - 1 32
-```
+Opponent's previous move (already applied): c8c7
 
-Opponent's preceding move: c8c7
+```fen
+3r2k1/2r2p2/4p2p/4N1pQ/1p3P2/4P3/np3P1P/2q2BRK w - - 2 33
+```
 
 Check every forcing check, capture and threat; identify the defender's tactical resource. Decide whether the idea survives best defence.
 
@@ -34,11 +34,11 @@ Check every forcing check, capture and threat; identify the defender's tactical 
 
 Lichess puzzle difficulty: 2291
 
-```fen
-1k6/1p1q4/P2p3p/1NpPpn1Q/5b2/2P3r1/1P2B1P1/R6K b - - 3 28
-```
+Opponent's previous move (already applied): g3g7
 
-Opponent's preceding move: g3g7
+```fen
+1k6/1p1q2r1/P2p3p/1NpPpn1Q/5b2/2P5/1P2B1P1/R6K w - - 4 29
+```
 
 Explore the forcing line, king deviations, counter-checks and alternative pawn promotions rather than stopping at the first attractive move.
 
@@ -46,11 +46,11 @@ Explore the forcing line, king deviations, counter-checks and alternative pawn p
 
 Lichess puzzle difficulty: 2205
 
-```fen
-r1b1kb1r/pppp1ppp/2n1p3/3nN3/3P2q1/4B3/PPP1BPPP/RN1Q1RK1 b kq - 9 8
-```
+Opponent's previous move (already applied): d5e3
 
-Opponent's preceding move: d5e3
+```fen
+r1b1kb1r/pppp1ppp/2n1p3/4N3/3P2q1/4n3/PPP1BPPP/RN1Q1RK1 w kq - 0 9
+```
 
 After the opponent's last move, identify the most urgent threat. Build a candidate-move tree and explain the positional consequences of the tactical decision.
 
@@ -58,11 +58,11 @@ After the opponent's last move, identify the most urgent threat. Build a candida
 
 Lichess puzzle difficulty: 2274
 
-```fen
-r1b1k2r/ppp2ppp/2n5/2bBp3/2Pq4/3P1QP1/P2B1P1P/1R2K1NR b Kkq - 2 12
-```
+Opponent's previous move (already applied): f7f6
 
-Opponent's preceding move: f7f6
+```fen
+r1b1k2r/ppp3pp/2n2p2/2bBp3/2Pq4/3P1QP1/P2B1P1P/1R2K1NR w Kkq - 0 13
+```
 
 Determine whether development justifies the tactical continuation. Compare natural defence with the critical forcing line.
 
@@ -70,11 +70,11 @@ Determine whether development justifies the tactical continuation. Compare natur
 
 Lichess puzzle difficulty: 2205
 
-```fen
-r1b1kb1r/pppp1ppp/2n1p3/3nN3/3P2q1/4B3/PPP1BPPP/RN1Q1RK1 b kq - 9 8
-```
+Opponent's previous move (already applied): d5e3
 
-Opponent's preceding move: d5e3
+```fen
+r1b1kb1r/pppp1ppp/2n1p3/4N3/3P2q1/4n3/PPP1BPPP/RN1Q1RK1 w kq - 0 9
+```
 
 Evaluate king safety and hanging pieces before assigning an opening verdict. Do not call a variation winning without checking the concrete moves.
 
@@ -82,11 +82,11 @@ Evaluate king safety and hanging pieces before assigning an opening verdict. Do 
 
 Lichess puzzle difficulty: 2243
 
-```fen
-1r1r2k1/pp4pp/2nNb3/2R2p2/2P1p3/8/P4PPP/3BR1K1 w - - 1 26
-```
+Opponent's previous move (already applied): d6b7
 
-Opponent's preceding move: d6b7
+```fen
+1r1r2k1/pN4pp/2n1b3/2R2p2/2P1p3/8/P4PPP/3BR1K1 b - - 0 26
+```
 
 Form a positional plan, then test it concretely. Pay attention to rank penetration, pins and open files.
 
@@ -94,11 +94,11 @@ Form a positional plan, then test it concretely. Pay attention to rank penetrati
 
 Lichess puzzle difficulty: 2233
 
-```fen
-r4rk1/3q1pbp/p1n1p1p1/2p3NP/1p3B2/3P3Q/PPP3P1/R3R1K1 b - - 2 19
-```
+Opponent's previous move (already applied): d7d4
 
-Opponent's preceding move: d7d4
+```fen
+r4rk1/5pbp/p1n1p1p1/2p3NP/1p1q1B2/3P3Q/PPP3P1/R3R1K1 w - - 3 20
+```
 
 List concrete threats, find defensive candidate moves and evaluate whether initiative persists against accurate resistance.
 
@@ -106,11 +106,11 @@ List concrete threats, find defensive candidate moves and evaluate whether initi
 
 Lichess puzzle difficulty: 2351
 
-```fen
-8/8/2p2p2/p4P1p/Pk5P/4K1P1/8/8 w - - 1 39
-```
+Opponent's previous move (already applied): e3d3
 
-Opponent's preceding move: e3d3
+```fen
+8/8/2p2p2/p4P1p/Pk5P/3K2P1/8/8 b - - 2 39
+```
 
 Calculate pawn breaks and king routes. Test zugzwang after every defender's reply instead of assuming a textbook rule settles the position.
 
@@ -118,11 +118,11 @@ Calculate pawn breaks and king routes. Test zugzwang after every defender's repl
 
 Lichess puzzle difficulty: 2233
 
-```fen
-8/1pp5/p2p3p/3P1Pk1/P3K1P1/1P5R/8/2r5 w - - 1 39
-```
+Opponent's previous move (already applied): e4f3
 
-Opponent's preceding move: e4f3
+```fen
+8/1pp5/p2p3p/3P1Pk1/P5P1/1P3K1R/8/2r5 b - - 2 39
+```
 
 Evaluate king activity, cut-off ranks and passed pawns. Search for counterplay in the full long variation.
 
@@ -130,11 +130,11 @@ Evaluate king activity, cut-off ranks and passed pawns. Search for counterplay i
 
 Lichess puzzle difficulty: 3164
 
-```fen
-7Q/rpk2p1p/p2b4/q1pp4/3P2b1/2P1P3/PP3PPP/R3K2R b KQ - 0 17
-```
+Opponent's previous move (already applied): c5d4
 
-Opponent's preceding move: c5d4
+```fen
+7Q/rpk2p1p/p2b4/q2p4/3p2b1/2P1P3/PP3PPP/R3K2R w KQ - 0 18
+```
 
 Write down at least three candidate moves and the opponent's refutations. Work without seeing the answer; test possible tactical traps.
 
@@ -142,11 +142,11 @@ Write down at least three candidate moves and the opponent's refutations. Work w
 
 Lichess puzzle difficulty: 3166
 
-```fen
-r1b2r1k/1p5P/1n1pp2B/1Pp2p1B/4P2q/P2P2b1/1P2Q2P/R4R1K b - - 1 20
-```
+Opponent's previous move (already applied): f8f6
 
-Opponent's preceding move: f8f6
+```fen
+r1b4k/1p5P/1n1ppr1B/1Pp2p1B/4P2q/P2P2b1/1P2Q2P/R4R1K w - - 2 21
+```
 
 Calculate the critical line to completion, compare it with two tempting false lines and account for every loose piece.
 
