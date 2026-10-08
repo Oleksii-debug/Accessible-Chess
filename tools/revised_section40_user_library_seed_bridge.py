@@ -24,6 +24,7 @@ from acs.user_library_seed import (
     import_user_library_seed, load_user_library_seed,
 )
 from .revised_section40_offline_test_library import OfflineCollectionError, ROOT
+from .revised_sections37_38_offline_manifest import _source_head
 
 _MAX_COLLECTION_BYTES = 80 * 1024 * 1024
 _MAX_UNCOMPRESSED_BYTES = 80 * 1024 * 1024
@@ -106,6 +107,14 @@ def _read_qualified_collection(source: Path) -> tuple[bytes, bytes]:
                     or type(report.get("real_import_readback")) is not dict
                     or report["real_import_readback"].get("game_count") != 512):
                     raise OfflineCollectionError("only verified 512-game TEST_BUILD is seedable")
+                # The test payload must have been built from precisely the
+                # checked-out candidate. A stale source snapshot or a manually
+                # re-signed archive is not eligible for owner-package ingress.
+                if (type(report.get("source_commit_sha")) is not str
+                    or report["source_commit_sha"] != _source_head()):
+                    raise OfflineCollectionError(
+                        "Section40 owner collection source commit is not the exact checked-out HEAD"
+                    )
                 sources = [
                     x for x in report["materials"]
                     if x.get("id") == "stockfish_2moves_v2_pgn_zip"
