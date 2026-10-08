@@ -297,6 +297,25 @@ def qualify_built_delivery(test_path: Path, public_path: Path,
             n = int(db.conn.execute("SELECT COUNT(*) FROM games").fetchone()[0])
             if n != 516:
                 raise LawfulCorpusError("archived genuine Library database does not contain 516 games")
+        # Exercise production ACSDB's own atomic backup and restore path on
+        # a genuinely imported 516-game source, not a synthetically empty DB.
+        backup = root / "original-516-game-library.backup.acsdb"
+        restored_copy = root / "original-516-game-library.restored.acsdb"
+        with AcsDatabase(dbfile) as database:
+            database.backup_to(backup)
+        AcsDatabase.restore_backup(backup, restored_copy)
+        with AcsDatabase(restored_copy) as database:
+            database.verify_integrity()
+            restored_game_count = int(
+                database.conn.execute("SELECT COUNT(*) FROM games").fetchone()[0]
+            )
+            restored_source_count = int(
+                database.conn.execute("SELECT COUNT(*) FROM sources").fetchone()[0]
+            )
+            if restored_game_count != 516 or restored_source_count != 2:
+                raise LawfulCorpusError("real 516-game source suffered ACSDB backup/restore data loss")
+        if not backup.is_file() or not restored_copy.is_file():
+            raise LawfulCorpusError("genuine 516-game ACSDB recovery copies missing")
         seed_dir = root / "release-content" / "user-library-seed"
         seed_dir.mkdir(parents=True)
         for path, raw in owner.items():
@@ -316,6 +335,7 @@ def qualify_built_delivery(test_path: Path, public_path: Path,
         "original_annotated_source_sha256": _sha(original_annotated),
         "real_stockfish_sample_sha256": _sha(original_stockfish),
         "real_library_games": 516,
+        "real_516_game_acsdb_backup_restore": "PASS",
         "original_annotated_games": 4,
         "genuine_historical_bilingual_composed_studies": 1,
         "advanced_training_original_tasks": 16,
