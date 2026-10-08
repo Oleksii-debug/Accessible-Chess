@@ -85,9 +85,9 @@ $ErrorActionPreference = 'Stop'
 $sig = Get-AuthenticodeSignature -LiteralPath $env:ACS_AUTHENTICODE_TARGET
 $result = [ordered]@{
   Status = [string]$sig.Status
-  SignerSubject = if ($null -ne $sig.SignerCertificate) { [string]$sig.SignerCertificate.Subject } else { $null }
-  SignerThumbprint = if ($null -ne $sig.SignerCertificate) { [string]$sig.SignerCertificate.Thumbprint } else { $null }
-  TimestampSubject = if ($null -ne $sig.TimeStamperCertificate) { [string]$sig.TimeStamperCertificate.Subject } else { $null }
+  SignerSubject = $(if ($null -ne $sig.SignerCertificate) { [string]$sig.SignerCertificate.Subject } else { $null })
+  SignerThumbprint = $(if ($null -ne $sig.SignerCertificate) { [string]$sig.SignerCertificate.Thumbprint } else { $null })
+  TimestampSubject = $(if ($null -ne $sig.TimeStamperCertificate) { [string]$sig.TimeStamperCertificate.Subject } else { $null })
 }
 $result | ConvertTo-Json -Compress
 """.strip()
