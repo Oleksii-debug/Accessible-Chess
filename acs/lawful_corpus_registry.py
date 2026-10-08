@@ -15,7 +15,7 @@ import re
 import stat
 import tempfile
 from urllib.parse import urlsplit
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 CATALOG_FILE = Path(__file__).resolve().parents[1] / "docs" / "corpus" / "revised_sections37_40_sources.json"
 _ID = re.compile(r"^[a-z0-9][a-z0-9_]{2,79}$")
@@ -25,6 +25,17 @@ _CHUNK = 256 * 1024
 
 class LawfulCorpusError(ValueError):
     pass
+
+
+class _NoRedirect(HTTPRedirectHandler):
+    """Never follow a third-party redirect before authenticating its destination."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def _open_no_redirect(request: Request, timeout: int):
+    return build_opener(_NoRedirect()).open(request, timeout=timeout)
 
 
 def load_catalog(path: Path = CATALOG_FILE) -> tuple[dict, ...]:
@@ -72,11 +83,15 @@ def load_catalog(path: Path = CATALOG_FILE) -> tuple[dict, ...]:
 def _https_url(url: object) -> str:
     if type(url) is not str or len(url) > 2048:
         raise LawfulCorpusError("source URL invalid")
-    parsed = urlsplit(url)
+    try:
+        parsed = urlsplit(url)
+        port = parsed.port
+    except ValueError as exc:
+        raise LawfulCorpusError("source URL malformed") from exc
     if (
         parsed.scheme != "https" or not parsed.hostname
         or parsed.username is not None or parsed.password is not None
-        or parsed.port not in (None, 443)
+        or port not in (None, 443)
         or parsed.fragment or parsed.query
         or parsed.hostname not in {"database.lichess.org", "www.gutenberg.org"}
     ):
@@ -121,7 +136,7 @@ def verified_local_source(path: Path, record: dict) -> str:
     return digest
 
 
-def acquire_cc0_source(record: dict, cache_dir: Path, *, opener=urlopen) -> Path:
+def acquire_cc0_source(record: dict, cache_dir: Path, *, opener=None) -> Path:
     """Download *only* an explicit CC0 source with known digest; never publish it."""
     if (
         record.get("license") != "CC0" or record.get("redistribution") != "permitted"
@@ -146,9 +161,11 @@ def acquire_cc0_source(record: dict, cache_dir: Path, *, opener=urlopen) -> Path
     try:
         with tempfile.NamedTemporaryFile(prefix=".corpus-", suffix=".tmp", dir=cache_dir, delete=False) as output:
             temp = Path(output.name)
-            response = opener(Request(url, headers={"User-Agent": "AccessibleChessCorpusQA/1"}), timeout=60)
+            transport = _open_no_redirect if opener is None else opener
+            response = transport(Request(url, headers={"User-Agent": "AccessibleChessCorpusQA/1"}), timeout=60)
             with response:
-                # Reject redirect to a different URL or host, even HTTPS.
+                # Default transport prevents redirects before a second network request.
+                # Also reject injected transports that report a changed final endpoint.
                 if not hasattr(response, "geturl") or response.geturl() != url:
                     raise LawfulCorpusError("source redirected away from pinned endpoint")
                 total = 0
