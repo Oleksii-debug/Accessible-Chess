@@ -61,7 +61,8 @@ def _read_qualified_collection(source: Path) -> tuple[bytes, bytes]:
                     name = info.filename
                     parts = PurePosixPath(name).parts
                     if (not name or name.startswith("/") or "\\" in name
-                        or any(part in {"", ".", ".."} for part in parts)
+                        or any(part in {"", ".", ".."} for part in name.split("/"))
+                        or PurePosixPath(name).as_posix() != name
                         or ":" in name or name.casefold() in names
                         or info.is_dir()
                         or (info.external_attr >> 16) & 0o170000
