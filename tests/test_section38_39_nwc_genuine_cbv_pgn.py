@@ -68,10 +68,7 @@ class NorthwestChessSourceOnlyTests(unittest.TestCase):
         self.assertGreater(nw.MAX_SOURCE, 1024)
         self.assertGreater(nw.MAX_EXTRACTED_TOTAL, nw.MAX_SOURCE)
         self.assertLessEqual(nw.MAX_GAME_COUNT, 25_000)
-        self.assertEqual(
-            hashlib.sha256(b"synthetic").hexdigest(),
-            "b2d5dd8e8ea0bc4d7e7587a4ec6b53ef8f2e0e05626452549c9301a5ec8bfe47",
-        ) if False else self.assertNotEqual(
+        self.assertNotEqual(
             hashlib.sha256(b"synthetic").hexdigest(), "0" * 64
         )
 
