@@ -103,8 +103,8 @@ def _source_assets(root: Path, profile: str, catalog: tuple[dict, ...]):
 def _books_and_training():
     payloads = {
         "licenses/ACCESSIBLE_CHESS_STARTER_UK.txt": (
-            "LicenseRef: " + STARTER_RELEASE_LICENSE_ID + "\\n"
-            + STARTER_RELEASE_LICENSE_TERMS_UK + "\\n"
+            "LicenseRef: " + STARTER_RELEASE_LICENSE_ID + "\n"
+            + STARTER_RELEASE_LICENSE_TERMS_UK + "\n"
         ).encode("utf-8"),
     }
     rows = []
