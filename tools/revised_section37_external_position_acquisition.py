@@ -27,6 +27,23 @@ EXPECTED = {
 }
 
 
+def verify_record_line_structure(text: str, fmt: str, line_count: int) -> int:
+    """Only identify original source record family; never decide chess legality."""
+    if type(text) is not str or type(line_count) is not int or not 0 < line_count <= 2_000_000:
+        raise LawfulCorpusError("original source line qualification arguments invalid")
+    if fmt not in ("epd", "fen") or "\x00" in text:
+        raise LawfulCorpusError("original source format or content invalid")
+    lines = [line for line in text.splitlines() if line.strip()]
+    if len(lines) != line_count or any(len(line) > 2048 for line in lines):
+        raise LawfulCorpusError("original EPD/FEN line count or bound changed")
+    if fmt == "epd":
+        if not all(" bm " in line and "; id " in line for line in lines):
+            raise LawfulCorpusError("original EPD puzzle record family changed")
+    elif not all(len(line.split()) in (4, 6) for line in lines):
+        raise LawfulCorpusError("original FEN field structure changed")
+    return len(lines)
+
+
 def verify_original_positions(record: dict, external_root: Path) -> dict:
     expected = EXPECTED.get(record.get("id"))
     if expected is None:
@@ -68,16 +85,7 @@ def verify_original_positions(record: dict, external_root: Path) -> dict:
         text = source_bytes.decode("utf-8", errors="strict")
     except UnicodeError as exc:
         raise LawfulCorpusError("original EPD/FEN source encoding corrupt") from exc
-    if "\x00" in text:
-        raise LawfulCorpusError("original EPD/FEN contains unexpected NUL")
-    lines = [line for line in text.splitlines() if line.strip()]
-    if len(lines) != line_count or any(len(line) > 2048 for line in lines):
-        raise LawfulCorpusError("original EPD/FEN line count or bound changed")
-    if fmt == "epd":
-        if not all(" bm " in line and "; id " in line for line in lines):
-            raise LawfulCorpusError("original EPD puzzle record family changed")
-    elif not all(len(line.split()) in (4, 6) for line in lines):
-        raise LawfulCorpusError("original FEN field structure changed")
+    actual_count = verify_record_line_structure(text, fmt, line_count)
     return {
         "source_id": record["id"],
         "source_page": record["source_page"],
@@ -85,7 +93,7 @@ def verify_original_positions(record: dict, external_root: Path) -> dict:
         "original_bytes": len(source_bytes),
         "original_sha256": record["sha256"],
         "original_git_blob": record["upstream_git_blob"],
-        "original_nonblank_lines": len(lines),
+        "original_nonblank_lines": actual_count,
         "original_license_sha256": record["external_license_sha256"],
         "original_license_git_blob": record["external_license_git_blob"],
         "original_source_qualified": True,
