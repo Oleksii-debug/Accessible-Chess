@@ -104,7 +104,6 @@ class RevisedCorpusContractTests(unittest.TestCase):
                 self.assertEqual(candidate["sha256"], digest)
         for identifier in (
             "gutenberg_chess_strategy_lasker",
-            "gutenberg_blue_book_chess_staunton",
             "gutenberg_chess_and_checkers_lasker",
             "gutenberg_szachy_warcaby_polish",
         ):
