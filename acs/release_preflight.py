@@ -159,6 +159,8 @@ def _validate_sound_pack(product_root: Path) -> None:
     resolver = PackagedSoundAssetResolver(product_root)
     try:
         manifest = resolver.load_manifest()
+    except ValueError as exc:
+        _fail(f"sound package is invalid: {exc}")
     except Exception as exc:
         _fail(f"sound package is invalid: {type(exc).__name__}")
     manifest_path = product_root / "assets" / "sounds" / "manifest.json"
