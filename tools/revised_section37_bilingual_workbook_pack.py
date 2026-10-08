@@ -18,7 +18,7 @@ from pathlib import Path
 import re
 from typing import Mapping
 from xml.sax.saxutils import escape as xml_escape
-from zipfile import ZipFile, ZIP_DEFLATED, ZIP_STORED
+from zipfile import ZipFile, ZipInfo, ZIP_DEFLATED, ZIP_STORED
 
 from acs.chesscore import Board
 from acs.lawful_corpus_registry import load_catalog, verified_local_source
