@@ -227,8 +227,11 @@ def main(argv=None) -> int:
         print(json.dumps({"release_approved": False, "status": "DENIED", "reason": str(exc)}, sort_keys=True))
         return 2
     print(json.dumps(report, sort_keys=True))
-    # Source/synthetic/missing evidence cannot pass even this pre-decision gate.
-    return 0 if report["status"] == "PHYSICAL_EVIDENCE_REQUIRES_INDEPENDENT_RELEASE_DECISION" else 2
+    # A complete independently signed physical REPORT is still NOT a final
+    # independent shipping decision. Never return process success merely
+    # because the evidence review completed: build/release scripts MUST NOT
+    # interpret this gate as publish permission.
+    return 2
 
 
 if __name__ == "__main__":
