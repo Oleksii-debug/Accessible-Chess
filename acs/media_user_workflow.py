@@ -327,6 +327,7 @@ class MediaUserWorkflowService:
         return {
             "ok": bool(player.get("ok")),
             "providerKind": context.provider_kind,
+            "sourceId": context.application.source.source_id,
             "sourceTitle": context.application.source.title,
             "browserSourceUrl": (
                 context.browser_source_url if context.provider_kind == "browser_local" else None
