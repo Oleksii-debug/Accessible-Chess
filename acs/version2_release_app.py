@@ -78,6 +78,20 @@ class _Version2OwnedBookDialogs(Version2OwnedWindowsFileDialogs):
         finally:
             dialog.Dispose()
 
+    def open_media(self) -> Path | None:
+        """Choose one local MP4/WebM on the exact native owner Form."""
+        DialogResult, OpenFileDialog, _ = self._load_forms()
+        dialog = OpenFileDialog()
+        try:
+            dialog.Title = "Open chess video"
+            dialog.Filter = "Video files (*.mp4;*.webm)|*.mp4;*.webm|WebM (*.webm)|*.webm|MP4 (*.mp4)|*.mp4"
+            dialog.CheckFileExists = True
+            dialog.CheckPathExists = True
+            dialog.Multiselect = False
+            return self._selected(dialog, dialog.ShowDialog(), DialogResult.OK)
+        finally:
+            dialog.Dispose()
+
     def confirm_recover_book_progress(self) -> bool:
         """Confirm rollback to the previous valid Book-progress snapshot."""
 
@@ -755,6 +769,9 @@ def create_version2_release_application(
         # runtime and FormClosing guard are both live. Failed startup must leave
         # no callback pointing at a retired/unowned Form.
         application.open_book_dialog = book_dialogs.open_book
+        # Trusted local-only seam used by the final-product Media workflow.
+        # The browser never chooses or supplies an arbitrary filesystem path.
+        api._local_media_open_dialog = book_dialogs.open_media
         application.confirm_book_progress_recovery = book_dialogs.confirm_recover_book_progress
         application.confirm_document_replace = file_runtime.file_dialogs.confirm_discard_unsaved_pgn
         return file_runtime
