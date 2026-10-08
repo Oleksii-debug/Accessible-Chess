@@ -102,7 +102,8 @@ class AccessibleWebUiTests(unittest.TestCase):
     def test_copy_and_selection_are_not_hijacked(self):
         self.assertIn("String(e.key).toLowerCase()==='c'", self.html)
         self.assertIn("selection&&selection.toString()", self.html)
-        self.assertIn("['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName)", self.html)
+        self.assertIn("function editableShortcutTarget(node)", self.html)
+        self.assertIn("['INPUT','TEXTAREA','SELECT'].includes(node.tagName)", self.html)
 
     def test_analysis_hotkeys_remain_available_in_editable_controls(self):
         self.assertIn("function editableShortcutTarget(node)", self.html)
@@ -118,7 +119,7 @@ class AccessibleWebUiTests(unittest.TestCase):
 
     def test_modified_board_and_pgn_tree_chords_reach_central_keymap(self):
         board_start = self.html.index("async function onBoardKey(e)")
-        board_end = self.html.index("function enterBoard(", board_start)
+        board_end = self.html.index("function focusHistoryJump(", board_start)
         board = self.html[board_start:board_end]
         self.assertIn(
             "modified=e.altKey||e.ctrlKey||e.shiftKey||e.metaKey",
