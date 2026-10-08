@@ -46,6 +46,7 @@ jobs:
           repair=(
             '.github/workflows/multiplayer-coordination-contract.yml'
             '.github/workflows/ui-semantic-gate.yml'
+            'tests/test_accessible_webui.py'
             'tests/test_ui_semantic_gate_workflow.py'
           )
           if [[ "${actual[*]}" == "${historical[*]}" ]]; then
