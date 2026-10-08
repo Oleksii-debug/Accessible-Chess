@@ -39,7 +39,12 @@ def _open_no_redirect(request: Request, timeout: int):
 
 
 def load_catalog(path: Path = CATALOG_FILE) -> tuple[dict, ...]:
-    raw = path.read_bytes()
+    # Refuse oversized untrusted metadata before reading it all into memory.
+    try:
+        with path.open("rb") as stream:
+            raw = stream.read(256 * 1024 + 1)
+    except OSError as exc:
+        raise LawfulCorpusError("corpus catalog cannot be read") from exc
     if len(raw) > 256 * 1024:
         raise LawfulCorpusError("corpus catalog exceeds maximum size")
     try:
@@ -118,7 +123,11 @@ def verified_local_source(path: Path, record: dict) -> str:
             opened = os.fstat(stream.fileno())
             if not os.path.samestat(before, opened):
                 raise LawfulCorpusError("source was replaced while opening")
+            total = 0
             while block := stream.read(_CHUNK):
+                total += len(block)
+                if total > record["max_bytes"]:
+                    raise LawfulCorpusError("source grew beyond declared byte bound")
                 hasher.update(block)
             opened_after = os.fstat(stream.fileno())
         after = path.lstat()
