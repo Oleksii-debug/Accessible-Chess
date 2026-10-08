@@ -284,8 +284,9 @@ function init(){
   profileLabel.htmlFor="ac45-profile";
   const profile=add("select",group,"ac45-profile");
   profile.addEventListener("change",()=>{
-    store.selected=profile.value;
-    working=currentPrefs();refreshControls();preview();
+    const name=profile.value;
+    working={...(own(presets,name)?presets[name]:store.profiles[name])};
+    refreshControls();preview();
   });
   for(const key of Object.keys(defaults)){
     const row=add("div",group,null);row.className="ac45-control-row";
@@ -308,6 +309,7 @@ function init(){
   button(actions,"ac45-preview-button","Попередній перегляд","Preview",preview);
   button(actions,"ac45-apply","Застосувати","Apply",()=>void apply());
   button(actions,"ac45-cancel","Скасувати","Cancel",()=>{
+    el("ac45-profile").value=store.selected;
     working={...active};refreshControls();preview();
     status("Незбережені зміни скасовано.","Uncommitted changes cancelled.");
   });
