@@ -57,6 +57,7 @@ class CanonicalEnterpriseSeatBoundary:
         if (type(principal) is not AuthenticatedPrincipal
                 or type(request) is not ApiRequest
                 or request.workspace_id != principal.workspace_id
+                or 'enterprise.seat.use' not in principal.permissions
                 or request.operation != operation):
             return None
         try:
