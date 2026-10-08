@@ -38,12 +38,35 @@ class RevisedSection40CollectionTests(unittest.TestCase):
                 self.assertEqual(catalog["real_import_readback"]["game_count"], 512)
                 self.assertIn("library/real-stockfish-first-512.acsdb", trial_names)
                 self.assertIn("library/real-lichess-four-annotated-original-games.pgn", trial_names)
+                self.assertIn("library/original-reti-1921-uk-en-study.pgn", trial_names)
+                reti = z.read("library/original-reti-1921-uk-en-study.pgn")
+                self.assertIn(b'[SetUp "1"]', reti)
+                self.assertIn(b'7K/8/k1P5/7p/8/8/8/8 w - - 0 1', reti)
+                self.assertIn(b'EN:', reti)
+                self.assertIn(b'UK:', reti)
+                reti_sources = [
+                    row for row in catalog["materials"]
+                    if row["id"] == "historical_reti_1921_original_bilingual_study_pgn"
+                ]
+                self.assertEqual(len(reti_sources), 1)
+                self.assertEqual(reti_sources[0]["sha256"], hashlib.sha256(reti).hexdigest())
                 self.assertGreaterEqual(z.read("library/real-lichess-four-annotated-original-games.pgn").count(b'[%eval '), 60)
                 self.assertIn("library/real-stockfish-first-32.pgn", trial_names)
                 self.assertIn("library/real-stockfish-first-128.pgn", trial_names)
                 self.assertIn("library/real-stockfish-first-512.pgn", trial_names)
                 self.assertEqual(catalog["real_import_readback"]["sample_sizes"], [32, 128, 512])
                 self.assertIn("books/accessible-chess-starter-course.json", trial_names)
+                for english_book in (
+                    "books/advanced-lichess-16-en.json",
+                    "books/extreme-lichess-4-en.json",
+                ):
+                    self.assertIn(english_book, trial_names)
+                    en_document = json.loads(z.read(english_book))
+                    self.assertEqual(en_document["language"], "en")
+                self.assertEqual(
+                    len([x for x in catalog["materials"]
+                         if x.get("language") == "en"
+                         and x.get("import_status") == "CANONICAL_BOOKDOCUMENT_ENGLISH_ROUNDTRIP_PASS"]), 2)
                 self.assertIn("training/starter-exercises.json", trial_names)
                 self.assertIn("training/advanced-lichess-16-middlegame-endgame.json", trial_names)
                 self.assertIn("training/extreme-lichess-4-original-puzzles.json", trial_names)
@@ -76,12 +99,15 @@ class RevisedSection40CollectionTests(unittest.TestCase):
                 names = set(z.namelist())
                 catalog = json.loads(z.read("catalog/materials.json"))
                 self.assertEqual(catalog["profile"], "PUBLIC_RELEASE")
-                self.assertEqual(len(catalog["materials"]), 35)
+                self.assertEqual(len(catalog["materials"]), 37)
                 self.assertFalse(any(p.startswith("library/") for p in names))
+                self.assertNotIn("library/original-reti-1921-uk-en-study.pgn", names)
                 self.assertFalse(any("stockfish_" in p for p in names))
                 self.assertIn("books/advanced-lichess-16-middlegame-endgame.json", names)
                 self.assertIn("training/advanced-lichess-16-middlegame-endgame.json", names)
                 self.assertIn("training/extreme-lichess-4-original-puzzles.json", names)
+                self.assertIn("books/advanced-lichess-16-en.json", names)
+                self.assertIn("books/extreme-lichess-4-en.json", names)
                 self.assertFalse(any("gitenberg_" in p for p in names))
                 self.assertEqual(
                     len([n for n in names if n.startswith("books/booklet-")]), 24)

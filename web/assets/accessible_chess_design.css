@@ -76,6 +76,10 @@
   :where(button:disabled){opacity:1}
 }
 
+/* Section 42 pinned CC0 originals: visual only and silent to NVDA. */
+.ac42-piece-art{display:block;width:min(100%,3rem);height:auto;aspect-ratio:1;object-fit:contain;pointer-events:none;user-select:none}
+@media(forced-colors:active){.ac42-piece-art{forced-color-adjust:auto}}
+
 
 /* Sections 43–44: presentation-only composition of the existing Windows/Web
    application and canonical module surfaces. No chess, routing or data authority. */

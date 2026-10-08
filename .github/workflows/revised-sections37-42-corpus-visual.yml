@@ -45,6 +45,8 @@ on:
       - 'tests/test_section39_real_official_gutenberg_epub_html.py'
       - 'tools/section39_stockfish_original_chess960_epd_qualification.py'
       - 'tests/test_section39_stockfish_original_chess960_epd_qualification.py'
+      - 'tools/section39_reti_historical_bilingual_study.py'
+      - 'tests/test_section39_reti_historical_bilingual_study.py'
       - 'tests/test_section39_external_book_semantic.py'
       - 'tools/section39_external_book_semantic.py'
       - 'tests/test_section39_external_position_semantic.py'
@@ -212,6 +214,14 @@ jobs:
         env:
           ACCESSIBLE_CHESS_EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
         run: python -m tools.section39_stockfish_original_chess960_epd_qualification
+      - name: Real Réti 1921 authored composed endgame study SAN/UK+EN comments/Library replay
+        run: |
+          python -m py_compile tools/section39_reti_historical_bilingual_study.py tests/test_section39_reti_historical_bilingual_study.py
+          python -m unittest -v tests.test_section39_reti_historical_bilingual_study
+      - name: Exact-HEAD receipt for historical Réti original study, not a Lichess puzzle
+        env:
+          ACCESSIBLE_CHESS_EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: python -m tools.section39_reti_historical_bilingual_study
       - name: Preserve actual per-format readback and known unsupported coverage
         if: always()
         uses: actions/upload-artifact@v4
@@ -222,6 +232,7 @@ jobs:
             section39-new-section37-annotated-pgn-qualification.json
             section39-new-section37-training-position-semantic-evidence.json
             section39-stockfish-chess960-epd-qualification.json
+            section39-historic-reti-study-bilingual-source-readback.json
           if-no-files-found: ignore
           retention-days: 14
       - name: Exercise canonical chess core
@@ -679,6 +690,7 @@ jobs:
           --training section39-join-inputs/base/section39-new-section37-training-position-semantic-evidence.json
           --gutenberg section39-join-inputs/gutenberg/section39-official-original-epub-html-observation.json
           --chess960 section39-join-inputs/base/section39-stockfish-chess960-epd-qualification.json
+          --reti section39-join-inputs/base/section39-historic-reti-study-bilingual-source-readback.json
       - name: Preserve merged source IDs, actual SHA256, format outcomes and remaining gaps
         if: always()
         uses: actions/upload-artifact@v4

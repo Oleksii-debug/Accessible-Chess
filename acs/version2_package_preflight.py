@@ -1791,6 +1791,82 @@ def _validate_required_runtime_resources(
             if fingerprint != expected_blob:
                 _fail(f"packaged Section 41 {name} differs from pinned MIT component")
 
+
+    # Advertised original CC0 art must be present in the packaged EXE.
+    # The source git-blob checks are independent of package-authored hashes.
+    if b'value="rhosgfx"' in index_bytes:
+        pack_root = root / "AccessibleChess" / "web" / "assets" / "pieces" / "rhosgfx"
+        for name in ("SECTION42_PROVENANCE.json", "SOURCE_COPYING.md"):
+            _require_package_file(root, inventory,
+                f"AccessibleChess/web/assets/pieces/rhosgfx/{name}",
+                label="packaged Section 42 CC0 rights evidence")
+        try:
+            pack = json.loads(_read_stable_bytes_file(
+                pack_root / "SECTION42_PROVENANCE.json",
+                label="pinned Section 42 CC0 manifest", max_bytes=32 * 1024))
+        except (UnicodeError, json.JSONDecodeError) as exc:
+            _fail(f"Section 42 CC0 manifest malformed: {type(exc).__name__}")
+        if (type(pack) is not dict
+            or pack.get("schema") != "accessible-chess-section42-cc0-piece-pack-v1"
+            or pack.get("id") != "rhosgfx"
+            or pack.get("upstream_commit") != "f5b261e3d8ece6f511484e398cb8d81e37735bea"
+            or pack.get("original_copying_git_blob_sha1") != "def9deca8bceae28cf83d2074a3b09534ae88f6f"
+            or pack.get("license") != "CC0-1.0"
+            or type(pack.get("assets")) is not list
+            or len(pack["assets"]) != 12):
+            _fail("unqualified Section 42 source or rights")
+        def piece_git_blob(data: bytes) -> str:
+            return hashlib.sha1(b"blob " + str(len(data)).encode("ascii")
+                + bytes([0]) + data).hexdigest()
+        copyright_bytes = _read_stable_bytes_file(
+            pack_root / "SOURCE_COPYING.md",
+            label="pinned upstream Lichess COPYING", max_bytes=32 * 1024)
+        if (piece_git_blob(copyright_bytes) != "def9deca8bceae28cf83d2074a3b09534ae88f6f"
+            or b"public/piece/rhosgfx" not in copyright_bytes
+            or b"CC0 1.0" not in copyright_bytes):
+            _fail("Section 42 source license evidence corrupted")
+        expected = {"wK.svg", "wQ.svg", "wR.svg", "wB.svg", "wN.svg", "wP.svg",
+                    "bK.svg", "bQ.svg", "bR.svg", "bB.svg", "bN.svg", "bP.svg"}
+        pinned_originals = {"wK.svg": "a21a5ebbf3fb4923abfd4cbd2e27a1b7e65e6ea2",
+            "wQ.svg": "c0af0ab868e5532eb6e471b300be14a4ea695af2",
+            "wR.svg": "ba3d4e319796699e2ff2aacc7b1a8639a7771edd",
+            "wB.svg": "16fc2ea40277d52a6cd0ab36e292834671283406",
+            "wN.svg": "9650e7496606543f9f9ceca488c89af26f33b5e5",
+            "wP.svg": "ceb32e2aa286bac4aa5581aa230d87088d9c0cdf",
+            "bK.svg": "a726621988e47742852743ecc3c0d75a6f2ad80e",
+            "bQ.svg": "cb352ffd1a3741bf72254ef39a9baa1571f622b2",
+            "bR.svg": "5ce91a9f86301141aba7a540c4356a2138410208",
+            "bB.svg": "b2aeb13166399342d5fba9f38d773f7bf6b43301",
+            "bN.svg": "0bf9be862a0a65241aaa5afc0aae5a5a38b55e54",
+            "bP.svg": "e97fce610f9e2dc35c14061e6e28d4a1f1da005d"}
+        observed = set()
+        for asset in pack["assets"]:
+            if (type(asset) is not dict
+                or set(asset) != {"file", "upstream_path", "git_blob_sha1", "bytes"}
+                or asset.get("file") not in expected
+                or asset.get("file") in observed
+                or asset.get("upstream_path") != "public/piece/rhosgfx/" + asset["file"]
+                or type(asset.get("bytes")) is not int
+                or not 100 <= asset["bytes"] <= 128 * 1024
+                or asset.get("git_blob_sha1") != pinned_originals[asset["file"]]
+                or type(asset.get("git_blob_sha1")) is not str
+                or len(asset["git_blob_sha1"]) != 40):
+                _fail("Section 42 artwork source mismatch or duplicate")
+            observed.add(asset["file"])
+            relative = "AccessibleChess/web/assets/pieces/rhosgfx/" + asset["file"]
+            _require_package_file(root, inventory, relative,
+                label="packaged Section 42 original CC0 chess artwork")
+            art = _read_stable_bytes_file(pack_root / asset["file"],
+                label="pinned Section 42 original SVG", max_bytes=128 * 1024)
+            if (len(art) != asset["bytes"]
+                or piece_git_blob(art) != asset["git_blob_sha1"]
+                or b"<svg" not in art
+                or b"<script" in art.lower()
+                or b"<foreignobject" in art.lower()):
+                _fail("Section 42 packaged original CC0 artwork altered")
+        if observed != expected:
+            _fail("Section 42 CC0 pack incomplete")
+
     stockfish = _require_package_file(
         root,
         inventory,

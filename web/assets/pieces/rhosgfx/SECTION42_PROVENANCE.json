@@ -1,0 +1,87 @@
+{
+  "schema": "accessible-chess-section42-cc0-piece-pack-v1",
+  "id": "rhosgfx",
+  "version": "lichess-f5b261e3d8ec",
+  "upstream": "https://github.com/lichess-org/lila",
+  "upstream_commit": "f5b261e3d8ece6f511484e398cb8d81e37735bea",
+  "license": "CC0-1.0",
+  "author": "RhosGFX",
+  "original_license_exception": "public/piece/rhosgfx",
+  "original_copying_git_blob_sha1": "def9deca8bceae28cf83d2074a3b09534ae88f6f",
+  "original_copying_local": "web/assets/pieces/rhosgfx/SOURCE_COPYING.md",
+  "exclusions": "GPL, NC, and license-unknown artwork excluded; no CDN",
+  "assets": [
+    {
+      "file": "wK.svg",
+      "upstream_path": "public/piece/rhosgfx/wK.svg",
+      "git_blob_sha1": "a21a5ebbf3fb4923abfd4cbd2e27a1b7e65e6ea2",
+      "bytes": 1573
+    },
+    {
+      "file": "wQ.svg",
+      "upstream_path": "public/piece/rhosgfx/wQ.svg",
+      "git_blob_sha1": "c0af0ab868e5532eb6e471b300be14a4ea695af2",
+      "bytes": 1909
+    },
+    {
+      "file": "wR.svg",
+      "upstream_path": "public/piece/rhosgfx/wR.svg",
+      "git_blob_sha1": "ba3d4e319796699e2ff2aacc7b1a8639a7771edd",
+      "bytes": 1431
+    },
+    {
+      "file": "wB.svg",
+      "upstream_path": "public/piece/rhosgfx/wB.svg",
+      "git_blob_sha1": "16fc2ea40277d52a6cd0ab36e292834671283406",
+      "bytes": 1802
+    },
+    {
+      "file": "wN.svg",
+      "upstream_path": "public/piece/rhosgfx/wN.svg",
+      "git_blob_sha1": "9650e7496606543f9f9ceca488c89af26f33b5e5",
+      "bytes": 1844
+    },
+    {
+      "file": "wP.svg",
+      "upstream_path": "public/piece/rhosgfx/wP.svg",
+      "git_blob_sha1": "ceb32e2aa286bac4aa5581aa230d87088d9c0cdf",
+      "bytes": 1315
+    },
+    {
+      "file": "bK.svg",
+      "upstream_path": "public/piece/rhosgfx/bK.svg",
+      "git_blob_sha1": "a726621988e47742852743ecc3c0d75a6f2ad80e",
+      "bytes": 1573
+    },
+    {
+      "file": "bQ.svg",
+      "upstream_path": "public/piece/rhosgfx/bQ.svg",
+      "git_blob_sha1": "cb352ffd1a3741bf72254ef39a9baa1571f622b2",
+      "bytes": 1909
+    },
+    {
+      "file": "bR.svg",
+      "upstream_path": "public/piece/rhosgfx/bR.svg",
+      "git_blob_sha1": "5ce91a9f86301141aba7a540c4356a2138410208",
+      "bytes": 1398
+    },
+    {
+      "file": "bB.svg",
+      "upstream_path": "public/piece/rhosgfx/bB.svg",
+      "git_blob_sha1": "b2aeb13166399342d5fba9f38d773f7bf6b43301",
+      "bytes": 1769
+    },
+    {
+      "file": "bN.svg",
+      "upstream_path": "public/piece/rhosgfx/bN.svg",
+      "git_blob_sha1": "0bf9be862a0a65241aaa5afc0aae5a5a38b55e54",
+      "bytes": 1911
+    },
+    {
+      "file": "bP.svg",
+      "upstream_path": "public/piece/rhosgfx/bP.svg",
+      "git_blob_sha1": "e97fce610f9e2dc35c14061e6e28d4a1f1da005d",
+      "bytes": 1315
+    }
+  ]
+}

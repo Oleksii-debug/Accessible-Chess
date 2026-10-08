@@ -31,6 +31,9 @@ from acs.starter_books_training_release import (
     build_training_task_catalogue,
 )
 from acs.starter_books_training_runtime import build_training_ready_starter_course
+from acs.section40_advanced_training_runtime import (
+    build_advanced_offline_material, build_extreme_offline_material,
+)
 from tools.revised_section40_advanced_training import build_complete_advanced_training
 
 
@@ -286,6 +289,47 @@ def build_collection(profile: str, output: Path, *, root: Path = ROOT) -> dict:
     book_assets, book_rows = _books_and_training()
     assets.update(book_assets)
     rows.extend(book_rows)
+    # The same original CC0 advanced/chessboard content is already validated
+    # by the canonical advanced builder. Export its native English BookDocument
+    # variant for external expert testers, not an approximate translation or
+    # another Training engine. Bilingual access does not change puzzle FEN.
+    for original_id, name, build_en, task_count in (
+        ("lichess_cc0_advanced_16_original_derived",
+         "advanced-lichess-16-en.json", build_advanced_offline_material, 16),
+        ("lichess_cc0_extreme_4_original_derived_puzzles",
+         "extreme-lichess-4-en.json", build_extreme_offline_material, 4),
+    ):
+        original_entry = next((e for e in catalog if e["id"] == original_id), None)
+        if (
+            original_entry is None
+            or original_entry.get("acquisition") != "VENDORED_SOURCE_VERIFIED"
+            or original_entry.get("redistribution") != "permitted"
+        ):
+            raise OfflineCollectionError("genuine English advanced source provenance missing")
+        english, tasks = build_en(language="en")
+        if len(tasks) != task_count or len(english.exercises()) != task_count:
+            raise OfflineCollectionError("authentic English advanced exercise count changed")
+        encoded = _json_bytes(english.as_dict())
+        if BookDocument.from_dict(json.loads(encoded)).as_dict() != english.as_dict():
+            raise OfflineCollectionError("English advanced Books serialization/reopen changed")
+        dest = "books/" + name
+        if dest in assets:
+            raise OfflineCollectionError("duplicate English advanced book path")
+        assets[dest] = encoded
+        rows.append({
+            "id": original_id + "_english_book",
+            "title": english.title,
+            "author": english.author or "Lichess original CC0 contributors",
+            "genre": "advanced calculation and expert chess training",
+            "language": "en", "format": "BookDocument JSON",
+            "source_url": original_entry.get("source_page"),
+            "download_url": None, "source_path": dest,
+            "size_bytes": len(encoded), "sha256": _digest(encoded),
+            "license": original_entry["license"],
+            "redistribution": "permitted",
+            "import_status": "CANONICAL_BOOKDOCUMENT_ENGLISH_ROUNDTRIP_PASS",
+            "repeat_download": "BUNDLED_OFFLINE",
+        })
     advanced_assets, advanced_rows = build_complete_advanced_training(root=root)
     if set(assets) & set(advanced_assets):
         raise OfflineCollectionError("duplicate advanced training content key")
@@ -297,6 +341,54 @@ def build_collection(profile: str, output: Path, *, root: Path = ROOT) -> dict:
         if profile == "TEST_BUILD":
             real_assets, imported = _real_library_sample(root, catalog, work)
             assets.update(real_assets)
+            # Latest Section37 real historically composed endgame source is an
+            # original 1921 Réti study with *project-authored* bilingual notes.
+            # Supply an explicitly source-bound PGN for owner QA, not a rated
+            # Lichess puzzle, and do not silently change the existing canonical
+            # 516-game startup seed acceptance contract.
+            historical = next(
+                (item for item in catalog
+                 if item["id"] == "historical_reti_1921_original_bilingual_study_pgn"),
+                None,
+            )
+            if (
+                historical is None
+                or historical.get("acquisition") != "VENDORED_SOURCE_VERIFIED"
+                or historical.get("public_release") != "INCLUDED_OWN_TEXT_HISTORICAL_COMPOSITION"
+                or not str(historical.get("redistribution", "")).startswith("permitted")
+            ):
+                raise OfflineCollectionError("historic Réti original study is unavailable or rights changed")
+            study_bytes = read_verified_source_snapshot(
+                root / historical["local_source"], historical
+            )
+            study_games = parse_pgn_text(study_bytes.decode("utf-8"), strict=False)
+            if (
+                len(study_games) != 1
+                or study_games[0].tags.get("FEN") != "7K/8/k1P5/7p/8/8/8/8 w - - 0 1"
+                or study_games[0].tags.get("SetUp") != "1"
+                or len(study_games[0].line.moves) != 11
+                or not any("EN:" in line and "UK:" in line
+                           for line in study_bytes.decode("utf-8").splitlines())
+            ):
+                raise OfflineCollectionError("historical bilingual composed study semantic data changed")
+            study_path = "library/original-reti-1921-uk-en-study.pgn"
+            if study_path in assets:
+                raise OfflineCollectionError("historical study output collides with existing owner data")
+            assets[study_path] = study_bytes
+            rows.append({
+                "id": historical["id"],
+                "title": historical["title"],
+                "author": historical["author"],
+                "genre": "historical original authored endgame study with bilingual analysis",
+                "language": "uk,en", "format": "pgn",
+                "source_url": historical["source_page"], "download_url": None,
+                "source_path": study_path,
+                "size_bytes": len(study_bytes), "sha256": _digest(study_bytes),
+                "license": historical["license"],
+                "redistribution": historical["redistribution"],
+                "import_status": "GENUINE_HISTORICAL_STUDY_PGN_SEMANTIC_READBACK",
+                "repeat_download": "BUNDLED_TEST_BUILD_ONLY",
+            })
         links = [
             {"id": r["id"], "title": r["title"], "format": r["format"],
              "source_url": r.get("source_page"), "download_url": r.get("download_url"),

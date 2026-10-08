@@ -36,7 +36,8 @@ def merge_real_receipts(base: dict, original_positions: dict, original_books: di
                         advanced: dict | None = None,
                         training: dict | None = None,
                         gutenberg: dict | None = None,
-                        chess960: dict | None = None) -> dict:
+                        chess960: dict | None = None,
+                        reti: dict | None = None) -> dict:
     if not _valid_digest(expected_sha, 40):
         raise LawfulCorpusError("Section 39 merge lacks exact source SHA")
     reports = (base, original_positions, original_books)
@@ -71,6 +72,47 @@ def merge_real_receipts(base: dict, original_positions: dict, original_books: di
         raise LawfulCorpusError("original licensed external-file matrices incomplete")
 
     imported_external = []
+    # A true historic chess composition is distinct from source-rated Lichess
+    # training games. It must execute the original position, UK+EN commentary
+    # and search/durable reimport before being credited to PGN/GameTree.
+    if reti is not None:
+        identity = "historical_reti_1921_original_bilingual_study_pgn"
+        source = sources.get(identity)
+        actual = reti.get("actual", {})
+        if (
+            source is None or
+            reti.get("schema") != "acs-section39-historical-reti-original-study-v1"
+            or reti.get("source_commit_sha") != expected_sha
+            or reti.get("source_id") != identity
+            or reti.get("source_sha256") != source.get("sha256")
+            or reti.get("source_bytes") != source.get("indexed_bytes")
+            or reti.get("original_fen") != "7K/8/k1P5/7p/8/8/8/8 w - - 0 1"
+            or reti.get("canonical_replayed_san_plies") != 11
+            or reti.get("historical_composition_year") != 1921
+            or reti.get("bilingual_english_ukrainian") is not True
+            or reti.get("real_source_read") is not True
+            or reti.get("mocked") is not False
+            or reti.get("qualification") != "PASS"
+            or actual.get("full_game_tree_pgn_reimport_equal") is not True
+            or actual.get("full_game_tree_acsdb_restart_equal") is not True
+            or actual.get("source_search_count") != 1
+            or actual.get("original_annotation_languages") != ["uk", "en"]
+            or source.get("public_release") != "INCLUDED_OWN_TEXT_HISTORICAL_COMPOSITION"
+            or base_receipts[identity].get("actual_sha256") != reti.get("source_sha256")
+        ):
+            raise LawfulCorpusError("historic original Réti composed-study chess receipt is missing/stale/fabricated")
+        receipt = base_receipts[identity]
+        receipt["semantic_qualification"] = "PASS"
+        receipt["actual_importer"] = reti["actual_importer"]
+        receipt["note"] = "genuine original historical composed study, 1921, bilingual annotations, legal SAN, ACSDB/PGN export and restart"
+        original_row = rows["PGN"]
+        original_row["genuine_historical_compositions"] = [{
+            "source_id": identity, "source_sha256": source["sha256"],
+            "bilingual_original_composition": True, "canonical_san_ply_count": 11,
+            "full_semantic_pgn_acsdb_roundtrip": True,
+        }]
+        original_row["source_ids"] = sorted(set(original_row["source_ids"]) | {identity})
+
     if chess960 is not None:
         original_ids = {
             "stockfish_frc_openings_epd_zip",
@@ -494,7 +536,7 @@ def merge_real_receipts(base: dict, original_positions: dict, original_books: di
     return {
         "schema": "accessible-chess-section39-combined-external-genuine-evidence-v1",
         "section": 39, "source_commit_sha": expected_sha,
-        "original_source_count": len(imported_external) + (3 if cbh is not None else 0) + (1 if advanced is not None else 0) + (2 if gutenberg is not None else 0) + (2 if chess960 is not None else 0),
+        "original_source_count": len(imported_external) + (3 if cbh is not None else 0) + (1 if advanced is not None else 0) + (2 if gutenberg is not None else 0) + (2 if chess960 is not None else 0) + (1 if reti is not None else 0),
         "format_count": 16, "format_rows": [rows[r["format"]] for r in original_rows],
         "source_receipts": [base_receipts[r["source_id"]] for r in base["source_receipts"]],
         "full_matrix_completed": False,
@@ -529,12 +571,13 @@ def main() -> None:
     parser.add_argument("--training", type=Path, required=True)
     parser.add_argument("--gutenberg", type=Path, required=True)
     parser.add_argument("--chess960", type=Path, required=True)
+    parser.add_argument("--reti", type=Path, required=True)
     args = parser.parse_args()
     head = _source_head()
     result = merge_real_receipts(
         _read(args.base), _read(args.positions), _read(args.books),
         load_catalog(), head, _read(args.cbh), _read(args.advanced), _read(args.training),
-        _read(args.gutenberg), _read(args.chess960),
+        _read(args.gutenberg), _read(args.chess960), _read(args.reti),
     )
     staged = REPORT.with_suffix(".tmp")
     try:

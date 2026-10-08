@@ -138,7 +138,12 @@ def render_html(data: dict, lang: str, *, xhtml: bool = False) -> bytes:
             a = html_escape(value, quote=True)
             rows.append('<p data-acs-fen="' + a + '">FEN: ' + html_escape(value) + '</p>')
         elif kind in ("h1", "h2"):
-            rows.append(f"<{kind}>" + html_escape(value) + f"</{kind}>")
+            lesson_anchor = ""
+            if kind == "h2":
+                lesson_id = value.split(" — ", 1)[0]
+                if re.fullmatch(r"S37-[0-9]{2,3}", lesson_id):
+                    lesson_anchor = ' id="' + lesson_id + '"'
+            rows.append(f"<{kind}{lesson_anchor}>" + html_escape(value) + f"</{kind}>")
         else:
             rows.append("<p>" + html_escape(value) + "</p>")
     root = '<html xmlns="http://www.w3.org/1999/xhtml"' if xhtml else "<html"
@@ -162,7 +167,9 @@ def render_docx(data: dict, lang: str) -> bytes:
         if kind == "fen":
             value = "FEN: " + value
         escaped = xml_escape(value)
-        parts.append("<w:p>" + style + '<w:r><w:t xml:space="preserve">' +
+        voice_locale = "uk-UA" if lang == "uk" else "en-US"
+        parts.append("<w:p>" + style + '<w:r><w:rPr><w:lang w:val="' +
+                     voice_locale + '"/></w:rPr><w:t xml:space="preserve">' +
                      escaped + "</w:t></w:r></w:p>")
     document = (
         '<?xml version="1.0" encoding="UTF-8"?>'
@@ -223,12 +230,17 @@ def render_epub3(data: dict, lang: str) -> bytes:
         '<rootfiles><rootfile full-path="OEBPS/book.opf" media-type="application/oebps-package+xml"/>'
         '</rootfiles></container>'
     ).encode("utf-8")
+    navigation_links = "".join(
+        '<li><a href="lesson.xhtml#' + item["lesson_id"] + '">' +
+        xml_escape(item[lang]["title"]) + '</a></li>'
+        for item in data["lessons"]
+    )
     nav = (
         '<?xml version="1.0" encoding="utf-8"?>'
         '<html xmlns="http://www.w3.org/1999/xhtml" lang="' + lang + '">'
         '<head><title>Navigation</title></head><body>'
         '<nav epub:type="toc" xmlns:epub="http://www.idpf.org/2007/ops">'
-        '<h1>Contents</h1><ol><li><a href="lesson.xhtml">Lessons</a></li></ol>'
+        '<h1>Contents</h1><ol>' + navigation_links + '</ol>'
         '</nav></body></html>'
     ).encode("utf-8")
     buf = BytesIO()

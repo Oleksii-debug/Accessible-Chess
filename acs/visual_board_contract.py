@@ -37,6 +37,7 @@ class BoardTheme(str, Enum):
 class PieceTheme(str, Enum):
     UNICODE = "unicode"
     LETTERS = "letters"
+    RHOSGFX = "rhosgfx"
 
 
 class BoardOrientation(str, Enum):
