@@ -1752,7 +1752,7 @@ def _validate_required_runtime_resources(
         for file_name, git_blob_sha, size in (
             ("chess-rook.svg", "accb4f7b7ea39eb1a023b6e2ad8589453fcdb305", 575),
             ("adjustments.svg", "ef63f0fb0065937722a5ffd59cc5355b96b38045", 670),
-            ("LICENSE", "3e82379dab3fe93d9ee22251949604ed63ddea39", 1072),
+            ("LICENSE", "3e82379dab3fe93d9ee22251949604ed63ddea39", 1073),
         ):
             raw = _read_stable_bytes_file(
                 root / "AccessibleChess/web/assets/tabler" / file_name,
@@ -1775,7 +1775,11 @@ def _validate_required_runtime_resources(
             icons_record = json.loads(icons_receipt_raw)
         except (UnicodeError, json.JSONDecodeError) as exc:
             _fail(f"packaged Tabler Icons provenance malformed: {type(exc).__name__}")
-        source_identity = icons_record.get("release_pinning", {}).get("tabler_icons", {})
+        if (type(icons_record) is not dict
+            or type(icons_record.get("release_pinning")) is not dict
+            or type(icons_record["release_pinning"].get("tabler_icons")) is not dict):
+            _fail("packaged Tabler Icons provenance root is invalid")
+        source_identity = icons_record["release_pinning"]["tabler_icons"]
         if (source_identity.get("release_tag") != "v3.49.0"
             or source_identity.get("commit_sha") !=
                 "bbed884d15354b5cebf2493371f20dc2d5e83eaf"
