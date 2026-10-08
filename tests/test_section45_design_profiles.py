@@ -31,6 +31,28 @@ class Section45ProfilesTests(unittest.TestCase):
                 self.assertEqual(selected_preferences(store), PRESETS[name])
                 self.assertEqual(read_store(serialize_store(store)), store)
 
+    def test_profile_theme_piece_zoom_orientation_density_layout_cross_matrix(self):
+        # 6 presets * 4 themes * 3 piece sets * 6 scales * 2 orientations *
+        # 2 densities * 2 layouts = 3456 validated real shared-schema variants.
+        from itertools import product
+        from acs.section45_design_profiles import validate_preferences
+        count = 0
+        for name, theme, piece, scale, side, density, layout in product(
+            PRESETS,
+            ("system", "light", "dark", "contrast"),
+            ("unicode", "letters", "rhosgfx"),
+            (75, 100, 125, 150, 175, 200),
+            ("white", "black"),
+            ("comfortable", "compact"),
+            ("auto", "single"),
+        ):
+            candidate = dict(PRESETS[name], theme=theme, piece_theme=piece,
+                             board_scale=scale, orientation=side,
+                             density=density, layout=layout)
+            self.assertEqual(validate_preferences(candidate), candidate)
+            count += 1
+        self.assertEqual(count, 3456)
+
     def test_copy_export_and_bounded_private_ingress(self):
         copy = save_copy(DEFAULT_STORE, "My classroom", PRESETS["Coach"])
         self.assertEqual(copy["selected"], "My classroom")
