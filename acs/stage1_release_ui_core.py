@@ -933,8 +933,37 @@ class Stage1ReleaseAccessibleChessAPI(KeymapAwareAccessibleChessAPI):
             )
         return base
 
+    def get_ui_theme(self) -> dict[str, object]:
+        """Return the one durable UI setting without changing chess authority."""
+        mode = "system"
+        if self._settings is not None:
+            try:
+                stored = self._settings.get("ui_theme", "system")
+                if type(stored) is str and stored in {
+                    "system", "light", "dark", "contrast",
+                }:
+                    mode = stored
+            except (ValueError, KeyError, OSError):
+                mode = "system"
+        return {"ok": True, "uiTheme": mode}
+
+    def set_ui_theme(self, value: object) -> dict[str, object]:
+        """Fail closed for invalid mode or missing durable settings."""
+        if type(value) is not str or value not in {
+            "system", "light", "dark", "contrast",
+        }:
+            return {"ok": False, "uiTheme": self.get_ui_theme()["uiTheme"]}
+        if self._settings is None:
+            return {"ok": False, "uiTheme": "system"}
+        try:
+            self._settings.set("ui_theme", value)
+        except (ValueError, KeyError, OSError):
+            return {"ok": False, "uiTheme": self.get_ui_theme()["uiTheme"]}
+        return {"ok": True, "uiTheme": self.get_ui_theme()["uiTheme"]}
+
     def get_state(self) -> dict[str, Any]:
         state = super().get_state()
+        state["uiTheme"] = self.get_ui_theme()["uiTheme"]
         game = self._engine_game_projection()
         state["engineGame"] = game
         state["engineGameStatus"] = game["status"]
