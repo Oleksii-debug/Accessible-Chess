@@ -79,7 +79,7 @@ async def _probe(name: str, model: str, source_sha: str | None) -> dict:
         "media_chain": "NOT_TESTED",
     }
     try:
-        provider = CloudChatProvider(provider_id=name, default_model=model)
+        provider = CloudChatProvider(provider_id=name, default_model=model, allow_live_requests=True)
     except (TypeError, ValueError):
         item["reason"] = "INVALID_ROUTE_CONFIGURATION"
         return item
