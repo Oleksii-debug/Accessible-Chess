@@ -99,9 +99,16 @@
   }
   function onYouTubeSnapshot(state, snap) {
     if (state.disposed) return;
-    if (!snap.ok) ytStatus(state, "YouTube відхилив відтворення, код " + snap.errorCode +
-      ". Вбудовування або доступ може бути заборонено.");
-    else ytStatus(state, "YouTube: " + snap.playbackState + "; позиція " +
+    if (!snap.ok) {
+      const reason = [101, 150].includes(snap.errorCode) ?
+        "Власник заборонив вбудовування цього відео." :
+        snap.errorCode === 100 ? "Відео видалене, приватне або недоступне." :
+        snap.errorCode === 5 ? "Помилка підтримки HTML5-плеєра." :
+        "Провайдер відхилив відтворення.";
+      ytStatus(state, "YouTube, помилка " + snap.errorCode + ". " + reason);
+    } else if (snap.autoplayBlocked) {
+      ytStatus(state, "Автоматичне відтворення YouTube заблоковано. Натисніть кнопку відтворення вручну.");
+    } else ytStatus(state, "YouTube: " + snap.playbackState + "; позиція " +
       (snap.positionMs / 1000).toFixed(1) +
       " с. Відновлення шахової позиції без перевірених доказів заборонено.");
     notify(state, Object.assign({}, snap, { qualification: "unlinked", chessRef: null }));
