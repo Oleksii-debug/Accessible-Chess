@@ -400,13 +400,13 @@ class RevisedCorpusContractTests(unittest.TestCase):
         ).read_bytes()
         # Git's object hash binds the actual test source to the upstream
         # Lichess revision, rather than to a worker-authored imitation.
-        git_header = f"blob {len(original)}\\0".encode("ascii")
+        git_header = f"blob {len(original)}\0".encode("ascii")
         self.assertEqual(
             hashlib.sha1(git_header + original).hexdigest(),
             record["upstream_git_blob"],
         )
         rows = list(csv.DictReader(
-            io.StringIO(original.decode("utf-8-sig")), delimiter="\\t"
+            io.StringIO(original.decode("utf-8-sig")), delimiter="\t"
         ))
         self.assertGreaterEqual(len(rows), 12)
         self.assertEqual(tuple(rows[0]), ("eco", "name", "pgn"))
@@ -416,9 +416,9 @@ class RevisedCorpusContractTests(unittest.TestCase):
                 self.assertTrue(row["name"])
                 self.assertTrue(row["pgn"].startswith("1. "))
                 pgn = (
-                    '[Event "Lichess ECO A opening"]\\n'
-                    '[Result "*"]\\n\\n'
-                    + row["pgn"] + ' *\\n'
+                    '[Event "Lichess ECO A opening"]\n'
+                    '[Result "*"]\n\n'
+                    + row["pgn"] + ' *\n'
                 )
                 self.assertEqual(len(parse_pgn_text(pgn, strict=False)), 1)
         # Byte modification must invalidate provenance independently of PGN.
