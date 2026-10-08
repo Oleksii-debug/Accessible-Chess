@@ -20,6 +20,7 @@ class Section39Section40PackagedAcceptanceTests(unittest.TestCase):
             build_owner_test_seed(trial, seed)
             build_collection("PUBLIC_RELEASE", release)
             evidence = qualify_built_delivery(trial, release, seed)
+            self.assertEqual(len(evidence["product_source_commit_sha"]), 40)
             self.assertEqual(evidence["real_library_games"], 516)
             self.assertEqual(evidence["real_516_game_acsdb_backup_restore"], "PASS")
             self.assertEqual(evidence["original_annotated_games"], 4)
@@ -48,6 +49,47 @@ class Section39Section40PackagedAcceptanceTests(unittest.TestCase):
                 _catalog_data(files, "PUBLIC_RELEASE")
             with self.assertRaises(LawfulCorpusError):
                 qualify_built_delivery(original, original, original)
+
+    def test_public_archive_different_source_commit_fails_even_with_valid_recomputed_hashes(self):
+        with tempfile.TemporaryDirectory(prefix="acs-stale-original-build-") as tmp:
+            root = Path(tmp)
+            trial, public, seed = (
+                root / "trial.zip", root / "public.zip", root / "seed.zip"
+            )
+            build_collection("TEST_BUILD", trial)
+            build_owner_test_seed(trial, seed)
+            build_collection("PUBLIC_RELEASE", public)
+            with zipfile.ZipFile(public) as existing:
+                members = {name: existing.read(name) for name in existing.namelist()}
+            public_meta = json.loads(members["catalog/materials.json"])
+            self.assertEqual(len(public_meta["source_commit_sha"]), 40)
+            bogus_sha = ("a" if public_meta["source_commit_sha"][0] != "a" else "b") * 40
+            public_meta["source_commit_sha"] = bogus_sha
+            metadata_wire = (
+                json.dumps(public_meta, sort_keys=True, ensure_ascii=False) + "\n"
+            ).encode("utf-8")
+            members["catalog/materials.json"] = metadata_wire
+            checksum_ledger = json.loads(members["catalog/checksums.json"])
+            import hashlib
+            for receipt in checksum_ledger:
+                if receipt["path"] == "catalog/materials.json":
+                    receipt.update(
+                        sha256=hashlib.sha256(metadata_wire).hexdigest(),
+                        bytes=len(metadata_wire),
+                    )
+            members["catalog/checksums.json"] = (
+                json.dumps(checksum_ledger, sort_keys=True) + "\n"
+            ).encode("utf-8")
+            mismatched = root / "public-source-rewritten-with-valid-checksums.zip"
+            with zipfile.ZipFile(mismatched, "w", zipfile.ZIP_DEFLATED) as rebuilt:
+                for member, content in sorted(members.items()):
+                    rebuilt.writestr(member, content)
+            files, _ = _inspect_zip(mismatched)
+            self.assertEqual(
+                _catalog_data(files, "PUBLIC_RELEASE")["source_commit_sha"], bogus_sha
+            )
+            with self.assertRaisesRegex(LawfulCorpusError, "mixed-version"):
+                qualify_built_delivery(trial, mismatched, seed)
 
     def test_public_archive_rejects_original_cbv_even_with_all_its_checksums_regenerated(self):
         with tempfile.TemporaryDirectory(prefix="acs-unlicensed-original-injection-") as tmp:
