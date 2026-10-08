@@ -61,6 +61,30 @@ class RevisedCorpusContractTests(unittest.TestCase):
                     with self.assertRaisesRegex(LawfulCorpusError, "schema invalid"):
                         load_catalog(catalog)
 
+    def test_catalog_rejects_duplicate_rights_keys_and_nonfinite_values(self):
+        # Duplicated legal rights or source digests must never be interpreted
+        # differently by a rights reviewer and the JSON runtime (last wins).
+        canonical = (Path(__file__).resolve().parents[1] /
+                     "docs/corpus/revised_sections37_40_sources.json").read_bytes()
+        mutations = (
+            (b'"schema_version": 1',
+             b'"schema_version": 1, "schema_version": 1'),
+            (b'"redistribution": "NOT_CLEARED"',
+             b'"redistribution": "permitted", "redistribution": "NOT_CLEARED"'),
+            (b'"max_bytes": 8388608',
+             b'"max_bytes": NaN'),
+            (b'"max_bytes": 8388608',
+             b'"max_bytes": Infinity'),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            forged = Path(tmp) / "ambiguous-rights.json"
+            for original, replacement in mutations:
+                with self.subTest(replacement=replacement):
+                    self.assertIn(original, canonical)
+                    forged.write_bytes(canonical.replace(original, replacement, 1))
+                    with self.assertRaises(LawfulCorpusError):
+                        load_catalog(forged)
+
     def test_source_growth_stops_hashing_at_byte_budget(self):
         payload = b"origin"
         record = self._record(payload)

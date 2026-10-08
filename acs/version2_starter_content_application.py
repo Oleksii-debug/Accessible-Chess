@@ -28,6 +28,12 @@ from .section40_historical_reti_runtime import (
     HISTORICAL_RETI_BOOK_KEY, HISTORICAL_RETI_MATERIAL_ID,
     build_historical_reti_offline_material,
 )
+from .section38_39_professional_catalog_book import (
+    MATERIAL_ID as PROFESSIONAL_CATALOG_MATERIAL_ID,
+    BOOK_KEY_UK as PROFESSIONAL_CATALOG_BOOK_KEY_UK,
+    BOOK_KEY_EN as PROFESSIONAL_CATALOG_BOOK_KEY_EN,
+    build_professional_genre_book,
+)
 from .version2_application import _BookBrowserLeaseRejected
 from .version2_book_workspace import build_version2_book_webview
 from .version2_education_mutation_application import Version2EducationMutationApplication
@@ -82,6 +88,8 @@ class Version2StarterContentApplication(Version2EducationMutationApplication):
         self._historical_reti_document_en, historical_en_content = (
             build_historical_reti_offline_material(language="en")
         )
+        self._professional_catalog_uk = build_professional_genre_book(language="uk")
+        self._professional_catalog_en = build_professional_genre_book(language="en")
         # Language is presentation only. Never fork puzzle moves, answer or FEN.
         if (advanced_en_tasks != self._advanced_offline_tasks
             or extreme_en_tasks != self._extreme_offline_tasks
@@ -123,6 +131,7 @@ class Version2StarterContentApplication(Version2EducationMutationApplication):
         if (ADVANCED_MATERIAL_ID in documents
             or EXTREME_MATERIAL_ID in documents
             or HISTORICAL_RETI_MATERIAL_ID in documents
+            or PROFESSIONAL_CATALOG_MATERIAL_ID in documents
             or len(self._advanced_offline_tasks) != 16
             or len(self._extreme_offline_tasks) != 4
             or self._historical_reti_content.get("game_count") != 1):
@@ -130,6 +139,7 @@ class Version2StarterContentApplication(Version2EducationMutationApplication):
         documents[ADVANCED_MATERIAL_ID] = self._advanced_offline_document
         documents[EXTREME_MATERIAL_ID] = self._extreme_offline_document
         documents[HISTORICAL_RETI_MATERIAL_ID] = self._historical_reti_document
+        documents[PROFESSIONAL_CATALOG_MATERIAL_ID] = self._professional_catalog_uk
         self._starter_material_documents = documents
         self._starter_material_entries = tuple(entries)
 
@@ -253,6 +263,12 @@ class Version2StarterContentApplication(Version2EducationMutationApplication):
                           if self.shell.language is UILanguage.EN
                           else self._historical_reti_document.title),
             },
+            {
+                "material_id": PROFESSIONAL_CATALOG_MATERIAL_ID,
+                "title": (self._professional_catalog_en.title
+                          if self.shell.language is UILanguage.EN
+                          else self._professional_catalog_uk.title),
+            },
         )
         return {
             "heading": labels["heading"],
@@ -323,6 +339,16 @@ class Version2StarterContentApplication(Version2EducationMutationApplication):
                 else self._historical_reti_document
             )
             book_key = HISTORICAL_RETI_BOOK_KEY + (":en" if is_en else "")
+        elif material_id == PROFESSIONAL_CATALOG_MATERIAL_ID:
+            is_en = self.shell.language is UILanguage.EN
+            document = (
+                self._professional_catalog_en if is_en
+                else self._professional_catalog_uk
+            )
+            book_key = (
+                PROFESSIONAL_CATALOG_BOOK_KEY_EN if is_en
+                else PROFESSIONAL_CATALOG_BOOK_KEY_UK
+            )
         else:
             document = self._starter_material_documents.get(material_id)
             if document is None:

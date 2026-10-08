@@ -17,6 +17,8 @@ on:
       - 'tests/test_section38_39_master_genres_source_matrix.py'
       - 'tools/section38_39_master_matrix_report.py'
       - 'tests/test_section38_39_master_matrix_report.py'
+      - 'acs/section38_39_professional_catalog_book.py'
+      - 'tests/test_section38_39_master_catalog_book_product.py'
       - 'docs/corpus/SECTION38_39_MASTER_GENRES_UA_EN_SOURCE_MATRIX.json'
       - 'tools/revised_section37_bilingual_workbook_pack.py'
       - '.github/workflows/revised-sections38-39-bilingual-advanced-qa.yml'
@@ -54,6 +56,8 @@ jobs:
           tests/test_section38_39_master_genres_source_matrix.py
           tools/section38_39_master_matrix_report.py
           tests/test_section38_39_master_matrix_report.py
+          acs/section38_39_professional_catalog_book.py
+          tests/test_section38_39_master_catalog_book_product.py
       - name: Verify 16 format boundaries, UK/EN bibliographic truth and 20 real puzzles through Books and Board
         run: >-
           python -m unittest -v
@@ -63,6 +67,7 @@ jobs:
           tests.test_section38_bilingual_advanced_windows_books_open
           tests.test_section38_39_master_genres_source_matrix
           tests.test_section38_39_master_matrix_report
+          tests.test_section38_39_master_catalog_book_product
           tests.test_revised_section40_product_books_advanced_integration
           tests.test_revised_section40_advanced_training
       - name: Materialize 800 non-PASS requirements for 25 expert genres and 16 formats
