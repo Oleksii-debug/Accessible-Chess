@@ -11,6 +11,7 @@ from unittest.mock import Mock, patch
 from acs.lawful_corpus_registry import (
     LawfulCorpusError, _NoRedirect, acquire_cc0_source, load_catalog,
     verified_local_source, qualify_offline_collection,
+    iter_bounded_corpus_lines,
 )
 from urllib.request import Request
 
@@ -142,6 +143,47 @@ class RevisedCorpusContractTests(unittest.TestCase):
                                 "discovered source must never use network implicitly"
                             ),
                         )
+
+    def test_decoded_pgn_framer_uses_bounded_lines_and_total_budget(self):
+        # Deliberately exercise transport resource checks without inventing
+        # syntactically valid Product PGN or mocking real source qualification.
+        payload = '[Event "One"]\n1. e4 e5 1-0\n'
+        self.assertEqual(
+            "".join(iter_bounded_corpus_lines(
+                io.StringIO(payload), max_line_chars=64,
+                max_decoded_chars=len(payload),
+            )),
+            payload,
+        )
+        # An unterminated final line exactly on the bound is allowed.
+        self.assertEqual(
+            list(iter_bounded_corpus_lines(
+                io.StringIO("x" * 16), max_line_chars=16,
+                max_decoded_chars=16,
+            )),
+            ["x" * 16],
+        )
+        for payload, line_budget, total_budget in (
+            ("x" * 129 + "\n", 128, 4096),
+            ("x" * 17, 16, 4096),
+            ("ok\n" * 12, 16, 32),
+        ):
+            with self.subTest(length=len(payload), line_budget=line_budget):
+                with self.assertRaisesRegex(LawfulCorpusError, "resource limit"):
+                    list(iter_bounded_corpus_lines(
+                        io.StringIO(payload),
+                        max_line_chars=line_budget,
+                        max_decoded_chars=total_budget,
+                    ))
+
+    def test_decoded_pgn_framer_rejects_invalid_limits(self):
+        for limit in (0, -1, True, 1.5):
+            with self.subTest(limit=limit):
+                with self.assertRaises(LawfulCorpusError):
+                    list(iter_bounded_corpus_lines(
+                        io.StringIO("[Event \"A\"]\n"),
+                        max_line_chars=limit,
+                    ))
 
     def _record(self, payload: bytes) -> dict:
         return {
