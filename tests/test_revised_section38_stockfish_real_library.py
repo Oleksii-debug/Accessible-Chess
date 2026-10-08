@@ -19,6 +19,7 @@ from acs.lawful_corpus_registry import (
 from acs.library_import_service import LibraryImportService
 from acs.library_source_service import LibrarySourceCatalogService
 from acs.pgn_roundtrip import parse_pgn_text
+from acs.pgn_service import open_pgn, save_pgn_atomic
 from acs.position_editor import PositionState
 
 
@@ -115,6 +116,49 @@ class OriginalStockfishCanonicalIntegrationTests(unittest.TestCase):
                 self.assertTrue(again.reused)
                 self.assertEqual(again.source_id, result.source_id)
                 db.verify_integrity()
+
+    def test_original_stockfish_games_survive_pgn_export_and_reopen(self):
+        """Section 38.1/38.3: original compressed PGN -> export -> reopen.
+
+        This is a real-source semantic comparison, not a synthetic PGN proof
+        or a claim that untested proprietary formats are supported.
+        """
+        record, source = _original_member(ORIGINAL_PGN_ID)
+        self.assertEqual(record["format"], "pgn.zip")
+        original_text = source.decode("utf-8-sig", errors="strict")
+        framer = CanonicalPgnGameFramer(max_frame_bytes=256 * 1024)
+        frames = []
+        for line in original_text.splitlines():
+            complete = framer.feed_line(line)
+            if complete is not None:
+                frames.append(complete.text)
+                if len(frames) == 24:
+                    break
+        self.assertEqual(len(frames), 24)
+        imported = parse_pgn_text("\n".join(frames), strict=False)
+        self.assertEqual(len(imported), 24)
+
+        def semantic_signature(games):
+            return tuple(
+                (
+                    tuple(sorted(game.tags.items())),
+                    tuple(move.san for move in game.line.moves),
+                    game.line.result,
+                )
+                for game in games
+            )
+
+        with tempfile.TemporaryDirectory(prefix="acs-real-stockfish-roundtrip-") as temp:
+            destination = Path(temp) / "qualified-original-24.pgn"
+            save_pgn_atomic(destination, imported)
+            self.assertTrue(destination.is_file())
+            reopened = open_pgn(destination).games
+            self.assertEqual(len(reopened), len(imported))
+            self.assertEqual(semantic_signature(reopened), semantic_signature(imported))
+            # Durable bytes are re-opened through the product's canonical PGN
+            # service. A successful export alone is not a readback PASS.
+            reopened_twice = open_pgn(destination).games
+            self.assertEqual(semantic_signature(reopened_twice), semantic_signature(imported))
 
     def test_official_start_position_uses_canonical_fen_not_fake_epd(self):
         record, content = _original_member(ORIGINAL_FEN_ID)
