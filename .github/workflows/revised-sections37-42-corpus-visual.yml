@@ -21,6 +21,8 @@ on:
       - 'tools/revised_sections37_38_offline_manifest.py'
       - 'tools/revised_section37_external_book_acquisition.py'
       - 'tests/test_revised_section37_external_book_acquisition.py'
+      - 'tools/revised_section37_external_position_acquisition.py'
+      - 'tests/test_revised_section37_external_position_acquisition.py'
       - 'tools/revised_section37_cbh_original_family_inventory.py'
       - 'tests/test_revised_section37_cbh_original_family_inventory.py'
       - '.gitattributes'
@@ -62,6 +64,8 @@ jobs:
           tools/revised_sections37_38_offline_manifest.py
           tools/revised_section37_external_book_acquisition.py
           tests/test_revised_section37_external_book_acquisition.py
+          tools/revised_section37_external_position_acquisition.py
+          tests/test_revised_section37_external_position_acquisition.py
           tools/revised_section37_cbh_original_family_inventory.py
           tests/test_revised_section37_cbh_original_family_inventory.py
           tests/test_revised_sections41_42_design.py
@@ -75,6 +79,7 @@ jobs:
           tests.test_revised_section38_stockfish_real_library
           tests.test_revised_section37_38_offline_manifest
           tests.test_revised_section37_external_book_acquisition
+          tests.test_revised_section37_external_position_acquisition
           tests.test_revised_section37_cbh_original_family_inventory
           tests.test_revised_sections41_42_design
           tests.test_section15_visual_board_contract
@@ -313,6 +318,66 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
       - name: Erase every original book and license test copy
+        if: always()
+        shell: bash
+        run: |
+          rm -rf -- source-originals upstream
+          test ! -e source-originals
+          test ! -e upstream
+
+  original-epd-fen-licensed-sources:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact Accessible Chess candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          path: product
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Checkout original GPL-authored EPD/FEN corpus
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: fsmosca/epd2doc
+          path: upstream/epd2doc
+          persist-credentials: false
+      - name: Validate exact candidate and external immutable source object identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C product rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(git -C upstream/epd2doc rev-parse HEAD:7men_human.epd)" = "28b416e56d2aadf65681e9a0b81413bf05e19209"
+          test "$(git -C upstream/epd2doc rev-parse HEAD:opening.fen)" = "25044ea22bfc28b41ec46c5d23e090602a9ba662"
+          test "$(git -C upstream/epd2doc rev-parse HEAD:LICENSE)" = "f288702d2fa16d3cdf0035b15a9fcbc552cd88e7"
+      - name: Stage original EPD/FEN files and full GPL attribution only in temporary runner root
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p source-originals/epd2doc
+          git -C upstream/epd2doc show HEAD:7men_human.epd > source-originals/epd2doc/7men_human.epd
+          git -C upstream/epd2doc show HEAD:opening.fen > source-originals/epd2doc/opening.fen
+          git -C upstream/epd2doc show HEAD:LICENSE > source-originals/epd2doc/LICENSE
+      - name: Python 3.12 for canonical provenance implementation
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+      - name: Verify SHA256, exact bytes, 1110 authentic EPD puzzle records and four genuine FEN positions
+        working-directory: product
+        env:
+          ACS_37_EPD2DOC_ROOT: ${{ github.workspace }}/source-originals
+          ACCESSIBLE_CHESS_EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          python -m unittest -v tests.test_revised_section37_external_position_acquisition
+          python -m tools.revised_section37_external_position_acquisition
+      - name: Preserve source-only nonprivate exact-checkout puzzle provenance
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: revised-section37-authentic-epd-fen-source-evidence
+          path: product/revised-section37-original-epd-fen-source-evidence.json
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Always destroy temporary source and external licensed corpus bytes
         if: always()
         shell: bash
         run: |
