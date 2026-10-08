@@ -8,6 +8,7 @@ entries, not assumed distribution rights or fabricated import PASS results.
 """
 
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -286,9 +287,35 @@ def read_verified_zip_member(
         or not 0 < max_unpacked_bytes <= 64 * 1024 * 1024
     ):
         raise LawfulCorpusError("ZIP expansion budget invalid")
+    # Verify the exact immutable bytes that the ZIP reader consumes. Merely
+    # verifying the path and reopening it permits a file swap after the hash
+    # check (a classic check/use race), including a valid but different ZIP.
     verified_local_source(archive_path, record)
+    limit = _bounded_source_size(record)
     try:
-        with zipfile.ZipFile(archive_path) as source:
+        with archive_path.open("rb") as stream:
+            before = archive_path.lstat()
+            opened = os.fstat(stream.fileno())
+            attrs = getattr(before, "st_file_attributes", 0)
+            if (
+                not stat.S_ISREG(before.st_mode)
+                or stat.S_ISLNK(before.st_mode)
+                or attrs & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+                or not os.path.samestat(before, opened)
+            ):
+                raise LawfulCorpusError("ZIP source changed while opening")
+            snapshot = stream.read(limit + 1)
+            after = archive_path.lstat()
+            if (
+                not os.path.samestat(before, after)
+                or len(snapshot) == 0 or len(snapshot) > limit
+                or hashlib.sha256(snapshot).hexdigest() != record["sha256"]
+            ):
+                raise LawfulCorpusError("ZIP source changed after verification")
+    except OSError as exc:
+        raise LawfulCorpusError("ZIP source snapshot cannot be read") from exc
+    try:
+        with zipfile.ZipFile(io.BytesIO(snapshot)) as source:
             members = source.infolist()
             if len(members) != 1:
                 raise LawfulCorpusError("ZIP must contain exactly one file")
