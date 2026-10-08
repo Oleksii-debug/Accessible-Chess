@@ -238,6 +238,7 @@ def build_section40_windows_test_package(
         ready_books = materials / "READY_TO_OPEN_BOOKS"
         ready_books.mkdir()
         qualified_names = set()
+        ready_index = []
         for filename, source_bytes in sorted(real_native_books.items()):
             basename = Path(filename).name
             if (basename != filename or basename in {"", ".", ".."}
@@ -245,6 +246,21 @@ def build_section40_windows_test_package(
                 or len(source_bytes) > 8 * 1024 * 1024):
                 raise OfflineCollectionError("unsafe prequalified ready-book identity")
             qualified_names.add(basename.casefold())
+            record = stored.get("books/" + basename)
+            if record is None or record["sha256"] != hashlib.sha256(source_bytes).hexdigest():
+                raise OfflineCollectionError("native Books provenance/catalog receipt mismatches")
+            ready_index.append({
+                "filename": basename,
+                "title": record["title"],
+                "language": record["language"],
+                "format": record["format"],
+                "sha256": record["sha256"],
+                "size_bytes": len(source_bytes),
+                "source_workbook_sha256": actual_source["workbook_source_sha256"],
+                "license": record["license"],
+                "redistribution": record["redistribution"],
+                "open_with": "Version2Application.prepare_book_open",
+            })
             with (ready_books / basename).open("xb") as handle:
                 handle.write(source_bytes)
             readback = (ready_books / basename).read_bytes()
@@ -254,16 +270,24 @@ def build_section40_windows_test_package(
                 raise OfflineCollectionError("ready-to-open original book readback failed")
         if len(qualified_names) != 10:
             raise OfflineCollectionError("all ten real ready-to-open Books are required")
+        (ready_books / "CATALOG.json").write_text(
+            json.dumps(
+                {"schema": "section40-ready-books-v1", "count": len(ready_index),
+                 "profile": "TEST_BUILD_ONLY", "materials": ready_index},
+                sort_keys=True, ensure_ascii=False, indent=2,
+            ) + "\n",
+            encoding="utf-8",
+        )
         (ready_books / "READ_FIRST_UK.txt").write_text(
-            "Ці 10 шахових файлів підготовлено для відкриття штатною функцією Книги.\\n"
-            "Виберіть потрібний EPUB3, HTML, DOCX, TXT або Markdown без ручного розпакування ZIP.\\n"
-            "Файли українською й англійською; кожний перевірено за оригінальним SHA-256.\\n",
+            "Ці 10 шахових файлів підготовлено для відкриття штатною функцією Книги.\n"
+            "Виберіть потрібний EPUB3, HTML, DOCX, TXT або Markdown без ручного розпакування ZIP.\n"
+            "Файли українською й англійською; кожний перевірено за оригінальним SHA-256.\n",
             encoding="utf-8",
         )
         (ready_books / "READ_FIRST_EN.txt").write_text(
-            "Ten ready-to-open chess files for the existing Books feature.\\n"
-            "Choose EPUB3, HTML, DOCX, TXT or Markdown without unzipping the test collection.\\n"
-            "Ukrainian and English files retain exact verified SHA-256 bytes.\\n",
+            "Ten ready-to-open chess files for the existing Books feature.\n"
+            "Choose EPUB3, HTML, DOCX, TXT or Markdown without unzipping the test collection.\n"
+            "Ukrainian and English files retain exact verified SHA-256 bytes.\n",
             encoding="utf-8",
         )
         copied_checksum = hashlib.sha256(copied.read_bytes()).hexdigest()
@@ -275,6 +299,8 @@ def build_section40_windows_test_package(
             "Вбудована штатна Library має імпортувати 512 реальних партій Stockfish, "
             "4 оригінальні анотовані партії Lichess і 1 історичний етюд Réti "
             "(усього 517 нових партій/позицій; за наявності старих джерел вони зберігаються).\n"
+            "У папці READY_TO_OPEN_BOOKS є 10 готових файлів для штатного відкриття у Книгах, "
+            "без ручного розпакування архіву. CATALOG.json містить SHA-256 і права.\\n"
             "Файл TEST_COLLECTION.zip містить каталог, українські й англійські "
             "BookDocument, вправи, 12 складних двомовних позицій у 10 файлах EPUB3/HTML/DOCX/TXT/Markdown, PGN і ліцензії.\n"
             "Для NVDA: запускайте AccessibleChess.exe з папки AccessibleChess, "
@@ -289,6 +315,8 @@ def build_section40_windows_test_package(
             "The canonical Library startup seed contains 512 real Stockfish mini-games, "
             "four genuine annotated Lichess games and one historical Reti study "
             "(517 additional games/positions); existing owner PGN sources are preserved.\n"
+            "READY_TO_OPEN_BOOKS contains ten verified native book files for ordinary "
+            "Books opening without extracting the archive. CATALOG.json lists checksums and rights.\\n"
             "TEST_COLLECTION.zip includes a licensed catalogue, Ukrainian/English "
             "Books, 12 genuine hard chess positions in 10 UK/EN EPUB3/HTML/DOCX/TXT/Markdown files, PGN and rights.\n"
             "For screen-reader testing use AccessibleChess.exe in AccessibleChess "
