@@ -6,7 +6,7 @@
   "provider_documentation": "https://developers.google.com/youtube/iframe_api_reference",
   "current_product_state": {"iframe_adapter": "IMPLEMENTED web/youtube_iframe_adapter.js", "youtube_catalog": "USER-SUPPLIED-URL-PATH", "download_or_cache": false, "local_video_import": "IMPLEMENTED web/index.html", "mock_live_equivalence": false},
   "required_states": ["ready", "playing", "paused", "buffering", "error", "private", "unavailable", "embed-disabled", "autoplay-blocked", "offline/reconnect"],
-  "verified": ["provided URL opened in public browser smoke and exposed a 6-second YouTube player", "adapter and UI contract tests", "JavaScript syntax check", "local video input accepts video/* and revokes prior object URLs"],
+  "verified": ["provided URL opened in public browser smoke and exposed a 6-second YouTube player", "adapter and UI contract tests", "JavaScript syntax check", "local video input accepts video/* and revokes prior object URLs", "local video frame capture renders to an accessible canvas and reports a timecode"],
   "not_run": ["MediaPositionTimeline sync", "NVDA message parity", "CI live provider run"],
   "blocked": ["physical Windows/NVDA playback evidence", "frame-to-FEN extraction", "offline/reconnect evidence in packaged WebView2"]
 }

@@ -179,6 +179,8 @@ dialog::backdrop { background: rgb(5 18 29 / 62%); backdrop-filter: blur(3px); }
 #youtube-player, #local-video { width: min(100%, 56rem); aspect-ratio: 16 / 9; border: 1px solid var(--ac-border-strong); border-radius: var(--ac-radius-sm); background: #07131d; box-shadow: var(--ac-shadow-soft); }
 #local-video { object-fit: contain; }
 #video-status { min-height: 2.5rem; }
+#video-frame-timecode { min-height: 2.5rem; flex: 1 1 16rem; }
+#video-frame-canvas { max-width: 100%; border: 1px solid var(--ac-border-strong); border-radius: var(--ac-radius-sm); background: #07131d; }
 #ai-agent-region { display: grid; gap: .75rem; }
 #ai-agent-region fieldset { display: grid; gap: .75rem; }
 #ai-agent-region input[type="url"] { min-width: 22rem; }

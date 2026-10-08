@@ -32,7 +32,7 @@ class YouTubeAdapterContractTests(unittest.TestCase):
         self.assertIn("class YouTubePlayerAdapter", self.source)
 
     def test_ui_has_youtube_and_local_import_paths(self):
-        for token in ("video-source-url", "video-load-youtube", "video-file", "local-video", "youtube-player"):
+        for token in ("video-source-url", "video-load-youtube", "video-file", "local-video", "youtube-player", "video-capture-frame", "video-frame-canvas"):
             self.assertIn(token, self.index)
         self.assertIn('accept="video/*"', self.index)
         self.assertIn('youtube_iframe_adapter.js', self.index)
