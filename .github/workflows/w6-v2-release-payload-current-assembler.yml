@@ -39,6 +39,10 @@ env:
   SNAPSHOT_IDENTITY_TEST_BLOB: 6c0acdd2bb62ff092418f29ffccdd70427e6dac2
   STABLE_READS_PREFLIGHT_BLOB: ea86b7b0458fe47487a735bdc24d58435c7abaad
   STABLE_READS_PE_IDENTITY_TEST_BLOB: 7e39e8051194559bf8c4001161030a70fc5d74ad
+  SECURITY_WAVE1_ASSEMBLER_BLOB: 81b3ab5c5840eaa01da5b3263b2ab88495083bdb
+  SECURITY_WAVE1_PREFLIGHT_BLOB: b77dc0bf6200ba7725e8d4feef0dac8f1e990573
+  SECURITY_WAVE1_PAYLOAD_BLOB: 52d95cd4c9961f7e12e9acb025432124c8485ffd
+  SECURITY_WAVE1_PAYLOAD_TEST_BLOB: de456e6d3d08d2e215d05971dbf52cc820b1a20b
   STOCKFISH_URL: https://github.com/official-stockfish/Stockfish/releases/download/sf_18/stockfish-windows-x86-64.zip
 
 jobs:
@@ -64,7 +68,11 @@ jobs:
           set -euo pipefail
           git merge-base --is-ancestor "$CURRENT_ASSEMBLER_PARENT" HEAD
           git merge-base --is-ancestor "$SOURCE_PAYLOAD_OWNER" HEAD
-          git diff --check "$CURRENT_ASSEMBLER_PARENT" HEAD
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            git diff --check "${{ github.event.pull_request.base.sha }}"...HEAD
+          else
+            git diff --check "$CURRENT_ASSEMBLER_PARENT" HEAD
+          fi
 
           changed="$(git diff --name-only "$CURRENT_ASSEMBLER_PARENT" HEAD | sort)"
           expected="$(printf '%s\n' \
@@ -75,10 +83,14 @@ jobs:
           if [ "$changed" = "$expected" ]; then
             echo 'W6_PAYLOAD_TOPOLOGY=LEGACY_BOUNDED_CONVERGENCE'
           else
-            test "$(git rev-parse HEAD:acs/version2_package_assembler.py)" = "$CURRENT_ASSEMBLER_BLOB"
+            assembler_blob="$(git rev-parse HEAD:acs/version2_package_assembler.py)"
+            case "$assembler_blob" in
+              "$CURRENT_ASSEMBLER_BLOB"|"$SECURITY_WAVE1_ASSEMBLER_BLOB") ;;
+              *) echo 'Unqualified package assembler identity' >&2; exit 1 ;;
+            esac
             preflight_blob="$(git rev-parse HEAD:acs/version2_package_preflight.py)"
             case "$preflight_blob" in
-              "$CURRENT_PREFLIGHT_BLOB"|"$RESOURCE_PREFLIGHT_BLOB"|"$RUNTIME_PREFLIGHT_BLOB"|"$PE_IDENTITY_PREFLIGHT_BLOB"|"$SNAPSHOT_IDENTITY_PREFLIGHT_BLOB"|"$STABLE_READS_PREFLIGHT_BLOB") ;;
+              "$CURRENT_PREFLIGHT_BLOB"|"$RESOURCE_PREFLIGHT_BLOB"|"$RUNTIME_PREFLIGHT_BLOB"|"$PE_IDENTITY_PREFLIGHT_BLOB"|"$SNAPSHOT_IDENTITY_PREFLIGHT_BLOB"|"$STABLE_READS_PREFLIGHT_BLOB"|"$SECURITY_WAVE1_PREFLIGHT_BLOB") ;;
               *) echo 'Unqualified canonical preflight identity' >&2; exit 1 ;;
             esac
             if [ "$preflight_blob" = "$PE_IDENTITY_PREFLIGHT_BLOB" ]; then
@@ -93,7 +105,7 @@ jobs:
 
           payload_pair="$(git rev-parse HEAD:acs/version2_release_payload.py):$(git rev-parse HEAD:tests/test_version2_release_payload.py)"
           case "$payload_pair" in
-            "$SOURCE_PAYLOAD_BLOB:$SOURCE_TEST_BLOB"|"$RESOURCE_PAYLOAD_BLOB:$RESOURCE_PAYLOAD_TEST_BLOB"|"$RESOURCE_PAYLOAD_BLOB:$RUNTIME_PAYLOAD_TEST_BLOB") ;;
+            "$SOURCE_PAYLOAD_BLOB:$SOURCE_TEST_BLOB"|"$RESOURCE_PAYLOAD_BLOB:$RESOURCE_PAYLOAD_TEST_BLOB"|"$RESOURCE_PAYLOAD_BLOB:$RUNTIME_PAYLOAD_TEST_BLOB"|"$SECURITY_WAVE1_PAYLOAD_BLOB:$SECURITY_WAVE1_PAYLOAD_TEST_BLOB") ;;
             *) echo 'Unqualified release payload/test pair' >&2; exit 1 ;;
           esac
 
