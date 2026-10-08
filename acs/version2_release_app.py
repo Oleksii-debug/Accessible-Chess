@@ -32,6 +32,7 @@ from .protection_boundary import (
     open_release_protection_session,
 )
 from .protection_locked_ui import run_locked_security_window
+from .protection_entitlement_lifecycle import ProtectionEntitlementLifecycle
 from .settings import Settings
 from .sound_runtime import GameSoundRuntime, SoundRuntime, SoundRuntimeSettings
 from .sound_windows import PackagedSoundAssetResolver, WindowsSoundPlaybackAdapter
@@ -456,6 +457,44 @@ def create_version2_release_application(
         # Test/integration seams may intentionally return None. Any other
         # unexpected authority object is rejected instead of silently ignored.
         raise TypeError("protection authorizer returned an unsupported result")
+
+    if (
+        protection_session is not None
+        and protection_session.decision.build_id != "source-development"
+    ):
+        try:
+            if (
+                protection_session.client.runtime_api_version()
+                >= ENTITLEMENT_RUNTIME_API_VERSION
+            ):
+                lifecycle = ProtectionEntitlementLifecycle(
+                    protection_session.client
+                ).synchronize()
+                if not lifecycle.premium_allowed:
+                    raise ProtectedStartupLocked(
+                        ProtectionDecision(
+                            state="locked",
+                            reason=lifecycle.reason,
+                            safe_operations=protection_session.decision.safe_operations,
+                            capabilities=frozenset(),
+                            build_id=protection_session.decision.build_id,
+                        ),
+                        protection_session.client,
+                    )
+        except ProtectedStartupLocked:
+            raise
+        except Exception:
+            raise ProtectedStartupLocked(
+                ProtectionDecision(
+                    state="locked",
+                    reason="online_lifecycle_unavailable",
+                    safe_operations=protection_session.decision.safe_operations,
+                    capabilities=frozenset(),
+                    build_id=protection_session.decision.build_id,
+                ),
+                protection_session.client,
+            ) from None
+
     layout = _prepare_version2_user_data(
         data_root=data_root,
         settings_path=settings_path,
