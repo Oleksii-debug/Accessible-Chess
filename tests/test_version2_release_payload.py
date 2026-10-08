@@ -80,7 +80,7 @@ class Version2ReleasePayloadTests(unittest.TestCase):
                         relative
                         in package_preflight._REQUIRED_MANAGED_DESKTOP_RUNTIME_FILES
                     ),
-                    dll=relative.lower().endswith(".dll"),
+                    dll=Path(relative).suffix.lower() in {".dll", ".pyd"},
                 )
             )
         for name in _REQUIRED_WEB_FILES:
