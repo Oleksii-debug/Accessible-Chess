@@ -51,6 +51,7 @@ def fake_record(raw: bytes) -> dict:
         "external_checkout_path": "original/original.txt",
         "external_license_checkout_path": "original/LICENSE",
         "external_license_git_blob": _git_blob(LICENSE_BYTES),
+        "external_license_sha256": hashlib.sha256(LICENSE_BYTES).hexdigest(),
         "external_license_indexed_bytes": len(LICENSE_BYTES),
     }
 
@@ -73,6 +74,7 @@ class ExternalOriginalBookTests(unittest.TestCase):
                 self.assertIn("gutenberg.org/ebooks/", source["source_page"])
                 self.assertEqual(source["external_license_git_blob"], "8d062dda262bcdc42d45b861bd796117feb6d0fe")
                 self.assertEqual(source["external_license_indexed_bytes"], 17504)
+                self.assertEqual(source["external_license_sha256"], "1e301e03fb28addf6ad03d42b1429e87679013d1ee7e141c7c968fbef0ad961d")
 
     def test_original_source_readback_never_copies_or_promotes_rights(self):
         data = b"an authentic source of bounded bytes for negative test only"
@@ -117,6 +119,7 @@ class ExternalOriginalBookTests(unittest.TestCase):
                 {"acquisition": "SOURCE_PAGE_ONLY"},
                 {"format": "pdf"},
                 {"external_license_git_blob": "0" * 40},
+                {"external_license_sha256": "0" * 64},
                 {"external_license_indexed_bytes": 1},
                 {"external_license_checkout_path": "../outside"},
                 {"id": "../other"},
