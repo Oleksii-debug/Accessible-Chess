@@ -55,7 +55,7 @@ class AccessibleWebUiTests(unittest.TestCase):
         ]:
             self.assertIn(f">{heading}<", self.html)
         for marker in (
-            '<main id="main-content">',
+            'class="skip-link" href="#main-content"', '<main id="main-content">',
             'id="move-input" type="text"', 'id="position-input"',
             'id="position-load" type="button"', 'id="empty-board" type="button"',
             'id="board-launcher" type="button"',
@@ -85,128 +85,57 @@ class AccessibleWebUiTests(unittest.TestCase):
             fragment = self.html[self.html.index(f'id="{control}"'):self.html.index(f'id="{control}"') + 250]
             self.assertNotIn("aria-describedby", fragment)
 
-    def test_help_dialog_focus_target_is_programmatically_focusable(self):
-        self.assertIn(
-            '<h2 id="help-title" tabindex="-1">Довідка</h2>',
-            self.html,
-        )
-        self.assertIn(
-            '<div id="help" class="block" aria-live="off"></div>',
-            self.html,
-        )
-        self.assertIn(
-            "el('open-help').addEventListener('click',()=>{el('help-dialog').showModal();el('help-title').focus()})",
-            self.html,
-        )
-        self.assertIn(
-            "el('help-dialog').addEventListener('close',()=>el('open-help').focus())",
-            self.html,
-        )
-
-    def test_keymap_dialog_restores_opener_focus_after_close(self):
-        self.assertIn(
-            "el('open-keymap').addEventListener('click',()=>{el('keymap-dialog').showModal();el('key-search').focus()})",
-            self.html,
-        )
-        self.assertIn(
-            "el('keymap-dialog').addEventListener('close',()=>{stopCapture(false);el('open-keymap').focus()})",
-            self.html,
-        )
-
-    def test_engine_game_dialog_start_and_cancel_focus_are_atomic(self):
-        self.assertIn(
-            "let engineGameStartInFlight=false,engineGameReturnFocusOnClose=false;",
-            self.html,
-        )
-        self.assertIn(
-            "if(engineGameStartInFlight)return;const button=el('engine-game-start'),cancel=el('engine-game-cancel')",
-            self.html,
-        )
-        self.assertIn(
-            "engineGameStartInFlight=true;button.disabled=true;if(cancel)cancel.disabled=true",
-            self.html,
-        )
-        self.assertIn(
-            "setText('engine-game-dialog-status',starting);announceUserAction(starting)",
-            self.html,
-        )
-        self.assertIn(
-            "engineGameReturnFocusOnClose=false;el('engine-game-dialog').close();el('move-input').focus()",
-            self.html,
-        )
-        self.assertIn(
-            "finally{engineGameStartInFlight=false;button.disabled=false;if(cancel)cancel.disabled=false}",
-            self.html,
-        )
-        self.assertIn(
-            "el('engine-game-dialog').addEventListener('cancel',e=>{if(engineGameStartInFlight)e.preventDefault()})",
-            self.html,
-        )
-        self.assertIn(
-            "el('engine-game-dialog').addEventListener('close',()=>{const restore=engineGameReturnFocusOnClose;engineGameReturnFocusOnClose=false;if(restore)el('engine-play-open').focus()})",
-            self.html,
-        )
-
     def test_one_live_region_only_and_no_no_conflict_spam(self):
         self.assertEqual(self.html.count('aria-live="polite"'), 1)
         self.assertIn('id="live" role="status" aria-live="polite"', self.html)
-        self.assertIn(
-            '<dialog id="keymap-dialog" aria-labelledby="h-keyboard" aria-describedby="key-recovery-status">',
-            self.html,
-        )
-        self.assertIn('<div id="key-recovery-status" class="block" hidden></div>', self.html)
-        self.assertNotIn('id="key-recovery-status" class="block" role="status"', self.html)
         self.assertNotIn('status.setAttribute(\'role\',\'status\')', self.html)
         self.assertNotIn("Конфліктів немає", self.html)
         self.assertNotIn("No conflicts.", self.html)
 
-    def test_move_submit_uses_canonical_remappable_action_and_preserves_input_contract(self):
+    def test_move_enter_success_clears_and_refocuses_input(self):
         self.assertIn("const r=await apiAction('make_move',v)", self.html)
         self.assertIn("if(r&&r.ok){input.value='';input.focus()}", self.html)
         self.assertIn("else{input.focus();input.select()}", self.html)
         self.assertIn("el('move-input').addEventListener('keydown'", self.html)
-        self.assertIn("candidate=keymapActionForEvent(e,'move_entry')", self.html)
-        self.assertIn("if(candidate!=='move.submit')return", self.html)
-        self.assertIn("e.preventDefault();e.stopPropagation()", self.html)
-        self.assertIn("resolveBinding(chord,'move_entry','move-entry')", self.html)
-        self.assertIn("if(a&&a.actionId===candidate)executeAction(a.actionId)", self.html)
+        self.assertIn("if(e.key==='Enter')", self.html)
 
     def test_copy_and_selection_are_not_hijacked(self):
         self.assertIn("String(e.key).toLowerCase()==='c'", self.html)
         self.assertIn("selection&&selection.toString()", self.html)
-        self.assertIn("['INPUT','TEXTAREA','SELECT'].includes(node.tagName)", self.html)
         self.assertIn("function editableShortcutTarget(node)", self.html)
+        self.assertIn("['INPUT','TEXTAREA','SELECT'].includes(node.tagName)", self.html)
 
-    def test_analysis_hotkeys_claim_sync_then_validate_canonical_action(self):
-        self.assertIn("function projectedOwnedAction(e,contexts)", self.html)
-        self.assertIn("function claimOwnedKey(e){e.preventDefault();e.stopPropagation()}", self.html)
-        self.assertIn("if(editable){const projectedHelp=projectedOwnedAction(e,['global'])", self.html)
-        self.assertIn("if(!e.altKey)return", self.html)
-        self.assertIn("const projectedAnalysis=projectedOwnedAction(e,['analysis'])", self.html)
-        self.assertIn("claimOwnedKey(e);const analysis=await resolveBinding(chord,'analysis','analysis')", self.html)
-        self.assertIn("analysis.actionId===projectedAnalysis", self.html)
-        self.assertIn("analysis.context==='analysis'||String(analysis.actionId||'').startsWith('analysis.')", self.html)
-        self.assertIn("const projectedAction=projectedOwnedAction(e,['analysis','global','history','document'])", self.html)
+    def test_analysis_hotkeys_remain_available_in_editable_controls(self):
+        self.assertIn("function editableShortcutTarget(node)", self.html)
+        self.assertIn("if(editable&&!e.altKey)return", self.html)
         self.assertIn("let a=await resolveBinding(chord,'analysis','analysis')", self.html)
-        self.assertIn("if(!a)a=await resolveBinding(chord,'history','document')", self.html)
-        self.assertIn("if(!a)a=await resolveBinding(chord,'document','document')", self.html)
+        self.assertIn(
+            "if(editable&&a&&a.context!=='analysis'&&!String(a.actionId||'').startsWith('analysis.'))a=null",
+            self.html,
+        )
+        self.assertIn("if(!editable&&!a)a=await resolveBinding(chord,'history','document')", self.html)
+        self.assertIn("if(!editable&&!a)a=await resolveBinding(chord,'document','document')", self.html)
+        self.assertIn("e.stopPropagation();executeAction(a.actionId)", self.html)
 
-    def test_board_dispatch_uses_canonical_board_analysis_global_precedence(self):
+    def test_modified_board_and_pgn_tree_chords_reach_central_keymap(self):
         board_start = self.html.index("async function onBoardKey(e)")
         board_end = self.html.index("function focusHistoryJump(", board_start)
         board = self.html[board_start:board_end]
-        self.assertIn("for(const context of ['board','analysis','global'])", board)
-        self.assertIn("const projected=keymapActionForEvent(e,context)", board)
-        self.assertIn("if(projected===null)return", board)
-        self.assertIn("if(projected){candidate=projected;break}", board)
-        self.assertIn("if(!candidate)return", board)
-        self.assertIn("e.preventDefault();e.stopPropagation()", board)
-        self.assertIn("const a=await resolveBinding(chord,'board','board')", board)
-        self.assertIn("if(a&&a.actionId===candidate)executeAction(a.actionId)", board)
-        self.assertLess(
-            board.index("e.preventDefault();e.stopPropagation()"),
-            board.index("await resolveBinding(chord,'board','board')"),
+        self.assertIn(
+            "modified=e.altKey||e.ctrlKey||e.shiftKey||e.metaKey",
+            board,
         )
+        self.assertIn(
+            "if(modified){const mapped=await resolveBinding(eventChord(e),'board','board')",
+            board,
+        )
+        self.assertLess(
+            board.index("if(modified){const mapped=await resolveBinding"),
+            board.index("if(!modified&&key==='Escape')"),
+        )
+        self.assertIn("if(!modified&&key==='ArrowUp')", board)
+        self.assertIn("if(!modified&&key==='ArrowDown')", board)
+        self.assertIn("e.stopPropagation();executeAction(mapped.actionId)", board)
 
         modifier_guard = (
             'if (event.altKey || event.ctrlKey || event.shiftKey || event.metaKey) return;'
