@@ -24,6 +24,7 @@ from .protection_boundary import (
     ProtectionRuntimeClient,
 )
 from .release_update_center import StagedUpdate
+from .protection_product_boundaries import boundaries_for_action, boundaries_for_surface
 
 _BOUNDARY = re.compile(r"^[a-z0-9][a-z0-9._-]{2,95}$")
 _REASON = re.compile(r"^[a-z0-9][a-z0-9._-]{0,127}$")
@@ -141,6 +142,20 @@ class ProtectionCapabilityGate:
             raise ProtectionAdvancedError(
                 f"protected product boundary denied: {decision.reason}"
             )
+
+    def require_many(self, boundary_ids: tuple[str, ...]) -> None:
+        if type(boundary_ids) is not tuple or not boundary_ids:
+            raise ProtectionAdvancedError("product boundary set is invalid")
+        for boundary_id in boundary_ids:
+            self.require(boundary_id)
+
+    def require_surface(self, surface: str) -> None:
+        self.require_many(boundaries_for_surface(surface))
+
+    def require_action(self, action_id: str) -> None:
+        boundary_ids = boundaries_for_action(action_id)
+        for boundary_id in boundary_ids:
+            self.require(boundary_id)
 
 
 class ProtectionTrustBoundary:
