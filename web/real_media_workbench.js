@@ -280,6 +280,32 @@
       const vol = Number(event.target.value);
       if (!state.disposed && Number.isFinite(vol) && vol >= 0 && vol <= 100) state.video.volume = vol / 100;
     });
+    required(root, "#real-media-play").addEventListener("click", function () {
+      if (state.disposed) return;
+      if (!state.localUrl) {
+        safeStatus(root, "Виберіть MP4 або WebM перед відтворенням.");
+        return;
+      }
+      try {
+        const started = state.video.play();
+        if (started && typeof started.catch === "function") {
+          started.catch(function () {
+            if (!state.disposed) safeStatus(root,
+              "Браузер заблокував відтворення або кодек. Спробуйте інший MP4/WebM.");
+          });
+        }
+      } catch (_) {
+        safeStatus(root, "Не вдалося запустити локальне відео.");
+      }
+    });
+    required(root, "#real-media-pause").addEventListener("click", function () {
+      if (state.disposed) return;
+      if (!state.localUrl) {
+        safeStatus(root, "Спочатку виберіть локальний відеофайл.");
+        return;
+      }
+      state.video.pause();
+    });
     required(root, "#real-media-rewind").addEventListener("click", function () {
       if (!state.disposed && state.localUrl && secondsMs(state.video.currentTime) !== null)
         state.video.currentTime = Math.max(0, state.video.currentTime - 10);
