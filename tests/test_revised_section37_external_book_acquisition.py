@@ -189,6 +189,36 @@ class ExternalOriginalBookTests(unittest.TestCase):
             with self.assertRaises(LawfulCorpusError):
                 _bounded_direct_snapshot(path, 0)
 
+    def test_missing_proprietary_fixtures_stay_missing_and_never_trigger_download(self):
+        from unittest.mock import patch
+        from acs.lawful_corpus_registry import acquire_cc0_source, _https_url
+
+        records = {item["id"]: item for item in load_catalog()}
+        for identity, family in (
+            ("chessbase_official_cbf_cbi_format_external_gap", "cbf+cbi"),
+            ("chessbase_official_cbone_format_external_gap", "cbone"),
+            ("chessbase_official_2cbh_format_external_gap", "2cbh"),
+        ):
+            with self.subTest(source=identity):
+                source = records[identity]
+                self.assertEqual(source["format"], family)
+                self.assertEqual(source["acquisition"], "BLOCKED_NO_LAWFUL_COMPLETE_SAMPLE")
+                self.assertEqual(source["redistribution"], "NOT_CLEARED")
+                self.assertIsNone(source["sha256"])
+                self.assertEqual(source["max_bytes"], 0)
+                self.assertIsNone(source["download_url"])
+                self.assertEqual(
+                    _https_url(source["source_page"], source_page=True),
+                    source["source_page"],
+                )
+                with self.assertRaises(LawfulCorpusError):
+                    _https_url(source["source_page"])
+                with tempfile.TemporaryDirectory() as temp:
+                    with patch("acs.lawful_corpus_registry._open_no_redirect") as network:
+                        with self.assertRaises(LawfulCorpusError):
+                            acquire_cc0_source(source, Path(temp))
+                        network.assert_not_called()
+
     def test_real_cc0_pdf_record_is_pinned_but_not_falsely_qualified(self):
         record = next(
             item for item in load_catalog()
