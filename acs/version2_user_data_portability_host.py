@@ -35,6 +35,12 @@ _PRIVATE_TOKENS = (
     "private-key", "signing-key", "protection", "entitlement",
     "session", "cookie",
 )
+_WIN_BAD = set('<>:"/\\|?*')
+_WIN_RESERVED = {
+    "CON", "PRN", "AUX", "NUL",
+    *(f"COM{i}" for i in range(1, 10)),
+    *(f"LPT{i}" for i in range(1, 10)),
+}
 
 
 class UserDataArchiveError(RuntimeError):
@@ -86,6 +92,20 @@ def _inside(path: Path, root: Path) -> bool:
         return False
 
 
+def _validated_relative(relative: str) -> str:
+    if type(relative) is not str or not relative or "\\x00" in relative or "\\" in relative:
+        raise UserDataArchiveError("archive path is unsafe")
+    token = PurePosixPath(relative)
+    if token.is_absolute() or token.as_posix() != relative or any(part in {"", ".", ".."} for part in token.parts):
+        raise UserDataArchiveError("archive path is unsafe")
+    for part in token.parts:
+        if part[-1:] in {" ", "."} or any(ord(ch) < 32 or ch in _WIN_BAD for ch in part):
+            raise UserDataArchiveError("archive path is not Windows-portable")
+        if part.split(".", 1)[0].upper() in _WIN_RESERVED:
+            raise UserDataArchiveError("archive path uses a reserved Windows name")
+    return relative
+
+
 def _portable(relative: str) -> bool:
     folded = relative.casefold()
     parts = PurePosixPath(relative).parts
@@ -104,7 +124,7 @@ def _canonical_relative(root: Path, path: Path) -> str:
     token = PurePosixPath(rel)
     if not rel or token.is_absolute() or any(part in {"", ".", ".."} for part in token.parts):
         raise UserDataArchiveError("user-data path is not canonical")
-    return rel
+    return _validated_relative(rel)
 
 
 def _iter_files(root: Path, *, portable: bool) -> tuple[tuple[str, Path, int], ...]:
@@ -308,9 +328,7 @@ def validate_user_data_archive(path: Path, *, expected_kind: BundleKind | None =
             relative, size, digest = item["path"], item["size"], item["sha256"]
             if type(relative) is not str or type(size) is not int or type(digest) is not str:
                 raise UserDataArchiveError("archive entry metadata types are invalid")
-            token = PurePosixPath(relative)
-            if not relative or token.is_absolute() or any(part in {"", ".", ".."} for part in token.parts):
-                raise UserDataArchiveError("archive path is unsafe")
+            _validated_relative(relative)
             if relative <= previous or size < 0 or len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
                 raise UserDataArchiveError("archive entry ordering or identity is invalid")
             if kind is BundleKind.PORTABLE and not _portable(relative):
@@ -386,7 +404,10 @@ def _matches(root: Path, manifest: dict[str, object], *, portable_only: bool) ->
 def _stage_portable_import(current: Path, staging: Path, archive_path: Path, manifest: dict[str, object]) -> None:
     if current.exists() or current.is_symlink():
         _directory(current, "user-data root")
-        shutil.copytree(current, staging, symlinks=False)
+        # Validate the complete current tree before copytree so a nested symlink
+        # or Windows reparse point can never be followed into staging.
+        _iter_files(current, portable=False)
+        shutil.copytree(current, staging, symlinks=True)
         for relative, path, _ in reversed(_iter_files(staging, portable=True)):
             path.unlink()
         for base, dirs, _files in os.walk(staging, topdown=False):
