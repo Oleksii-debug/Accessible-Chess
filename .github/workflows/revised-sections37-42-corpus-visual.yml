@@ -122,6 +122,16 @@ jobs:
           tests.test_revised_section37_cbh_original_family_inventory
           tests.test_revised_sections41_42_design
           tests.test_section15_visual_board_contract
+      - name: Materialize original Stockfish CC0 games into canonical owner-test Library seed
+        run: python -m tools.revised_section38_stockfish_owner_seed
+      - name: Preserve actual test-only Library seed and real-source checksum receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: section38-owner-test-library-seed-${{ matrix.os }}
+          path: _section38_owner_seed_ci/
+          if-no-files-found: ignore
+          retention-days: 14
       - name: Build exact-checkout offline corpus manifest with real semantic results
         env:
           ACCESSIBLE_CHESS_EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
