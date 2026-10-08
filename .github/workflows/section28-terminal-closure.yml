@@ -22,6 +22,8 @@ on:
       - 'tests/test_student_progress_final_product_binding.py'
       - 'tests/test_version2_group_rotation_binding.py'
       - 'tests/test_full_product_education_keybindings.py'
+      - 'acs/version2_profile.py'
+      - 'tests/test_sections28_30_executed_red_repairs.py'
   workflow_dispatch:
 
 permissions:
@@ -32,7 +34,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, windows-2025]
+        os: [ubuntu-24.04, windows-2025]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     env:
@@ -126,6 +128,7 @@ jobs:
           tests.test_version2_group_rotation_binding
           tests.test_child_coaching_keyboard_actions
           tests.test_full_product_education_keybindings
+          tests.test_sections28_30_executed_red_repairs
 
       - name: Core selftest
         run: python -m acs.selftest
