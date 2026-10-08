@@ -25,6 +25,12 @@ on:
 permissions:
   contents: read
 
+# Multiple concurrent Section 47/48 workers must not fill the Actions queue
+# with obsolete qualification attempts. Only exact latest revision qualifies.
+concurrency:
+  group: section47-48-${{ github.event.pull_request.head.ref || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   deterministic-contracts:
     name: Deterministic contracts (${{ matrix.os }})
