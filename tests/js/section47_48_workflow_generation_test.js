@@ -20,6 +20,7 @@ const document={
 const pending=[];
 const playbackRender=[];
 const notifications=[];
+const timers=new Map();let timerSerial=0;
 const sourceL={ok:true,sourceId:"local:sha256:aaaaaaaa",sourceTitle:"Local A",
  providerKind:"browser_local",browserSourceUrl:"file:///C:/chess-original.webm",
  player:{ok:true,sourceId:"local:sha256:aaaaaaaa"}};
@@ -54,6 +55,8 @@ const globalObject={
   AccessibleChessYouTubeIframePlayback:{YouTubeIframePlaybackAdapter:YouTubeAdapter},
   location:{origin:"http://127.0.0.1:5658"},
   setTimeout:(cb)=>cb(),
+  setInterval:(cb)=>{const id=++timerSerial;timers.set(id,cb);return id;},
+  clearInterval:(id)=>timers.delete(id),
 };
 globalObject.window=globalObject;
 vm.runInNewContext(fs.readFileSync("web/version2_media_user_workflow.js","utf8"),globalObject,
@@ -74,6 +77,7 @@ async function tick(){await Promise.resolve();await Promise.resolve();await Prom
   sourceInput.value=currentSourceText;
   assert.equal(await api.openPasted(),true,"new YouTube source should open");
   assert.equal(api.currentProviderKind(),"youtube");
+  assert.equal(timers.size,1,"YouTube must have one clock refresh timer");
   assert(stale.destroyed,"old local adapter should be destroyed");
   const before=playbackRender.length;
   stale.options.onSnapshot(stale.snapshot());
@@ -107,6 +111,7 @@ async function tick(){await Promise.resolve();await Promise.resolve();await Prom
   assert.equal(api.currentProviderKind(),"youtube");
   assert(playbackRender.at(-1)===sourceY.sourceId);
   api.destroyProvider();
+  assert.equal(timers.size,0,"switch/close must retire YouTube timer");
   remote.options.onSnapshot({providerId:"youtube_iframe_v1",
     sourceId:sourceY.sourceId,ok:true,ready:true,errorCode:null,
     positionMs:4000,durationMs:10000,playbackState:"playing"});
