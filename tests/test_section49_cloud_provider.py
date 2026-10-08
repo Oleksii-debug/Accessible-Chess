@@ -124,7 +124,7 @@ class CloudProviderTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_malformed_credential_cannot_reach_network(self):
         route = self.provider()
-        with patch.dict(os.environ, {"MISTRAL_API_KEY": "invalid\\r\\ncredential"}):
+        with patch.dict(os.environ, {"MISTRAL_API_KEY": "invalid\r\ncredential"}):
             with self.assertRaises(ModelGatewayError) as ctx:
                 await route.complete(request())
         self.assertEqual(ctx.exception.code, ModelErrorCode.AUTHENTICATION)
