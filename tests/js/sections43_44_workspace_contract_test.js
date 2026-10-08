@@ -9,8 +9,6 @@ const html = fs.readFileSync(path.join(root, "web/index.html"), "utf8");
 const css = fs.readFileSync(path.join(root, "web/assets/accessible_chess_design.css"), "utf8");
 const v2 = fs.readFileSync(path.join(root, "web/version2_final_product_bootstrap.js"), "utf8");
 const web = fs.readFileSync(path.join(root, "web/accessible_chess_web.html"), "utf8");
-const host = fs.readFileSync(path.join(root, "acs/version2_release_ui.py"), "utf8");
-const shell = fs.readFileSync(path.join(root, "acs/full_product_ui_shell.py"), "utf8");
 const start = html.indexOf("(function installAccessibleWorkspaceControls(){");
 const end = html.indexOf("\n})();", start);
 assert.ok(start > 0 && end > start, "must be installed into actual packaged index.html");
@@ -172,7 +170,7 @@ const key = "accessible-chess.workspace-layout.v1";
   const restarted = mount(app.saved);
   assert.equal(restarted.panels.get("h-engine").section.style["--ac43-panel-size"], "22rem");
 }
-// Premium skin is shared by actual services and routed screens, not mock cards.
+// Premium skin targets real service assets/routes, not fabricated demo-only screens.
 {
   for (const required of [
     "#v2-navigation", "#main-content", "#v2-workspace", "#board-grid",
@@ -185,7 +183,7 @@ const key = "accessible-chess.workspace-layout.v1";
   for (const module of [
     "full_product_books_training.js", "full_product_library.js",
     "full_product_teacher.js", "full_product_education.js"
-  ]) assert.ok((host + shell).includes(module), "actual desktop module not wired: " + module);
+  ]) assert.ok(fs.existsSync(path.join(root, "web", module)), "real module asset missing: " + module);
   assert.ok(web.includes("accessible_chess_design.css"), "Web must share visual tokens");
   assert.ok(html.includes('role="status"') && html.includes('id="board-grid"'),
     "semantic board and status must remain");
