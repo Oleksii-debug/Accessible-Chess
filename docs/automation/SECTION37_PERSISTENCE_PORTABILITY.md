@@ -4,6 +4,37 @@ Canonical plan: `ACCESSIBLE CHESS — SECTION PLAN ДО ПОВНІСТЮ ЗАВ�
 
 Owner directive for this closure run: complete Sections 36 and 37 now. This receipt follows Simplified Section Closure Protocol v3. It does not relabel unfinished predecessor Sections as DONE. Instead, Section 37 is closed against the exact accepted Section-36 integration ancestry and the existing durable-domain authorities listed below. A later integration may reopen Section 37 only if it demonstrably breaks one of these pinned contracts.
 
+## 2026-10-08 — REOPENED production integration status
+
+**NOT DONE.** Historic Section-37 code was present in a divergent Product line, but
+current Windows shipping head `f93bf5c...` did not contain it. The native
+`create_version2_release_application` factory still does **not** bind a
+complete production `UserDataPortabilityHost` with all real state owners.
+
+This repair line carries the accepted typed bundle orchestrator, corrects
+rollback ordering when an owner writes and then raises, and adds
+`acs/user_data_portability_host.py` with testable native owner checks,
+checksum-verified exclusive archive creation and *staged-only* import/restore.
+
+**Missing before Section-37 terminal closure:**
+- Bind a real native WinForms data-dialog host after native owner startup.
+- Register exhaustive nonsecret Settings, Library, Books, Training,
+  Classroom, Media, Agent and Profile owner adapters; do not present a
+  partial archive as a complete user-data backup.
+- Implement private durable staging and recovery journal; process staged
+  imports/restores **before** opening normal Settings/ACSDB/application
+  writers on the next launch, including a startup-crash rollback path.
+- Run exact Windows and Linux production journey plus inherited persistence
+  regressions; the earlier current-shipping Section-37 Windows gate had
+  executed failures and is not acceptance evidence.
+- Integrate once into the canonical Windows shipping branch and read back
+  the merged bytes. Then and only then restore `DONE — TERMINAL`.
+
+No private signing keys or account credentials may enter the portable data
+bundle. The native host deliberately rejects browser-provided file paths,
+live-session destructive mutation and unsafe overwrite. Until complete
+staging is injected, restore/import must fail closed without reporting success.
+
 ## 37.1 Crash-safe state across stateful domains
 
 Section 37 does not create a second domain store.
