@@ -168,6 +168,10 @@ class Stage1ReleaseAccessibleChessAPI(_core.Stage1ReleaseAccessibleChessAPI):
         settings = getattr(self, "_settings", None)
         if not self._settings_persistence_available(settings):
             return {"ok": False, "reason": "settings_unavailable"}
+        # Do not rewrite an unreadable or corrupt existing private settings
+        # file with guessed defaults; retain the bytes for explicit recovery.
+        if str(getattr(settings, "warning", "")).startswith("settings recovery:"):
+            return {"ok": False, "reason": "settings_corrupt_requires_recovery"}
         try:
             raw = settings.get("design_profiles_json")
             store = read_store(raw)
