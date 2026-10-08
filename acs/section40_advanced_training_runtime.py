@@ -8,6 +8,7 @@ from __future__ import annotations
 from .bookdocument import BookDocument, Exercise, Heading, Paragraph
 from .chesscore import Board, parse_sq
 from .section40_advanced_licensed_dataset import bundled_advanced_puzzles
+from .section40_extreme_licensed_dataset import bundled_extreme_puzzles
 
 
 ADVANCED_MATERIAL_ID = "advanced-lichess-16-original"
@@ -109,4 +110,88 @@ def build_advanced_offline_material() -> tuple[BookDocument, tuple[dict, ...]]:
     return document, tuple(tasks)
 
 
-__all__ = ["ADVANCED_MATERIAL_ID", "ADVANCED_BOOK_KEY", "build_advanced_offline_material"]
+
+EXTREME_MATERIAL_ID = "extreme-lichess-4-3000-plus"
+EXTREME_BOOK_KEY = "section40:extreme-lichess-4-original"
+
+
+def build_extreme_offline_material() -> tuple[BookDocument, tuple[dict, ...]]:
+    """Separate advanced expert curriculum from beginner and FIDE categories.
+
+    This is exactly 4 historical genuine original CC0 puzzle rows, not GM
+    titles, not composer studies, and not substitute for publisher content.
+    """
+    blocks = [
+        Heading(text="Екстремальні задачі Lichess 3000–3166",
+                level=1, block_id="section40-extreme-heading",
+                source_anchor="section40:extreme:heading"),
+        Paragraph(text=(
+            "Чотири дійсні шахові позиції з історичного CC0-корпусу Lichess. "
+            "3000–3166 — рейтинг складності задач на Lichess, не FIDE Elo. "
+            "Знайдіть продовження ПІСЛЯ вказаного в джерелі ходу суперника. "
+            "Це не є етюди з установленим автором, не підтвердження рівня GM."
+        ), block_id="section40-extreme-intro",
+           source_anchor="section40:extreme:intro"),
+    ]
+    tasks = []
+    seen = set()
+    for index, puzzle in enumerate(bundled_extreme_puzzles(), 1):
+        if type(puzzle) is not dict:
+            raise ValueError("extreme real puzzle record invalid")
+        ident = puzzle.get("puzzle_id")
+        rating = puzzle.get("puzzle_rating")
+        if (type(ident) is not str or not 5 <= len(ident) <= 8
+            or not ident.isalnum() or ident in seen
+            or type(rating) is not int or not 3000 <= rating <= 5000
+            or puzzle.get("composed_study") is not False
+            or puzzle.get("requires_opponent_first_move_before_presenting") is not True
+            or type(puzzle.get("uci_moves_opponent_first")) is not str):
+            raise ValueError("extreme real puzzle source provenance invalid")
+        seen.add(ident)
+        moves = puzzle["uci_moves_opponent_first"].split()
+        if not 2 <= len(moves) <= 128:
+            raise ValueError("extreme real puzzle has invalid solution length")
+        board = Board(puzzle["fen_before_opponent_move"])
+        _apply_uci(board, moves[0])
+        fen = board.fen()
+        answer = moves[1]
+        for move in moves[1:]:
+            _apply_uci(board, move)
+        tasks.append({
+            "puzzle_id": ident,
+            "puzzle_rating_lichess_not_fide": rating,
+            "themes": ["extreme", "calculation"],
+            "fen": fen,
+            "answer_uci": answer,
+            "full_solution_uci": moves[1:],
+            "source_opponent_move_uci": moves[0],
+            "source_id": "lichess_cc0_extreme_4_original_derived_puzzles",
+            "historical_original_line": puzzle["original_upstream_zero_based_line"],
+        })
+        blocks.append(Heading(
+            text=f"Екстремальна задача {index:02d}. Lichess {rating}",
+            level=2,
+            block_id=f"section40-extreme-{ident}-heading",
+            source_anchor=f"section40:extreme:{ident}:heading",
+        ))
+        blocks.append(Exercise(
+            fen=fen,
+            prompt="Знайдіть найкращий хід, повний варіант та захист суперника.",
+            answer_text=answer,
+            difficulty=f"Lichess puzzle {rating} (не FIDE)",
+            block_id=f"section40-extreme-{ident}-exercise",
+            source_anchor=f"section40:extreme:{ident}:exercise",
+        ))
+    document = BookDocument(
+        title="Екстремальні шахові задачі: 3000–3166 Lichess (не FIDE)",
+        language="uk",
+        author="Lichess original CC0 puzzle contributors",
+        source_name="https://github.com/FeXd/puzzle-chess",
+        source_rights="CC0-1.0 original chess puzzle data; not FeXd GPL code",
+        blocks=blocks,
+    )
+    document.as_dict()
+    return document, tuple(tasks)
+
+
+__all__ = ["ADVANCED_MATERIAL_ID", "ADVANCED_BOOK_KEY", "EXTREME_MATERIAL_ID", "EXTREME_BOOK_KEY", "build_advanced_offline_material", "build_extreme_offline_material"]
