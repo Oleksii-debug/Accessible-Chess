@@ -108,12 +108,12 @@
         }
       },
       "english_external_advanced_bibliography": {
-        "author": "Oleg Pervakov; Mark Dvoretsky",
-        "title": "Studies for Practical Players",
-        "verified_primary_source_page": "https://www.newinchess.com/endgame",
+        "author": "Jan Timman",
+        "title": "100 Endgame Studies You Must Know",
+        "verified_primary_source_page": "https://www.newinchess.com/100-endgame-studies-you-must-know",
         "acquired_full_book": false,
         "public_distribution": "NOT_AUTHORIZED",
-        "notes": "Publisher category; commercial study book not cleared"
+        "notes": "Direct official New In Chess publisher page with a sample; historic Reti PGN is separately shareable, this commercial book is not downloaded"
       },
       "separately_imported_real_chess_material": "Historic ARVES Kling-Horwitz source and original Grigoriev/Kasparian references: NOT rights-cleared downloads"
     },
@@ -142,11 +142,11 @@
       },
       "english_external_advanced_bibliography": {
         "author": "Parimarjan Negi",
-        "title": "Grandmaster Repertoire — 1.e4 vs the Sicilian I",
-        "verified_primary_source_page": "https://qualitychess.co.uk/pdf-excerpts/",
+        "title": "Grandmaster Repertoire – 1.e4 vs The Sicilian II",
+        "verified_primary_source_page": "https://qualitychess.co.uk/products/opening/263/grandmaster_repertoire_-_1e4_vs_the_sicilian_ii_by_parimarjan_negi/",
         "acquired_full_book": false,
         "public_distribution": "NOT_AUTHORIZED",
-        "notes": "Publisher catalogue/excerpt directory; commercial full book not cleared"
+        "notes": "Official deep repertoire book with an authorized sample page and publisher-controlled PDF excerpt; full copyrighted book not downloaded"
       },
       "separately_imported_real_chess_material": "Official genuine Lichess ECO A–E TSV"
     },
@@ -208,11 +208,11 @@
       },
       "english_external_advanced_bibliography": {
         "author": "Mark Dvoretsky",
-        "title": "Dvoretsky's Endgame Manual, Sixth Edition",
+        "title": "Dvoretsky's Endgame Manual – 6th Edition",
         "verified_primary_source_page": "https://www.newinchess.com/dvoretsky-s-endgame-manual-6th-edition",
         "acquired_full_book": false,
         "public_distribution": "NOT_AUTHORIZED",
-        "notes": "Publisher sample/product; not unrestricted ebook"
+        "notes": "Direct official edition page; publisher sample only, no full book copy"
       },
       "separately_imported_real_chess_material": "20 real rated CC0 Lichess puzzle records, 2200–3166; not a proof of GM playing title"
     },
