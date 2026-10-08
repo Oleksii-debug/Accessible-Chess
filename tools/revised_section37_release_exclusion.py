@@ -139,12 +139,17 @@ def _audit_zip_contents(
         total = 0
         prefix = b""
         nested = None
+        # Valid ZIP can have a prepended executable/preamble. Inspect its
+        # end signature even if the first four bytes are not PK.
+        zip_tail = b""
         with archive.open(info) as stream:
             while chunk := stream.read(_CHUNK):
                 total += len(chunk)
                 if total > info.file_size or total > _MAX_SINGLE_UNPACKED:
                     raise LawfulCorpusError("release member exceeded stated size")
                 digest.update(chunk)
+                if nested is None:
+                    zip_tail = (zip_tail + chunk)[-65557:]
                 if not prefix:
                     prefix = chunk[:4]
                     # A declared ZIP with invalid bytes is not an acceptable
@@ -160,6 +165,10 @@ def _audit_zip_contents(
         owner = hashes.get(digest.hexdigest())
         if owner:
             raise LawfulCorpusError("public release contains byte-identical excluded original source: " + owner)
+        if nested is None and b"PK\x05\x06" in zip_tail:
+            # Fail closed: an SFX/renamed ZIP was not recursively inspected.
+            # Ordinary large member bytes stay streaming, not buffered.
+            raise LawfulCorpusError("uninspected embedded ZIP preamble")
         if nested is not None:
             if depth >= _MAX_NESTED_ZIP_DEPTH:
                 raise LawfulCorpusError("embedded ZIP nesting exceeds inspection depth")
