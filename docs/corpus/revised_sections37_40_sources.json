@@ -667,7 +667,58 @@
       },
       "external_license_git_blob": "d159169d1050894d3ea3b98e1c965c4058208fe1",
       "test_access": "EXTERNAL_GPL_EPHEMERAL_ONLY",
-      "public_release": "EXCLUDED"
+      "public_release": "EXCLUDED",
+      "external_companion_source_checksums": {
+        "UnusualStartBytes.cbh": {
+          "bytes": 460,
+          "sha256": "ede4a5cb79894c06842e86db8e3c5fe7e859db3f2789596ea4ea2a03f639ade3"
+        },
+        "UnusualStartBytes.cbg": {
+          "bytes": 2125,
+          "sha256": "6d98b674b19e28b00c41bf7745ca977c869b4630da58d732f1d906622d0e8fc3"
+        },
+        "UnusualStartBytes.cbp": {
+          "bytes": 1171,
+          "sha256": "15bef0f01ed3e17ae479dfe4a1d5e579bb4fc2b55c3819f43110a47d3c2e8293"
+        },
+        "UnusualStartBytes.cbt": {
+          "bytes": 626,
+          "sha256": "a82d1b9b2190882968b316963397cf635fc390055b77b941e0b6f79bb9bdc04d"
+        },
+        "UnusualStartBytes.cba": {
+          "bytes": 26,
+          "sha256": "5eb78f6857ce1a9d9d581d2251b1096d9ce5d2270b49925ed1c59339a8e40055"
+        },
+        "UnusualStartBytes.cbs": {
+          "bytes": 100,
+          "sha256": "7ca063358438c1bee955ca7afbc3bb83dc1c224a021fc1c48ae289db53336088"
+        },
+        "UnusualStartBytes.cbc": {
+          "bytes": 94,
+          "sha256": "f99acfc3da363516c4ba4e687fab99614f75dda3d973d1ce4481993e4bfeada3"
+        },
+        "UnusualStartBytes.cbe": {
+          "bytes": 176,
+          "sha256": "53784076057cf57e282a163f92e1d7767bb288b5068194757ffba71128363f0d"
+        },
+        "UnusualStartBytes.cbj": {
+          "bytes": 1112,
+          "sha256": "1dc5e3ae1018e6f3e4a2777a7010c44827c764f10f38c2bc4261cf07a1a90bb7"
+        },
+        "UnusualStartBytes.cbl": {
+          "bytes": 32,
+          "sha256": "30cd098c7958394c3ac7f9ef481417da8946c8c1967524f308a4453682bf295a"
+        },
+        "UnusualStartBytes.cbm": {
+          "bytes": 32,
+          "sha256": "b3cc66871d2ea5796dccbc9f4d64776491f9ff913dc34970c77cea4286791ae6"
+        }
+      },
+      "external_oracle_source_checksum": {
+        "name": "UnusualStart.pgn",
+        "bytes": 7425,
+        "sha256": "b8b5e37e16a8e42624355747cac6b0469e78f0697e7eaeda9fbb31b00eb22b08"
+      }
     },
     {
       "id": "gutenberg_chess_history_bird_original_txt",
