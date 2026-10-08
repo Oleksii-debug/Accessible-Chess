@@ -172,6 +172,56 @@ def verified_local_source(path: Path, record: dict) -> str:
 
 
 
+
+def read_verified_source_snapshot(path: Path, record: dict) -> bytes:
+    """Read exactly the pinned source bytes without a verify/open race.
+
+    Import and format QA must consume this immutable bounded buffer, rather
+    than hashing a filename and later doing an unbounded Path.read_bytes().
+    The API is not an authorization to redistribute or publish source bytes.
+    """
+    limit = _bounded_source_size(record)
+    digest = record.get("sha256")
+    if type(digest) is not str or not _HASH.fullmatch(digest):
+        raise LawfulCorpusError("unverified source has no pinned checksum")
+    indexed = record.get("indexed_bytes")
+    if indexed is not None and (
+        type(indexed) is not int or not 0 < indexed <= limit
+    ):
+        raise LawfulCorpusError("invalid source byte count in provenance index")
+    try:
+        before = path.lstat()
+        attrs = getattr(before, "st_file_attributes", 0)
+        if (
+            not stat.S_ISREG(before.st_mode)
+            or stat.S_ISLNK(before.st_mode)
+            or attrs & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+            or not 0 < before.st_size <= limit
+        ):
+            raise LawfulCorpusError("source is not a bounded direct regular file")
+        with path.open("rb") as stream:
+            opened = os.fstat(stream.fileno())
+            if not os.path.samestat(before, opened):
+                raise LawfulCorpusError("source was replaced while opening")
+            raw = stream.read(limit + 1)
+            opened_after = os.fstat(stream.fileno())
+        after = path.lstat()
+    except (OSError, ValueError) as exc:
+        if isinstance(exc, LawfulCorpusError):
+            raise
+        raise LawfulCorpusError("source snapshot cannot be verified") from exc
+    if (
+        not os.path.samestat(before, after)
+        or not os.path.samestat(before, opened_after)
+        or opened_after.st_size != before.st_size
+        or len(raw) != before.st_size
+        or (indexed is not None and len(raw) != indexed)
+        or hashlib.sha256(raw).hexdigest() != digest
+    ):
+        raise LawfulCorpusError("consumed source identity or pinned SHA256 mismatch")
+    return raw
+
+
 def iter_bounded_corpus_lines(
     source, *, max_line_chars: int = 128 * 1024,
     max_decoded_chars: int = 64 * 1024 * 1024,
