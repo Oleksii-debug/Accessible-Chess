@@ -57,7 +57,7 @@ class Element {
   click() { assert.equal(typeof this.events.click, "function"); this.events.click(); }
   change() { assert.equal(typeof this.events.change, "function"); this.events.change(); }
 }
-function mount(seed, language = "uk") {
+function mount(seed, language = "uk", nativeAPI = null) {
   const byId = new Map();
   const document = {
     activeElement: null,
@@ -92,7 +92,11 @@ function mount(seed, language = "uk") {
     getItem: key => saved[key] ?? null,
     setItem: (key, value) => { saved[key] = String(value); }
   };
-  vm.runInNewContext(code, { document, localStorage, Object, Array, JSON }, {timeout: 1500});
+  const context = { document, localStorage, Object, Array, JSON };
+  if (nativeAPI) context.window = {
+    pywebview: {api: nativeAPI}, addEventListener() {}
+  };
+  vm.runInNewContext(code, context, {timeout: 1500});
   return {document, saved, panels, main, find: id => document.getElementById(id)};
 }
 const key = "accessible-chess.workspace-layout.v1";
@@ -282,4 +286,42 @@ const key = "accessible-chess.workspace-layout.v1";
       selector + " action label low contrast");
   }
 }
-console.log("Sections 43-44: 8 runtime/static contract groups PASS (not full Windows UIA acceptance)");
+
+// Unlike localStorage fixtures, native WebView2 runs with private_mode=True.
+// Verify actual UI script hydration and writeback via a Promise-based host API,
+// then simulate an application restart with a NEW empty browser profile.
+(async function nativePrivateModeRestartContract() {
+  let durable = {
+    version:1,collapsed:["h-board"],sizes:{"h-engine":"large"},
+    density:"compact",layout:"single"
+  };
+  const api = {
+    get_presentation_layout: async kind => ({ok:kind==="workspace",layout:durable}),
+    save_presentation_layout: async (kind, value) => {
+      assert.equal(kind,"workspace");
+      durable=JSON.parse(JSON.stringify(value));
+      return {ok:true};
+    }
+  };
+  async function settle() {
+    for(let i=0;i<5;i++)await Promise.resolve();
+  }
+  const first=mount({}, "uk", api);
+  await settle();
+  assert.equal(first.panels.get("h-board").content.hidden,true);
+  assert.equal(first.document.documentElement.dataset.ac43Density,"compact");
+  const collapse=first.panels.get("h-moves").h2.children[0].children[0];
+  collapse.click();
+  await settle();
+  assert.ok(durable.collapsed.includes("h-moves"));
+  const restarted=mount({}, "en",api);
+  await settle();
+  assert.equal(restarted.panels.get("h-moves").content.hidden,true);
+  assert.equal(restarted.panels.get("h-board").content.hidden,true);
+  assert.equal(restarted.find("ac43-layout").value,"single");
+  console.log("Sections 43-44: 9 groups PASS (including native API private-mode restart mock; not Windows UIA)");
+})().catch(error => {
+  console.error(error);
+  process.exitCode=1;
+});
+
