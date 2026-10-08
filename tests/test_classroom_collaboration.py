@@ -706,7 +706,6 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
                     messages[2].sent_at_unix_ms,
                 ),
         )
-            db.commit()
 
         received = controller.receive_chat(messages[3])
 
