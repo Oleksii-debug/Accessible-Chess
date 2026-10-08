@@ -17,6 +17,7 @@ from acs.section40_advanced_licensed_dataset import (
 )
 from acs.section40_advanced_training_runtime import (
     ADVANCED_BOOK_KEY, ADVANCED_MATERIAL_ID, build_advanced_offline_material,
+    EXTREME_BOOK_KEY, EXTREME_MATERIAL_ID, build_extreme_offline_material,
 )
 from acs.version2_starter_content_application import Version2StarterContentApplication
 
@@ -35,6 +36,39 @@ class GenuineAdvancedMaterialProductTests(unittest.TestCase):
         self.assertTrue(all(task["puzzle_rating_lichess_not_fide"] >= 2200
                             for task in tasks))
         self.assertTrue(any("endgame" in task["themes"] for task in tasks))
+
+    def test_original_3000_plus_training_opens_in_product_without_new_engine(self):
+        extreme, tasks = build_extreme_offline_material()
+        self.assertEqual(len(extreme.exercises()), 4)
+        self.assertEqual(len(tasks), 4)
+        with tempfile.TemporaryDirectory(prefix="acs-extreme-catalog-") as raw:
+            root = Path(raw)
+            db = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                app = Version2StarterContentApplication(
+                    db,
+                    progress_store=BookProgressStore(root / "books.json"),
+                    engine_assistance=EngineAssistedWorkflowService(analysis),
+                    board_dispatch=lambda *_: None,
+                    board_position_projector=lambda _fen: {"ok": True},
+                )
+                try:
+                    app.browser_command("shell", "screen.books")
+                    selected = app.browser_command(
+                        "books", "book.open_starter_material",
+                        {"material_id": EXTREME_MATERIAL_ID},
+                    )
+                    self.assertEqual(selected["kind"], "render")
+                    self.assertEqual(app.book_key, EXTREME_BOOK_KEY)
+                    self.assertEqual(len(app.reader.document.exercises()), 4)
+                    self.assertTrue(app._start_training_from_current_book())
+                    self.assertEqual(app.reader.location().kind, "Exercise")
+                finally:
+                    app.shutdown()
+            finally:
+                analysis.close()
+                db.close()
 
     def test_advanced_exercise_opens_on_canonical_chessboard(self):
         with tempfile.TemporaryDirectory(prefix="acs-section40-board-ui-") as raw:
