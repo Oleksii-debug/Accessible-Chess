@@ -219,6 +219,54 @@ class ExternalOriginalBookTests(unittest.TestCase):
                             acquire_cc0_source(source, Path(temp))
                         network.assert_not_called()
 
+    def test_original_gpl_markdown_source_is_exact_and_not_publicly_bundled(self):
+        record = next(
+            item for item in load_catalog()
+            if item["id"] == "original_gpl_chastity_chess_chapters_markdown"
+        )
+        self.assertEqual(record["format"], "md")
+        self.assertEqual(record["indexed_bytes"], 96821)
+        self.assertEqual(record["sha256"], "a2642266dd0068739631de817732d999f213bf297c343a0206a4795068c33928")
+        self.assertEqual(record["upstream_git_blob"], "67839e7768b2df1e54ce7136f010f93883bdf170")
+        self.assertEqual(record["upstream_commit"], "69f3b151c8c6230ff1ebb252a24eb09a9e015f60")
+        self.assertEqual(record["external_license_git_blob"], "f288702d2fa16d3cdf0035b15a9fcbc552cd88e7")
+        self.assertEqual(record["external_license_indexed_bytes"], 35149)
+        self.assertEqual(record["external_license_sha256"], "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986")
+        self.assertEqual(record["redistribution"], "NOT_CLEARED")
+        self.assertEqual(record["public_release"], "EXCLUDED")
+
+    def test_gpl_markdown_original_source_and_license_negative_readback(self):
+        source = b"# Real chapter structure for isolated security fixture\\n## Introduction\\n"
+        license_data = b"                    GNU GENERAL PUBLIC LICENSE\\nVersion 3\\n"
+        record = {
+            **fake_record(source),
+            "format": "md",
+            "external_checkout_path": "markdown/book.md",
+            "external_license_checkout_path": "markdown/LICENSE",
+            "external_license_git_blob": _git_blob(license_data),
+            "external_license_sha256": hashlib.sha256(license_data).hexdigest(),
+            "external_license_indexed_bytes": len(license_data),
+        }
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "markdown").mkdir()
+            book = root / "markdown/book.md"
+            license_file = root / "markdown/LICENSE"
+            book.write_bytes(source)
+            license_file.write_bytes(license_data)
+            result = verify_original_book(record, root)
+            self.assertEqual(result["source_format"], "md")
+            self.assertEqual(result["sha256"], hashlib.sha256(source).hexdigest())
+            self.assertEqual(result["public_release"], "EXCLUDED")
+            self.assertFalse(result["original_bytes_packaged"])
+            license_file.write_bytes(b"THE FULL PROJECT GUTENBERG LICENSE\\nother rights")
+            with self.assertRaises(LawfulCorpusError):
+                verify_original_book(record, root)
+            license_file.write_bytes(license_data)
+            book.write_bytes(source + b"tampered")
+            with self.assertRaises(LawfulCorpusError):
+                verify_original_book(record, root)
+
     def test_real_cc0_pdf_record_is_pinned_but_not_falsely_qualified(self):
         record = next(
             item for item in load_catalog()
