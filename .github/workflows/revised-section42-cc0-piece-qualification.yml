@@ -6,12 +6,15 @@ on:
     paths:
       - 'web/assets/pieces/rhosgfx/**'
       - 'web/index.html'
+      - 'web/accessible_chess_web.js'
+      - 'web/accessible_chess_web.html'
       - 'web/assets/accessible_chess_design.css'
       - 'acs/visual_board_contract.py'
       - 'acs/version2_package_preflight.py'
       - 'tools/revised_section42_render_piece_pack.py'
       - 'tests/test_revised_section42_cc0_pieces.py'
       - 'tests/test_revised_section42_raster_qualification.py'
+      - 'tests/test_revised_section42_web_projection.py'
       - '.github/workflows/revised-section42-cc0-piece-qualification.yml'
   workflow_dispatch: {}
 permissions:
@@ -34,8 +37,8 @@ jobs:
           python-version: '3.12.10'
       - name: Compile source and exercise exact CC0 / NVDA-safe board acceptance
         run: |
-          python -m py_compile tools/revised_section42_render_piece_pack.py tests/test_revised_section42_cc0_pieces.py tests/test_revised_section42_raster_qualification.py
-          python -m unittest -v tests.test_revised_section42_cc0_pieces tests.test_revised_section42_raster_qualification tests.test_section15_visual_board_contract tests.test_revised_sections41_42_design
+          python -m py_compile tools/revised_section42_render_piece_pack.py tests/test_revised_section42_cc0_pieces.py tests/test_revised_section42_raster_qualification.py tests/test_revised_section42_web_projection.py
+          python -m unittest -v tests.test_revised_section42_cc0_pieces tests.test_revised_section42_raster_qualification tests.test_revised_section42_web_projection tests.test_section15_visual_board_contract tests.test_revised_sections41_42_design
   original-art-raster:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
