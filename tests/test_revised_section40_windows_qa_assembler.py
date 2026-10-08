@@ -6,6 +6,7 @@ assembler: a structurally valid synthetic PE is not an actual installed EXE.
 from __future__ import annotations
 
 import hashlib
+from io import BytesIO
 import json
 from pathlib import Path
 import shutil
@@ -86,6 +87,27 @@ class Section40RealWindowsQAPackageTests(unittest.TestCase):
                               [item["file"] for item in manifest["files"]])
                 self.assertEqual(manifest["bundle_kind"], BUNDLE_KIND)
                 self.assertEqual(manifest["schema_version"], SCHEMA_VERSION)
+                # The actual reviewed offline library ships IN the Windows QA
+                # package, not merely as a separate builder artifact.
+                archive_path = "AccessibleChess/release-content/section40/"
+                self.assertIn(archive_path + "TEST_COLLECTION.zip", members)
+                self.assertIn(archive_path + "READ_FIRST_UK.txt", members)
+                self.assertIn(archive_path + "READ_FIRST_EN.txt", members)
+                self.assertIn(b"517", archive.read(archive_path + "READ_FIRST_UK.txt"))
+                self.assertIn(b"517", archive.read(archive_path + "READ_FIRST_EN.txt"))
+                corpus_zip = archive.read(archive_path + "TEST_COLLECTION.zip")
+                self.assertEqual(
+                    hashlib.sha256(corpus_zip).hexdigest(),
+                    report["bundled_offline_collection_sha256"],
+                )
+                with zipfile.ZipFile(BytesIO(corpus_zip)) as corpus:
+                    self.assertIn("catalog/materials.json", corpus.namelist())
+                    self.assertIn("books/advanced-lichess-16-en.json", corpus.namelist())
+                    self.assertIn("training/extreme-lichess-4-original-puzzles.json", corpus.namelist())
+                    self.assertIn("library/original-reti-1921-uk-en-study.pgn", corpus.namelist())
+                    metadata = json.loads(corpus.read("catalog/materials.json"))
+                    self.assertEqual(metadata["profile"], "TEST_BUILD")
+
 
     def test_existing_private_seed_is_preserved_and_extended_only_in_disposable_qa(self):
         with tempfile.TemporaryDirectory(prefix="acs-section40-existing-seed-") as temp:
