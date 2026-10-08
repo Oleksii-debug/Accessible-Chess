@@ -79,7 +79,8 @@ jobs:
         with:
           python-version: '3.12.10'
       - name: Install pinned build-only raster libraries
-        run: python -m pip install --only-binary=:all: "CairoSVG==2.7.1" "Pillow==11.3.0"
+        run: |
+          python -m pip install --only-binary=:all: "CairoSVG==2.7.1" "Pillow==11.3.0"
       - name: Convert pinned originals to optimized PNG and lossless WebP
         run: python -m tools.revised_section42_render_piece_pack --output artifacts/section42-rhosgfx
       - name: Verify actual raster receipt and 48 output files
