@@ -12,6 +12,8 @@ on:
       - 'docs/SECTION47_48_REAL_VIDEO_QUALIFICATION.md'
       - 'tools/section47_download_commons_corpus.py'
       - 'tests/test_section47_real_commons_originals.py'
+      - 'tests/test_section47_48_browser_media_clock.py'
+      - 'acs/section47_48_browser_media_clock.py'
       - 'tests/js/section47_48_real_media_workbench_test.js'
       - 'tests/js/section47_48_browser_live_smoke.js'
       - 'acs/version2_release_payload.py'
@@ -42,9 +44,11 @@ jobs:
         with:
           node-version: '22'
       - name: Compile actual original downloader
-        run: python -m py_compile tools/section47_download_commons_corpus.py
+        run: python -m py_compile tools/section47_download_commons_corpus.py acs/section47_48_browser_media_clock.py
       - name: Original downloader adversarial checks (mock only)
         run: python -m unittest discover -s tests -p test_section47_real_commons_originals.py -v
+      - name: Canonical media-clock source and chess authority checks (mock only)
+        run: python -m unittest discover -s tests -p test_section47_48_browser_media_clock.py -v
       - name: Existing documented YouTube provider oracle (mock only)
         run: node tests/js/youtube_iframe_playback_adapter_test.js
       - name: New local-video and IFrame integrated UI test (mock only)
