@@ -26,6 +26,16 @@ from .stockfish_runtime import PACKAGED_STOCKFISH_RELATIVE_PATH
 _SHA40_RE = re.compile(r"^[0-9a-f]{40}$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _SOURCE_SUFFIXES = {".py", ".pyw", ".pyi", ".pyx", ".pxd", ".pxi", ".pyc", ".pyo", ".ipynb"}
+# R43: block native build/debug material even if someone includes it in SHA256SUMS.
+# Required corresponding Stockfish GPL source stays in its notice ZIP, not as
+# loose product files; web-app JavaScript remains a legitimate runtime asset.
+_NATIVE_DEBUG_SUFFIXES = frozenset({
+    ".pdb", ".ilk", ".idb", ".iobj", ".ipch", ".map", ".sourcemap",
+    ".dmp", ".profraw", ".profdata", ".gcda", ".gcno", ".debug",
+    ".bsc", ".sbr",
+})
+_NATIVE_SOURCE_SUFFIXES = frozenset({".c", ".cc", ".cpp", ".cxx", ".h", ".hpp", ".hxx", ".rs"})
+_NATIVE_DEBUG_NAMES = frozenset({".coverage", "core", "core.dump"})
 _FORBIDDEN_COMPONENTS = {
     ".git", ".pytest_cache", "__pycache__", "build", "build_parts10k",
     "build_snapshot_exact", "build_snapshot_parts", "dist", "package",
@@ -120,9 +130,16 @@ def _inventory(root: Path) -> tuple[str, ...]:
             _fail(f"symbolic link is forbidden in release tree: {relative}")
         if any(part.casefold() in _FORBIDDEN_COMPONENTS for part in parts):
             _fail(f"stale/build/source component is forbidden: {relative}")
+        suffix = path.suffix.casefold()
+        if suffix == ".dsym":
+            _fail(f"native debug symbols are forbidden in release tree: {relative}")
         if path.is_file():
-            if path.suffix.casefold() in _SOURCE_SUFFIXES:
+            if suffix in _SOURCE_SUFFIXES:
                 _fail(f"raw product source is forbidden: {relative}")
+            if suffix in _NATIVE_SOURCE_SUFFIXES:
+                _fail(f"raw native source is forbidden in release tree: {relative}")
+            if suffix in _NATIVE_DEBUG_SUFFIXES or path.name.casefold() in _NATIVE_DEBUG_NAMES:
+                _fail(f"native debug symbols are forbidden in release tree: {relative}")
             entries.append(relative)
     return tuple(sorted(entries, key=lambda value: value.casefold()))
 
