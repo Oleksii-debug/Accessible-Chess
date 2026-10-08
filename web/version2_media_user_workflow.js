@@ -17,6 +17,10 @@
   let activeProviderKind = null;
   let activeSourceText = "";
   let youtubePromise = null;
+  let activeSourceId = "";
+  let providerGeneration = 0;
+  let openRequestSerial = 0;
+  let announcedSourceIdentity = "";
 
   function language() {
     return documentRef.documentElement && documentRef.documentElement.lang === "en"
@@ -113,7 +117,8 @@
 
   function setStatus(message, urgent) {
     sourceStatus.setAttribute("aria-live", urgent ? "assertive" : "polite");
-    sourceStatus.textContent = String(message || "").slice(0, 4096);
+    const nextMessage = String(message || "").slice(0, 4096);
+    if (sourceStatus.textContent !== nextMessage) sourceStatus.textContent = nextMessage;
   }
 
   function playerRenderer() {
@@ -147,6 +152,8 @@
   }
 
   function destroyProvider() {
+    providerGeneration += 1;
+    activeSourceId = "";
     if (activeAdapter && typeof activeAdapter.destroy === "function") {
       try {
         activeAdapter.destroy();
@@ -265,7 +272,8 @@
     const state = validateEnvelope(value);
     const renderer = playerRenderer();
     activeProviderKind = state.providerKind;
-    if (state.sourceTitle) {
+    if (state.sourceTitle && announcedSourceIdentity !== state.sourceId) {
+      announcedSourceIdentity = state.sourceId;
       setStatus(
         uiText(
           "Відкрито медіа: " + state.sourceTitle,
@@ -343,6 +351,11 @@
       });
       (documentRef.head || documentRef.documentElement).appendChild(script);
     });
+    youtubePromise = youtubePromise.catch(function (error) {
+      // Failed network loads must be retryable after reconnection.
+      youtubePromise = null;
+      throw error;
+    });
     return youtubePromise;
   }
 
@@ -364,6 +377,7 @@
         throw new Error("YouTube playback adapter unavailable");
       }
       destroyProvider();
+      activeSourceId = envelope.sourceId;
       const mount = documentRef.createElement("div");
       mount.id = "section20-youtube-player";
       providerHost.appendChild(mount);
