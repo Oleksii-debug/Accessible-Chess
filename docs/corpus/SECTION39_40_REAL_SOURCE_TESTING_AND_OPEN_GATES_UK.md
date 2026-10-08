@@ -1,0 +1,45 @@
+# Accessible Chess — actual Sections 39 and 40 qualification, exact source truth
+
+Canonical plan only: [ACCESSIBLE CHESS — SECTION PLAN ДО ПОВНІСТЮ ЗАВЕРШЕНОГО ПРОДУКТУ](https://docs.google.com/document/d/1ITsUBFwwETRICctcOWLd6atuMcCFZg6v5-wVFumIyxE/edit), Sections 0–53.
+
+**Terminal states: Section 39 OPEN; Section 40 OPEN. This file is evidence/gap documentation, not a parallel closure registry or a DONE certificate.** The authoritative product status remains in `SEQUENTIAL_CLOSURE_STATE.md`, the official Drive plan, and post-integration acceptance evidence.
+
+## 39.1 — Real source-bound 16-format truth matrix
+
+- `tools/section39_real_format_qualification.py` produces per-format READ/WRITE/ROUNDTRIP/bounded outcome and source ID/hash/readback.
+- Distinguish PASS for actually observed, pinned real source bytes, PARTIAL for derived/restricted slices, UNSUPPORTED for real unsupported proprietary or PDF source types, BLOCKED for formats with no actual source qualified.
+- A discovered source, an extension string, a mock or a filename in a catalog cannot be marked a successful original-file import. Code/regression harden this by comparing the *exact actual used source ID* and source SHA256, not one of several candidate IDs.
+
+## 39.2/39.3 — Original position, annotated games, book and restart routes
+
+- `tools/section39_external_position_semantic.py`: ephemeral license-bound original fsmosca/epd2doc, 1110 original EPD positions and 4 original FEN positions, canonical EPD/FEN parse/serialize/reimport. Four-field FEN-like positions never invent missing source counters. Semantic failures fail the job; a PARTIAL reading stays PARTIAL.
+- `tools/section39_real_cbh_oracle_receipt.py`: three original GPL complete libcbh families (11 members each = 33 SHA256-checked binary companions) with independently authored PGN oracle. Genuine annotations/NAG/recursive RAV, ACSDB, PGN export, search, restart use **existing** product decoders and existing test oracles; unusual start remains PARTIAL when external decoder yields no decoded games.
+- `tools/section39_external_book_semantic.py`: original rights-restricted GITenberg TXT and original Chess Markdown from ephemeral source checkout, original CC0 PDF bytes only. TXT/Markdown -> BookDocument -> navigation -> reimport -> disk restart; PDF is correctly UNSUPPORTED because no semantic PDF/OCR adapter exists.
+- `tools/section39_new_section37_annotated_pgn_qualification.py`: new Section-37 real high-level source ID `lichess_cc0_high_level_4_original_annotated_games`, four genuine annotated Lichess PGNs with 60+ source analysis tags and 30+ original variations, full GameTree tags/moves/comments/NAG/RAV export/reimport, ACSDB 4-game index and search after restart. Online 2200+ player ratings **do not imply** GM titles or FIDE classical ratings.
+- `tools/section39_real_section37_advanced_training_qualification.py`: newly available CC0 sample `lichess_cc0_advanced_16_original_derived` plus `lichess_cc0_extreme_4_original_derived_puzzles`: original pinned bytes, 20 original advanced tasks, lawful first solution move, stable FEN, Ukrainian/English BookDocument content and canonical chessboard. Ratings 2200–3166 refer to Lichess **puzzle difficulty**, not FIDE Elo. Only bounded original subsets, not a falsely claimed complete official 5M puzzle database.
+- `tools/section39_ci_evidence_aggregate.py`: cross-job exact-SHA join of independent actual-source receipts from Ubuntu/Windows source tests, original external position/book and CBH test runners, actual annotated PGN and advanced training; stale, invented source/permission proof or fake DONE is refused.
+
+## 39.4/39.5/39.6 — Real integration and remaining qualification
+
+- `.github/workflows/revised-sections37-42-corpus-visual.yml` runs real-source semantic unit/integration/recovery, CBH and external sources, exact Git object/rights checks, CI artifact joins; source files that are not cleared for redistribution are temporary and erased from runner.
+- `tools/section39_section40_delivery_qualification.py` opens the *actually created* Section40 TEST_BUILD, PUBLIC_RELEASE and owner user-Library-seed ZIP on both Linux and Windows, reopens real canonical 516-game SQLite Library, restores two-source runtime seed twice (idempotent restart), parses canonical BookDocument and 16+4 source-bound advanced positions, checks all files against catalog receipts and denies uncleared or extra files in PUBLIC_RELEASE.
+- Executable acceptance remains unconfirmed until the exact head CI jobs succeed; queued is never green. No Windows packaged executable with real contents/keyboard NVDA acceptance has been asserted. Original EPUB/HTML/DOCX independent inputs and CBV/CBF/2CBH/CBONE genuine complete backends are not yet proven by this implementation. Any named missing input stays UNSUPPORTED/BLOCKED, rather than being mocked or relabeled PASS.
+- Section39 depends explicitly on the full closure of new Sections37–38; neither another worker's progress nor this PR's commit SHA alone is closure proof.
+
+## 40.1–40.6 — Real offline owner-test/public archive progress
+
+- `tools/revised_section40_offline_test_library.py` creates immutable offline test/public rights-separated ZIP distributions with hash receipts, offline Books and Training, 24 authored starter booklets, 16 genuine 2200+ puzzles, 4 original 3000+ puzzles, three real Stockfish PGN sample sizes 32/128/512, four annotated original source games, and a canonical searchable 516-game ACSDB in TEST_BUILD.
+- `tools/revised_section40_user_library_seed_bridge.py` converts the test archive into a *real application-compatible* owner user-library-seed bundle. Existing `acs.user_library_seed` imports/restarts 516 games without a second Library authority and does not overwrite existing user data.
+- `acs.section40_advanced_training_runtime` and `acs.version2_starter_content_application` serve the accessible original advanced/expert chess content in the actual Books/Training/Board product routes, not only standalone fixtures.
+- `.github/workflows/revised-section40-offline-library.yml` builds all three artifacts on Linux/Windows and runs `tests/test_section39_section40_delivery_qualification.py` to exercise real archive/content/seed import and PDF/rights separation (without claiming PDF reader support), then retains exact-SHA machine evidence.
+- PUBLIC_RELEASE does not carry uncleared Gutenberg, author-specific Markdown or ChessBase binaries. The output is a test-library/archive attachment, *not* a fully compiled Windows .exe. Actual bundled executable open/download/keyboard/NVDA human acceptance and final Sections37–39 integration are still missing.
+
+## Exact verification run command for independent maintainers
+
+```bash
+python -m unittest -v tests.test_section39_real_format_qualification tests.test_section39_external_position_semantic tests.test_section39_external_book_semantic tests.test_section39_real_cbh_oracle_receipt tests.test_section39_ci_evidence_aggregate tests.test_section39_new_section37_annotated_pgn_qualification tests.test_section39_real_section37_advanced_training_qualification tests.test_section39_section40_delivery_qualification
+```
+
+The main exact-head runner supplies external original source dirs and optional GPL libcbh executable and emits separate original-source evidence. Tests alone on a workstation without those licensed sources cannot be substituted for their actual CI original-file acceptance.
+
+**Do not mark either Section DONE until its exact acceptance contract, integrated readback and required test evidence are independently confirmed.**
