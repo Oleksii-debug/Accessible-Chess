@@ -20,6 +20,8 @@ from typing import Mapping
 from xml.sax.saxutils import escape as xml_escape
 from zipfile import ZipFile, ZIP_DEFLATED, ZIP_STORED
 
+from acs.chesscore import Board
+
 SOURCE = Path(__file__).resolve().parents[1] / (
     "tests/real_corpus/advanced_training/section37_master_workbook_bilingual.json"
 )
@@ -58,6 +60,16 @@ def load_advanced_workbook(path: Path = SOURCE) -> dict:
                        for lang in LANGS)
         ):
             raise ValueError("unsafe, beginner or incomplete bilingual chess lesson")
+        # Fail closed before any shareable EPUB/DOCX/TXT/HTML is emitted.
+        # Reuse the one canonical chess authority: source FEN and every Lichess
+        # opponent+solution UCI must replay to a legal position.
+        try:
+            board = Board(fen)
+            for uci in moves:
+                board.push_text(uci)
+            board.fen()
+        except (TypeError, ValueError) as exc:
+            raise ValueError("bilingual source contains invalid canonical chess play") from exc
         ids.add(ident)
     return data
 
