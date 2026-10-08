@@ -13,7 +13,7 @@ import os
 from pathlib import Path
 import tempfile
 
-from acs.gametree import CanonicalPgnGameFramer
+from acs.gametree import CanonicalPgnGameFramer, serialize_game
 from acs.lawful_corpus_registry import (
     LawfulCorpusError, load_catalog, read_verified_zip_member,
 )
@@ -60,7 +60,17 @@ def _verified_original_pgntree(root: Path) -> tuple[str, dict[str, object]]:
     # Same strict parser used by the canonical owner-seed importer. A source
     # that merely passes the recovery parser must not be shipped as a valid
     # startup Library seed.
-    derivative_text = "\n\n".join(frames) + "\n"
+    upstream_text = "\n\n".join(frames) + "\n"
+    parsed_original = parse_pgn_text(upstream_text, strict=False)
+    if len(parsed_original) != _GAME_COUNT or any(not game.line.moves for game in parsed_original):
+        raise LawfulCorpusError("verified Stockfish PGN lost original game structures")
+    # The historical original opening book is an input, not a product-ready
+    # owner seed. Normalize strictly through the EXISTING canonical serializer,
+    # never through a new chess formatter, then validate the exact consumed
+    # bytes under the owner-seed parser's strict contract.
+    derivative_text = "\n\n".join(
+        serialize_game(game).rstrip() for game in parsed_original
+    ) + "\n"
     parsed = parse_pgn_text(derivative_text, strict=True)
     if len(parsed) != _GAME_COUNT or any(not game.line.moves for game in parsed):
         raise LawfulCorpusError("original Stockfish PGN cannot safely seed Library")
