@@ -400,6 +400,8 @@
       "indexed_bytes": 57325,
       "upstream_commit": "65815ccdbc7727cd4f6aee252ba8f67fb740e92f",
       "upstream_git_blob": "ba7bb324fa5763d961bb50d7a28d03c9462a5e51",
+      "original_member_bytes": 1510748,
+      "original_pgn_opening_records": 12092,
       "license": "CC0-1.0 (original official-stockfish/books repository LICENSE)",
       "redistribution": "permitted under upstream CC0 (public-release inclusion still separately reviewed)",
       "acquisition": "VENDORED_SOURCE_VERIFIED",
