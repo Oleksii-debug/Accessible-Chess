@@ -241,3 +241,28 @@ contracts and negative byte, signature, build, pinned-trust, malformed JSON,
 symlink and missing-envelope cases in the existing Wave-5 dual-OS workflow.
 No actual provider signature or release qualification is claimed until an
 independent trusted issuer supplies it.
+
+## R62 trusted operator-only incident/revocation boundary — staged contract
+
+`acs/protection_incident_response_boundary.py` stages a server-only
+`TrustedIncidentBoundary` that delegates signed marker verification,
+independent corroboration and specifically approved R22 effects to the existing
+`continuum_runtime.leak_response.LeakResponseService`. Its caller must inject
+an independently authenticated operator-authorizer and an ACID durable case
+journal; the product does NOT provide these production services, incident
+credentials, public browser routes, a second revocation authority or a signing
+key. A journal reserves an exact context digest in UNKNOWN *before* any
+revocation, permitting only literal NEW. On denial/partial commit/exception
+the case remains UNKNOWN and **must** undergo trusted reconciliation; replay
+never repeats the mutation. Successful canonical R22 effect must be durably
+recorded and read back before the bridge acknowledges it. Account-wide
+revocation and client-issued entitlement remain forbidden.
+
+`tests/test_security_r62_incident_response_boundary.py` uses a deliberately
+in-memory test journal and synthetic Ed25519 marker solely to exercise role
+denial, signed proof, independent review, target-only effect, replay, forged
+input and uncertain-write cases. It is wired to the existing Wave-5 dual-OS
+workflow. **Not deployed**: production trusted operator credentials, durable
+journal, real R22 backend, commercial watermark allocation/forensic evidence,
+appeal/recovery, protected Windows release and independent release approval.
+The R62 product state is **STAGED ONLY / NOT SHIPPING / NOT INTEGRATED**.
