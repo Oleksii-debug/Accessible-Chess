@@ -8,6 +8,7 @@ from typing import Any
 from .protection_boundary import ONLINE_RUNTIME_API_VERSION, ProtectionDecision, ProtectionRuntimeClient
 from .protection_online_boundary import ProtectionOnlineClient
 from .protection_entitlement_lifecycle import ProtectionEntitlementLifecycle
+from .protection_privacy_boundary import ProtectionPrivacyClient
 from .webapp_keymap import _asset_root
 
 
@@ -34,6 +35,7 @@ class ProtectionLockedAPI:
         self._online_flow_id: str | None = None
         self._online_mode: str | None = None
         self._lifecycle = ProtectionEntitlementLifecycle(client) if isinstance(client, ProtectionRuntimeClient) else None
+        self._privacy = ProtectionPrivacyClient(client) if isinstance(client, ProtectionRuntimeClient) else None
 
     def bind_window(self, window: Any) -> None:
         self._window = window
@@ -134,6 +136,28 @@ class ProtectionLockedAPI:
             return {"ok": True}
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
+
+    def security_notice(self) -> dict[str, object]:
+        if self._privacy is None:
+            return {"ok": False, "error": "security notice is unavailable"}
+        try:
+            notice = self._privacy.notice()
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+        return {"ok": True, **notice}
+
+    def set_security_consent(self, granted: bool) -> dict[str, object]:
+        if self._privacy is None:
+            return {"ok": False, "error": "security consent is unavailable"}
+        try:
+            notice = self._privacy.notice()
+            updated = self._privacy.set_consent(
+                granted=granted,
+                notice_version=str(notice["notice_version"]),
+            )
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+        return {"ok": True, **updated}
 
     def synchronize_online_entitlement(self) -> dict[str, object]:
         if self._lifecycle is None:
