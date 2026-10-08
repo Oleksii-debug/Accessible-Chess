@@ -125,6 +125,50 @@ class ProductR73EvidenceTests(unittest.TestCase):
                 build_id="chess-product-build-1", channel="candidate", now=NOW,
             )
 
+    def test_replaced_trusted_key_file_between_metadata_and_open_is_rejected(self):
+        from unittest.mock import patch
+        from scripts.security_r73_product_evidence_gate import _strict_json
+
+        approved_digest = _sha(self.keys.read_bytes())
+        replacement = self.root / "substituted-trusted-keys.json"
+        replacement.write_text(json.dumps({
+            "schema_version": 1,
+            "verifier_public_keys": {"untrusted-replacement": "0" * 64},
+        }), encoding="utf-8")
+        original_open = Path.open
+        swapped = []
+
+        def swap_at_open(path, *args, **kwargs):
+            if path == self.keys and not swapped:
+                replacement.replace(self.keys)
+                swapped.append(True)
+            return original_open(path, *args, **kwargs)
+
+        with patch.object(Path, "open", swap_at_open):
+            with self.assertRaisesRegex(ProductEvidenceError, "EVIDENCE_FILE_MUTATED"):
+                _strict_json(
+                    self.keys, maximum=64 * 1024,
+                    expected_sha256=approved_digest,
+                    mismatch_code="INDEPENDENT_VERIFIER_KEY_INVENTORY_MISMATCH",
+                )
+        self.assertEqual(swapped, [True])
+
+    def test_same_file_bytes_must_match_external_trust_pin(self):
+        from scripts.security_r73_product_evidence_gate import _strict_json
+
+        approved_digest = _sha(self.keys.read_bytes())
+        self.keys.write_text(json.dumps({
+            "schema_version": 1, "verifier_public_keys": {"other": "1" * 64},
+        }), encoding="utf-8")
+        with self.assertRaisesRegex(
+            ProductEvidenceError, "INDEPENDENT_VERIFIER_KEY_INVENTORY_MISMATCH"
+        ):
+            _strict_json(
+                self.keys, maximum=64 * 1024,
+                expected_sha256=approved_digest,
+                mismatch_code="INDEPENDENT_VERIFIER_KEY_INVENTORY_MISMATCH",
+            )
+
     def test_duplicate_json_keys_fail_closed(self):
         self.evidence.write_text('{"schema_version":1,"schema_version":1,"layers":[]}')
         with self.assertRaisesRegex(ProductEvidenceError, "EVIDENCE_DUPLICATE_KEY"):
