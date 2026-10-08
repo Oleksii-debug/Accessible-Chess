@@ -121,14 +121,18 @@ class CanonicalFormatCapabilityContractTests(unittest.TestCase):
         self.assertIs(markdown.read, CapabilityStatus.PARTIAL)
         self.assertIn("lawful real Markdown chess-book corpus", markdown.boundary)
 
-        for format_id in ("book-docx", "book-pdf"):
-            with self.subTest(format_id=format_id):
-                item = capability_by_id(format_id)
-                self.assertEqual(item.availability, "not_approved")
-                self.assertIs(item.read, CapabilityStatus.UNSUPPORTED)
-                self.assertIs(item.edit, CapabilityStatus.UNSUPPORTED)
-                self.assertIs(item.write, CapabilityStatus.UNSUPPORTED)
-                self.assertIs(item.round_trip, CapabilityStatus.UNSUPPORTED)
+        docx = capability_by_id("book-docx")
+        self.assertEqual(docx.availability, "built_in_limited")
+        self.assertIs(docx.read, CapabilityStatus.PARTIAL)
+        self.assertIn("read-only", docx.boundary)
+        self.assertIn("WordprocessingML", docx.boundary)
+        for operation in (docx.edit, docx.write, docx.round_trip):
+            self.assertIs(operation, CapabilityStatus.UNSUPPORTED)
+
+        pdf = capability_by_id("book-pdf")
+        self.assertEqual(pdf.availability, "not_approved")
+        for operation in (pdf.read, pdf.edit, pdf.write, pdf.round_trip):
+            self.assertIs(operation, CapabilityStatus.UNSUPPORTED)
 
     def test_optional_chessbase_read_paths_remain_partial_and_read_only(self) -> None:
         detailed = CHESSBASE_MATRIX.read_text(encoding="utf-8")
