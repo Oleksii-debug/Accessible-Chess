@@ -53,6 +53,21 @@
           "availability": "BIBLIOGRAPHY_ONLY_NOT_IMPORTED",
           "book_binary_in_repo": false,
           "licensed_copy_proven": false
+        },
+        {
+          "title": "Методика розрахунку в шахах на 5-10 ходів та більше",
+          "author": "Олександр Васильович Сулима",
+          "language": "uk-publisher-page-edition-language-to-verify",
+          "provider_url": "https://irbis-nbuv.gov.ua/cgi-bin/irbis_nbuv/cgiirbis_64.exe?C21COM=S&I21DBN=EC&P21DBN=&S21ALL=%28%3C.%3EU%3D%D0%A7515.81%24%3C.%3E%29&S21CNR=20&S21FMT=JwU_B&S21REF=10&S21SRD=DOWN&S21SRW=GOD&S21STN=1&Z21ID=",
+          "availability": "BIBLIOGRAPHY_ONLY_NOT_IMPORTED",
+          "book_binary_in_repo": false,
+          "licensed_copy_proven": false,
+          "bibliography_provider": "Національна бібліотека України імені В. І. Вернадського",
+          "bibliography_year": 2025,
+          "bibliography_pages": 135,
+          "isbn": "978-966-8906-80-0",
+          "edition_language_verified": false,
+          "minimum_level_suitability": "ADVANCED_LONG_VARIATION_CALCULATION_CONTENT_FIT_NOT_FIDE_GRADE_CLAIM"
         }
       ],
       "tested_material_scope": "RAV branch navigation and multiple candidates",
@@ -968,6 +983,21 @@
           "availability": "BIBLIOGRAPHY_ONLY_NOT_IMPORTED",
           "book_binary_in_repo": false,
           "licensed_copy_proven": false
+        },
+        {
+          "title": "Методика розрахунку в шахах на 5-10 ходів та більше",
+          "author": "Олександр Васильович Сулима",
+          "language": "uk-publisher-page-edition-language-to-verify",
+          "provider_url": "https://irbis-nbuv.gov.ua/cgi-bin/irbis_nbuv/cgiirbis_64.exe?C21COM=S&I21DBN=EC&P21DBN=&S21ALL=%28%3C.%3EU%3D%D0%A7515.81%24%3C.%3E%29&S21CNR=20&S21FMT=JwU_B&S21REF=10&S21SRD=DOWN&S21SRW=GOD&S21STN=1&Z21ID=",
+          "availability": "BIBLIOGRAPHY_ONLY_NOT_IMPORTED",
+          "book_binary_in_repo": false,
+          "licensed_copy_proven": false,
+          "bibliography_provider": "Національна бібліотека України імені В. І. Вернадського",
+          "bibliography_year": 2025,
+          "bibliography_pages": 135,
+          "isbn": "978-966-8906-80-0",
+          "edition_language_verified": false,
+          "minimum_level_suitability": "ADVANCED_LONG_VARIATION_CALCULATION_CONTENT_FIT_NOT_FIDE_GRADE_CLAIM"
         }
       ],
       "tested_material_scope": "teach original multi-line real puzzles without solution leak",
