@@ -77,6 +77,12 @@ class ProtectionLockedAPI:
     def begin_online_registration(self) -> dict[str, object]:
         return self._begin_online("register")
 
+    def begin_online_recovery(self) -> dict[str, object]:
+        return self._begin_online("recover")
+
+    def begin_device_transfer(self) -> dict[str, object]:
+        return self._begin_online("transfer_device")
+
     def poll_online_access(self) -> dict[str, object]:
         if self._online_flow_id is None:
             return {"ok": False, "error": "online access flow has not been started"}
