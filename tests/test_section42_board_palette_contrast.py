@@ -19,6 +19,10 @@ def parse(source,theme):
     row=dict(re.findall(r"--([a-z-]+):\s*(#[0-9a-fA-F]{3,6})",match.group(1)))
     if not all(k in row for k in TOKENS):
         raise AssertionError("missing palette token "+theme)
+    # CSS #fff and #ffffff are visually identical; normalize notation.
+    for key, value in row.items():
+        digits=value.lstrip("#").lower()
+        row[key]="#"+"".join(ch*2 for ch in digits) if len(digits)==3 else "#"+digits
     return row
 
 def luminance(hexcolor):
