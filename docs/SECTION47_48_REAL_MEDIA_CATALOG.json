@@ -94,6 +94,26 @@
       "embeddable": "UNVERIFIED_LIVE",
       "last_checked": "2026-10-08",
       "download_allowed": false
+    },
+    {
+      "video_id": "k4BS-4O1iI0",
+      "url": "https://www.youtube.com/watch?v=k4BS-4O1iI0",
+      "owner": "Saint Louis Chess Club",
+      "title": "2025 Sinquefield Cup: Round 1 | #GrandChessTour",
+      "purpose": "authentic chess tournament IFrame qualification candidate",
+      "embeddable": "UNVERIFIED_LIVE",
+      "last_checked": "2026-10-08",
+      "download_allowed": false
+    },
+    {
+      "video_id": "sMsExxmQ8gQ",
+      "url": "https://www.youtube.com/watch?v=sMsExxmQ8gQ",
+      "owner": "Saint Louis Chess Club",
+      "title": "2025 Sinquefield Cup: Round 6 | #GrandChessTour",
+      "purpose": "authentic chess tournament IFrame qualification candidate",
+      "embeddable": "UNVERIFIED_LIVE",
+      "last_checked": "2026-10-08",
+      "download_allowed": false
     }
   ],
   "youtube_policy": "No YouTube video download, no caching, no undocumented extractor, no bypass, no implied permission to embed other videos",
