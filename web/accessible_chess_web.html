@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Accessible Chess Web</title>
+<style>
+body{font-family:system-ui,sans-serif;line-height:1.5;margin:0;padding:1rem;max-width:90rem}
+.skip{position:absolute;left:-10000px}.skip:focus{left:1rem;top:1rem;background:Canvas;color:CanvasText;padding:.5rem}
+nav ul{display:flex;flex-wrap:wrap;gap:.4rem;list-style:none;padding:0}
+button,input,select,textarea{font:inherit;padding:.45rem}.route-button[aria-current="page"]{font-weight:700}
+#workspace{border-top:1px solid GrayText;margin-top:1rem;padding-top:1rem}
+.readable{white-space:pre-wrap;overflow-wrap:anywhere}
+.grid{display:grid;grid-template-columns:repeat(8,minmax(2.7rem,1fr));gap:.15rem;max-width:42rem}
+.grid button{min-height:2.7rem}.status{min-height:1.5rem}
+progress{width:min(32rem,100%)}
+</style>
+</head>
+<body>
+<a class="skip" href="#workspace">До основного вмісту</a>
+<header>
+<h1>Accessible Chess Web</h1>
+<p id="account-context" class="readable"></p>
+</header>
+<nav aria-label="Розділи">
+<ul id="routes">
+<li><button class="route-button" data-route="board">Дошка</button></li>
+<li><button class="route-button" data-route="pgn">PGN і GameTree</button></li>
+<li><button class="route-button" data-route="library">Бібліотека</button></li>
+<li><button class="route-button" data-route="books">Книги</button></li>
+<li><button class="route-button" data-route="training">Тренування</button></li>
+<li><button class="route-button" data-route="media">Медіа</button></li>
+<li><button class="route-button" data-route="teacher">Викладач</button></li>
+<li><button class="route-button" data-route="classes">Класи</button></li>
+<li><button class="route-button" data-route="online">Онлайн-гра</button></li>
+<li><button class="route-button" data-route="spectator">Глядач</button></li>
+</ul>
+</nav>
+<div id="status" class="status" role="status" aria-live="polite" aria-atomic="true"></div>
+<div id="error" class="status" role="alert" aria-live="assertive"></div>
+<main id="workspace" tabindex="-1">
+<h2 id="route-heading">Завантаження</h2>
+<p id="route-description" class="readable"></p>
+<section aria-labelledby="board-heading" id="board-surface" hidden>
+<h3 id="board-heading">Дошка</h3>
+<div id="board-grid" class="grid" role="grid" aria-label="Шахова дошка"></div>
+</section>
+<section aria-labelledby="content-heading">
+<h3 id="content-heading">Вміст</h3>
+<div id="content" class="readable" tabindex="0"></div>
+</section>
+<section aria-labelledby="progress-heading">
+<h3 id="progress-heading">Прогрес</h3>
+<progress id="progress" max="100" value="0"></progress>
+<div id="progress-text" class="readable"></div>
+</section>
+<section aria-labelledby="command-heading">
+<h3 id="command-heading">Команди поточного розділу</h3>
+<div id="commands"></div>
+</section>
+</main>
+<script src="/assets/accessible_chess_web.js"></script>
+</body>
+</html>
