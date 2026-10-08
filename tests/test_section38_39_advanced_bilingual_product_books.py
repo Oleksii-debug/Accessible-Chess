@@ -45,6 +45,32 @@ class BilingualAdvancedProducts(unittest.TestCase):
                     with self.assertRaises(ValueError):
                         material(language=invalid)
 
+    def test_all_twenty_actual_master_puzzles_have_localized_ukrainian_themes(self):
+        from acs.section40_advanced_training_runtime import _THEMES_UK, _display_themes
+        from acs.section40_advanced_licensed_dataset import bundled_advanced_puzzles
+        originals = bundled_advanced_puzzles()
+        observed = set().union(*(set(puzzle["themes"]) for puzzle in originals))
+        self.assertEqual(len(observed), 28)
+        self.assertTrue(observed.issubset(_THEMES_UK))
+        self.assertEqual(len(_THEMES_UK), 28)
+        uk, uk_tasks = build_advanced_offline_material(language="uk")
+        en, en_tasks = build_advanced_offline_material(language="en")
+        self.assertEqual(uk_tasks, en_tasks)
+        for uk_exercise, en_exercise, source in zip(
+            uk.exercises(), en.exercises(), originals, strict=True
+        ):
+            with self.subTest(puzzle=source["puzzle_id"]):
+                self.assertEqual(uk_exercise.fen, en_exercise.fen)
+                self.assertEqual(uk_exercise.answer_text, en_exercise.answer_text)
+                for technical in source["themes"]:
+                    self.assertIn(_THEMES_UK[technical], uk_exercise.prompt)
+                    self.assertIn(technical, en_exercise.prompt)
+                self.assertEqual(
+                    _display_themes(source["themes"], "en"),
+                    ", ".join(source["themes"]),
+                )
+        self.assertEqual(_display_themes(["zugzwang"], "uk"), "цугцванг")
+
     def test_english_ui_shows_authentic_advanced_books_and_preserves_uk_progress(self):
         with tempfile.TemporaryDirectory(prefix="acs-advanced-bilingual-ui-") as tmp:
             root = Path(tmp)
