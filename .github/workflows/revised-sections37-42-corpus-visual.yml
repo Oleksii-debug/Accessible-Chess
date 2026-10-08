@@ -93,6 +93,7 @@ jobs:
           tools/revised_section37_advanced_puzzle_curator.py
           tests/test_revised_section37_advanced_puzzle_curator.py
           tests/test_revised_section37_advanced_owner_training_source_policy.py
+          tests/test_revised_section37_advanced_annotated_game_corpus.py
           tools/revised_section37_cbh_original_family_inventory.py
           tests/test_revised_section37_cbh_original_family_inventory.py
           tests/test_revised_sections41_42_design.py
@@ -114,7 +115,6 @@ jobs:
           tests.test_revised_section37_advanced_puzzle_curator
           tests.test_revised_section37_advanced_owner_training_source_policy
           tests.test_revised_section37_advanced_annotated_game_corpus
-          tests.test_revised_section37_advanced_puzzle_curator
           tests.test_revised_section37_cbh_original_family_inventory
           tests.test_revised_sections41_42_design
           tests.test_section15_visual_board_contract
