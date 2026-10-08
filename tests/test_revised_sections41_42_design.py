@@ -86,5 +86,49 @@ class RevisedBoardDesignTests(unittest.TestCase):
         self.assertNotIn("localStorage.setItem", self.html)
 
 
+    def test_42_fit_presentation_motion_prefs_fail_closed_without_chess_mutation(self):
+        from acs.visual_board_contract import VisualBoardPreferences
+        from acs.webapp import AccessibleChessAPI
+        initial=VisualBoardPreferences()
+        for field,public in (
+            ("fit_to_window","fitToWindow"),
+            ("presentation_mode","presentationMode"),
+            ("animate_moves","animateMoves"),
+        ):
+            with self.subTest(field=field):
+                changed=initial.updated(field, True)
+                self.assertTrue(changed.as_dict()[public])
+                self.assertFalse(initial.as_dict()[public])
+                for bad in (1,"true",None,[],{}):
+                    with self.assertRaises(ValueError):
+                        initial.updated(field,bad)
+        api=AccessibleChessAPI("en")
+        try:
+            fen=api.board.fen()
+            tree=api.review_history.export_tree()
+            for flag in ("fit_to_window","presentation_mode","animate_moves"):
+                result=api.set_visual_preference(flag,True)
+                self.assertTrue(result["ok"])
+                self.assertEqual(api.board.fen(),fen)
+                self.assertEqual(api.review_history.export_tree(),tree)
+        finally:
+            close=getattr(api,"close_analysis",None)
+            if callable(close):close()
+
+    def test_42_accessible_live_preview_rollback_and_reduced_motion(self):
+        html=self.html
+        for key in ("board-fit","board-presentation","board-animations","board-theme-restore"):
+            self.assertIn('id="'+key+'"',html)
+        self.assertIn("let previousBoardTheme=null;",html)
+        self.assertIn("previousBoardTheme=before",html)
+        self.assertIn("grid.dataset.presentation=p.presentationMode",html)
+        self.assertIn("grid.dataset.motion=p.animateMoves",html)
+        self.assertIn("beforePieces.get(cell.square)",html)
+        self.assertIn("node.setAttribute('aria-label',cell.label)",html)
+        self.assertEqual(html.count('aria-live="polite"'),1)
+        css=(ROOT/"web/assets/accessible_chess_design.css").read_text(encoding="utf-8")
+        self.assertIn("@media(prefers-reduced-motion:reduce),(forced-colors:active)",css)
+        self.assertIn("[data-presentation=true]",css)
+
 if __name__ == "__main__":
     unittest.main()

@@ -76,6 +76,9 @@ class VisualBoardPreferences:
     coordinate_mode: CoordinateMode = CoordinateMode.EDGES
     scale_percent: int = 100
     show_last_move: bool = True
+    fit_to_window: bool = False
+    presentation_mode: bool = False
+    animate_moves: bool = False
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "board_theme", _enum_value(BoardTheme, self.board_theme, "board theme"))
@@ -86,6 +89,9 @@ class VisualBoardPreferences:
             raise ValueError("scale_percent must be an exact integer in 75..200")
         if type(self.show_last_move) is not bool:
             raise ValueError("show_last_move must be boolean")
+        for visual_flag in ("fit_to_window", "presentation_mode", "animate_moves"):
+            if type(getattr(self, visual_flag)) is not bool:
+                raise ValueError(visual_flag + " must be boolean")
 
     def updated(self, field: object, value: object) -> "VisualBoardPreferences":
         if type(field) is not str:
@@ -106,6 +112,10 @@ class VisualBoardPreferences:
             if type(value) is not bool:
                 raise ValueError("show_last_move must be boolean")
             return replace(self, show_last_move=value)
+        if field in ("fit_to_window", "presentation_mode", "animate_moves"):
+            if type(value) is not bool:
+                raise ValueError(field + " must be boolean")
+            return replace(self, **{field: value})
         raise ValueError("unknown visual preference field")
 
     def as_dict(self) -> dict[str, object]:
@@ -116,6 +126,9 @@ class VisualBoardPreferences:
             "coordinateMode": self.coordinate_mode.value,
             "scalePercent": self.scale_percent,
             "showLastMove": self.show_last_move,
+            "fitToWindow": self.fit_to_window,
+            "presentationMode": self.presentation_mode,
+            "animateMoves": self.animate_moves,
         }
 
 

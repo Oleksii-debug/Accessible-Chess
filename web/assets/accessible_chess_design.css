@@ -79,3 +79,13 @@
 /* Section 42 pinned CC0 originals: visual only and silent to NVDA. */
 .ac42-piece-art{display:block;width:min(100%,3rem);height:auto;aspect-ratio:1;object-fit:contain;pointer-events:none;user-select:none}
 @media(forced-colors:active){.ac42-piece-art{forced-color-adjust:auto}}
+
+/* Section 42 large/fit board uses original 64-square accessible DOM and focus. */
+#board-grid[data-presentation=true] [role=gridcell]{min-height:clamp(3.6rem,8vmin,7rem)}
+#board-grid[data-presentation=true] .board-piece{font-size:clamp(2rem,5vmin,4.5rem)}
+#board-grid[data-presentation=true] .ac42-piece-art{width:min(100%,5rem)}
+@media(prefers-reduced-motion:no-preference){
+  #board-grid[data-motion=true] .board-piece[data-ac42-animate=true]{animation:ac42-piece-entrance 160ms ease-out both}
+  @keyframes ac42-piece-entrance{from{transform:scale(.86);opacity:.8}to{transform:scale(1);opacity:1}}
+}
+@media(prefers-reduced-motion:reduce),(forced-colors:active){#board-grid .board-piece{animation:none!important;transition:none!important}}
