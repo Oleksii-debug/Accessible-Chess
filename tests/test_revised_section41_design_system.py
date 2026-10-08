@@ -107,6 +107,24 @@ class Section41RealDesignTests(unittest.TestCase):
         css=(ROOT/"web/assets/accessible_chess_design.css").read_text(encoding="utf-8")
         self.assertIn('.ac41-skip:focus-visible',css)
 
+    def test_real_webview_theme_styles_override_old_inline_body_and_block_css(self):
+        style=(ROOT/"web/assets/accessible_chess_design.css").read_text(encoding="utf-8")
+        self.assertIn("body{background:var(--ac41-bg);color:var(--ac41-ink);",style)
+        self.assertIn(".block,fieldset,dialog{background:var(--ac41-surface);color:var(--ac41-ink);",style)
+        self.assertIn("a{color:var(--ac41-link);",style)
+        self.assertNotIn(":where(body){background:var(--ac41-bg)",style)
+        self.assertNotIn(":where(fieldset,dialog,.block){background:var(--ac41-surface)",style)
+        for html_file in ("web/index.html","web/accessible_chess_web.html"):
+            with self.subTest(html_file=html_file):
+                page=(ROOT/html_file).read_text(encoding="utf-8")
+                self.assertLess(page.index("</style>"),
+                    page.index('<link rel="stylesheet" href="assets/accessible_chess_design.css">'))
+        # Inline Stage1 'body' and '.block' previously defeated any
+        # zero-specificity :where selector even though stylesheet loaded last.
+        self.assertIn("body{margin:0;padding:",(ROOT/"web/index.html").read_text(encoding="utf-8"))
+        self.assertIn(".block{white-space:pre-wrap",(
+            ROOT/"web/index.html").read_text(encoding="utf-8"))
+
     def test_real_live_board_gametree_unchanged_by_persistent_theme(self):
         from acs.settings import Settings
         from acs.stage1_release_ui_core import Stage1ReleaseAccessibleChessAPI
