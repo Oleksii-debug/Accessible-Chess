@@ -34,7 +34,8 @@ def merge_real_receipts(base: dict, original_positions: dict, original_books: di
                         catalog: tuple[dict, ...], expected_sha: str,
                         cbh: dict | None = None,
                         advanced: dict | None = None,
-                        training: dict | None = None) -> dict:
+                        training: dict | None = None,
+                        gutenberg: dict | None = None) -> dict:
     if not _valid_digest(expected_sha, 40):
         raise LawfulCorpusError("Section 39 merge lacks exact source SHA")
     reports = (base, original_positions, original_books)
@@ -69,6 +70,77 @@ def merge_real_receipts(base: dict, original_positions: dict, original_books: di
         raise LawfulCorpusError("original licensed external-file matrices incomplete")
 
     imported_external = []
+    if gutenberg is not None:
+        originals = gutenberg.get("sources", [])
+        authoritative = {
+            "capablanca_chess_fundamentals_epub3": ("EPUB", "https://www.gutenberg.org/ebooks/33870.epub3.images"),
+            "gutenberg_chess_strategy_lasker": ("HTML", "https://www.gutenberg.org/cache/epub/5614/pg5614-h.zip"),
+        }
+        if (
+            gutenberg.get("schema") != "accessible-chess-section39-real-external-gutenberg-ebooks-v1"
+            or gutenberg.get("source_commit_sha") != expected_sha
+            or gutenberg.get("source_count") != 2
+            or gutenberg.get("downloaded_original_ebook_bytes_packaged") is not False
+            or gutenberg.get("full_original_independent_sha_prequalified") is not False
+            or len(originals) != 2
+            or {x.get("source_id") for x in originals} != set(authoritative)
+        ):
+            raise LawfulCorpusError("actual Gutenberg EPUB3/HTML original-source proof unavailable or stale")
+        for proof in originals:
+            identity = proof["source_id"]
+            fmt, url = authoritative[identity]
+            received = proof.get("original_download_sha256")
+            semantic = proof.get("qualified_semantic_source_sha256")
+            registered = sources[identity]
+            if (
+                proof.get("source_format") != fmt
+                or proof.get("original_source_url") != url
+                or not str(proof.get("actual_final_url", "")).startswith("https://www.gutenberg.org/")
+                or not _valid_digest(received, 64)
+                or not _valid_digest(semantic, 64)
+                or type(proof.get("original_download_bytes")) is not int
+                or proof["original_download_bytes"] < 512
+                or proof.get("original_sha256_prepinned_in_catalog") is not False
+                or proof.get("qualification") != "PARTIAL_SOURCE_NOT_PREPINNED"
+                or proof.get("real_original_source_read") is not True
+                or proof.get("mocked") is not False
+                or proof.get("semantic_bookdocument_equal_reimport") is not True
+                or proof.get("reader_resume_reimport") != "PASS"
+                or proof.get("source_rights") != "US_PD_DECLARATION_ONLY; NOT_CLEARED_FOR_PUBLIC_RELEASE"
+                or proof.get("public_release") != "EXCLUDED"
+                or registered.get("sha256") is not None
+                or registered.get("redistribution") != "NOT_CLEARED"
+            ):
+                raise LawfulCorpusError("actual original EPUB3/HTML source receipt is fake or rights unverified")
+            receipt = base_receipts[identity]
+            if receipt.get("actual_sha256") is not None:
+                raise LawfulCorpusError("Gutenberg original source was counted twice")
+            receipt.update({
+                "actual_sha256": received,
+                "actual_bytes": proof["original_download_bytes"],
+                "actual_importer": proof["actual_importer"],
+                "status": "PARTIAL",
+                "note": "real verified first-party HTTPS original and semantic read/reimport; original hash was observed, not pre-pinned",
+            })
+            format_row = rows[fmt]
+            format_row.update({
+                "qualification": "PARTIAL", "read": "PASS",
+                "write": "UNSUPPORTED", "roundtrip": "UNSUPPORTED",
+                "source_kind": "GENUINE_OFFICIAL_UPSTREAM_UNPINNED_ORIGINAL",
+                "coverage": "EXECUTED_EXTERNAL_UNPINNED_SOURCE",
+                "qualified_source_id": identity,
+                "actual_importer": proof["actual_importer"],
+                "actual": {
+                    "source_id": identity,
+                    "observed_original_sha256": received,
+                    "semantic_original_sha256": semantic,
+                    "semantic_block_count": proof["semantic_block_count"],
+                    "reader_resume_reimport": "PASS",
+                    "source_hash_prepinned": False,
+                },
+                "source_ids": sorted(set(format_row["source_ids"]) | {identity}),
+            })
+
     # Real Section 37 CC0 source changes feed the deployed Books/Training
     # player, not just a test directory. Only executed original-byte readback
     # qualifies the embedded 16+4 puzzles; never call derived JSON full FEN.
@@ -356,7 +428,7 @@ def merge_real_receipts(base: dict, original_positions: dict, original_books: di
     return {
         "schema": "accessible-chess-section39-combined-external-genuine-evidence-v1",
         "section": 39, "source_commit_sha": expected_sha,
-        "original_source_count": len(imported_external) + (3 if cbh is not None else 0) + (1 if advanced is not None else 0),
+        "original_source_count": len(imported_external) + (3 if cbh is not None else 0) + (1 if advanced is not None else 0) + (2 if gutenberg is not None else 0),
         "format_count": 16, "format_rows": [rows[r["format"]] for r in original_rows],
         "source_receipts": [base_receipts[r["source_id"]] for r in base["source_receipts"]],
         "full_matrix_completed": False,
@@ -389,11 +461,13 @@ def main() -> None:
     parser.add_argument("--cbh", type=Path, required=True)
     parser.add_argument("--advanced", type=Path, required=True)
     parser.add_argument("--training", type=Path, required=True)
+    parser.add_argument("--gutenberg", type=Path, required=True)
     args = parser.parse_args()
     head = _source_head()
     result = merge_real_receipts(
         _read(args.base), _read(args.positions), _read(args.books),
         load_catalog(), head, _read(args.cbh), _read(args.advanced), _read(args.training),
+        _read(args.gutenberg),
     )
     staged = REPORT.with_suffix(".tmp")
     try:
