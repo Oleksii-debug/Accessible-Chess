@@ -132,8 +132,8 @@ class Version2UpgradeRecoveryIntegrityTests(unittest.TestCase):
             journal_path = root / ".v2-upgrade-state.json"
             original_copy = upgrade_module._stable_copy
 
-            def corrupt_after_copy(source: Path, destination: Path):
-                result = original_copy(source, destination)
+            def corrupt_after_copy(source: Path, destination: Path, **kwargs):
+                result = original_copy(source, destination, **kwargs)
                 if destination == root / "settings.json":
                     destination.write_bytes(b'{"corrupt":')
                 return result

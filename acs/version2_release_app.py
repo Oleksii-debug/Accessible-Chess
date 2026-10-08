@@ -50,6 +50,11 @@ from .version2_gametree_resume import Version2GameTreeResumeCoordinator
 from .version2_local_profile_api import Version2ProfileAccessibleChessAPI
 from .version2_release_ui import Version2ReleaseAccessibleChessAPI, run_version2_release_window
 from .version2_upgrade import UserDataLayout, Version2UpgradeCoordinator
+from .user_data_portability import BundleKind
+from .version2_user_data_portability_host import (
+    Version2UserDataPortabilityHost,
+    begin_pending_user_data_operation,
+)
 from .version2_windows_host_runtime import Version2WindowsFileWorkflowRuntime
 from .version2_windows_import_ui_pump import Version2WinFormsUiPoster
 from .version2_windows_book_open_worker import Version2BookOpenWorker
@@ -102,6 +107,48 @@ class _Version2OwnedBookDialogs(Version2OwnedWindowsFileDialogs):
             MessageBoxIcon.Warning,
         )
         return result == DialogResult.Yes
+
+
+class _Version2OwnedUserDataArchiveDialogs(_Version2OwnedBookDialogs):
+    """Owner-bound native archive chooser; browser payloads never carry paths."""
+
+    @staticmethod
+    def _archive_filter() -> str:
+        return "Accessible Chess data (*.acdata)|*.acdata|All files (*.*)|*.*"
+
+    def save_archive(self, kind: BundleKind) -> Path | None:
+        DialogResult, _, SaveFileDialog = self._load_forms()
+        dialog = SaveFileDialog()
+        try:
+            dialog.Title = (
+                "Back up Accessible Chess user data"
+                if kind is BundleKind.BACKUP
+                else "Export Accessible Chess user data"
+            )
+            dialog.Filter = self._archive_filter()
+            dialog.DefaultExt = "acdata"
+            dialog.AddExtension = True
+            dialog.OverwritePrompt = True
+            return self._selected(dialog, dialog.ShowDialog(), DialogResult.OK)
+        finally:
+            dialog.Dispose()
+
+    def open_archive(self, kind: BundleKind) -> Path | None:
+        DialogResult, OpenFileDialog, _ = self._load_forms()
+        dialog = OpenFileDialog()
+        try:
+            dialog.Title = (
+                "Restore Accessible Chess user data"
+                if kind is BundleKind.BACKUP
+                else "Import Accessible Chess user data"
+            )
+            dialog.Filter = self._archive_filter()
+            dialog.CheckFileExists = True
+            dialog.CheckPathExists = True
+            dialog.Multiselect = False
+            return self._selected(dialog, dialog.ShowDialog(), DialogResult.OK)
+        finally:
+            dialog.Dispose()
 
 
 def _install_unsaved_pgn_close_guard(
@@ -378,21 +425,31 @@ def _prepare_version2_user_data(
     if not callable(bridge_factory):
         raise TypeError("bridge_factory must be callable")
     layout = _version2_user_data_layout(data_root=data_root, settings_path=settings_path)
+    # Section 37 restore/import is published before normal Settings/SQLite writers
+    # open, but remains rollback-capable until the canonical upgrader validates it.
+    portability_transaction = begin_pending_user_data_operation(layout)
+    try:
+        if application_dir is not None:
+            executable = Path(application_dir) / "AccessibleChess.exe"
+            if executable.is_file():
+                bridge = bridge_factory(layout, executable)
+                bridge_run = getattr(bridge, "run", None)
+                if not callable(bridge_run):
+                    raise TypeError("V1 runtime bridge coordinator must expose run()")
+                bridge_run()
 
-    if application_dir is not None:
-        executable = Path(application_dir) / "AccessibleChess.exe"
-        if executable.is_file():
-            bridge = bridge_factory(layout, executable)
-            bridge_run = getattr(bridge, "run", None)
-            if not callable(bridge_run):
-                raise TypeError("V1 runtime bridge coordinator must expose run()")
-            bridge_run()
-
-    coordinator = coordinator_factory(layout)
-    run = getattr(coordinator, "run", None)
-    if not callable(run):
-        raise TypeError("Version 2 upgrade coordinator must expose run()")
-    run()
+        coordinator = coordinator_factory(layout)
+        run = getattr(coordinator, "run", None)
+        if not callable(run):
+            raise TypeError("Version 2 upgrade coordinator must expose run()")
+        run()
+    except BaseException:
+        if portability_transaction is not None:
+            portability_transaction.rollback()
+        raise
+    else:
+        if portability_transaction is not None:
+            portability_transaction.commit()
     return layout
 
 
@@ -632,6 +689,15 @@ def create_version2_release_application(
             lambda: owner_control,
             language_provider=dialog_language_provider,
         )
+        portability_dialogs = _Version2OwnedUserDataArchiveDialogs(
+            lambda: owner_control,
+            language_provider=dialog_language_provider,
+        )
+        portability_host = Version2UserDataPortabilityHost(
+            layout,
+            save_dialog=portability_dialogs.save_archive,
+            open_dialog=portability_dialogs.open_archive,
+        )
         file_runtime = Version2WindowsFileWorkflowRuntime(
             owner_control=owner_control,
             get_pgn_session=lambda: application.session,
@@ -663,6 +729,9 @@ def create_version2_release_application(
                 book_dialogs,
                 before_shutdown=resume_coordinator.prepare_shutdown,
             )
+            # Publish Section-37 filesystem authority only after the real native
+            # owner and shutdown guard are live. Browser/model code gets no path.
+            application.bind_user_data_portability(portability_host)
         except BaseException:
             # Startup publication failed before the native runtime became a
             # usable product owner. Retire every newly acquired native worker,
