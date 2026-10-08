@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import hashlib
+import os
 from pathlib import Path
 import tempfile
 import unittest
 import zipfile
+from unittest.mock import patch
 
 from acs.lawful_corpus_registry import LawfulCorpusError, load_catalog
 from tools.revised_section37_release_exclusion import (
@@ -96,6 +98,30 @@ class PublicReleaseExclusionTests(unittest.TestCase):
                 zf.writestr(entry, "out of tree")
             with self.assertRaises(LawfulCorpusError):
                 audit_public_archive(zip_path, (RECORD,))
+
+    def test_archive_replaced_between_lstat_and_open_is_refused(self):
+        # Simulate an attacker exchanging the checked path before the ZIP opens.
+        # os.replace works on Windows without symlink privileges.
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp)
+            archive = directory / "release.zip"
+            replacement = directory / "replacement.zip"
+            build_zip(archive, {"product/ok.txt": b"approved-content"})
+            build_zip(replacement, {"unrelated.bin": b"swapped-content"})
+            original_open = Path.open
+            swaps = 0
+
+            def replace_before_open(path, *args, **kwargs):
+                nonlocal swaps
+                if path == archive:
+                    os.replace(replacement, archive)
+                    swaps += 1
+                return original_open(path, *args, **kwargs)
+
+            with patch.object(Path, "open", replace_before_open):
+                with self.assertRaisesRegex(LawfulCorpusError, "changed before safe open"):
+                    audit_public_archive(archive, (RECORD,))
+            self.assertEqual(swaps, 1)
 
     def test_source_registry_empty_or_bad_hash_is_fail_closed(self):
         with self.assertRaises(LawfulCorpusError):
