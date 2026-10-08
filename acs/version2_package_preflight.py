@@ -140,6 +140,9 @@ _REQUIRED_STOCKFISH_NOTICE = "THIRD_PARTY_NOTICES/Stockfish-NOTICE.txt"
 _REQUIRED_WINFORMS_APPCONFIG = "AccessibleChess/AccessibleChess.exe.config"
 _REQUIRED_WEB_FILES = (
     "AccessibleChess/web/index.html",
+    "AccessibleChess/web/real_media_workbench.html",
+    "AccessibleChess/web/real_media_workbench.js",
+    "AccessibleChess/web/youtube_iframe_playback_adapter.js",
     "AccessibleChess/web/stage1_release_bootstrap.js",
     "AccessibleChess/web/stage1_board_actions.js",
     "AccessibleChess/web/full_product_pgn.js",
