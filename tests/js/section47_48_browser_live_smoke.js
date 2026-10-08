@@ -49,7 +49,7 @@ async function testLocal(page, filePath) {
   await page.waitForFunction(() => {
     const v = document.querySelector("#real-media-video");
     return v.readyState >= 2 && Number.isFinite(v.duration) && v.duration > 0;
-  }, { timeout: 40000 });
+  }, null, { timeout: 40000 });
   let status = await page.locator("#real-media-status").innerText();
   assert(!status.includes("не підтримується"), "real browser rejects codec");
   // Start a genuine media decode/playback path, not an HTML mock.
@@ -72,7 +72,10 @@ async function testLocal(page, filePath) {
   await page.locator("#real-media-rewind").click();
   await page.locator("#real-media-forward").click();
   await page.locator("#real-media-rate").selectOption("1.5");
-  await page.locator("#real-media-volume").fill("35");
+  await page.locator("#real-media-volume").evaluate(slider => {
+    slider.value = "35";
+    slider.dispatchEvent(new Event("change", { bubbles: true }));
+  });
   const final = await page.locator("#real-media-video").evaluate(video => ({
     time: video.currentTime, duration: video.duration,
     playbackRate: video.playbackRate, volume: video.volume,
@@ -97,7 +100,7 @@ async function testYouTube(page, id) {
     const text = document.querySelector("#real-youtube-status").textContent;
     return text.includes("YouTube:") || text.includes("не вдалося") ||
       text.includes("відхилив") || text.includes("немає") || text.includes("Немає");
-  }, { timeout: 40000 });
+  }, null, { timeout: 40000 });
   const first = await page.locator("#real-youtube-status").innerText();
   if (!first.includes("YouTube:")) throw Error("LIVE_PROVIDER_NOT_READY: " + first);
   const iframe = page.locator("#real-youtube-player iframe");
@@ -107,7 +110,7 @@ async function testYouTube(page, id) {
     const state = document.querySelector("#real-youtube-status").textContent;
     return state.includes("YouTube: playing") ||
       state.includes("відхилив") || state.includes("не виконав");
-  }, { timeout: 35000 });
+  }, null, { timeout: 35000 });
   const playing = await page.locator("#real-youtube-status").innerText();
   if (!playing.includes("playing")) throw Error("LIVE_PLAYBACK_NOT_CONFIRMED: " + playing);
   const start = Number(/позиція (\d+(?:\.\d+)?) с/.exec(playing)?.[1]);
