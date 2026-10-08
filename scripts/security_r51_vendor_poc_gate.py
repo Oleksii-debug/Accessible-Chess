@@ -7,8 +7,6 @@ activate protection, unlock a premium capability, or approve a release.
 """
 from __future__ import annotations
 
-from dataclasses import asdict
-import hashlib
 import json
 from pathlib import Path
 import re
@@ -68,7 +66,7 @@ def assess_product_vendor(
         try:
             Ed25519PublicKey.from_public_bytes(bytes.fromhex(pub)).verify(bytes.fromhex(sig), signed)
             return True
-        except (ValueError, TypeError, Exception):
+        except Exception:
             return False
 
     try:
