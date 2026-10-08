@@ -297,6 +297,30 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
             raise RuntimeError("Media workflow unavailable")
         return service
 
+    def media_workflow_open_local(self) -> dict[str, object]:
+        return self._invoke_ui(self._media().open_local)
+
+    def media_workflow_open_pasted(self, source: str) -> dict[str, object]:
+        return self._invoke_ui(lambda: self._media().open_pasted(source))
+
+    def media_workflow_sync_playback(
+        self, source_id: str, position_ms: int,
+        duration_ms: int | None, playback_state: str,
+    ) -> dict[str, object]:
+        return self._invoke_ui(
+            lambda: self._media().sync_browser_playback(
+                source_id=source_id, position_ms=position_ms,
+                duration_ms=duration_ms, playback_state=playback_state,
+            )
+        )
+
+    def media_workflow_command(
+        self, action: str, position_ms: int | None = None,
+    ) -> dict[str, object]:
+        return self._invoke_ui(
+            lambda: self._media().command(action, position_ms=position_ms)
+        )
+
     def bind_version2_language_refresh(self, callback: Callable[[], bool]) -> None:
         """Bind the owner-host refresh used to rebuild localized native menus."""
 
