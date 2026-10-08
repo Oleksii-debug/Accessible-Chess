@@ -369,3 +369,36 @@ is not an executed PASS. No genuine USB/cloud vendor, independently audited
 verifier, native protected artifact, physical Windows/NVDA or external
 release qualification has been supplied. This remains a DRAFT source
 candidate in PR #2498; it does not increment the shipping-integrated count.
+
+## R67 enterprise LAN seats — optional server-only product bridge (NOT DEPLOYED)
+
+`acs/protection_enterprise_seat_server_binding.py` reuses the exact neutral
+`continuum_runtime.enterprise_seats.EnterpriseSeatServer` implementation and
+its R52 → R45 → R29 signed-entitlement gate. The trusted server callback receives
+only a previously authenticated `AuthenticatedPrincipal`, not any browser
+identity or license content; it supplies the canonical fixed ENTERPRISE
+`ContainerRequest`, signer key inventory, trusted clock, service context,
+minimum policy version and R29 enforcer. Checkout accepts no client-selected
+site/account/build/mode/capacity. Checkin accepts only a bounded opaque ticket,
+whose site/account/device/build/boundary ownership is independently enforced
+by R67. Both require the existing server `enterprise.seat.use` permission.
+The bridge does not issue transferable offline licences, capability grants,
+subscriptions, or a new licensing/storage authority.
+
+The external operator must provision a real R52 signed enterprise adapter, a
+single-host SQLite ledger, a separately durable monotonic CAS anchor, verified
+integrity key, site and capacity, a trusted server clock and a recovery plan.
+The bridge never auto-creates a ledger or retries ambiguous admission/release;
+a missing or uncertain effect requires read-only operator reconciliation.
+The R67 canonical repository component already enforces row-set authenticated
+capacity (including deletion), trusted anchor, restart and rollback rules.
+Neither this adapter nor its synthetic tests qualifies HA or real vendor
+borrowing: unsupported vendor offline borrowing remains denied.
+
+`tests/test_security_r67_enterprise_seat_server_binding.py` validates
+authenticated server-only identity, absent permission, forged browser context,
+malformed tickets, bad resolvers, safe denial and no blind unknown replay. The
+same Wave-5 dual-OS workflow includes the exact upstream R67 ledger/anchor
+suite on its frozen upstream SHA. Hosted execution is unverified while jobs
+remain queued; do not claim a live LAN seat server, native protected
+Windows build or product shipping integration from these fixtures.
