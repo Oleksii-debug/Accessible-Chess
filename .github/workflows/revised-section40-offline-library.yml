@@ -14,6 +14,10 @@ on:
       - 'acs/version2_starter_content_application.py'
       - 'tests/test_revised_section40_offline_test_library.py'
       - 'tests/test_revised_section40_user_library_seed_bridge.py'
+      - 'tools/section39_section40_delivery_qualification.py'
+      - 'tests/test_section39_section40_delivery_qualification.py'
+      - 'tools/section39_new_section37_annotated_pgn_qualification.py'
+      - 'tests/test_section39_new_section37_annotated_pgn_qualification.py'
       - 'tests/test_revised_section40_advanced_training.py'
       - 'tests/test_revised_section40_product_books_advanced_integration.py'
       - 'tests/test_w3_p0f_starter_books_training_content.py'
@@ -52,10 +56,27 @@ jobs:
         run: python -m tools.revised_section40_user_library_seed_bridge artifacts/section40-test-build.zip artifacts/section40-owner-runtime-seed.zip
       - name: Build PUBLIC_RELEASE archive with conservative rights filtering
         run: python -m tools.revised_section40_offline_test_library PUBLIC_RELEASE artifacts/section40-public-release.zip
+      - name: Execute Section 39/40 three-archive actual source-bound integration and negative tests
+        run: |
+          python -m py_compile tools/section39_section40_delivery_qualification.py tests/test_section39_section40_delivery_qualification.py
+          python -m unittest -v tests.test_section39_section40_delivery_qualification
+      - name: Preserve separate real TEST_BUILD / PUBLIC_RELEASE / owner-seed roundtrip receipt
+        env:
+          ACCESSIBLE_CHESS_EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: >-
+          python -m tools.section39_section40_delivery_qualification
+          --test artifacts/section40-test-build.zip
+          --public artifacts/section40-public-release.zip
+          --seed artifacts/section40-owner-runtime-seed.zip
+      - name: Include Section 39/40 exact-SHA qualification in owner test artifacts
+        shell: bash
+        run: cp section39-section40-real-packaged-integration.json artifacts/section39-section40-real-packaged-integration.json
       - name: Upload separate test and public fixture bundles (not EXE / not final release)
         uses: actions/upload-artifact@v4
         with:
           name: section40-offline-corpus-${{ matrix.os }}
-          path: artifacts/*.zip
+          path: |
+            artifacts/*.zip
+            artifacts/section39-section40-real-packaged-integration.json
           if-no-files-found: error
           retention-days: 14
