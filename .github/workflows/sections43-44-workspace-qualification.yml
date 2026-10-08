@@ -68,7 +68,7 @@ jobs:
       - name: Native persistence in existing upgrade-locked Settings
         run: |
           python -m py_compile acs/settings.py acs/stage1_release_ui.py tests/test_sections43_44_native_layout_persistence.py
-          python -m unittest -v tests.test_sections43_44_native_layout_persistence
+          python -m unittest -v tests.test_sections43_44_native_layout_persistence tests.test_settings tests.test_settings_corruption_security
       - name: Preserve real web and keyboard behavior
         run: |
           python -m unittest -v tests.test_accessible_webui tests.test_section34_web_client
