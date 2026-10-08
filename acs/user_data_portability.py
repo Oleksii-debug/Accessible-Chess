@@ -285,8 +285,11 @@ class UserDataPortabilityCoordinator:
         applied: list[DomainAdapter] = []
         try:
             for adapter, candidate in prepared:
-                adapter.restore(candidate)
+                # A domain writer can mutate durable state and then raise.
+                # Register rollback responsibility BEFORE entering that writer;
+                # otherwise a post-publication error would escape rollback.
                 applied.append(adapter)
+                adapter.restore(candidate)
                 current = _snapshot_from(adapter)
                 if (
                     current.schema_version != candidate.schema_version
