@@ -316,3 +316,26 @@ protected Windows image, physical adversarial campaign, verifier independence,
 Windows/NVDA/AV approval and independent release verdict do not exist in this
 repository. **Candidate tooling only; R69/R71 product physical status
 NOT_VERIFIED; this does NOT unblock PR #2497 or release.**
+
+## R72 independently signed incident-response evidence and update gate — staged
+
+`scripts/security_r72_incident_evidence_gate.py` is a release/operations
+readback adapter over canonical `continuum_runtime.incident_response.assess_incident`
+and the existing R34 update metadata verifier. All reviewer, effect witness and
+update signing public keys come from one independently SHA-256-pinned inventory
+outside untrusted evidence. R72 intake authenticates exact source hash, actual
+incident evidence file bytes, signed incident case, unique effect receipts and
+emergency update metadata. Missing effects remain PENDING, UNKNOWN cannot be
+replayed or turned into CONFIRMED without an independently signed later witness.
+Actual compromised key/build, expiry/sequence/rollback and update floor are
+verified by the neutral R72/R34 authority. There is NO outbound key rotation,
+revocation, installation, account recovery or second mutation authority.
+
+`tests/test_security_r72_incident_evidence_gate.py` supplies isolated fake
+Ed25519 issuers to demonstrate signed receipt format, strict trust-pin binding,
+wrong source/evidence, forged case, replay, unfinished and UNKNOWN outcomes.
+Any complete synthetic signed receipts remain **NOT verified physical operator
+execution**, and `release_approved=false` in every result. No production
+incident, independent verifier, signed physical Windows shipping evidence or
+real emergency update deployment is claimed. **R72 source staged; not shipping
+or terminal product integration.**
