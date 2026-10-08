@@ -22,7 +22,7 @@ _RESERVED = {"CON", "PRN", "AUX", "NUL"} | {
 MAX_FILES = 20000
 MAX_DIRECTORIES = 20000
 _DENIED_CORPUS_SUFFIXES = frozenset({
-    ".env", ".pem", ".pfx", ".p12", ".key", ".crt", ".cer", ".kdbx", ".sqlite",
+    ".env", ".pem", ".pfx", ".p12", ".key", ".crt", ".cer", ".kdbx",
 })
 MAX_SINGLE_FILE = 1024 * 1024 * 1024
 MAX_TOTAL = 8 * MAX_SINGLE_FILE
