@@ -94,6 +94,49 @@ class OriginalFixtureQualificationTest(unittest.TestCase):
                     with self.assertRaises(module.OriginalError):
                         module.download_one(item, Path(directory), False)
 
+    def test_private_mp4_derivative_is_source_bound_and_receipted_separately(self):
+        data = b"\\x1a\\x45\\xdf\\xa3real recorded source"
+        source_sha256 = hashlib.sha256(data).hexdigest()
+        original = {
+            "filename": "Chess test.webm",
+            "source_page": "https://commons.wikimedia.org/wiki/File:Chess_test.webm",
+            "creator": "Fixture creator",
+            "license": "CC BY-SA 3.0",
+            "license_url": "https://creativecommons.org/licenses/by-sa/3.0/",
+            "sha256": source_sha256,
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / original["filename"]).write_bytes(data)
+
+            def fake_ffmpeg(cmd, **_kwargs):
+                if "-c:v" in cmd:
+                    (root / cmd[-1]).write_bytes(b"PRIVATE_REAL_CODEC_FIXTURE")
+                    return module.subprocess.CompletedProcess(cmd, 0)
+                return module.subprocess.CompletedProcess(
+                    cmd, 0, stdout='{"streams":[{"codec_name":"h264"}]}'
+                )
+
+            with mock.patch.object(module.shutil, "which", return_value="/usr/bin/ffmpeg"), \\
+                 mock.patch.object(module.subprocess, "run", side_effect=fake_ffmpeg):
+                receipt = module.make_private_mp4_derivative(root, original)
+                self.assertEqual(receipt["evidence_class"], "DERIVED_PRIVATE_MP4")
+                self.assertEqual(receipt["derived_from_original_sha256"], source_sha256)
+                self.assertEqual(receipt["license"], "CC BY-SA 3.0")
+                self.assertTrue(receipt["modified"])
+                self.assertEqual(receipt["video_codec"], "h264")
+                self.assertFalse(receipt["chess_position_qualified"])
+                self.assertEqual((root / receipt["filename"]).read_bytes(),
+                                 b"PRIVATE_REAL_CODEC_FIXTURE")
+                with self.assertRaises(module.OriginalError):
+                    module.make_private_mp4_derivative(root, original)
+            self.assertEqual((root / original["filename"]).read_bytes(), data)
+
+            bad = {**original, "sha256": "0" * 64}
+            with mock.patch.object(module.shutil, "which", return_value="/usr/bin/ffmpeg"):
+                with self.assertRaises(module.OriginalError):
+                    module.make_private_mp4_derivative(root, bad)
+
     def test_catalog_requires_attribution_and_no_fake_original_sha256(self):
         catalog = module.json.loads(module.SOURCE.read_text(encoding="utf-8"))
         self.assertGreaterEqual(len(catalog["originals"]), 3)
