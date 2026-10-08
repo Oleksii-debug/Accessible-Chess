@@ -54,6 +54,27 @@ class RealBookOnlyAcceptance(unittest.TestCase):
             self.assertEqual(hashlib.sha256(bundle.read_bytes()).hexdigest(), digest)
             self.assertEqual((folder / "section37-bilingual-manifest.json").read_bytes(), manifest)
 
+    def test_concurrent_other_worker_zip_is_never_deleted_on_exclusive_publish_conflict(self):
+        with tempfile.TemporaryDirectory(prefix="section37-concurrent-") as temp:
+            root = Path(temp)
+            working = root / "current-run"
+            destination = root / "finished-other-worker.zip"
+            rival_bytes = b"unrelated preexisting competitor output; must not touch"
+            def rival_publishes_at_link(staged, name):
+                self.assertTrue(Path(staged).is_file())
+                self.assertEqual(Path(name), destination)
+                destination.write_bytes(rival_bytes)
+                raise FileExistsError("other worker won exclusive publish")
+            with patch("sys.argv", ["packer", "--output-dir", str(working),
+                                    "--zip-output", str(destination)]), patch(
+                    "tools.revised_section37_bilingual_workbook_pack.os.link",
+                    side_effect=rival_publishes_at_link):
+                with self.assertRaises(FileExistsError):
+                    build_main()
+            self.assertEqual(destination.read_bytes(), rival_bytes)
+            self.assertFalse(working.exists())
+            self.assertFalse((root / (destination.name + ".partial")).exists())
+
     def test_failed_mid_build_cleans_unique_partial_output_instead_of_publishing(self):
         with tempfile.TemporaryDirectory(prefix="section37-atomic-") as temp:
             root = Path(temp)
