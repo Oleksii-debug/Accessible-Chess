@@ -67,7 +67,16 @@ def _verify_original_cc0_puzzle_lineage(lessons: list[dict]) -> None:
             raise ValueError("missing exact licensed advanced CC0 original identity")
         candidate = SOURCE.parents[3] / relative
         verified_local_source(candidate, record)
-        originals = json.loads(candidate.read_text(encoding="utf-8"))
+        # Parse only the same source bytes we independently re-hash. A path
+        # must not be swapped for another (possibly legal-looking) dataset
+        # after source-provenance verification and before parsing.
+        original_bytes = candidate.read_bytes()
+        if (
+            not 0 < len(original_bytes) <= record["max_bytes"]
+            or sha256(original_bytes).hexdigest() != record["sha256"]
+        ):
+            raise ValueError("original CC0 byte snapshot changed before lessons parsed")
+        originals = json.loads(original_bytes.decode("utf-8", errors="strict"))
         items = originals.get("puzzles")
         if type(items) is not list or not items:
             raise ValueError("licensed original CC0 puzzle source empty")
