@@ -48,6 +48,39 @@ class Section39Section40PackagedAcceptanceTests(unittest.TestCase):
             with self.assertRaises(LawfulCorpusError):
                 qualify_built_delivery(original, original, original)
 
+    def test_public_archive_rejects_original_cbv_even_with_all_its_checksums_regenerated(self):
+        with tempfile.TemporaryDirectory(prefix="acs-unlicensed-original-injection-") as tmp:
+            root = Path(tmp)
+            trial, release, seed = root / "trial.zip", root / "public.zip", root / "seed.zip"
+            build_collection("TEST_BUILD", trial)
+            build_owner_test_seed(trial, seed)
+            build_collection("PUBLIC_RELEASE", release)
+            with zipfile.ZipFile(release) as archive:
+                members = {name: archive.read(name) for name in archive.namelist()}
+            foreign = "books/publisher-uncleared-original.cbv"
+            payload = b"not-a-licensed-chessbase-original"
+            members[foreign] = payload
+            receipt = json.loads(members["catalog/checksums.json"])
+            import hashlib
+            receipt.append({
+                "path": foreign, "sha256": hashlib.sha256(payload).hexdigest(),
+                "bytes": len(payload),
+            })
+            members["catalog/checksums.json"] = (
+                json.dumps(receipt, sort_keys=True) + "\n"
+            ).encode("utf-8")
+            tampered = root / "public-with-forged-consistent-source-ledger.zip"
+            with zipfile.ZipFile(tampered, "w", zipfile.ZIP_DEFLATED) as zip_out:
+                for name, content in sorted(members.items()):
+                    zip_out.writestr(name, content)
+            files, _ = _inspect_zip(tampered)
+            self.assertEqual(
+                _catalog_data(files, "PUBLIC_RELEASE")["profile"], "PUBLIC_RELEASE",
+                "a forged self-consistent checksum ledger should reach the rights denylist",
+            )
+            with self.assertRaisesRegex(LawfulCorpusError, "unauthorized unregistered file"):
+                qualify_built_delivery(trial, tampered, seed)
+
     def test_zip_traversal_refused_before_extract(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "bad.zip"
