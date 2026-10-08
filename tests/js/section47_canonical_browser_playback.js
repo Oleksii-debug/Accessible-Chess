@@ -72,7 +72,7 @@ async function main() {
     assert(snapshots.some(s=>s.sourceId==="local:sha256:fixture-qualified-test"));
     assert(snapshots.some(s=>s.playbackState==="playing"));
     assert(snapshots.some(s=>s.playbackState==="paused"));
-    await page.evaluate(()=>{window.p.destroy();window.openMedia();});
+    await page.evaluate(()=>{p.destroy();window.openMedia();});
     await page.waitForFunction(()=>
       !!document.getElementById("section47-local-video") &&
       document.getElementById("section47-local-video").readyState>=2,
