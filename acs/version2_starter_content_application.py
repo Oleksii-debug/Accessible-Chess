@@ -22,6 +22,7 @@ from .starter_books_training_release import (
 from .starter_books_training_runtime import build_training_ready_starter_course
 from .section40_advanced_training_runtime import (
     ADVANCED_BOOK_KEY, ADVANCED_MATERIAL_ID, build_advanced_offline_material,
+    EXTREME_BOOK_KEY, EXTREME_MATERIAL_ID, build_extreme_offline_material,
 )
 from .version2_application import _BookBrowserLeaseRejected
 from .version2_book_workspace import build_version2_book_webview
@@ -37,14 +38,14 @@ _CATALOGUE_LABELS = {
         "heading": "Офлайнова шахова бібліотека",
         "label": "Матеріал",
         "open": "Відкрити матеріал",
-        "description": "24 посібники, стартовий курс і 16 справжніх задач Lichess 2200+ (рейтинг задач, не FIDE) доступні офлайн.",
+        "description": "24 посібники, стартовий курс, 16 задач Lichess 2200+ і 4 задачі 3000+ (це рейтинг задач, не FIDE) доступні офлайн.",
         "opened": "Відкрито матеріал",
     },
     UILanguage.EN: {
         "heading": "Offline chess learning library",
         "label": "Material",
         "open": "Open material",
-        "description": "24 booklets, the starter course and 16 genuine Lichess 2200+ puzzles (puzzle rating, not FIDE) open offline.",
+        "description": "24 booklets, starter course, 16 genuine Lichess 2200+ and four 3000+ puzzles (puzzle ratings, not FIDE) open offline.",
         "opened": "Opened material",
     },
 }
@@ -61,6 +62,9 @@ class Version2StarterContentApplication(Version2EducationMutationApplication):
         self._starter_booklets = build_release_booklets()
         self._advanced_offline_document, self._advanced_offline_tasks = (
             build_advanced_offline_material()
+        )
+        self._extreme_offline_document, self._extreme_offline_tasks = (
+            build_extreme_offline_material()
         )
         self._starter_material_documents: dict[str, BookDocument] = {}
         self._starter_material_entries: tuple[dict[str, str], ...] = ()
@@ -95,9 +99,12 @@ class Version2StarterContentApplication(Version2EducationMutationApplication):
         if type(expected_count) is not int or expected_count != len(entries) or expected_count < 24:
             raise RuntimeError("starter release material count is below the accepted P0-F gate")
 
-        if ADVANCED_MATERIAL_ID in documents or len(self._advanced_offline_tasks) != 16:
+        if (ADVANCED_MATERIAL_ID in documents or EXTREME_MATERIAL_ID in documents
+            or len(self._advanced_offline_tasks) != 16
+            or len(self._extreme_offline_tasks) != 4):
             raise RuntimeError("genuine advanced offline materials are unavailable")
         documents[ADVANCED_MATERIAL_ID] = self._advanced_offline_document
+        documents[EXTREME_MATERIAL_ID] = self._extreme_offline_document
         self._starter_material_documents = documents
         self._starter_material_entries = tuple(entries)
 
@@ -207,6 +214,10 @@ class Version2StarterContentApplication(Version2EducationMutationApplication):
                 "material_id": ADVANCED_MATERIAL_ID,
                 "title": self._advanced_offline_document.title,
             },
+            {
+                "material_id": EXTREME_MATERIAL_ID,
+                "title": self._extreme_offline_document.title,
+            },
         )
         return {
             "heading": labels["heading"],
@@ -216,6 +227,7 @@ class Version2StarterContentApplication(Version2EducationMutationApplication):
             "current_id": self._starter_current_material_id or "",
             "booklet_count": len(self._starter_material_entries),
             "advanced_puzzle_count": len(self._advanced_offline_tasks),
+            "extreme_puzzle_count": len(self._extreme_offline_tasks),
             "items": items,
         }
 
@@ -257,6 +269,9 @@ class Version2StarterContentApplication(Version2EducationMutationApplication):
         elif material_id == ADVANCED_MATERIAL_ID:
             document = self._advanced_offline_document
             book_key = ADVANCED_BOOK_KEY
+        elif material_id == EXTREME_MATERIAL_ID:
+            document = self._extreme_offline_document
+            book_key = EXTREME_BOOK_KEY
         else:
             document = self._starter_material_documents.get(material_id)
             if document is None:
