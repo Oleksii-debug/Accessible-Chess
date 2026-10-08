@@ -30,6 +30,10 @@ on:
       - 'tools/revised_section37_external_book_acquisition.py'
       - 'tests/test_revised_section37_external_book_acquisition.py'
       - 'tools/revised_section37_external_position_acquisition.py'
+      - 'tools/section39_external_position_semantic.py'
+      - 'tests/test_section39_external_position_semantic.py'
+      - 'tools/section39_real_format_qualification.py'
+      - 'tests/test_section39_real_format_qualification.py'
       - 'tests/test_revised_section37_external_position_acquisition.py'
       - 'tools/revised_section37_release_exclusion.py'
       - 'tools/revised_section37_advanced_puzzle_curator.py'
@@ -418,12 +422,25 @@ jobs:
         run: |
           python -m unittest -v tests.test_revised_section37_external_position_acquisition
           python -m tools.revised_section37_external_position_acquisition
+      - name: Run current Section 39 EPD/FEN canonical format regression
+        working-directory: product
+        run: |
+          python -m py_compile tools/section39_external_position_semantic.py tests/test_section39_external_position_semantic.py
+          python -m unittest -v tests.test_section39_external_position_semantic
+      - name: Real original-source semantic reimport, exact source HEAD
+        working-directory: product
+        env:
+          ACS_37_EPD2DOC_ROOT: ${{ github.workspace }}/source-originals
+          ACCESSIBLE_CHESS_EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: python -m tools.section39_external_position_semantic
       - name: Preserve source-only nonprivate exact-checkout puzzle provenance
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: revised-section37-authentic-epd-fen-source-evidence
-          path: product/revised-section37-original-epd-fen-source-evidence.json
+          path: |
+            product/revised-section37-original-epd-fen-source-evidence.json
+            product/section39-original-epd-fen-semantic-evidence.json
           if-no-files-found: ignore
           retention-days: 14
       - name: Always destroy temporary source and external licensed corpus bytes
