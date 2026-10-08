@@ -210,6 +210,14 @@ jobs:
           tests.test_chessbase_integrity
           tests.test_chessbase_libcbh_external_fixture
 
+      - name: Erase GPL decoder binaries and source-only CBH fixtures
+        if: always()
+        shell: bash
+        run: |
+          rm -rf -- upstream/libcbh product/build/libcbh
+          test ! -e upstream/libcbh
+          test ! -e product/build/libcbh
+
   original-books-test-only-provenance:
     runs-on: ubuntu-24.04
     timeout-minutes: 35
