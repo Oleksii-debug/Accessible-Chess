@@ -216,6 +216,11 @@ function preview() {
     "Preview does not change the position or game.");
 }
 function presentationApply(p, emitBoardActions = true) {
+  // The shipped Web board reads only visual fields and redraws its own
+  // last canonical snapshot. No profile may write or invent chess truth.
+  window.accessibleChessDesignPreferences=Object.freeze({...p});
+  if(typeof window.dispatchEvent==="function")
+    window.dispatchEvent(new Event("accessible-chess-design-change"));
   const root=document.documentElement;
   root.dataset.ac45Font=String(p.font_percent);
   root.style.setProperty("--ac45-font-scale",String(p.font_percent/100));
