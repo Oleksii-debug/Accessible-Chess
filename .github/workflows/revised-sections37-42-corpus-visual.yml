@@ -51,6 +51,9 @@ on:
       - 'tests/test_section39_real_chess_docx_interoperability.py'
       - 'tools/section39_section37_bilingual_workbook_qualification.py'
       - 'tests/test_section39_section37_bilingual_workbook_qualification.py'
+      - 'acs/section40_bilingual_master_workbook_runtime.py'
+      - 'tests/test_section40_bilingual_master_workbook_product.py'
+      - 'acs/version2_starter_content_application.py'
       - 'tools/revised_section37_bilingual_workbook_pack.py'
       - 'tests/real_corpus/advanced_training/section37_master_workbook_bilingual.json'
       - 'tests/test_section39_external_book_semantic.py'
@@ -255,6 +258,10 @@ jobs:
         env:
           ACCESSIBLE_CHESS_EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
         run: python -m tools.section39_section37_bilingual_workbook_qualification
+      - name: Production Books bilingual source37 native menu keyboard Board Training restart contract
+        run: |
+          python -m py_compile acs/section40_bilingual_master_workbook_runtime.py tests/test_section40_bilingual_master_workbook_product.py
+          python -m unittest -v tests.test_section40_bilingual_master_workbook_product
       - name: Preserve actual per-format readback and known unsupported coverage
         if: always()
         uses: actions/upload-artifact@v4
