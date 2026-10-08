@@ -2,7 +2,7 @@
   "schema_version": 1,
   "section": 37,
   "title": "Законні джерела книг, партій, позицій і шахових баз",
-  "status": "INTERNAL_COMPLETE_EXTERNAL_BLOCKED",
+  "status": "INTERNAL_COMPLETE_EXTERNAL_READBACK_PENDING",
   "generated_at": "2026-10-09",
   "authority": "Accessible Chess canonical product source and provenance records",
   "rights_rule": "read/test/redistribute are separate permissions; absence of redistribution permission excludes a file from PUBLIC_RELEASE",
@@ -82,6 +82,83 @@
       "evidence": ["docs/FORMATS_COMMERCIAL_SCOPE_20261005_UA.md"]
     },
     {
+      "id": "chessit-cotswold-open-2023-cbv",
+      "kind": "real_external_corpus",
+      "format": "CBV",
+      "language": "en",
+      "source_url": "https://www.chessit.co.uk/Congresses/Cotswold/2023/Cotswold_Open_2023.cbv",
+      "author_or_owner": "Chessit / event publisher; redistribution terms not stated on source page",
+      "license": "not stated",
+      "expected_sha256": "d1fe221cda73ede12acdc23dc0fa4c922962b62d00ba88381f7085c3e0620902",
+      "actual_sha256": "d1fe221cda73ede12acdc23dc0fa4c922962b62d00ba88381f7085c3e0620902",
+      "size_bytes": 24039,
+      "rights": {"read": true, "test": true, "redistribute": false},
+      "status": "DOWNLOADED_READ_ONLY_EXTERNAL_ORACLE_PENDING",
+      "evidence": ["tools/section37_real_corpus_evidence.py", "docs/corpus/SECTION37_REAL_CORPUS_READBACK.json"]
+    },
+    {
+      "id": "chessit-cotswold-open-2023-pgn-oracle",
+      "kind": "real_external_corpus_oracle",
+      "format": "PGN",
+      "language": "en",
+      "source_url": "https://www.chessit.co.uk/Congresses/Cotswold/2023/Cotswold_Open_2023.pgn",
+      "author_or_owner": "Chessit / event publisher; redistribution terms not stated on source page",
+      "license": "not stated",
+      "expected_sha256": "3053909b99d30e4d430995553b0b9db4f131c5518fa50d62167c1f0fae5bfe34",
+      "actual_sha256": "3053909b99d30e4d430995553b0b9db4f131c5518fa50d62167c1f0fae5bfe34",
+      "size_bytes": 86012,
+      "counts": {"games": 113, "warnings": 0, "results": {"1-0": 52, "0-1": 31, "1/2-1/2": 30}},
+      "rights": {"read": true, "test": true, "redistribute": false},
+      "status": "DOWNLOADED_CANONICAL_PGN_ORACLE_TEST_ONLY",
+      "evidence": ["tools/section37_real_corpus_evidence.py", "docs/corpus/SECTION37_REAL_CORPUS_READBACK.json"]
+    },
+    {
+      "id": "twic-1665-cbv",
+      "kind": "real_external_corpus",
+      "format": "ZIP containing CBV",
+      "language": "multilingual metadata",
+      "source_url": "https://theweekinchess.com/zips/twic1665c6.zip",
+      "author_or_owner": "The Week in Chess",
+      "license": "personal use only; all rights reserved",
+      "expected_sha256": "1593615903527a70d47d6ee4ef80556eff0fb9d2ce63cadb6e5e1d2fa7276939",
+      "actual_sha256": "1593615903527a70d47d6ee4ef80556eff0fb9d2ce63cadb6e5e1d2fa7276939",
+      "extracted_component_sha256": "f483fa2183387643963e7a1443cb159adbfe2b0605bc1b1f7d15228b3a5b8327",
+      "rights": {"read": true, "test": true, "redistribute": false},
+      "status": "DOWNLOADED_TEST_ONLY_NO_PUBLIC_REDIStribution",
+      "evidence": ["tools/section37_real_corpus_evidence.py", "docs/corpus/SECTION37_REAL_CORPUS_READBACK.json"]
+    },
+    {
+      "id": "pgnmentor-alekhine",
+      "kind": "real_external_corpus",
+      "format": "ZIP containing PGN",
+      "language": "multilingual metadata",
+      "source_url": "https://www.pgnmentor.com/players/Alekhine.zip",
+      "author_or_owner": "PGN Mentor / source contributors",
+      "license": "free download; redistribution terms not stated",
+      "expected_sha256": "59f4c4e46a8bc2d9b4c7798e75a91b6a1676c30ebbc71ab04959fb86fed35b3f",
+      "actual_sha256": "59f4c4e46a8bc2d9b4c7798e75a91b6a1676c30ebbc71ab04959fb86fed35b3f",
+      "extracted_pgn_sha256": "d3fd8dcd9fb308d7636856c6538b386191f87738d8908ebe85fa064f48b5a8a0",
+      "counts": {"games": 1661, "warnings": 0},
+      "rights": {"read": true, "test": true, "redistribute": false},
+      "status": "DOWNLOADED_TEST_ONLY_RIGHTS_UNCLEAR",
+      "evidence": ["tools/section37_real_corpus_evidence.py", "docs/corpus/SECTION37_REAL_CORPUS_READBACK.json"]
+    },
+    {
+      "id": "section37-external-backends",
+      "kind": "optional_external_build_backend",
+      "format": "libcbh + uncbv source",
+      "language": "source code",
+      "source_url": "https://github.com/rolandlo/libcbh and https://github.com/antoyo/uncbv",
+      "author_or_owner": "upstream maintainers",
+      "license": "GPL-2.0 (libcbh); GPL-3.0 (uncbv)",
+      "expected_sha256": null,
+      "actual_sha256": null,
+      "pinned_commits": {"libcbh": "9641c5c3949d8fb210b17dd9aa54455645843696", "uncbv": "3c18e8a7c6a30c21f945a1ab5462521c306dca57"},
+      "rights": {"read": true, "test": true, "redistribute": false},
+      "status": "BUILD_TIME_ONLY_NOT_BUNDLED",
+      "evidence": ["tools/optional/LIBCBH_BACKEND.md", "tools/optional/UNCBV_BACKEND.md", ".github/workflows/section37-real-corpus-readback.yml"]
+    },
+    {
       "id": "cbf-cbi-real-pair",
       "kind": "chessbase_family_fixture",
       "format": "CBF+CBI",
@@ -106,16 +183,16 @@
       "expected_sha256": null,
       "actual_sha256": null,
       "rights": {"read": false, "test": false, "redistribute": false},
-      "status": "BLOCKED_UNTIL_REAL_FILE_READBACK_AND_RIGHTS_ARE_PINNED",
-      "evidence": ["docs/FORMATS_COMMERCIAL_SCOPE_20261005_UA.md"]
+      "status": "PARTIAL_CBV_REAL_FILE_PINNED_EXTERNAL_READBACK_REQUIRED",
+      "evidence": ["docs/FORMATS_COMMERCIAL_SCOPE_20261005_UA.md", "tools/section37_real_corpus_evidence.py", ".github/workflows/section37-real-corpus-readback.yml"]
     }
   ],
   "closure": {
     "completed_internal": ["37.5", "37.6"],
-    "partial": ["37.1", "37.2", "37.3"],
-    "blocked": ["37.4"],
+    "partial": ["37.1", "37.2", "37.3", "37.4"],
+    "blocked": ["37.4-CBF-CBI-2CBH-CBONE"],
     "section_done": false,
     "next_dependency_safe_front": "38",
-    "honest_blocker": "The plan requires lawful, real multi-format external literature and genuine ChessBase family files with companion/oracle evidence; current repository evidence does not contain those bytes or rights. Synthetic fixtures and source-page references are not promoted to PASS."
+    "honest_blocker": "Real CBV and independent PGN oracle bytes are now pinned for test-time readback, but external uncbv/libcbh execution must still produce a passing CI oracle; genuine lawful CBF+CBI, 2CBH and CBONE fixtures with independent semantic oracles remain unavailable, and all downloaded third-party sources remain excluded from PUBLIC_RELEASE until redistribution rights are explicit."
   }
 }

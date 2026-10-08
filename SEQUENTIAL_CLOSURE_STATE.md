@@ -15,16 +15,16 @@ never silently converted into `DONE`.
 
 ## Section 37 — current closure front
 
-**Status: `INTERNAL_COMPLETE_EXTERNAL_BLOCKED` (not DONE).**
+**Status: `INTERNAL_COMPLETE_EXTERNAL_READBACK_PENDING` (not DONE).**
 
 Durable source registry: `docs/corpus/SECTION37_SOURCE_REGISTRY.json`.
 
 | Subsection | State | Evidence / exact limitation |
 |---|---|---|
-| 37.1 | `PARTIAL` | Registry now records source URL, owner, format, rights, expected/actual SHA where bytes exist, and counts. It is not yet the plan's “large” all-format registry. |
-| 37.2 | `PARTIAL` | Pinned CC0 Lichess source, deterministic 240-game curation policy, and project-owned 1200-game stress corpus are present. Diverse external PGN/EPD/FEN collections still need real download/readback. |
+| 37.1 | `PARTIAL` | Registry now records real Cotswold CBV/PGN, TWIC CBV, and PGN Mentor Alekhine source URLs, sizes, SHA-256, rights boundary, and readback counts. It is not yet the plan's “large” all-format registry. |
+| 37.2 | `PARTIAL` | Real Cotswold PGN (113 games, 0 parser warnings) and Alekhine PGN (1661 games, 0 parser warnings) are downloaded and canonical-readback verified; EPD/FEN/annotated collections still need separate real sources. |
 | 37.3 | `PARTIAL` | 24 Ukrainian project-authored booklets and 144 exercises are real and licensed. Independent third-party EPUB/HTML/TXT/PDF/DOCX/Markdown literature across the required genres is not cleared or bundled. |
-| 37.4 | `BLOCKED` | Current evidence explicitly says no lawful genuine CBF+CBI fixture with independent semantic oracle; CBH/CBV/2CBH/CBONE real-file readback is likewise not pinned. |
+| 37.4 | `PARTIAL` | Two genuine CBV files are SHA-pinned and adapter/manifest verified. `.github/workflows/section37-real-corpus-readback.yml` builds the pinned GPL `uncbv` and `libcbh` backends and compares CBV decode/import against the independent 113-game Cotswold PGN oracle. CBF+CBI, 2CBH and CBONE lawful fixtures remain unavailable. |
 | 37.5 | `DONE` | TEST_BUILD versus PUBLIC_RELEASE boundary, source-page-only handling, and project-owned notices are documented. |
 | 37.6 | `DONE` | Source manifests, checksum fields, bounded download/verification path, safe temporary-workspace pattern, and fail-closed cleanup policy are present. |
 
@@ -38,12 +38,16 @@ sha256(acs/starter_content.py) = 8118eb8f9897e2f13ef029a533ba22dae2e1f66d8c73feb
 sha256(acs/starter_books_training_content.py) = b844c4e2cd6ae3394ddf007297a6f8229d6688144c159e39cc47e11963ff575a
 starter release manifest: 24 booklets, 12 chapters each, 144 training exercises
 real-source policy: 240-game deterministic sample from pinned CC0 Lichess source
-CBF/CBI evidence: BLOCKED (no lawful fixture + independent semantic oracle)
+Section 37 readback manifest: `docs/corpus/SECTION37_REAL_CORPUS_READBACK.json`
+Section 37 readback command: `python tools/section37_real_corpus_evidence.py --corpus-root <downloaded-corpus> --output <evidence.json>`
+Pinned CI external oracle: `.github/workflows/section37-real-corpus-readback.yml`
+CBF/CBI/2CBH/CBONE evidence: BLOCKED (no lawful fixture + independent semantic oracle)
 ```
 
 ## Ordered frontier
 
-The next dependency-safe front is Section 38. Sections 38–53 remain pending
+The next dependency-safe front is Section 38 only after the Section 37 external
+readback workflow produces its bounded artifact. Sections 38–53 remain pending
 until their own acceptance evidence is produced. No later section is marked
 `DONE` by this record, and no status is inferred from chat history or from a
 single green test.

@@ -1,0 +1,119 @@
+{
+  "external_backends": {
+    "bundled": false,
+    "external_readback": {
+      "reason": "GPL backends are build-time/test-time dependencies and are not bundled",
+      "status": "NOT_CONFIGURED"
+    },
+    "libcbh_commit": "9641c5c3949d8fb210b17dd9aa54455645843696",
+    "uncbv_commit": "3c18e8a7c6a30c21f945a1ab5462521c306dca57"
+  },
+  "schema_version": 1,
+  "section": 37,
+  "source_policy": "read/test/redistribute are separate permissions",
+  "sources": {
+    "alekhine_pgn": {
+      "readback": {
+        "games": 1661,
+        "results": {
+          "*": 1,
+          "0-1": 491,
+          "1-0": 692,
+          "1/2-1/2": 477
+        },
+        "warnings": 0
+      },
+      "relative": "extracted/alekhine/Alekhine.pgn",
+      "rights": "free_download_redistribution_unclear",
+      "sha256": "d3fd8dcd9fb308d7636856c6538b386191f87738d8908ebe85fa064f48b5a8a0",
+      "url": "https://www.pgnmentor.com/players/Alekhine.zip"
+    },
+    "cotswold_cbv": {
+      "readback": {
+        "manifest": {
+          "components": [],
+          "family_name": "ChessBase archive/container",
+          "primary": {
+            "extension": ".cbv",
+            "path": "cotswold_2023.cbv",
+            "role": "primary database source",
+            "sha256": "d1fe221cda73ede12acdc23dc0fa4c922962b62d00ba88381f7085c3e0620902",
+            "size": 24039
+          },
+          "primary_path": "cotswold_2023.cbv",
+          "schema_version": 1,
+          "source_kind": "archive_container",
+          "status": "evidence_collected",
+          "warnings": [
+            "Format family recognized by filename/component layout only; runtime decoder availability must be established separately.",
+            "Source must remain read-only; import must target ACSDB/PGN or another new output.",
+            "CBV is treated as an archive/container, distinct from the classic CBH component family.",
+            "Manifest records source evidence only; decoder compatibility is not implied."
+          ]
+        },
+        "probe": {
+          "decoder_available": false,
+          "family_name": "ChessBase archive/container",
+          "recognized": true,
+          "source_kind": "archive_container",
+          "status": "adapter_only"
+        }
+      },
+      "relative": "chessit/cotswold_2023.cbv",
+      "rights": "test_only_redistribution_uncleared",
+      "sha256": "d1fe221cda73ede12acdc23dc0fa4c922962b62d00ba88381f7085c3e0620902",
+      "url": "https://www.chessit.co.uk/Congresses/Cotswold/2023/Cotswold_Open_2023.cbv"
+    },
+    "cotswold_pgn": {
+      "readback": {
+        "games": 113,
+        "results": {
+          "0-1": 31,
+          "1-0": 52,
+          "1/2-1/2": 30
+        },
+        "warnings": 0
+      },
+      "relative": "chessit/cotswold_2023.pgn",
+      "rights": "test_only_redistribution_uncleared",
+      "sha256": "3053909b99d30e4d430995553b0b9db4f131c5518fa50d62167c1f0fae5bfe34",
+      "url": "https://www.chessit.co.uk/Congresses/Cotswold/2023/Cotswold_Open_2023.pgn"
+    },
+    "twic_cbv": {
+      "readback": {
+        "manifest": {
+          "components": [],
+          "family_name": "ChessBase archive/container",
+          "primary": {
+            "extension": ".cbv",
+            "path": "twic1665.cbv",
+            "role": "primary database source",
+            "sha256": "f483fa2183387643963e7a1443cb159adbfe2b0605bc1b1f7d15228b3a5b8327",
+            "size": 844947
+          },
+          "primary_path": "twic1665.cbv",
+          "schema_version": 1,
+          "source_kind": "archive_container",
+          "status": "evidence_collected",
+          "warnings": [
+            "Format family recognized by filename/component layout only; runtime decoder availability must be established separately.",
+            "Source must remain read-only; import must target ACSDB/PGN or another new output.",
+            "CBV is treated as an archive/container, distinct from the classic CBH component family.",
+            "Manifest records source evidence only; decoder compatibility is not implied."
+          ]
+        },
+        "probe": {
+          "decoder_available": false,
+          "family_name": "ChessBase archive/container",
+          "recognized": true,
+          "source_kind": "archive_container",
+          "status": "adapter_only"
+        }
+      },
+      "relative": "extracted/twic1665c6/twic1665.cbv",
+      "rights": "personal_use_only_all_rights_reserved",
+      "sha256": "f483fa2183387643963e7a1443cb159adbfe2b0605bc1b1f7d15228b3a5b8327",
+      "url": "https://theweekinchess.com/zips/twic1665c6.zip"
+    }
+  }
+}
