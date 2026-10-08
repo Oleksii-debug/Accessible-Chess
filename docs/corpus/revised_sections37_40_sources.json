@@ -234,6 +234,27 @@
       "local_source": "tests/real_corpus/lichess_openings_a.tsv",
       "license_source": "tests/real_corpus/lichess_openings_COPYING.txt",
       "license_sha256": "a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499"
+    },
+    {
+      "id": "lichess_openings_original_eco_b_tsv",
+      "title": "Lichess chess-openings ECO B original source data",
+      "author": "Lichess chess-openings contributors",
+      "format": "tsv (ECO, opening name, PGN move sequence)",
+      "source_page": "https://github.com/lichess-org/chess-openings/blob/a6189a30dc273ccb21fc2536a9a2fefd5592a67a/b.tsv",
+      "download_url": null,
+      "sha256": "1d5ed134ebbd87915ead5683416e37583bb3e5ae3582b4d8cb5cb4aa7ef4f623",
+      "max_bytes": 78124,
+      "license": "CC0",
+      "redistribution": "permitted",
+      "acquisition": "VENDORED_SOURCE_VERIFIED",
+      "upstream_commit": "a6189a30dc273ccb21fc2536a9a2fefd5592a67a",
+      "upstream_git_blob": "41c3727d28fc0b5915f30f3b634c07bd296f4bdb",
+      "indexed_bytes": 78124,
+      "canonical_qa": "original upstream source integrity and canonical opening-line PGN readback; NOT full games",
+      "notes": "Original upstream 781 ECO B opening-line records and header; SHA256, Git blob and CC0 licensing bound. Not full historical games or complete Section 37/38.",
+      "local_source": "tests/real_corpus/lichess_openings_b.tsv",
+      "license_source": "tests/real_corpus/lichess_openings_COPYING.txt",
+      "license_sha256": "a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499"
     }
   ]
 }
