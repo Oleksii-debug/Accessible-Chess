@@ -147,6 +147,16 @@ async function settle(){for(let i=0;i<12;i++)await Promise.resolve();}
    assert.equal(duplicate.get("ac45-profile").value,"Classic");
    assert.equal(duplicate.get("ac45-profile").children.length,6);
  }
+ // Corrupt browser preferences are never silently erased by Apply.
+ const badRaw='{"version":1,"selected":"Classic","profiles":{"secret":{"unknown":true}}}';
+ const badStorage={"accessible-chess.design-profiles.v1":badRaw};
+ const damaged=mount({storage:badStorage});
+ damaged.get("ac45-apply").click();await settle();
+ assert.equal(badStorage["accessible-chess.design-profiles.v1"],badRaw);
+ assert.equal(damaged.get("ac45-status").dataset.error,"true");
+ damaged.get("ac45-reset").click();
+ damaged.get("ac45-apply").click();await settle();
+ assert.equal(JSON.parse(badStorage["accessible-chess.design-profiles.v1"]).selected,"Classic");
  let revision="first";
  let durable={version:1,selected:"Coach",profiles:{}};
  const native={
@@ -165,5 +175,5 @@ async function settle(){for(let i=0;i<12;i++)await Promise.resolve();}
  assert.equal(durable.selected,"Low Vision");
  assert.equal(win.get("ac45-profile").value,"Low Vision");
  assert.equal(win.store["accessible-chess.design-profiles.v1"],undefined,"native private profile must not use localStorage");
- console.log("Section45 real studio DOM: 7 groups PASS (preview, Apply/Cancel, restart, input security, native CAS mock)");
+ console.log("Section45 real studio DOM: 8 groups PASS (preview, Apply/Cancel, restart, input security, native CAS mock)");
 })().catch(err=>{console.error(err);process.exitCode=1;});
