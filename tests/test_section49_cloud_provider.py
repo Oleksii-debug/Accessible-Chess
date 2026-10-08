@@ -70,6 +70,7 @@ class CloudProviderTests(unittest.IsolatedAsyncioTestCase):
         return CloudChatProvider(
             provider_id=name, default_model="test-model",
             allow_private_data=approved,
+            allow_live_requests=True,
             client_factory=lambda **kwargs: httpx.AsyncClient(
                 transport=transport, **kwargs),
         )
@@ -198,7 +199,8 @@ class CloudProviderTests(unittest.IsolatedAsyncioTestCase):
     def test_explicit_registration_into_canonical_gateway(self):
         gateway = ModelGateway()
         chosen = register_configured_cloud_providers(
-            gateway, models={"mistral": "test-model", "groq": "test-model"})
+            gateway, models={"mistral": "test-model", "groq": "test-model"},
+            allow_live_requests=True)
         self.assertEqual(chosen, ("mistral", "groq"))
         self.assertEqual(gateway.providers(), ("groq", "mistral"))
 
