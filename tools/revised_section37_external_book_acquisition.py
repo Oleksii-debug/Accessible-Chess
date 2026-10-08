@@ -136,6 +136,7 @@ def verify_original_book(record: dict, external_root: Path) -> dict:
     if (
         len(license_raw) != license_size
         or _git_blob(license_raw) != license_blob
+        or hashlib.sha256(license_raw).hexdigest() != record.get("external_license_sha256")
         or not license_raw.startswith(b"THE FULL PROJECT GUTENBERG LICENSE")
     ):
         raise LawfulCorpusError("external source license bytes changed")
