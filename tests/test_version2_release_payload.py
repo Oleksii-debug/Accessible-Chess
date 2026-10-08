@@ -33,6 +33,8 @@ _REQUIRED_WEB_FILES = (
     "version2_local_profile.js",
     "p0_accessibility_runtime.js",
     "version2_release_bootstrap.js",
+    "protection_locked.html",
+    "protection_locked.js",
     "docs/ACCESSIBLE_CHESS_HOTKEYS_UK.txt",
     "docs/ACCESSIBLE_CHESS_CAPABILITIES_TESTING_UK.txt",
 )
@@ -78,6 +80,7 @@ class Version2ReleasePayloadTests(unittest.TestCase):
                         relative
                         in package_preflight._REQUIRED_MANAGED_DESKTOP_RUNTIME_FILES
                     ),
+                    dll=Path(relative).suffix.lower() in {".dll", ".pyd"},
                 )
             )
         for name in _REQUIRED_WEB_FILES:
@@ -152,6 +155,7 @@ class Version2ReleasePayloadTests(unittest.TestCase):
         *,
         machine: int = 0x8664,
         managed: bool = False,
+        dll: bool = False,
     ) -> bytes:
         data = bytearray(0x400)
         data[:2] = b"MZ"
@@ -163,10 +167,12 @@ class Version2ReleasePayloadTests(unittest.TestCase):
         struct.pack_into("<H", data, coff + 2, 1)
         optional_size = 0xF0 if machine == 0x8664 else 0xE0
         struct.pack_into("<H", data, coff + 16, optional_size)
-        struct.pack_into("<H", data, coff + 18, 0x0022)
+        characteristics = 0x0022 | (0x2000 if dll else 0)
+        struct.pack_into("<H", data, coff + 18, characteristics)
         optional = coff + 20
         pe32_plus = machine == 0x8664
         struct.pack_into("<H", data, optional, 0x20B if pe32_plus else 0x10B)
+        struct.pack_into("<H", data, optional + 68, 0x0002)
 
         section = optional + optional_size
         data[section : section + 8] = b".text\0\0\0"
