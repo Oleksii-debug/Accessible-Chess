@@ -237,7 +237,6 @@ class RealtimeMediaPort(Protocol):
         ...
 
     def set_local_source(self, source: MediaSource, enabled: bool) -> None:
-        self._require_remote_media_security()
         ...
 
     def apply_moderation(self, commands: tuple[ModerationCommand, ...]) -> None:
@@ -250,7 +249,6 @@ class RealtimeMediaPort(Protocol):
         *,
         republish_enabled: bool,
     ) -> None:
-        self._require_remote_media_security()
         ...
 
 
@@ -400,6 +398,7 @@ class ClassroomMediaController:
         source: MediaSource | str,
         enabled: bool,
     ) -> LocalMediaState:
+        self._require_remote_media_security()
         wanted = _enum(source, MediaSource, "media source")
         if type(enabled) is not bool:
             raise ClassroomMediaError("local media enabled flag must be boolean")
@@ -599,6 +598,7 @@ class ClassroomMediaController:
         kind: MediaDeviceKind | str,
         device_id: str,
     ) -> LocalMediaState:
+        self._require_remote_media_security()
         wanted = _enum(kind, MediaDeviceKind, "media device kind")
         device = _device_id(device_id)
         self._require_connected()
