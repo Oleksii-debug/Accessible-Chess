@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 import unittest
+from unittest import mock
 
 from acs.acsdb import AcsDatabase
 from acs.analysis_service import AnalysisService
@@ -113,6 +114,77 @@ class BookBoardWorkflowTests(unittest.TestCase):
             self._workflow(reader)
 
         self.assertFalse(HostileReader.touched)
+
+    def test_constructor_rejects_engine_service_subclass_before_hooks(self) -> None:
+        reader = BookReader(
+            BookDocument(
+                title="Passive engine ingress",
+                blocks=[Position(fen=Board.START)],
+            )
+        )
+        engine = _FakeAnalysisEngine()
+        analysis = AnalysisService(lambda: engine)
+        self.addCleanup(analysis.close)
+
+        class HostileAssisted(EngineAssistedWorkflowService):
+            armed = False
+            touched = False
+
+            def __getattribute__(self, name):
+                if type(self).armed and name in {"analyze_teacher", "invalidate"}:
+                    type(self).touched = True
+                    raise AssertionError(
+                        "rejected assisted-service subclass hook must not execute"
+                    )
+                return super().__getattribute__(name)
+
+        assisted = HostileAssisted(analysis)
+        HostileAssisted.armed = True
+
+        with self.assertRaisesRegex(
+            TypeError,
+            "^engine_assistance must be EngineAssistedWorkflowService$",
+        ):
+            BookBoardWorkflow(reader, assisted)
+
+        self.assertFalse(HostileAssisted.touched)
+
+    def test_exact_reader_instance_method_shadows_cannot_replace_book_board_authority(self) -> None:
+        reader = BookReader(
+            BookDocument(
+                title="Passive Book Board reader",
+                blocks=[
+                    Position(fen=Board.START, block_id="origin"),
+                    Paragraph(text="Elsewhere", block_id="elsewhere"),
+                ],
+            )
+        )
+        workflow, engine, _analysis = self._workflow(reader)
+        touched: list[str] = []
+
+        def hostile(*_args, **_kwargs):
+            touched.append("called")
+            raise AssertionError("BookReader instance shadow must not execute")
+
+        reader.location = hostile  # type: ignore[method-assign]
+        reader.block_snapshot = hostile  # type: ignore[method-assign]
+        reader.snapshot = hostile  # type: ignore[method-assign]
+        reader.go_to = hostile  # type: ignore[method-assign]
+
+        opened = workflow.open_current()
+        self.assertEqual(opened.origin.index, 0)
+        self.assertEqual(opened.current_fen, Board.START)
+
+        # Move the externally-owned reader through the concrete authority so
+        # Return must exercise canonical snapshot/location/go_to as well.
+        BookReader.go_to(reader, 1)
+        restored = workflow.return_to_book()
+
+        self.assertEqual(restored.index, 0)
+        self.assertEqual(BookReader.location(reader).index, 0)
+        self.assertEqual(engine.calls, [])
+        self.assertEqual(touched, [])
+        self.assertFalse(workflow.active)
 
     def test_semantic_game_snapshot_is_detached_read_only_and_variation_complete(self) -> None:
         document = BookDocument(
@@ -243,15 +315,18 @@ class BookBoardWorkflowTests(unittest.TestCase):
                 position = Position(fen=Board.START, block_id="bad")
                 document = BookDocument(title="Book", blocks=[position])
                 reader = BookReader(document)
-                corrupted = reader.block_snapshot(0)
+                corrupted = BookReader.block_snapshot(reader, 0)
                 corrupted.fen = invalid_fen  # type: ignore[assignment]
-                reader.block_snapshot = (  # type: ignore[method-assign]
-                    lambda _index, block=corrupted: block
-                )
                 workflow, _engine, _analysis = self._workflow(reader)
 
-                with self.assertRaises(BookBoardWorkflowError) as caught:
-                    workflow.open_current()
+                with mock.patch.object(
+                    BookReader,
+                    "block_snapshot",
+                    autospec=True,
+                    return_value=corrupted,
+                ):
+                    with self.assertRaises(BookBoardWorkflowError) as caught:
+                        workflow.open_current()
                 self.assertEqual(
                     caught.exception.code, BookBoardWorkflowCode.INVALID_POSITION
                 )
@@ -281,15 +356,15 @@ class BookBoardWorkflowTests(unittest.TestCase):
         document = BookDocument(title="Book", blocks=[position])
         reader = BookReader(document)
         workflow, engine, _analysis = self._workflow(reader)
-        original_location = reader.location
+        original_location = BookReader.location
         first_call = True
         changed = Board()
         changed.push_text("e4")
         changed_fen = changed.fen()
 
-        def location_then_mutate():
+        def location_then_mutate(bound_reader: BookReader):
             nonlocal first_call
-            location = original_location()
+            location = original_location(bound_reader)
             if first_call:
                 first_call = False
                 position.fen = changed_fen
@@ -302,11 +377,11 @@ class BookBoardWorkflowTests(unittest.TestCase):
             canonical_inputs.append(value)
             return real_canonical(value)
 
-        reader.location = location_then_mutate  # type: ignore[method-assign]
         workflow._canonical_fen = guarded_canonical  # type: ignore[method-assign]
 
-        with self.assertRaises(BookBoardWorkflowError) as caught:
-            workflow.open_current()
+        with mock.patch.object(BookReader, "location", location_then_mutate):
+            with self.assertRaises(BookBoardWorkflowError) as caught:
+                workflow.open_current()
 
         self.assertEqual(caught.exception.code, BookBoardWorkflowCode.RETURN_FAILED)
         self.assertEqual(
@@ -323,17 +398,16 @@ class BookBoardWorkflowTests(unittest.TestCase):
         document = BookDocument(title="Book", blocks=[position])
         reader = BookReader(document)
         workflow, engine, _analysis = self._workflow(reader)
-        real_snapshot = reader.block_snapshot
+        real_snapshot = BookReader.block_snapshot
 
-        def snapshot_then_mutate(index: int):
-            block = real_snapshot(index)
+        def snapshot_then_mutate(bound_reader: BookReader, index: int):
+            block = real_snapshot(bound_reader, index)
             position.caption = "changed after indexed snapshot"
             return block
 
-        reader.block_snapshot = snapshot_then_mutate  # type: ignore[method-assign]
-
-        with self.assertRaises(BookBoardWorkflowError) as caught:
-            workflow.open_current()
+        with mock.patch.object(BookReader, "block_snapshot", snapshot_then_mutate):
+            with self.assertRaises(BookBoardWorkflowError) as caught:
+                workflow.open_current()
 
         self.assertEqual(caught.exception.code, BookBoardWorkflowCode.RETURN_FAILED)
         self.assertNotIn("BookDocument changed", str(caught.exception))
@@ -486,6 +560,36 @@ class BookBoardWorkflowTests(unittest.TestCase):
         self.assertNotIn("stockfish", result.error.lower())
         self.assertNotIn("\\", result.error)
 
+    def test_exact_engine_service_instance_method_shadows_cannot_replace_book_board_authority(self) -> None:
+        reader = BookReader(
+            BookDocument(
+                title="Passive Book Board engine service",
+                blocks=[Position(fen=Board.START, block_id="engine-authority")],
+            )
+        )
+        workflow, engine, _analysis = self._workflow(reader)
+        opened = workflow.open_current()
+        touched: list[str] = []
+
+        def hostile(*_args, **_kwargs):
+            touched.append("called")
+            raise AssertionError(
+                "EngineAssistedWorkflowService instance shadow must not execute"
+            )
+
+        workflow._engine.analyze_teacher = hostile  # type: ignore[method-assign]
+        workflow._engine.invalidate = hostile  # type: ignore[method-assign]
+
+        result = workflow.analyze(multipv=1, depth=8)
+        self.assertFalse(result.stale)
+        self.assertIsNone(result.error)
+        self.assertEqual(engine.calls, [(opened.current_fen, 1, 8)])
+
+        restored = workflow.return_to_book()
+        self.assertEqual(restored, opened.origin)
+        self.assertEqual(touched, [])
+        self.assertFalse(workflow.active)
+
     def test_navigation_during_analysis_forces_stale_application_result(self) -> None:
         reader = BookReader(
             BookDocument(
@@ -525,15 +629,13 @@ class BookBoardWorkflowTests(unittest.TestCase):
         invalidate_started = threading.Event()
         release_invalidate = threading.Event()
         return_errors: list[BaseException] = []
-        real_invalidate = workflow._engine.invalidate
+        real_invalidate = EngineAssistedWorkflowService.invalidate
 
-        def gated_invalidate() -> int:
+        def gated_invalidate(bound_service: EngineAssistedWorkflowService) -> int:
             invalidate_started.set()
             if not release_invalidate.wait(5):
                 raise RuntimeError("test did not release analysis invalidation")
-            return real_invalidate()
-
-        workflow._engine.invalidate = gated_invalidate  # type: ignore[method-assign]
+            return real_invalidate(bound_service)
 
         def return_old_session() -> None:
             try:
@@ -541,23 +643,27 @@ class BookBoardWorkflowTests(unittest.TestCase):
             except BaseException as exc:  # preserve worker failure for the main assertion
                 return_errors.append(exc)
 
-        worker = threading.Thread(target=return_old_session, daemon=True)
-        worker.start()
-        self.assertTrue(
-            invalidate_started.wait(5),
-            "return did not reach the old-context invalidation boundary",
-        )
+        with mock.patch.object(
+            EngineAssistedWorkflowService,
+            "invalidate",
+            gated_invalidate,
+        ):
+            worker = threading.Thread(target=return_old_session, daemon=True)
+            worker.start()
+            self.assertTrue(
+                invalidate_started.wait(5),
+                "return did not reach the old-context invalidation boundary",
+            )
 
-        # The invalidation callback deliberately pauses.  A non-blocking acquire
-        # from this thread must fail: otherwise a newer Book Board session could
-        # publish in this exact gap and then be invalidated by the older Return.
-        acquired_during_invalidate = workflow._lock.acquire(blocking=False)
-        if acquired_during_invalidate:
-            workflow._lock.release()
+            # The invalidation callback deliberately pauses.  A non-blocking acquire
+            # from this thread must fail: otherwise a newer Book Board session could
+            # publish in this exact gap and then be invalidated by the older Return.
+            acquired_during_invalidate = workflow._lock.acquire(blocking=False)
+            if acquired_during_invalidate:
+                workflow._lock.release()
 
-        release_invalidate.set()
-        worker.join(5)
-        workflow._engine.invalidate = real_invalidate  # type: ignore[method-assign]
+            release_invalidate.set()
+            worker.join(5)
 
         self.assertFalse(worker.is_alive())
         self.assertEqual(return_errors, [])
@@ -590,12 +696,13 @@ class BookBoardWorkflowTests(unittest.TestCase):
         before_view = workflow.view()
         reader.next_block()
         before_reader = reader.location()
-        real_invalidate = workflow._engine.invalidate
+        def failed_invalidate(_service: EngineAssistedWorkflowService) -> int:
+            raise RuntimeError("analysis invalidation unavailable")
 
-        with patch.object(
-            workflow._engine,
+        with mock.patch.object(
+            EngineAssistedWorkflowService,
             "invalidate",
-            side_effect=RuntimeError("analysis invalidation unavailable"),
+            failed_invalidate,
         ):
             with self.assertRaisesRegex(RuntimeError, "invalidation unavailable"):
                 workflow.return_to_book()
@@ -609,7 +716,6 @@ class BookBoardWorkflowTests(unittest.TestCase):
             "failed Return must roll back the hidden BookReader cursor",
         )
 
-        workflow._engine.invalidate = real_invalidate  # type: ignore[method-assign]
         restored = workflow.return_to_book()
         self.assertEqual(restored, before_view.origin)
         self.assertEqual(reader.location(), before_view.origin)
@@ -636,10 +742,13 @@ class BookBoardWorkflowTests(unittest.TestCase):
         reader.next_block()
         before_reader = reader.location()
 
-        with patch.object(
-            workflow._engine,
+        def abort_invalidate(_service: EngineAssistedWorkflowService) -> int:
+            raise AbortSignal("analysis invalidation aborted")
+
+        with mock.patch.object(
+            EngineAssistedWorkflowService,
             "invalidate",
-            side_effect=AbortSignal("analysis invalidation aborted"),
+            abort_invalidate,
         ):
             with self.assertRaises(AbortSignal):
                 workflow.return_to_book()
@@ -669,19 +778,20 @@ class BookBoardWorkflowTests(unittest.TestCase):
         workflow.open_current()
         document.blocks[0].caption = "changed after reader index"
         invalidation_calls = 0
-        real_invalidate = workflow._engine.invalidate
+        real_invalidate = EngineAssistedWorkflowService.invalidate
 
-        def counted_invalidate() -> int:
+        def counted_invalidate(bound_service: EngineAssistedWorkflowService) -> int:
             nonlocal invalidation_calls
             invalidation_calls += 1
-            return real_invalidate()
+            return real_invalidate(bound_service)
 
-        workflow._engine.invalidate = counted_invalidate  # type: ignore[method-assign]
-        try:
+        with mock.patch.object(
+            EngineAssistedWorkflowService,
+            "invalidate",
+            counted_invalidate,
+        ):
             with self.assertRaises(BookBoardWorkflowError) as caught:
                 workflow.return_to_book()
-        finally:
-            workflow._engine.invalidate = real_invalidate  # type: ignore[method-assign]
 
         self.assertEqual(caught.exception.code, BookBoardWorkflowCode.RETURN_FAILED)
         self.assertEqual(
