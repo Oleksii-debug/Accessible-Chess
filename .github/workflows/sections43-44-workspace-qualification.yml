@@ -1,0 +1,74 @@
+name: Sections 43-44 Accessible Workspace Qualification
+on:
+  pull_request:
+    branches:
+      - feature/revised-37-42-corpus-visual-20261008
+    paths:
+      - 'web/index.html'
+      - 'web/accessible_chess_web.html'
+      - 'web/assets/accessible_chess_design.css'
+      - 'web/version2_final_product_bootstrap.js'
+      - 'acs/settings.py'
+      - 'acs/stage1_release_ui.py'
+      - 'tests/test_sections43_44_native_layout_persistence.py'
+      - 'tests/js/sections43_44_workspace_contract_test.js'
+      - '.github/workflows/sections43-44-workspace-qualification.yml'
+  push:
+    branches:
+      - feature/sections43-44-workspace-skin-20261008
+  workflow_dispatch: {}
+permissions:
+  contents: read
+jobs:
+  workspace-dom:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - name: Checkout the triggering exact source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Establish exact source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          git diff --check HEAD
+      - name: Node syntax for canonical service scripts
+        run: |
+          node --check web/version2_final_product_bootstrap.js
+          node --check web/accessible_chess_web.js
+          node --check web/full_product_books_training.js
+          node --check web/full_product_library.js
+          node --check web/full_product_teacher.js
+          node --check web/full_product_education.js
+          node --check tests/js/sections43_44_workspace_contract_test.js
+      - name: Exercise real packaged HTML layout + recovery and service CSS contracts
+        run: node tests/js/sections43_44_workspace_contract_test.js
+      - name: Existing integrated Books, Library, PGN, Teacher, Classroom and Education DOM oracles
+        shell: bash
+        run: |
+          set -euo pipefail
+          for test_file in \
+            tests/js/books_training_surface_dom_test.js \
+            tests/js/library_surface_dom_test.js \
+            tests/js/pgn_surface_dom_test.js \
+            tests/js/teacher_surface_dom_test.js \
+            tests/js/classroom_surface_dom_test.js \
+            tests/js/education_surface_dom_test.js
+          do
+            node --check "$test_file"
+            node "$test_file"
+          done
+      - name: Native persistence in existing upgrade-locked Settings
+        run: |
+          python -m py_compile acs/settings.py acs/stage1_release_ui.py tests/test_sections43_44_native_layout_persistence.py
+          python -m unittest -v tests.test_sections43_44_native_layout_persistence tests.test_settings tests.test_settings_corruption_security
+      - name: Preserve real web and keyboard behavior
+        run: |
+          python -m unittest -v tests.test_accessible_webui tests.test_section34_web_client
