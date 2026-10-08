@@ -168,7 +168,7 @@ def _validate_sound_pack(product_root: Path) -> None:
         _fail("sound manifest files must be an object")
     keys = tuple(sorted(str(key) for key in mapping))
     if keys != tuple(sorted(_REQUIRED_SOUND_EVENTS)):
-        _fail("sound manifest must declare exactly the nine Stage1 events")
+        _fail("sound manifest must declare exactly all semantic sound events")
     resolved_names: set[str] = set()
     for event in SoundEvent:
         declared = mapping.get(event.value)
