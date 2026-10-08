@@ -7,6 +7,7 @@ from typing import Any
 
 from .protection_boundary import ONLINE_RUNTIME_API_VERSION, ProtectionDecision, ProtectionRuntimeClient
 from .protection_online_boundary import ProtectionOnlineClient
+from .protection_entitlement_lifecycle import ProtectionEntitlementLifecycle
 from .webapp_keymap import _asset_root
 
 
@@ -32,6 +33,7 @@ class ProtectionLockedAPI:
             self._online = None
         self._online_flow_id: str | None = None
         self._online_mode: str | None = None
+        self._lifecycle = ProtectionEntitlementLifecycle(client) if isinstance(client, ProtectionRuntimeClient) else None
 
     def bind_window(self, window: Any) -> None:
         self._window = window
@@ -93,6 +95,16 @@ class ProtectionLockedAPI:
         if not poll.completed:
             return result
 
+        # Runtime API v3 owns device enrollment, lease issue/renewal and
+        # revocation checks before the product can leave the locked shell.
+        try:
+            if self.client.runtime_api_version() >= 3 and self._lifecycle is not None:
+                lifecycle = self.synchronize_online_entitlement()
+                lifecycle["mode"] = self._online_mode
+                return lifecycle
+        except Exception as exc:
+            return {"ok": False, "authorized": False, "error": str(exc)}
+
         try:
             decision = self.client.evaluate()
         except Exception as exc:
@@ -122,6 +134,39 @@ class ProtectionLockedAPI:
             return {"ok": True}
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
+
+    def synchronize_online_entitlement(self) -> dict[str, object]:
+        if self._lifecycle is None:
+            return {"ok": False, "error": "online entitlement lifecycle is unavailable"}
+        try:
+            snapshot = self._lifecycle.synchronize()
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+        result: dict[str, object] = {
+            "ok": True,
+            "state": snapshot.state,
+            "reason": snapshot.reason,
+            "actions": list(snapshot.actions),
+            "live_region": snapshot.live_region,
+            "retry_after_seconds": snapshot.retry_after_seconds,
+            "lease_remaining_seconds": snapshot.lease_remaining_seconds,
+            "premium_allowed": snapshot.premium_allowed,
+        }
+        if snapshot.premium_allowed:
+            try:
+                decision = self.client.evaluate()
+            except Exception as exc:
+                return {"ok": False, "error": str(exc)}
+            self.decision = decision
+            if decision.authorized:
+                self.authorized = True
+                result["authorized"] = True
+                destroy = getattr(self._window, "destroy", None)
+                if callable(destroy):
+                    destroy()
+                return result
+        result["authorized"] = False
+        return result
 
     def retry(self) -> dict[str, object]:
         try:
