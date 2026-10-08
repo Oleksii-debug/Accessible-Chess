@@ -37,6 +37,25 @@ The private API v5 implementation and a real commercial vendor backend are
 **not** deployed in this public PR. This is a product-side contract candidate,
 not proof of working machine/cloud/hardware/enterprise provider access.
 
+## R65 server-side paid operation dispatch (prepared)
+
+The existing canonical acs.server_application_boundary.ServerApplicationBoundary
+now supports per-operation trusted-server paid authorization, without creating
+a second subscription issuer or reading browser "paid" flags. Paid operations
+are explicitly registered by a trusted server as premium_required=True.
+Missing authoritative premium_guard prevents that server configuration from
+starting. The guard executes after principal/workspace/permission validation
+but before a synchronous handler's side effects; only literal True proceeds.
+Exceptions, truthy impostors, or no guard fail closed. Heavy queued premium
+operations are refused until the worker-time entitlement/UNKNOWN reconciliation
+boundary exists, so an authorized enqueue cannot become an unverified
+post-expiry execution. Existing nonpremium operations retain their behavior.
+
+The trusted callback must be backed by the pre-existing continuum R63/R64/R65
+subscription/billing/quota authorities and durable production stores. The
+public product does **not** synthesize that backend, issue paid receipts,
+implement a billing provider, or declare LIVE server deployment.
+
 ## R53–R62 and R63–R72
 
 The neutral source components are terminally closed in continuum-runtime
