@@ -5,6 +5,9 @@
   const onlineLogin = document.getElementById('online-login');
   const onlineRegister = document.getElementById('online-register');
   const onlineCheck = document.getElementById('online-check');
+  const securityNoticeSummary = document.getElementById('security-notice-summary');
+  const securityConsentAccept = document.getElementById('security-consent-accept');
+  const securityConsentDecline = document.getElementById('security-consent-decline');
 
   const announce = (text) => { status.textContent = text; };
 
@@ -24,17 +27,50 @@
         onlineLogin.disabled = false;
         onlineRegister.disabled = false;
         onlineCheck.disabled = false;
+        try {
+          const notice = await bridge.security_notice();
+          if (notice.ok) {
+            securityNoticeSummary.textContent = notice.summary;
+            securityConsentAccept.disabled = false;
+            securityConsentDecline.disabled = false;
+          }
+        } catch (_error) {
+          securityConsentAccept.disabled = true;
+          securityConsentDecline.disabled = true;
+        }
         onlineLogin.focus();
       } else {
         onlineLogin.disabled = true;
         onlineRegister.disabled = true;
         onlineCheck.disabled = true;
+        securityConsentAccept.disabled = true;
+        securityConsentDecline.disabled = true;
         document.getElementById('make-request').focus();
       }
     } catch (error) {
       announce(String(error));
     }
   });
+
+  const setSecurityConsent = async (granted) => {
+    try {
+      const bridge = await api();
+      const value = await bridge.set_security_consent(granted);
+      if (!value.ok) {
+        announce('Не вдалося змінити згоду: ' + value.error);
+        return;
+      }
+      securityNoticeSummary.textContent = value.summary;
+      announce(granted
+        ? 'Згоду на діагностику безпеки збережено.'
+        : 'Згоду на діагностику безпеки відкликано.');
+    } catch (error) {
+      announce(String(error));
+    }
+  };
+
+  securityConsentAccept.addEventListener('click', () => setSecurityConsent(true));
+  securityConsentDecline.addEventListener('click', () => setSecurityConsent(false));
 
   const beginOnline = async (kind) => {
     try {
