@@ -89,6 +89,16 @@ class CloudProviderTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(provider.capabilities.supports_private_data)
         self.assertFalse(provider.capabilities.supports_hard_cancellation)
 
+    async def test_cloud_cannot_make_network_call_without_explicit_authorization(self):
+        route = CloudChatProvider(
+            provider_id="mistral", default_model="test-model",
+            client_factory=lambda **kw: self.fail("network must not start"),
+        )
+        with self.assertRaises(ModelGatewayError) as ctx:
+            await route.complete(request())
+        self.assertEqual(ctx.exception.code, ModelErrorCode.UNAVAILABLE)
+        self.assertEqual(len(self.seen), 0)
+
     async def test_missing_key_preflight_fallback_to_other_provider(self):
         with patch.dict(os.environ, {"MISTRAL_API_KEY": ""}):
             gateway = ModelGateway()
