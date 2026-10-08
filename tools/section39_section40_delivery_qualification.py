@@ -155,7 +155,7 @@ def qualify_built_delivery(test_path: Path, public_path: Path,
             raise LawfulCorpusError("genuine Section37 advanced source did not enter both packages")
     uncleared_ids = {e["id"] for e in catalogue.values()
                      if e.get("redistribution") != "permitted"
-                     or e.get("public_release", "EXCLUDED") == "EXCLUDED"}
+                     or e.get("public_release") in ("EXCLUDED", "EXCLUDED_PENDING_QUALIFICATION")}
     public_source_ids = {row["id"] for row in publish["materials"]}
     if public_source_ids & uncleared_ids:
         raise LawfulCorpusError("uncleared original source entered public offline package")
