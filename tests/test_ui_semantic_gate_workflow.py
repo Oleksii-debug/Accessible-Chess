@@ -25,8 +25,10 @@ class UiSemanticGateWorkflowTests(unittest.TestCase):
 
     def test_live_full_product_is_push_and_pull_request_authority(self) -> None:
         current = "work/full-product-teacher-education-reachability-20260911"
+        shipping = "converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb"
         for block in self._trigger_blocks():
             self.assertIn(current, block)
+            self.assertIn(shipping, block)
         for stale in (
             "dev/stage1-nvda-userflow-0.4.0",
             "dev/stage1-nvda-userflow-0.4.0-r9",
