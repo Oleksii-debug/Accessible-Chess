@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import json
 import unittest
+from decimal import Decimal
+from acs.agent_budget import ModelCostBudget
 
 from acs.agent_model_contracts import (
     ModelErrorCode, ModelFailureEffect, ModelGatewayError, ModelResponse,
@@ -96,6 +98,54 @@ class AgentFallbackIntegration(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(raised.exception.code, ModelErrorCode.INVALID_REQUEST)
         self.assertEqual(first.calls, 0)
         self.assertEqual(second.calls, 0)
+
+    async def test_unknown_effect_reserves_estimated_unbilled_budget(self):
+        primary = FixtureProvider(
+            "mistral", effect=ModelFailureEffect.UNKNOWN,
+            code=ModelErrorCode.RATE_LIMITED,
+        )
+        backup = FixtureProvider("groq")
+        gateway = ModelGateway()
+        gateway.register(primary)
+        gateway.register(backup)
+        budget = ModelCostBudget(Decimal("0.01"))
+        agent = UniversalChessAgentRuntime(
+            gateway=gateway, tools=ToolExecutor(), provider_id="mistral",
+            product_instruction="Explain only verified positions.",
+            budget=budget,
+            policy=AgentRunPolicy(
+                privacy=PrivacyClass.PUBLIC,
+                fallback_provider_ids=("groq",),
+                max_steps=2, max_model_calls=2,
+                estimated_cost_per_model_call=Decimal("0.01"),
+            ),
+        )
+        with self.assertRaises(ModelGatewayError):
+            await agent.run(run_id="uncertain-budget", user_text="Analyze.")
+        snapshot = budget.snapshot()
+        self.assertEqual(snapshot.estimated_unbilled, Decimal("0.01"))
+        self.assertEqual(snapshot.available, Decimal("0"))
+        self.assertEqual(backup.calls, 0)
+
+    async def test_proven_no_effect_releases_budget_on_failure(self):
+        primary = FixtureProvider("mistral", code=ModelErrorCode.UNAVAILABLE)
+        gateway = ModelGateway()
+        gateway.register(primary)
+        budget = ModelCostBudget(Decimal("0.02"))
+        agent = UniversalChessAgentRuntime(
+            gateway=gateway, tools=ToolExecutor(), provider_id="mistral",
+            product_instruction="Read chess tools only.",
+            budget=budget,
+            policy=AgentRunPolicy(
+                privacy=PrivacyClass.PUBLIC,
+                estimated_cost_per_model_call=Decimal("0.02"),
+            ),
+        )
+        with self.assertRaises(ModelGatewayError):
+            await agent.run(run_id="safe-refund", user_text="Position.")
+        snapshot = budget.snapshot()
+        self.assertEqual(snapshot.estimated_unbilled, Decimal("0"))
+        self.assertEqual(snapshot.available, Decimal("0.02"))
 
     def test_invalid_or_ambiguous_routes_are_rejected_at_policy_boundary(self):
         for routes in (("groq", "groq"), ("",), ("has\nlinebreak",), tuple("x" for _ in range(9))):
