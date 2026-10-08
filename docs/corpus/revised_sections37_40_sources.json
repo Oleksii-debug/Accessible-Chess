@@ -151,6 +151,36 @@
       "acquisition": "SOURCE_PAGE_ONLY",
       "canonical_qa": "Polish BookDocument Unicode/language regression after lawful download",
       "notes": "Official Gutenberg entry explicitly labels this Polish-language edition COPYRIGHTED; no public-domain assertion, download, import or redistribution permission claimed"
+    },
+    {
+      "id": "lichess_official_puzzles_fen_csv",
+      "title": "Lichess official rated puzzle positions",
+      "author": "Lichess puzzle contributors",
+      "format": "csv.zst (FEN/UCI puzzles)",
+      "source_page": "https://database.lichess.org/",
+      "download_url": null,
+      "sha256": null,
+      "max_bytes": 0,
+      "license": "CC0 per official Lichess open database",
+      "redistribution": "NOT_CLEARED",
+      "acquisition": "SOURCE_PAGE_ONLY",
+      "canonical_qa": "existing Position/FEN and Training services after pinned and bounded real-file acquisition",
+      "notes": "Official landing page offers lichess_db_puzzle.csv.zst and specifies FEN is BEFORE opponent's first move; no source bytes or hash acquired in this pass; NOT a PGN or direct training-import PASS; cache and publication require separate pinned-source authorization."
+    },
+    {
+      "id": "lichess_official_broadcast_pgn",
+      "title": "Lichess official broadcast tournament PGN corpus",
+      "author": "Lichess Broadcast and individual rightsholders",
+      "format": "pgn.zst (annotated broadcasts)",
+      "source_page": "https://database.lichess.org/",
+      "download_url": null,
+      "sha256": null,
+      "max_bytes": 0,
+      "license": "CC BY-SA 4.0 per official Lichess Broadcast corpus notice",
+      "redistribution": "NOT_CLEARED",
+      "acquisition": "SOURCE_PAGE_ONLY",
+      "canonical_qa": "existing PGN/GameTree/Library parser after explicit attribution/rights and exact-hash acquisition",
+      "notes": "Official historical monthly broadcast PGN corpus; CC BY-SA is NOT CC0. No download, hash, complete real-game parse or attribution package is claimed."
     }
   ]
 }
