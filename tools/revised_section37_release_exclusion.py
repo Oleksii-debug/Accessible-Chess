@@ -40,6 +40,13 @@ def excluded_public_source_index(records: tuple[dict, ...]) -> dict:
             continue
         direct = entry.get("external_checkout_path") or entry.get("local_source")
         if type(direct) is str:
+            if (
+                not direct or direct.startswith("/")
+                or "\\" in direct or ":" in direct
+                or any(ord(ch) < 32 for ch in direct)
+                or any(part in (".", "..") for part in direct.split("/"))
+            ):
+                raise LawfulCorpusError("excluded original source path unsafe")
             p = PurePosixPath(direct)
             if p.name and p.name != ".":
                 bad_names[p.name.casefold()] = identity
