@@ -229,6 +229,43 @@ def build_section40_windows_test_package(
                     or receipt.get("redistribution") != "permitted"
                 ):
                     raise OfflineCollectionError("bilingual real-master workbook changed in Windows test package")
+        # Owner accessibility: the tested real EPUB3/DOCX/HTML/TXT/Markdown
+        # originals must ALSO exist as individual ready-to-open files in the
+        # disposable QA package. A blind owner should not have to unpack a
+        # nested ZIP or manually synthesize the initial test corpus.
+        # Reuse the same SHA-qualified ten-file native Books assets checked
+        # above; do not unpack arbitrary ZIP members or write to owner state.
+        ready_books = materials / "READY_TO_OPEN_BOOKS"
+        ready_books.mkdir()
+        qualified_names = set()
+        for filename, source_bytes in sorted(real_native_books.items()):
+            basename = Path(filename).name
+            if (basename != filename or basename in {"", ".", ".."}
+                or basename.casefold() in qualified_names
+                or len(source_bytes) > 8 * 1024 * 1024):
+                raise OfflineCollectionError("unsafe prequalified ready-book identity")
+            qualified_names.add(basename.casefold())
+            with (ready_books / basename).open("xb") as handle:
+                handle.write(source_bytes)
+            readback = (ready_books / basename).read_bytes()
+            if (readback != source_bytes
+                or hashlib.sha256(readback).hexdigest() !=
+                    hashlib.sha256(source_bytes).hexdigest()):
+                raise OfflineCollectionError("ready-to-open original book readback failed")
+        if len(qualified_names) != 10:
+            raise OfflineCollectionError("all ten real ready-to-open Books are required")
+        (ready_books / "READ_FIRST_UK.txt").write_text(
+            "Ці 10 шахових файлів підготовлено для відкриття штатною функцією Книги.\\n"
+            "Виберіть потрібний EPUB3, HTML, DOCX, TXT або Markdown без ручного розпакування ZIP.\\n"
+            "Файли українською й англійською; кожний перевірено за оригінальним SHA-256.\\n",
+            encoding="utf-8",
+        )
+        (ready_books / "READ_FIRST_EN.txt").write_text(
+            "Ten ready-to-open chess files for the existing Books feature.\\n"
+            "Choose EPUB3, HTML, DOCX, TXT or Markdown without unzipping the test collection.\\n"
+            "Ukrainian and English files retain exact verified SHA-256 bytes.\\n",
+            encoding="utf-8",
+        )
         copied_checksum = hashlib.sha256(copied.read_bytes()).hexdigest()
         if original_checksum != copied_checksum:
             raise OfflineCollectionError("copied offline corpus ZIP checksum differs")
@@ -288,6 +325,7 @@ def build_section40_windows_test_package(
             "zip_sha256": hashlib.sha256(output_zip.read_bytes()).hexdigest(),
             "bundled_offline_collection_sha256": copied_checksum,
             "section37_native_bilingual_books_verified": 10,
+            "ready_to_open_native_book_files": 10,
             "section37_authentic_advanced_lessons": 12,
             "section37_workbook_source_sha256": actual_source["workbook_source_sha256"],
             "bilingual_test_instructions": True,
