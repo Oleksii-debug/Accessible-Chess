@@ -50,7 +50,31 @@
   workspace.setAttribute("aria-live", "off");
   workspace.hidden = true;
 
+  // Sections 43-44: UI-only layout controls follow the existing semantic
+  // navigation, never the product snapshot or native command owner.
+  const workspaceLayout = documentRef.createElement("div");
+  workspaceLayout.id = "ac43-product-layout";
+  workspaceLayout.hidden = true;
+  const workspaceLayoutLabel = documentRef.createElement("label");
+  workspaceLayoutLabel.htmlFor = "ac43-product-mode";
+  const workspaceLayoutMode = documentRef.createElement("select");
+  workspaceLayoutMode.id = "ac43-product-mode";
+  for (const [value, uk, en] of [
+    ["comfortable", "Звичайний вигляд", "Comfortable layout"],
+    ["compact", "Компактний вигляд", "Compact layout"],
+    ["reading", "Великий текст і читання", "Large text and reading"]
+  ]) {
+    const choice = documentRef.createElement("option");
+    choice.value = value;
+    choice.dataset.uk = uk;
+    choice.dataset.en = en;
+    workspaceLayoutMode.appendChild(choice);
+  }
+  workspaceLayout.appendChild(workspaceLayoutLabel);
+  workspaceLayout.appendChild(workspaceLayoutMode);
+
   originalMain.parentNode.insertBefore(nav, originalMain);
+  originalMain.parentNode.insertBefore(workspaceLayout, originalMain);
   originalMain.parentNode.insertBefore(workspace, originalMain);
 
   const selectionStyle = documentRef.createElement("style");
@@ -255,6 +279,65 @@
   });
 
   const productRoutes = new Set(["pgn", "library", "books", "training", "teacher", "classes"]);
+
+  // A durable presentation preference per existing route. Fail closed on
+  // inaccessible/corrupt storage and never write application/position data.
+  const layoutStorageKey = "accessible-chess.product-layout.v1";
+  const productModeValues = new Set(["comfortable", "compact", "reading"]);
+  function readProductLayouts() {
+    try {
+      const storage = global.localStorage;
+      const source = storage && storage.getItem(layoutStorageKey);
+      if (!source || source.length > 1024) return {};
+      const parsed = JSON.parse(source);
+      if (!parsed || parsed.version !== 1 ||
+          !parsed.routes || typeof parsed.routes !== "object" ||
+          Array.isArray(parsed.routes)) return {};
+      const routes = {};
+      for (const route of productRoutes) {
+        if (productModeValues.has(parsed.routes[route])) {
+          routes[route] = parsed.routes[route];
+        }
+      }
+      return routes;
+    } catch (_) {
+      return {};
+    }
+  }
+  const productLayouts = readProductLayouts();
+  function persistProductLayouts() {
+    try {
+      if (global.localStorage) {
+        global.localStorage.setItem(layoutStorageKey, JSON.stringify({
+          version: 1, routes: productLayouts
+        }));
+      }
+    } catch (_) {}
+  }
+  function applyProductLayout(routeId, language) {
+    const active = productRoutes.has(routeId);
+    workspaceLayout.hidden = !active;
+    if (!active) {
+      workspace.removeAttribute("data-ac43-presentation");
+      return;
+    }
+    workspaceLayoutLabel.textContent = uiTextFor(language, "Вигляд розділу", "Workspace layout");
+    for (const option of workspaceLayoutMode.options) {
+      option.textContent = language === "en" ? option.dataset.en : option.dataset.uk;
+    }
+    const mode = productModeValues.has(productLayouts[routeId])
+      ? productLayouts[routeId] : "comfortable";
+    workspaceLayoutMode.value = mode;
+    workspace.dataset.ac43Presentation = mode;
+  }
+  workspaceLayoutMode.addEventListener("change", function () {
+    if (!productRoutes.has(currentRouteId)) return;
+    const mode = workspaceLayoutMode.value;
+    if (!productModeValues.has(mode)) return;
+    productLayouts[currentRouteId] = mode;
+    workspace.dataset.ac43Presentation = mode;
+    persistProductLayouts();
+  });
 
   function emptyStatusId(routeId) {
     return productRoutes.has(routeId) ? "v2-" + routeId + "-empty-status" : "";
@@ -842,6 +925,7 @@
     navHeading.textContent = uiTextFor(language, "Розділи", "Sections");
     navList.replaceChildren(navigationState.fragment);
     currentRouteId = routeId;
+    applyProductLayout(routeId, language);
     if (typeof global.showStage1Route === "function") global.showStage1Route(routeId);
   }
 
