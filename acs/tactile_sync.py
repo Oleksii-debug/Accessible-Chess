@@ -11,6 +11,7 @@ behind TactileDisplayPort.
 from dataclasses import dataclass
 from enum import Enum
 from threading import RLock
+from typing import Callable
 
 from .book_board_workflow import BookBoardView, BookBoardWorkflow
 from .pgn_workspace import PgnWorkspace
@@ -74,7 +75,12 @@ class TactileSyncSnapshot:
 class TactileSyncController:
     """Bind PGN, Books, Training and Position state to the Section-8 controller."""
 
-    def __init__(self, graphics: TactileGraphicsController) -> None:
+    def __init__(
+        self,
+        graphics: TactileGraphicsController,
+        *,
+        product_security_guard: Callable[[str], None] | None = None,
+    ) -> None:
         if not isinstance(graphics, TactileGraphicsController):
             raise TypeError("graphics must be TactileGraphicsController")
         if product_security_guard is not None and not callable(product_security_guard):
