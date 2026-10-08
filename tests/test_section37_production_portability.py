@@ -127,7 +127,7 @@ class Section37ProductionPortabilityTests(unittest.TestCase):
                 }],
             }
             with zipfile.ZipFile(archive, "w") as zf:
-                zf.writestr("manifest.json", (json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\\n").encode())
+                zf.writestr("manifest.json", (json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n").encode())
                 zf.writestr(f"data/{relative}", payload)
             with self.assertRaisesRegex(UserDataArchiveError, "unsafe|Windows-portable"):
                 validate_user_data_archive(archive, expected_kind=BundleKind.PORTABLE)
