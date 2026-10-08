@@ -201,7 +201,44 @@ def qualify_original_publisher_pair(
     }
 
 
+def main() -> None:
+    """Only a publisher-source observation; never grant a generic CBV PASS."""
+    target = Path("section38-39-nw-chess-real-cbv-source-observation.json")
+    target.unlink(missing_ok=True)
+    binary = os.environ.get("ACS_CBVAULT_MIT_BINARY")
+    if not binary:
+        raise LawfulCorpusError("MIT original-source CBV QA binary not provided")
+    digest, _size = _bounded_file_digest(
+        Path(binary), max_bytes=120 * 1024 * 1024
+    )
+    report = qualify_original_publisher_pair(
+        binary=Path(binary), expected_binary_sha256=digest
+    )
+    staging = target.with_suffix(".tmp")
+    try:
+        staging.write_text(
+            json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        os.replace(staging, target)
+    finally:
+        staging.unlink(missing_ok=True)
+    print(json.dumps({
+        "original_game_count": report["pgn_expected_games"],
+        "decoded_game_count": report["cbv_decoder_actual_games"],
+        "same_game_count": report["same_game_count"],
+        "semantic_equal": report["full_semantic_game_tree_match"],
+        "source_pin_preexisting": False,
+        "section38_done": False,
+        "section39_done": False,
+    }, sort_keys=True))
+
+
 __all__ = [
     "PUBLISHER", "CBV_URL", "PGN_URL", "_qualified_url",
     "_read_publisher_source", "qualify_original_publisher_pair",
 ]
+
+
+if __name__ == "__main__":
+    main()
