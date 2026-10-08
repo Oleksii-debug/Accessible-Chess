@@ -113,6 +113,35 @@ class R51ProductVendorGateTests(unittest.TestCase):
                 expected_build_sha256=self.source_sha,
             )
 
+    def test_replaced_reviewer_file_between_metadata_and_open_is_rejected(self):
+        from unittest.mock import patch
+
+        trusted_sha = digest(self.keys.read_bytes())
+        replacement = self.root / "substituted-reviewer-keys.json"
+        replacement.write_text(json.dumps({
+            "schema_version": 1,
+            "reviewer_public_keys": {"substituted-reviewer": "0" * 64},
+        }), encoding="utf-8")
+        original_open = Path.open
+        swapped = []
+
+        def swap_at_open(path, *args, **kwargs):
+            if path == self.keys and not swapped:
+                replacement.replace(self.keys)
+                swapped.append(True)
+            return original_open(path, *args, **kwargs)
+
+        with patch.object(Path, "open", swap_at_open):
+            with self.assertRaisesRegex(ProductEvidenceError, "EVIDENCE_FILE_MUTATED"):
+                assess_product_vendor(
+                    artifact=self.artifact,
+                    proof_file=self.proof,
+                    approved_reviewers=self.keys,
+                    approved_reviewers_sha256=trusted_sha,
+                    expected_build_sha256=self.source_sha,
+                )
+        self.assertEqual(swapped, [True])
+
     def test_stale_or_revoked_review_is_inconclusive(self):
         for name in ("stale", "revoked"):
             self.report[name] = True
