@@ -89,12 +89,39 @@ async function testLocal(page, filePath) {
   await page.waitForFunction(() => document.querySelector("#real-media-video").readyState >= 2);
   status = await page.locator("#real-media-status").innerText();
   assert(!status.includes("не підтримується"), "reopen failed");
+
+  // Genuine Chromium negative state: malformed bytes carrying a WebM extension
+  // must fail playback, not masquerade as a recognized board position.
+  await page.locator("#real-media-file").setInputFiles({
+    name: "deliberately-corrupt.webm",
+    mimeType: "video/webm",
+    buffer: Buffer.from("THIS_IS_NOT_EBML_AND_NOT_A_VIDEO"),
+  });
+  await page.waitForFunction(() => document.querySelector("#real-media-video").error !== null,
+    null, { timeout: 15000 });
+  status = await page.locator("#real-media-status").innerText();
+  assert(status.includes("не підтримується"), "real browser codec error not announced");
   return { evidence_class: "REAL_BROWSER_LOCAL_FILE", status: "PASS",
-    filename: path.basename(filePath), initial, final, reopen: "PASS" };
+    filename: path.basename(filePath), initial, final, reopen: "PASS",
+    malformed_codec_rejected: true };
 }
 async function testYouTube(page, id) {
   assert(/^[A-Za-z0-9_-]{11}$/.test(id), "invalid source ID");
-  await page.locator("#real-youtube-url").fill("https://www.youtube.com/watch?v=" + id);
+  const input = page.locator("#real-youtube-url");
+  await input.fill("https://youtube.com.bad-actor.example/watch?v=" + id);
+  await page.locator("#real-youtube-open").click();
+  assert((await page.locator("#real-youtube-status").innerText()).includes("Невірне"),
+    "untrusted YouTube host was accepted");
+  await page.context().setOffline(true);
+  try {
+    await input.fill(id);
+    await page.locator("#real-youtube-open").click();
+    assert((await page.locator("#real-youtube-status").innerText()).includes("Немає мережі"),
+      "Chromium offline state not handled accessibly");
+  } finally {
+    await page.context().setOffline(false);
+  }
+  await input.fill("https://www.youtube.com/watch?v=" + id);
   await page.locator("#real-youtube-open").click();
   await page.waitForFunction(() => {
     const text = document.querySelector("#real-youtube-status").textContent;
