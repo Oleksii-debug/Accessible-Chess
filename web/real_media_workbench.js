@@ -52,7 +52,7 @@
     };
   }
   function publishLocal(state) {
-    if (!state.localUrl) return;
+    if (state.disposed || !state.localUrl) return;
     const s = localSnapshot(state);
     const time = s.positionMs === null ? "?" : (s.positionMs / 1000).toFixed(1);
     const duration = s.durationMs === null ? "?" : (s.durationMs / 1000).toFixed(1);
@@ -76,6 +76,7 @@
     state.localId = null;
   }
   function openLocal(state, file) {
+    if (state.disposed) return false;
     if (!file || typeof file !== "object" ||
         typeof file.name !== "string" || !/\.(mp4|webm)$/i.test(file.name) ||
         !Number.isSafeInteger(file.size) || file.size < 1 || file.size > MAX_LOCAL_BYTES ||
@@ -165,6 +166,7 @@
     return state.apiPromise;
   }
   async function openYouTube(state) {
+    if (state.disposed) return false;
     const input = required(state.root, "#real-youtube-url");
     const api = global.AccessibleChessYouTubeIframePlayback;
     if (!api || typeof api.parseVideoId !== "function") {
@@ -213,6 +215,7 @@
     }
   }
   function youtubeCommand(state, action) {
+    if (state.disposed) return;
     if (!state.youtube) { ytStatus(state, "Спочатку відкрийте YouTube відео."); return; }
     try {
       if (action === "play") state.youtube.play();
@@ -268,18 +271,21 @@
     });
     required(root, "#real-media-rate").addEventListener("change", function (event) {
       const rate = Number(event.target.value);
-      if ([0.5, 0.75, 1, 1.25, 1.5, 2].includes(rate)) state.video.playbackRate = rate;
+      if (!state.disposed && [0.5, 0.75, 1, 1.25, 1.5, 2].includes(rate)) {
+        state.video.playbackRate = rate;
+        publishLocal(state);
+      }
     });
     required(root, "#real-media-volume").addEventListener("change", function (event) {
       const vol = Number(event.target.value);
-      if (Number.isFinite(vol) && vol >= 0 && vol <= 100) state.video.volume = vol / 100;
+      if (!state.disposed && Number.isFinite(vol) && vol >= 0 && vol <= 100) state.video.volume = vol / 100;
     });
     required(root, "#real-media-rewind").addEventListener("click", function () {
-      if (state.localUrl && secondsMs(state.video.currentTime) !== null)
+      if (!state.disposed && state.localUrl && secondsMs(state.video.currentTime) !== null)
         state.video.currentTime = Math.max(0, state.video.currentTime - 10);
     });
     required(root, "#real-media-forward").addEventListener("click", function () {
-      if (state.localUrl && secondsMs(state.video.currentTime) !== null)
+      if (!state.disposed && state.localUrl && secondsMs(state.video.currentTime) !== null)
         state.video.currentTime = Math.min(Number.isFinite(state.video.duration) ?
           state.video.duration : state.video.currentTime + 10, state.video.currentTime + 10);
     });
@@ -325,7 +331,8 @@
         global.clearInterval(state.interval);
         if (state.youtube) { state.youtube.destroy(); state.youtube = null; }
         disposeLocal(state);
-        states.delete(root);
+        // Keep the WeakMap guard: DOM listeners exist until document teardown.
+        // Never allow remounting the same node with duplicate stale listeners.
         return true;
       },
     });
