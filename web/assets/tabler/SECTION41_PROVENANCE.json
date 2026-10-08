@@ -29,8 +29,11 @@
       "upstream": "https://github.com/tabler/tabler",
       "release_tag": "@tabler/core@1.6.1",
       "license": "MIT",
-      "integration_status": "NOT_INSTALLED_NO_CLAIM",
-      "scope": "Use only explicitly reviewed isolated components; never import all bundled dist/libs automatically"
+      "integration_status": "REVIEWED_CSS_COMPONENT_ONLY",
+      "scope": "Use only explicitly reviewed isolated components; never import all bundled dist/libs automatically",
+      "source_commit": "ec33733290bd0f314ca19f6be58bc69a6ab3e4fa",
+      "source_component": "core/scss/layout/_accessibility.scss",
+      "reviewer_note": "Only original pinned MIT accessibility SCSS manually compiled to dependency-free CSS; full Tabler Core/Bootstrap JS not installed."
     }
   },
   "prohibited": [
