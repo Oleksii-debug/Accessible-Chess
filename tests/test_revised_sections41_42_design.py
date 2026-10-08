@@ -80,6 +80,8 @@ class RevisedBoardDesignTests(unittest.TestCase):
                      ":focus-visible", "outline-offset:3px"):
             self.assertIn(text, self.html)
         self.assertIn("grid-template-columns:repeat(8,minmax(0,1fr))", self.html)
+        self.assertIn("width:100%;max-width:52rem", self.html)
+        self.assertIn("max-width:'+String(52*p.scalePercent/100)+'rem", self.html)
         self.assertIn("node.setAttribute('aria-label',cell.label)", self.html)
         self.assertNotIn("localStorage.setItem", self.html)
 
