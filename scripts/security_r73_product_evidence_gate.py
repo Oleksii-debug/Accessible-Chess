@@ -10,8 +10,10 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
+import stat
 import time
 
 from continuum_runtime.protection_convergence import (
@@ -62,13 +64,48 @@ def _sha256_file(path: Path, *, maximum: int) -> str:
         raise ProductEvidenceError("FILE_UNAVAILABLE") from None
 
 
-def _strict_json(path: Path, *, maximum: int) -> dict:
+def _strict_json(
+    path: Path, *, maximum: int,
+    expected_sha256: str | None = None,
+    mismatch_code: str = "EVIDENCE_DIGEST_MISMATCH",
+) -> dict:
+    """Parse exactly the regular-file bytes whose digest was authenticated.
+
+    Do not hash one path lookup and parse another: swapping an independently
+    pinned verifier-key inventory between those reads would replace trust.
+    Both identity and content are checked on the same opened file snapshot.
+    """
+    if type(path) is not Path and not isinstance(path, Path):
+        raise ProductEvidenceError("EVIDENCE_FILE_UNSAFE")
+    if type(maximum) is not int or maximum <= 0:
+        raise ProductEvidenceError("EVIDENCE_LIMIT_INVALID")
+    if expected_sha256 is not None and (
+        type(expected_sha256) is not str
+        or not _HEX64.fullmatch(expected_sha256)
+    ):
+        raise ProductEvidenceError("EVIDENCE_DIGEST_INVALID")
     try:
-        if path.is_symlink() or not path.is_file() or path.stat().st_size > maximum:
-            raise ProductEvidenceError("EVIDENCE_FILE_UNSAFE")
-        data = path.read_bytes()
-        if len(data) > maximum:
-            raise ProductEvidenceError("EVIDENCE_OVERSIZED")
+        before = path.lstat()
+        if not stat.S_ISREG(before.st_mode) or not 0 < before.st_size <= maximum:
+            raise ProductEvidenceError("FILE_MISSING_OR_UNSAFE")
+        with path.open("rb") as handle:
+            opened = os.fstat(handle.fileno())
+            if not stat.S_ISREG(opened.st_mode) or not os.path.samestat(before, opened):
+                raise ProductEvidenceError("EVIDENCE_FILE_MUTATED")
+            data = handle.read(maximum + 1)
+            after_open = os.fstat(handle.fileno())
+        after_path = path.lstat()
+        if (len(data) != before.st_size or len(data) > maximum
+                or not os.path.samestat(before, after_open)
+                or not os.path.samestat(before, after_path)
+                or (before.st_mtime_ns, before.st_ctime_ns)
+                   != (after_open.st_mtime_ns, after_open.st_ctime_ns)
+                or (before.st_mtime_ns, before.st_ctime_ns)
+                   != (after_path.st_mtime_ns, after_path.st_ctime_ns)):
+            raise ProductEvidenceError("EVIDENCE_FILE_MUTATED")
+        if (expected_sha256 is not None
+                and hashlib.sha256(data).hexdigest() != expected_sha256):
+            raise ProductEvidenceError(mismatch_code)
 
         def pairs(values):
             result = {}
@@ -91,7 +128,6 @@ def _strict_json(path: Path, *, maximum: int) -> dict:
         raise ProductEvidenceError("EVIDENCE_OBJECT_REQUIRED")
     return obj
 
-
 def _digest_arg(value: str, label: str) -> str:
     if type(value) is not str or not _HEX64.fullmatch(value):
         raise ProductEvidenceError(label + "_DIGEST_INVALID")
@@ -109,10 +145,11 @@ def assess_product_release(
     _digest_arg(scope_sha256, "SCOPE")
     _digest_arg(residual_risks_sha256, "RESIDUAL_RISKS")
     artifact_sha256 = _sha256_file(artifact, maximum=_MAX_ARTIFACT)
-    trust_sha256 = _sha256_file(approved_keys, maximum=_MAX_TRUST)
-    if trust_sha256 != approved_keys_sha256:
-        raise ProductEvidenceError("INDEPENDENT_VERIFIER_KEY_INVENTORY_MISMATCH")
-    trusted = _strict_json(approved_keys, maximum=_MAX_TRUST)
+    trusted = _strict_json(
+        approved_keys, maximum=_MAX_TRUST,
+        expected_sha256=approved_keys_sha256,
+        mismatch_code="INDEPENDENT_VERIFIER_KEY_INVENTORY_MISMATCH",
+    )
     if set(trusted) != {"schema_version", "verifier_public_keys"} or type(trusted["schema_version"]) is not int or trusted["schema_version"] != 1:
         raise ProductEvidenceError("INDEPENDENT_VERIFIER_KEY_INVENTORY_INVALID")
     raw_keys = trusted["verifier_public_keys"]
