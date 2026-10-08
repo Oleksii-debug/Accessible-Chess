@@ -837,6 +837,32 @@
       "acquisition": "BLOCKED_NO_LAWFUL_COMPLETE_SAMPLE",
       "canonical_qa": "No genuine fixture/source bytes, no semantic import PASS",
       "notes": "2CBH is new ChessBase multi-file format, no lawful small complete sample or rights-cleared source bytes; giant commercial Megabase downloads are not generic samples"
+    },
+    {
+      "id": "original_gpl_chastity_chess_chapters_markdown",
+      "title": "Chastity's Chess Chapters — original Markdown textbook",
+      "author": "Chastity White Rose (Chandler Klebs)",
+      "format": "md",
+      "source_page": "https://github.com/chastitywhiterose/Chastity-Chess-Chapters",
+      "download_url": null,
+      "sha256": "a2642266dd0068739631de817732d999f213bf297c343a0206a4795068c33928",
+      "max_bytes": 96821,
+      "indexed_bytes": 96821,
+      "upstream_repository": "https://github.com/chastitywhiterose/Chastity-Chess-Chapters",
+      "upstream_commit": "69f3b151c8c6230ff1ebb252a24eb09a9e015f60",
+      "upstream_git_blob": "67839e7768b2df1e54ce7136f010f93883bdf170",
+      "external_checkout_path": "chess_markdown/ChastityChessChapters-ebook.md",
+      "external_license_checkout_path": "chess_markdown/LICENSE",
+      "external_license_git_blob": "f288702d2fa16d3cdf0035b15a9fcbc552cd88e7",
+      "external_license_sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+      "external_license_indexed_bytes": 35149,
+      "license": "Upstream GPL-3.0 license file; README separately states reuse conditions; redistribution and book rights require manual conflict review",
+      "redistribution": "NOT_CLEARED",
+      "acquisition": "PINNED_NOT_DOWNLOADED_IN_THIS_PASS",
+      "test_access": "EXTERNAL_EPHEMERAL_ONLY",
+      "public_release": "EXCLUDED",
+      "canonical_qa": "External exact-commit source-only markdown+full-license verification; semantic markdown reader qualification separate",
+      "notes": "Genuine contemporary multi-chapter Markdown chess teaching book including table of contents, chess positions/variant descriptions and multilingual links; no public release rights asserted."
     }
   ]
 }
