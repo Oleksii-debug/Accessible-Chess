@@ -20,10 +20,12 @@ from acs.user_library_seed import (
     import_user_library_seed, load_user_library_seed,
 )
 from acs.version2_package_assembler import (
-    _copy_tree, assemble_version2_package_tree, write_version2_package_zip,
+    _copy_file, _copy_tree, assemble_version2_package_tree, write_version2_package_zip,
 )
 from .revised_section40_offline_test_library import OfflineCollectionError, ROOT
-from .revised_section40_user_library_seed_bridge import build_owner_test_seed
+from .revised_section40_user_library_seed_bridge import (
+    _read_qualified_collection, build_owner_test_seed,
+)
 
 _SOURCE_MEMBERS = (
     "section40-lichess-4-annotated-games.pgn",
@@ -169,6 +171,58 @@ def build_section40_windows_test_package(
             or second.game_count != first.game_count
             or second.reused_source_count != first.source_count):
             raise OfflineCollectionError("merged real Library startup/restart failed")
+        # Keep the rich TEST_COLLECTION physically beside the Windows program
+        # (rather than silently leaving Books/Training/FEN/corpus files elsewhere).
+        # The application consumes canonical PGN seed automatically; the separate
+        # original ZIP remains available for lawful offline format testing.
+        materials = prepared / "release-content" / "section40"
+        if materials.exists() or materials.is_symlink():
+            raise OfflineCollectionError("Section 40 test content destination exists")
+        materials.mkdir()
+        copied = materials / "TEST_COLLECTION.zip"
+        _copy_file(
+            Path(verified_collection_zip), copied,
+            label="prequalified licensed Section 40 test collection",
+        )
+        # Re-verify complete member receipts, bounded ZIP, real source identities,
+        # and rights on the COPIED bytes before the package is published.
+        if (_read_qualified_collection(copied)
+            != _read_qualified_collection(Path(verified_collection_zip))):
+            raise OfflineCollectionError("qualified Section 40 source archive changed")
+        original_checksum = hashlib.sha256(
+            Path(verified_collection_zip).read_bytes()
+        ).hexdigest()
+        copied_checksum = hashlib.sha256(copied.read_bytes()).hexdigest()
+        if original_checksum != copied_checksum:
+            raise OfflineCollectionError("copied offline corpus ZIP checksum differs")
+        (materials / "READ_FIRST_UK.txt").write_text(
+            "Accessible Chess — тимчасова перевірочна колекція Section 40.\n"
+            "Ця Windows-комплектація тільки для тестів. НЕ є публічним релізом.\n"
+            "Вбудована штатна Library має імпортувати 512 реальних партій Stockfish, "
+            "4 оригінальні анотовані партії Lichess і 1 історичний етюд Réti "
+            "(усього 517 нових партій/позицій; за наявності старих джерел вони зберігаються).\n"
+            "Файл TEST_COLLECTION.zip містить каталог, українські й англійські "
+            "BookDocument, вправи, PGN, додаткові формати й ліцензії для тестування.\n"
+            "Для NVDA: запускайте AccessibleChess.exe з папки AccessibleChess, "
+            "перейдіть до Бібліотеки, Книг або Тренування штатною навігацією. "
+            "Тести необхідно підтвердити на реальному Windows EXE.\n"
+            "НЕ очищайте тестові дані до власного підтвердження приймання.\n",
+            encoding="utf-8",
+        )
+        (materials / "READ_FIRST_EN.txt").write_text(
+            "Accessible Chess — temporary Section 40 offline TEST collection.\n"
+            "This Windows package is FOR TESTING ONLY, not a public release.\n"
+            "The canonical Library startup seed contains 512 real Stockfish mini-games, "
+            "four genuine annotated Lichess games and one historical Reti study "
+            "(517 additional games/positions); existing owner PGN sources are preserved.\n"
+            "TEST_COLLECTION.zip includes a licensed catalogue, Ukrainian/English "
+            "BookDocuments, training cases, PGN and other qualified test formats.\n"
+            "For screen-reader testing use AccessibleChess.exe in AccessibleChess "
+            "and the product's existing Library, Books and Training navigation.\n"
+            "Actual Windows EXE/NVDA tests remain required before claiming DONE.\n"
+            "Do not delete test materials until the owner has accepted them.\n",
+            encoding="utf-8",
+        )
         assembled = assemble_version2_package_tree(
             prepared, Path(third_party_notices), work / "canonical-qa-package",
             integration_sha=exact_source_sha,
@@ -191,6 +245,8 @@ def build_section40_windows_test_package(
             "section40_added_games": 517,
             "restart_reused_sources": second.reused_source_count,
             "zip_sha256": hashlib.sha256(output_zip.read_bytes()).hexdigest(),
+            "bundled_offline_collection_sha256": copied_checksum,
+            "bilingual_test_instructions": True,
             "canonical_version2_package_readback": True,
             "compiled_real_exe_attested": False,
             "owner_nvda_pass": False,
