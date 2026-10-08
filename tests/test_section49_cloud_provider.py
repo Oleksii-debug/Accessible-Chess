@@ -122,6 +122,14 @@ class CloudProviderTests(unittest.IsolatedAsyncioTestCase):
         result = await gateway.complete(request(private=True))
         self.assertEqual(result.provider_id, "mistral")
 
+    async def test_malformed_credential_cannot_reach_network(self):
+        route = self.provider()
+        with patch.dict(os.environ, {"MISTRAL_API_KEY": "invalid\\r\\ncredential"}):
+            with self.assertRaises(ModelGatewayError) as ctx:
+                await route.complete(request())
+        self.assertEqual(ctx.exception.code, ModelErrorCode.AUTHENTICATION)
+        self.assertEqual(len(self.seen), 0)
+
     async def test_auth_status_never_leaks_upstream_body(self):
         secret_echo = "unit-test-secret-do-not-log"
         p = self.provider(handler=lambda _r: httpx.Response(401, text=secret_echo))
