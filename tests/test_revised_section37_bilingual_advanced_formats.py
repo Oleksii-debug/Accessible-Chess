@@ -196,11 +196,20 @@ class BilingualSourceGroundingTests(unittest.TestCase):
                     self.assertEqual(hashlib.sha256(content).hexdigest(),
                                      report["generated_files"][stem]["sha256"])
                     self.assertEqual(len(parse_pgn_text(content.decode("utf-8"), strict=False)), expected)
-            raw_fens = (out / "original-advanced-before-opponent-move.fen").read_text(encoding="utf-8").splitlines()
+            raw_fens = (out / "original-advanced-after-opponent-solver-positions.fen").read_text(
+                encoding="utf-8"
+            ).splitlines()
             self.assertEqual(len(raw_fens), 12)
             from acs.chesscore import Board
-            for fen in raw_fens:
-                self.assertEqual(Board(fen).fen(), fen)
+            source = load_advanced_workbook()
+            for lesson, fen in zip(source["lessons"], raw_fens, strict=True):
+                with self.subTest(actual_solver=lesson["lesson_id"]):
+                    expected = Board(lesson["fen_before_opponent_move"])
+                    expected.push_text(lesson["opponent_previous_move_uci"])
+                    self.assertEqual(Board(fen).fen(), expected.fen())
+                    self.assertNotEqual(fen, lesson["fen_before_opponent_move"])
+            self.assertTrue(report["generated_files"]["original-advanced-after-opponent-solver-positions.fen"]
+                            ["first_opponent_move_already_applied"])
 
     def test_corrupted_fen_beginner_rating_lost_language_and_unrelated_study_are_denied(self):
         work = load_advanced_workbook()
