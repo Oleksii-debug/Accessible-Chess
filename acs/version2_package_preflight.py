@@ -1827,6 +1827,18 @@ def _validate_required_runtime_resources(
             _fail("Section 42 source license evidence corrupted")
         expected = {"wK.svg", "wQ.svg", "wR.svg", "wB.svg", "wN.svg", "wP.svg",
                     "bK.svg", "bQ.svg", "bR.svg", "bB.svg", "bN.svg", "bP.svg"}
+        pinned_originals = {"wK.svg": "a21a5ebbf3fb4923abfd4cbd2e27a1b7e65e6ea2",
+            "wQ.svg": "c0af0ab868e5532eb6e471b300be14a4ea695af2",
+            "wR.svg": "ba3d4e319796699e2ff2aacc7b1a8639a7771edd",
+            "wB.svg": "16fc2ea40277d52a6cd0ab36e292834671283406",
+            "wN.svg": "9650e7496606543f9f9ceca488c89af26f33b5e5",
+            "wP.svg": "ceb32e2aa286bac4aa5581aa230d87088d9c0cdf",
+            "bK.svg": "a726621988e47742852743ecc3c0d75a6f2ad80e",
+            "bQ.svg": "cb352ffd1a3741bf72254ef39a9baa1571f622b2",
+            "bR.svg": "5ce91a9f86301141aba7a540c4356a2138410208",
+            "bB.svg": "b2aeb13166399342d5fba9f38d773f7bf6b43301",
+            "bN.svg": "0bf9be862a0a65241aaa5afc0aae5a5a38b55e54",
+            "bP.svg": "e97fce610f9e2dc35c14061e6e28d4a1f1da005d"}
         observed = set()
         for asset in pack["assets"]:
             if (type(asset) is not dict
@@ -1836,6 +1848,7 @@ def _validate_required_runtime_resources(
                 or asset.get("upstream_path") != "public/piece/rhosgfx/" + asset["file"]
                 or type(asset.get("bytes")) is not int
                 or not 100 <= asset["bytes"] <= 128 * 1024
+                or asset.get("git_blob_sha1") != pinned_originals[asset["file"]]
                 or type(asset.get("git_blob_sha1")) is not str
                 or len(asset["git_blob_sha1"]) != 40):
                 _fail("Section 42 artwork source mismatch or duplicate")
