@@ -18,6 +18,7 @@ _MAX_EVENTS = 32
 _JSON_TYPE = b"application/json; charset=utf-8"
 _HTML_TYPE = b"text/html; charset=utf-8"
 _JS_TYPE = b"text/javascript; charset=utf-8"
+_CSS_TYPE = b"text/css; charset=utf-8"
 _NO_STORE = (b"cache-control", b"no-store")
 _NOSNIFF = (b"x-content-type-options", b"nosniff")
 _REFERRER = (b"referrer-policy", b"no-referrer")
@@ -176,6 +177,24 @@ class AccessibleChessWebAsgi:
             if method == "GET" and path == "/assets/accessible_chess_web.js":
                 _trusted_principal(scope)
                 await _respond(send, 200, self._javascript, _JS_TYPE)
+                return
+            # Exact, trusted, local-only design assets. Never accept dynamic
+            # path segments or user-controlled asset names.
+            if method == "GET" and path in {
+                "/assets/accessible_chess_design.css",
+                "/assets/tabler-core/accessibility.css",
+                "/assets/section45_design_studio.js",
+            }:
+                _trusted_principal(scope)
+                asset_name = {
+                    "/assets/accessible_chess_design.css": "assets/accessible_chess_design.css",
+                    "/assets/tabler-core/accessibility.css": "assets/tabler-core/accessibility.css",
+                    "/assets/section45_design_studio.js": "section45_design_studio.js",
+                }[path]
+                await _respond(
+                    send, 200, _asset_bytes(asset_name),
+                    _JS_TYPE if path.endswith(".js") else _CSS_TYPE,
+                )
                 return
             if method == "GET" and path == "/v1/snapshot":
                 principal = _trusted_principal(scope)
