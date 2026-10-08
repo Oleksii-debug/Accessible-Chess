@@ -44,6 +44,17 @@ class RevisedSection40CollectionTests(unittest.TestCase):
                 self.assertIn("library/real-stockfish-first-512.pgn", trial_names)
                 self.assertEqual(catalog["real_import_readback"]["sample_sizes"], [32, 128, 512])
                 self.assertIn("books/accessible-chess-starter-course.json", trial_names)
+                for english_book in (
+                    "books/advanced-lichess-16-en.json",
+                    "books/extreme-lichess-4-en.json",
+                ):
+                    self.assertIn(english_book, trial_names)
+                    en_document = json.loads(z.read(english_book))
+                    self.assertEqual(en_document["language"], "en")
+                self.assertEqual(
+                    len([x for x in catalog["materials"]
+                         if x.get("language") == "en"
+                         and x.get("import_status") == "CANONICAL_BOOKDOCUMENT_ENGLISH_ROUNDTRIP_PASS"]), 2)
                 self.assertIn("training/starter-exercises.json", trial_names)
                 self.assertIn("training/advanced-lichess-16-middlegame-endgame.json", trial_names)
                 self.assertIn("training/extreme-lichess-4-original-puzzles.json", trial_names)
@@ -76,12 +87,14 @@ class RevisedSection40CollectionTests(unittest.TestCase):
                 names = set(z.namelist())
                 catalog = json.loads(z.read("catalog/materials.json"))
                 self.assertEqual(catalog["profile"], "PUBLIC_RELEASE")
-                self.assertEqual(len(catalog["materials"]), 35)
+                self.assertEqual(len(catalog["materials"]), 37)
                 self.assertFalse(any(p.startswith("library/") for p in names))
                 self.assertFalse(any("stockfish_" in p for p in names))
                 self.assertIn("books/advanced-lichess-16-middlegame-endgame.json", names)
                 self.assertIn("training/advanced-lichess-16-middlegame-endgame.json", names)
                 self.assertIn("training/extreme-lichess-4-original-puzzles.json", names)
+                self.assertIn("books/advanced-lichess-16-en.json", names)
+                self.assertIn("books/extreme-lichess-4-en.json", names)
                 self.assertFalse(any("gitenberg_" in p for p in names))
                 self.assertEqual(
                     len([n for n in names if n.startswith("books/booklet-")]), 24)
