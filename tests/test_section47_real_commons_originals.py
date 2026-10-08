@@ -127,5 +127,32 @@ class RealOriginalDownloadTest(unittest.TestCase):
                     tool.download_one(entry, Path(td), False)
 
 
+    def test_canonical_webm_and_mp4_integrity_checks_never_read_entire_video_into_memory(self):
+        from acs.local_video_library import RealVideoEntry, verify_real_video
+
+        with tempfile.TemporaryDirectory() as td:
+            for name, blob, media_type in (
+                ("chess.webm", bytes.fromhex("1a45dfa3") + b"chess video", "video/webm"),
+                ("chess.mp4", bytes.fromhex("00000018") + b"ftypisom" + b"chess video", "video/mp4"),
+            ):
+                with self.subTest(name=name):
+                    path = Path(td) / name
+                    path.write_bytes(blob)
+                    entry = RealVideoEntry(
+                        video_id="fixture-"+name, filename=name, title="Sample qualified video",
+                        source_page="https://commons.wikimedia.org/wiki/File:Fixture_"+name,
+                        download_url="https://upload.wikimedia.org/wikipedia/commons/1/11/"+name,
+                        author="Fixture", license_id="CC0-1.0",
+                        license_url="https://creativecommons.org/publicdomain/zero/1.0/",
+                        duration_seconds=1, media_type=media_type,
+                        expected_sha256=hashlib.sha256(blob).hexdigest(), last_checked="2026-10-08",
+                    )
+                    with patch.object(Path, "read_bytes", side_effect=AssertionError(
+                        "canonical verifier must stream rather than load whole video"
+                    )):
+                        receipt = verify_real_video(entry, path)
+                    self.assertEqual(receipt["sha256"], entry.expected_sha256)
+
+
 if __name__ == "__main__":
     unittest.main()
