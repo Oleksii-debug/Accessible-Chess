@@ -41,6 +41,8 @@ on:
       - 'tests/test_revised_section37_external_position_acquisition.py'
       - 'tools/revised_section37_release_exclusion.py'
       - 'tools/revised_section37_advanced_puzzle_curator.py'
+      - 'tools/revised_section37_extreme_licensed_puzzles.py'
+      - 'tests/test_revised_section37_extreme_3000_real_licensed.py'
       - 'tests/test_revised_section37_advanced_puzzle_curator.py'
       - 'tests/test_revised_section37_advanced_owner_training_source_policy.py'
       - 'tests/test_revised_section37_advanced_annotated_game_corpus.py'
@@ -121,6 +123,7 @@ jobs:
           tests.test_revised_section37_external_position_acquisition
           tests.test_revised_section37_release_exclusion
           tests.test_revised_section37_advanced_puzzle_curator
+          tests.test_revised_section37_extreme_3000_real_licensed
           tests.test_revised_section37_advanced_owner_training_source_policy
           tests.test_revised_section37_advanced_annotated_game_corpus
           tests.test_revised_section37_cbh_original_family_inventory
@@ -587,3 +590,55 @@ jobs:
           path: section39-ci-joined-real-format-evidence.json
           if-no-files-found: ignore
           retention-days: 14
+
+  original-cc0-extreme-3000-puzzles:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact product code
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          path: product
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Checkout original frozen offline 24,595 Lichess CC0 source and attribution
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: FeXd/puzzle-chess
+          path: external-source
+          ref: cddfa24b1a5a9013b99622d6d5e7093a64b1d55a
+          persist-credentials: false
+      - name: Verify original source Git revision plus original unmodified CSV and license blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C product rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(git -C external-source rev-parse HEAD)" = "cddfa24b1a5a9013b99622d6d5e7093a64b1d55a"
+          test "$(git -C external-source hash-object puzzles/offline/puzzles.csv)" = "acb74625e5ebd0ae9b454779a371ac87091c8c0e"
+          test "$(git -C external-source hash-object LICENSE.md)" = "f288702d2fa16d3cdf0035b15a9fcbc552cd88e7"
+      - name: Python 3.12 for original CC0 source and literal extreme readback
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+      - name: Assert original extreme 3000-3166 rows against actual external source bytes
+        working-directory: product
+        env:
+          ACS_37_EXTREME_CC0_CHECKOUT: ${{ github.workspace }}/external-source
+          ACCESSIBLE_CHESS_EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          python -m unittest -v tests.test_revised_section37_extreme_3000_real_licensed
+          python -m tools.revised_section37_extreme_licensed_puzzles
+      - name: Preserve source only original 3000+ independent witness
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: section37-original-cc0-extreme-3000-3166
+          path: product/section37-extreme-3000-original-source-readback.json
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Always purge source GPL app and original licensed puzzles
+        if: always()
+        shell: bash
+        run: |
+          rm -rf -- external-source
+          test ! -e external-source
