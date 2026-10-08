@@ -79,6 +79,7 @@ def verify_original_book(record: dict, external_root: Path) -> dict:
     if type(record.get("indexed_bytes")) is not int:
         raise LawfulCorpusError("original source has no pinned exact byte count")
     path = _direct_path(external_root, record.get("external_checkout_path"))
+    license_path = _direct_path(external_root, record.get("external_license_checkout_path"))
     verified_local_source(path, record)
     # Path re-open is used only for exact, repeat identity; digest is checked
     # again on the bytes consumed here so a swap can never claim a false PASS.
@@ -90,6 +91,21 @@ def verify_original_book(record: dict, external_root: Path) -> dict:
         or _git_blob(raw) != expected_git
     ):
         raise LawfulCorpusError("external original-book identity changed")
+    # Original Project Gutenberg conditions travel separately from book bytes.
+    # Test-only is not a substitute for license/source attribution.
+    license_blob = record.get("external_license_git_blob")
+    if type(license_blob) is not str or not _GIT_BLOB.fullmatch(license_blob):
+        raise LawfulCorpusError("external license git blob is not pinned")
+    license_size = record.get("external_license_indexed_bytes")
+    if type(license_size) is not int or not 0 < license_size <= 1024 * 1024:
+        raise LawfulCorpusError("external license size is not pinned")
+    license_raw = license_path.read_bytes()
+    if (
+        len(license_raw) != license_size
+        or _git_blob(license_raw) != license_blob
+        or not license_raw.startswith(b"THE FULL PROJECT GUTENBERG LICENSE")
+    ):
+        raise LawfulCorpusError("external source license bytes changed")
     # Never include raw text, owner secrets or absolute filesystem paths in reports.
     return {
         "source_id": identity,
@@ -99,6 +115,9 @@ def verify_original_book(record: dict, external_root: Path) -> dict:
         "source_format": "txt",
         "sha256": actual,
         "git_blob": expected_git,
+        "license_git_blob": license_blob,
+        "license_sha256": hashlib.sha256(license_raw).hexdigest(),
+        "license_bytes": len(license_raw),
         "original_bytes": len(raw),
         "acquisition": "VERIFIED_EPHEMERAL_EXTERNAL",
         "redistribution": "NOT_CLEARED",
