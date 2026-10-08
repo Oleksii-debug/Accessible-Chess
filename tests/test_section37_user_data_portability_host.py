@@ -36,9 +36,9 @@ class _Dialogs:
 
 
 def _coordinator():
-    state = {"settings": b'{"language":"uk"}', "local-account-secret": b"redacted"}
+    state = {"settings": b'{"language":"uk"}', "local-cache": b"nonsecret-cache"}
     adapters = []
-    for name in ("settings", "local-account-secret"):
+    for name in ("settings", "local-cache"):
         def snapshot(domain=name):
             return DomainSnapshot(domain, 1, state[domain])
         def prepare(value):
@@ -64,7 +64,7 @@ class Section37ProductionHostTests(unittest.TestCase):
             result = host("data.backup", {})
             self.assertTrue(result["ok"])
             self.assertEqual(result["sha256"], hashlib.sha256(target.read_bytes()).hexdigest())
-            self.assertEqual(result["domains"], ("local-account-secret", "settings"))
+            self.assertEqual(result["domains"], ("local-cache", "settings"))
             self.assertNotIn(str(target), repr(result))
             self.assertEqual(dialogs.calls, [("save", "data.backup")])
 
@@ -77,7 +77,7 @@ class Section37ProductionHostTests(unittest.TestCase):
             )("data.export", {})
             self.assertTrue(result["ok"])
             self.assertEqual(result["domains"], ("settings",))
-            self.assertNotIn(b"redacted", target.read_bytes())
+            self.assertNotIn(b"nonsecret-cache", target.read_bytes())
 
     def test_no_overwrite_of_existing_user_document(self):
         coordinator, _ = _coordinator()
