@@ -102,7 +102,7 @@ def build_real_bilingual_master_workbook(*, language: str = "uk") -> tuple[BookD
             ),
             Position(
                 fen=before,
-                title=("Position before opponent move" if language == "en"
+                caption=("Position before opponent move" if language == "en"
                        else "Позиція перед ходом суперника"),
                 source_anchor="section37:master-workbook:" + name + ":original-position",
             ),
