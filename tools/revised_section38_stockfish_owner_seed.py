@@ -158,3 +158,33 @@ def prepare_owner_test_stockfish_seed(destination: Path, *, repository_root: Pat
         "distribution": "OWNER_TEST_ONLY",
         "network_required": False,
     }
+
+
+def main() -> None:
+    """Emit a Windows-compatible, test-only canonical Library seed artifact.
+
+    The CI workspace must be fresh: never overwrite an existing test package.
+    The released EXE is not reconstructed here; the existing user's authorized
+    `release-content/user-library-seed` startup ingress owns activation.
+    """
+    output_root = ROOT / "_section38_owner_seed_ci"
+    if output_root.exists() or output_root.is_symlink():
+        raise FileExistsError("CI owner seed output already exists")
+    seed_parent = output_root / "release-content"
+    seed_parent.mkdir(parents=True, mode=0o700, exist_ok=False)
+    receipt = prepare_owner_test_stockfish_seed(seed_parent / "user-library-seed")
+    proof = {
+        **receipt,
+        "canonically_ingested_via": "acs.user_library_seed",
+        "package_relative_dir": "release-content/user-library-seed",
+        "public_release_qualified": False,
+    }
+    (output_root / "source-readback.json").write_text(
+        json.dumps(proof, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    print(json.dumps(proof, ensure_ascii=False, sort_keys=True))
+
+
+if __name__ == "__main__":
+    main()
