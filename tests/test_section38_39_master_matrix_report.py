@@ -73,6 +73,30 @@ class MasterMatrixCoverageTests(unittest.TestCase):
                 for cell in checked)
         )
 
+    def test_legacy_and_modern_chessbase_are_never_classified_as_classic_cbh(self):
+        matcher = qa._candidate_matches_format
+        self.assertFalse(matcher("2cbh", "CBH"))
+        self.assertTrue(matcher("2cbh", "2CBH"))
+        self.assertFalse(matcher("cbf+cbi", "CBV"))
+        self.assertTrue(matcher("cbf+cbi", "CBF"))
+        self.assertFalse(matcher("pgn", "SAN"))
+        self.assertFalse(matcher("epd.zip", "FEN"))
+        self.assertTrue(matcher("cbh (multifile original companion family)", "CBH"))
+        self.assertTrue(matcher("pgn.zst", "PGN"))
+        self.assertFalse(matcher("cbone", "2CBH"))
+        self.assertTrue(matcher("epub3/html/txt", "EPUB"))
+        self.assertTrue(matcher("epub3/html/txt", "HTML"))
+        self.assertTrue(matcher("epub3/html/txt", "TXT"))
+        for case in (("2cbh", "CBH"), ("cbf+cbi", "CBV")):
+            self.assertFalse(matcher(*case))
+        rows = self.report["requirements"]
+        for row in rows:
+            with self.subTest(format=row["format"]):
+                from acs.lawful_corpus_registry import load_catalog
+                catalog = {rec["id"]: rec for rec in load_catalog()}
+                for source in row["real_source_candidate_ids"]:
+                    self.assertTrue(matcher(catalog[source]["format"], row["format"]))
+
     def test_tampered_genre_metadata_or_lost_language_fails_closed(self):
         actual = json.loads(qa.GENRES.read_text(encoding="utf-8"))
         for mutation in (
