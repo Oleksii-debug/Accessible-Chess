@@ -150,24 +150,19 @@ jobs:
           git config core.eol lf
           git reset --hard HEAD
 
-      - name: Bind exact live Product pull-request geometry
+      - name: Bind exact pull-request base geometry
         shell: bash
         env:
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          PRODUCT_BRANCH: work/full-product-teacher-education-reachability-20260911
         run: |
           set -euo pipefail
           event_base="${PR_BASE_SHA:-}"
           if test -n "$event_base"; then
             git cat-file -e "$event_base^{commit}"
-            git fetch --no-tags origin "+refs/heads/$PRODUCT_BRANCH:refs/remotes/origin/$PRODUCT_BRANCH"
-            live_base="$(git rev-parse "refs/remotes/origin/$PRODUCT_BRANCH")"
-            git cat-file -e "$live_base^{commit}"
-            git merge-base --is-ancestor "$event_base" "$live_base"
-            git merge-base --is-ancestor "$live_base" HEAD
-            test "$(git merge-base "$live_base" HEAD)" = "$live_base"
-            git diff --check "$live_base" HEAD
-            echo "UI_SEMANTIC_PRODUCT_PARENT=$live_base"
+            git merge-base --is-ancestor "$event_base" HEAD
+            test "$(git merge-base "$event_base" HEAD)" = "$event_base"
+            git diff --check "$event_base" HEAD
+            echo "UI_SEMANTIC_PR_BASE=$event_base"
           else
             parent="$(git rev-parse HEAD^)"
             git cat-file -e "$parent^{commit}"
