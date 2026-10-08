@@ -31,6 +31,7 @@ on:
       - 'tools/revised_sections37_38_offline_manifest.py'
       - 'tools/revised_section37_external_book_acquisition.py'
       - 'tests/test_revised_section37_external_book_acquisition.py'
+      - 'tests/test_revised_section37_nwc_2026_source_discovery.py'
       - 'tools/revised_section37_external_position_acquisition.py'
       - 'tools/section39_external_position_semantic.py'
       - 'tests/test_section39_ci_evidence_aggregate.py'
@@ -138,6 +139,7 @@ jobs:
           tools/revised_sections37_38_offline_manifest.py
           tools/revised_section37_external_book_acquisition.py
           tests/test_revised_section37_external_book_acquisition.py
+          tests/test_revised_section37_nwc_2026_source_discovery.py
           tools/revised_section37_external_position_acquisition.py
           tests/test_revised_section37_external_position_acquisition.py
           tools/revised_section37_release_exclusion.py
@@ -170,6 +172,7 @@ jobs:
           tests.test_section0_format_capabilities
           tests.test_revised_section37_38_offline_manifest
           tests.test_revised_section37_external_book_acquisition
+          tests.test_revised_section37_nwc_2026_source_discovery
           tests.test_revised_section37_external_position_acquisition
           tests.test_revised_section37_release_exclusion
           tests.test_revised_section37_advanced_puzzle_curator
