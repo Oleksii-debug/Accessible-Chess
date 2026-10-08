@@ -74,12 +74,16 @@ def verify_original_extreme_records(catalog: dict, source_lines: list[str]) -> d
 def _git_identity(checkout: Path, object_file: str, expected: str) -> None:
     if checkout.is_symlink() or not checkout.is_dir():
         raise LawfulCorpusError("original licensed extreme source directory invalid")
-    output = subprocess.run(
+    actual_committed = subprocess.run(
         ["git", "-C", str(checkout), "rev-parse", "HEAD:" + object_file],
         capture_output=True, text=True, check=True, timeout=15,
     ).stdout.strip()
-    if output != expected:
-        raise LawfulCorpusError("upstream CC0 source Git object unexpectedly replaced")
+    actual_worktree = subprocess.run(
+        ["git", "hash-object", "--", str((checkout / object_file).resolve())],
+        capture_output=True, text=True, check=True, timeout=15,
+    ).stdout.strip()
+    if actual_committed != expected or actual_worktree != expected:
+        raise LawfulCorpusError("original upstream source tree or active file bytes changed")
 
 
 def verify_original_source(checkout: Path) -> dict:
