@@ -170,6 +170,9 @@ class CloudChatProvider:
             raise self._error(ModelErrorCode.UNAVAILABLE,
                               "optional model HTTP component unavailable",
                               no_effect=True, retryable=True) from None
+        if len(secret) > 4096 or any(ch.isspace() or not ch.isprintable() for ch in secret):
+            raise self._error(ModelErrorCode.AUTHENTICATION,
+                              "cloud provider credential is malformed", no_effect=True)
         factory = self._client_factory or httpx.AsyncClient
         try:
             async with factory(
