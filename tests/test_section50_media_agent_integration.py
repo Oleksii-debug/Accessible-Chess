@@ -29,7 +29,7 @@ except ImportError:
 
 def media_fixture(confirmed=True):
     original = MediaSource("video:authored-test", "Chess video fixture",
-                           MediaSourceKind.LOCAL_FILE, 20_000)
+                           MediaSourceKind.LOCAL_FILE, duration_ms=20_000)
     timeline = MediaPositionTimeline(
         original.source_id,
         (MediaChessLink(original.source_id, 2000, "gametree:after-e4-e5",
