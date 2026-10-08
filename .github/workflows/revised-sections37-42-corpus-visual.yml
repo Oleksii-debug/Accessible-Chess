@@ -60,6 +60,9 @@ on:
       - 'tests/real_corpus/advanced_training/**'
       - 'tools/revised_section37_bilingual_workbook_pack.py'
       - 'tests/test_revised_section37_bilingual_advanced_formats.py'
+      - 'tests/test_revised_section37_bilingual_in_application.py'
+      - 'tests/test_revised_section37_uk_en_reference_matrix.py'
+      - 'tests/test_revised_section37_genuine_advanced_study_readback.py'
       - 'tools/revised_section37_bilingual_pdf_pack.py'
       - 'tests/test_revised_section37_bilingual_pdf_pack.py'
       - 'docs/corpus/SECTION37_UK_EN_HIGH_LEVEL_REFERENCE_MATRIX.json'
@@ -122,6 +125,11 @@ jobs:
           tests/test_revised_section37_advanced_annotated_game_corpus.py
           tools/revised_section37_cbh_original_family_inventory.py
           tests/test_revised_section37_cbh_original_family_inventory.py
+          tools/revised_section37_bilingual_workbook_pack.py
+          tests/test_revised_section37_bilingual_advanced_formats.py
+          tests/test_revised_section37_bilingual_in_application.py
+          tests/test_revised_section37_uk_en_reference_matrix.py
+          tests/test_revised_section37_genuine_advanced_study_readback.py
           tests/test_revised_sections41_42_design.py
       - name: Test real source catalog authorization and existing visual authority
         run: >-
@@ -144,6 +152,9 @@ jobs:
           tests.test_revised_section37_advanced_owner_training_source_policy
           tests.test_revised_section37_advanced_annotated_game_corpus
           tests.test_revised_section37_bilingual_advanced_formats
+          tests.test_revised_section37_bilingual_in_application
+          tests.test_revised_section37_uk_en_reference_matrix
+          tests.test_revised_section37_genuine_advanced_study_readback
           tests.test_revised_section37_cbh_original_family_inventory
           tests.test_revised_sections41_42_design
           tests.test_section15_visual_board_contract
@@ -731,8 +742,9 @@ jobs:
       - name: Validate original English and Ukrainian positions and importer/BookReader integration
         shell: bash
         run: |
-          python -m py_compile tools/revised_section37_bilingual_workbook_pack.py tests/test_revised_section37_bilingual_advanced_formats.py
+          python -m py_compile tools/revised_section37_bilingual_workbook_pack.py tests/test_revised_section37_bilingual_advanced_formats.py tests/test_revised_section37_bilingual_in_application.py tests/test_revised_section37_uk_en_reference_matrix.py tests/test_revised_section37_genuine_advanced_study_readback.py
           python -m unittest -v tests.test_revised_section37_bilingual_advanced_formats
+          python -m unittest -v tests.test_revised_section37_bilingual_in_application tests.test_revised_section37_uk_en_reference_matrix tests.test_revised_section37_genuine_advanced_study_readback
       - name: Materialize actual five format bilingual user testing books
         shell: bash
         run: python -m tools.revised_section37_bilingual_workbook_pack --output-dir section37-bilingual-shareable-advanced-books
