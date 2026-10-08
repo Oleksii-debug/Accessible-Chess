@@ -398,6 +398,31 @@ def build_collection(profile: str, output: Path, *, root: Path = ROOT) -> dict:
         "import_status": "ORIGINAL_RETI_1921_STRICT_PGN_AND_FEN_PASS",
         "repeat_download": "BUNDLED_OFFLINE",
     })
+    # Publish one clear bilingual attribution/rights note beside the original
+    # project-authored course. It is neither an unverified publisher's
+    # redistribution license nor a license to copy third-party book chapters.
+    attributed_license_path = "licenses/SECTION37_ADVANCED_AUTHORED_LICHESS_CC0_UK_EN.txt"
+    authored_license = (
+        "ACCESSIBLE CHESS — SECTION37 ADVANCED CC0 SOURCE ATTRIBUTION / ПРАВА\n"
+        "Українською: Шахові позиції та послідовності ходів походять із "
+        "відкритих шахових даних Lichess CC0; Lichess puzzle rating НЕ є рейтингом FIDE. "
+        "Нові українські та англійські навчальні формулювання створені для "
+        "Accessible Chess. Ці десять EPUB3/HTML/DOCX/TXT/Markdown файлів є "
+        "власними похідними навчальними виданнями, НЕ передруками сторонніх книг. "
+        "Авторські та видавничі матеріали інших осіб, включно з повними книгами, не включені.\n"
+        "English: Chess positions and move sequences are sourced from Lichess "
+        "CC0 open chess data. Lichess puzzle rating is NOT FIDE Elo. "
+        "The Ukrainian and English teaching prose is newly authored for "
+        "Accessible Chess. These ten native-format books are newly authored "
+        "educational derivatives, NOT redistributed third-party publisher ebooks. "
+        "No other author's proprietary book is included.\n"
+        "Original database: https://database.lichess.org/#puzzles\n"
+        "Public domain CC0-1.0: https://creativecommons.org/publicdomain/zero/1.0/\n"
+        "Original Section37 embedded source ID: section37_master_workbook_bilingual\n"
+    ).encode("utf-8")
+    if attributed_license_path in assets:
+        raise OfflineCollectionError("authored CC0 attribution conflicts with existing package content")
+    assets[attributed_license_path] = authored_license
     # Consume the original Section37 12-lesson bilingual generator, not a
     # second five-format producer. Each of ten actual EPUB3/HTML/MD/TXT/DOCX
     # bytes has already passed production Version2Application Books import,
@@ -441,6 +466,8 @@ def build_collection(profile: str, output: Path, *, root: Path = ROOT) -> dict:
             "original_lesson_count": 12,
             "source_kind": "NEW_ORIGINAL_PROJECT_AUTHORSHIP_DERIVED_FROM_PINNED_CC0_POSITIONS",
             "license": "original project-authored narrative and CC0-1.0 chess positions",
+            "license_path": attributed_license_path,
+            "license_sha256": _digest(authored_license),
             "redistribution": "permitted",
             "import_status": "ACTUAL_NATIVE_BOOK_IMPORT_RESTART_PASS_DERIVED_SOURCE",
             "repeat_download": "BUNDLED_OFFLINE",
