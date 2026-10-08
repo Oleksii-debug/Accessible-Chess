@@ -272,6 +272,7 @@ jobs:
           test "$(git -C upstream/markdown rev-parse HEAD)" = "69f3b151c8c6230ff1ebb252a24eb09a9e015f60"
           test "$(git -C upstream/markdown rev-parse HEAD:book/ebook/ChastityChessChapters-ebook.md)" = "67839e7768b2df1e54ce7136f010f93883bdf170"
           test "$(git -C upstream/markdown rev-parse HEAD:LICENSE)" = "f288702d2fa16d3cdf0035b15a9fcbc552cd88e7"
+          test "$(git -C upstream/markdown rev-parse HEAD:README.md)" = "1b729a364e62d58718b0fa5dde9f07c0ffe49242"
           for directory in blue bird checkmates; do
             test "$(git -C upstream/$directory rev-parse HEAD:LICENSE)" = "8d062dda262bcdc42d45b861bd796117feb6d0fe"
           done
@@ -290,6 +291,7 @@ jobs:
           git -C upstream/pdf show HEAD:LICENSE > source-originals/capablanca_pdf/LICENSE
           git -C upstream/markdown show HEAD:book/ebook/ChastityChessChapters-ebook.md > source-originals/chess_markdown/ChastityChessChapters-ebook.md
           git -C upstream/markdown show HEAD:LICENSE > source-originals/chess_markdown/LICENSE
+          git -C upstream/markdown show HEAD:README.md > source-originals/chess_markdown/README.md
       - name: Setup Python 3.12
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
