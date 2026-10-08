@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import io
+import hashlib
+from xml.sax.saxutils import escape
 from pathlib import Path
 import tempfile
 import unittest
@@ -11,6 +13,7 @@ from acs.book_docx_import import (
     MAX_DOCX_SOURCE_BYTES, DocxBookImportError, import_docx_book,
 )
 from acs.bookreader import BookReader
+from acs.lawful_corpus_registry import load_catalog, verified_local_source
 from acs.version2_application import Version2Application
 from acs.version2_windows_native_dialog_ownership import _DIALOG_TEXT
 
@@ -52,6 +55,58 @@ def _docx(*, xml: bytes | None = None, extra: dict[str, bytes] | None = None) ->
 
 
 class RealDocxIngressContractTests(unittest.TestCase):
+    def test_original_capablanca_text_in_runtime_derived_docx_and_readback(self):
+        """Pinned genuine chess narrative, converted for testing, not fake original DOCX.
+
+        The source material is an original-source Gutenberg TXT, qualified by
+        SHA256; generated DOCX bytes are an ephemeral interoperability fixture.
+        No Gutenberg material is added to distributed product archives.
+        """
+        record = {r["id"]: r for r in load_catalog()}[
+            "gitenberg_capablanca_33870_original_txt"
+        ]
+        self.assertEqual(record["redistribution"], "NOT_CLEARED")
+        real_path = Path(__file__).resolve().parents[1] / record["local_source"]
+        self.assertEqual(verified_local_source(real_path, record), record["sha256"])
+        raw = real_path.read_bytes()
+        self.assertEqual(hashlib.sha256(raw).hexdigest(), record["sha256"])
+        passages = [line.strip() for line in raw.decode("utf-8-sig").splitlines()
+                    if line.strip() and len(line.strip()) >= 20][:48]
+        self.assertEqual(len(passages), 48)
+        self.assertIn(b"Chess Fundamentals", raw)
+        original_text = passages[:32]
+        paragraph_xml = "".join(
+            '<w:p><w:r><w:t>' + escape(line) + '</w:t></w:r></w:p>'
+            for line in original_text
+        )
+        xml = (
+            '<?xml version="1.0" encoding="utf-8"?>'
+            f'<w:document xmlns:w="{WORD}"><w:body>'
+            '<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr>'
+            '<w:r><w:t>Original Capablanca chess text — interoperability test</w:t></w:r></w:p>'
+            + paragraph_xml + '</w:body></w:document>'
+        ).encode("utf-8")
+        derived_docx = _docx(xml=xml)
+        with tempfile.TemporaryDirectory(prefix="acs-real-text-derived-docx-") as temp:
+            filename = Path(temp) / "derived-not-upstream-original.docx"
+            filename.write_bytes(derived_docx)
+            opened = Version2Application.prepare_book_open(filename)
+            self.assertEqual(opened.document.blocks[1].text, original_text[0])
+            self.assertGreaterEqual(len(opened.document.blocks), 33)
+            book = BookReader(opened.document)
+            book.next_block()
+            book.save_return_point("genuine_capablanca")
+            point = book.location()
+            next_original = book.next_block()
+            self.assertEqual(book.block_snapshot(next_original.index).text,
+                             original_text[1])
+            recovered = BookReader.restore_snapshot(
+                Version2Application.prepare_book_open(filename).document,
+                book.snapshot(),
+            )
+            self.assertEqual(recovered.restore_return_point("genuine_capablanca"), point)
+            self.assertEqual(opened.document.source_name, filename.name)
+
     def test_real_docx_structure_to_canonical_books_and_windows_open(self):
         source = _docx()
         first = import_docx_book(source, source_name="chess.docx")
