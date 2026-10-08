@@ -10,6 +10,7 @@ import tempfile
 import unittest
 
 from acs.acsdb import AcsDatabase
+from acs.chesscore import Board
 from acs.analysis_service import AnalysisService
 from acs.book_progress_store import BookProgressStore
 from acs.engine_assisted_workflows import EngineAssistedWorkflowService
@@ -18,6 +19,29 @@ from tools.revised_section37_bilingual_workbook_pack import load_advanced_workbo
 
 
 class BilingualOwnerBooksProductReadback(unittest.TestCase):
+    def test_all_twelve_original_workbook_uci_variants_are_legal_in_canonical_chess_model(self):
+        data = load_advanced_workbook()
+        for lesson in data["lessons"]:
+            with self.subTest(lesson=lesson["lesson_id"], rating=lesson["rating_lichess_puzzle"]):
+                board = Board(lesson["fen_before_opponent_move"])
+                fen_before = board.fen()
+                # Original Lichess puzzles begin with one previous opponent move.
+                first_san = board.push_text(lesson["opponent_previous_move_uci"])
+                self.assertTrue(first_san)
+                self.assertNotEqual(board.fen(), fen_before)
+                self.assertEqual(len(board.undo_stack), 1)
+                for uci in lesson["solution_after_opponent_uci"]:
+                    self.assertTrue(board.push_text(uci))
+                self.assertEqual(
+                    len(board.undo_stack),
+                    1 + len(lesson["solution_after_opponent_uci"]),
+                )
+                self.assertTrue(board.fen())
+                # Source verification must never mutate a second chess model.
+                for _ in range(len(lesson["solution_after_opponent_uci"]) + 1):
+                    board.undo()
+                self.assertEqual(board.fen(), fen_before)
+
     def test_all_ten_real_files_go_through_canonical_application_prepare_books(self):
         contents = make_pack(load_advanced_workbook())
         self.assertEqual(len(contents), 10)
