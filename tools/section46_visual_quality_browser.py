@@ -11,6 +11,8 @@ from contextlib import contextmanager
 import hashlib
 import http.server
 import json
+import subprocess
+import re
 from pathlib import Path
 import threading
 from urllib.parse import urlsplit
@@ -72,6 +74,11 @@ def run(folder: Path, *, browser_engine: str = "chromium") -> dict:
     from playwright.sync_api import sync_playwright
 
     axe = verify()
+    source_sha = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
+    ).strip()
+    if re.fullmatch(r"[0-9a-f]{40}", source_sha) is None:
+        raise RuntimeError("exact source Git SHA cannot be established")
     folder.mkdir(parents=True, exist_ok=True)
     records = []
     with local_ui() as url, sync_playwright() as playwright:
@@ -207,6 +214,7 @@ def run(folder: Path, *, browser_engine: str = "chromium") -> dict:
         finally:
             browser.close()
     report = {"source": "Section46 local real HTML browser qualification",
+              "exact_source_sha": source_sha,
               "browser": browser_engine, "records": records,
               "screenshots_are_approved_baselines": False,
               "human_sighted_review": "NOT_PERFORMED",
