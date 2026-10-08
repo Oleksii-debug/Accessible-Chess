@@ -161,7 +161,8 @@
       "public_release": "EXCLUDED",
       "external_license_checkout_path": "blue/LICENSE",
       "external_license_git_blob": "8d062dda262bcdc42d45b861bd796117feb6d0fe",
-      "external_license_indexed_bytes": 17504
+      "external_license_indexed_bytes": 17504,
+      "external_license_sha256": "1e301e03fb28addf6ad03d42b1429e87679013d1ee7e141c7c968fbef0ad961d"
     },
     {
       "id": "gutenberg_chess_and_checkers_lasker",
@@ -742,7 +743,8 @@
       "notes": "Real historical accounts and tournament anecdotes; separate book author, epoch and genre. Test only, no release ownership asserted.",
       "external_license_checkout_path": "bird/LICENSE",
       "external_license_git_blob": "8d062dda262bcdc42d45b861bd796117feb6d0fe",
-      "external_license_indexed_bytes": 17504
+      "external_license_indexed_bytes": 17504,
+      "external_license_sha256": "1e301e03fb28addf6ad03d42b1429e87679013d1ee7e141c7c968fbef0ad961d"
     },
     {
       "id": "gutenberg_checkmates_three_fishburne_original_txt",
@@ -766,7 +768,8 @@
       "notes": "Authentic mate-positions FEN source. Some historical positions use nonstandard 0 counters; source acquisition does not silently assume a validated FEN position.",
       "external_license_checkout_path": "checkmates/LICENSE",
       "external_license_git_blob": "8d062dda262bcdc42d45b861bd796117feb6d0fe",
-      "external_license_indexed_bytes": 17504
+      "external_license_indexed_bytes": 17504,
+      "external_license_sha256": "1e301e03fb28addf6ad03d42b1429e87679013d1ee7e141c7c968fbef0ad961d"
     }
   ]
 }
