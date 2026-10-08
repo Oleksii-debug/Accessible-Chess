@@ -45,8 +45,11 @@ jobs:
       - name: Node script syntax and real existing DOM actions
         run: |
           node --check web/section45_design_studio.js
+          node --check web/accessible_chess_web.js
           node --check tests/js/section45_design_studio_dom_test.js
           node tests/js/section45_design_studio_dom_test.js
+          node --check tests/js/section45_web_board_profile_integration_test.js
+          node tests/js/section45_web_board_profile_integration_test.js
           node tests/js/sections43_44_workspace_contract_test.js
           node --check tests/js/section42_overlay_runtime_test.js
           node tests/js/section42_overlay_runtime_test.js
