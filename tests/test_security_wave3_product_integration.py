@@ -410,3 +410,26 @@ def test_wave3_private_startup_verdict_requires_exact_api_version(forged_version
     }
     with pytest.raises(ProtectionBoundaryError, match="API version does not match runtime"):
         _validate_decision(verdict, runtime_api_version=1)
+
+
+@pytest.mark.parametrize("forged_version", [4.0, 4 + 0j, "4"])
+@pytest.mark.parametrize("operation", ["authorize_product_boundary", "read_trust_status", "stage_secure_update"])
+def test_wave3_rejects_forged_reply_api_version_types(tmp_path, forged_version, operation):
+    """Numeric equality must not authenticate a malformed private v4 reply."""
+    runtime, _calls, _package = _runtime_v4(tmp_path)
+    original = getattr(runtime, operation)
+
+    def forged_reply(**kwargs):
+        reply = original(**kwargs)
+        reply["api_version"] = forged_version
+        return reply
+
+    setattr(runtime, operation, forged_reply)
+    client = _client(tmp_path, runtime)
+    with pytest.raises(ProtectionAdvancedError, match="API version is unsupported"):
+        if operation == "authorize_product_boundary":
+            ProtectionCapabilityGate(client).authorize("engine.analysis")
+        elif operation == "read_trust_status":
+            ProtectionTrustBoundary(client).status()
+        else:
+            ProtectionUpdateChannel(client).stage(current_version="0.3.2")
