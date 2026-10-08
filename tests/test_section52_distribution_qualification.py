@@ -135,5 +135,15 @@ class Section52CorpusQualificationTests(unittest.TestCase):
                 )
 
 
+    def test_source_uri_whitespace_and_windows_directory_case_alias(self):
+        self.doc["assets"][0]["source_url"] = " https://example.org/sample.pgn"
+        self.deny()
+        self.doc["assets"][0]["source_url"] = "https://example.org/\\nsample"
+        self.deny()
+        self.doc["assets"][0]["source_url"] = "https://example.org/sample.pgn"
+        (self.stage / "Books").mkdir()
+        self.deny()
+
+
 if __name__ == "__main__":
     unittest.main()
