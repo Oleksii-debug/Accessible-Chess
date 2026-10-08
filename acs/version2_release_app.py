@@ -565,7 +565,7 @@ def create_version2_release_application(
                     )
                 capability_gate = ProtectionCapabilityGate(protection_session.client)
                 release_update_center = ReleaseUpdateCenter(
-                    current_version=_product_version,
+                    current_version=_product_version.split("-", 1)[0],
                     channel=ProtectionUpdateChannel(protection_session.client),
                     verifier=ProtectionUpdateSignatureVerifier(protection_session.client),
                     time_source=ProtectionTrustedTimeSource(protection_session.client),
