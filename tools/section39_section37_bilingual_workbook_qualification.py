@@ -18,6 +18,9 @@ from acs.bookreader import BookReader
 from acs.bookdocument import BookDocument
 from acs.lawful_corpus_registry import LawfulCorpusError, load_catalog, read_verified_source_snapshot
 from acs.version2_application import Version2Application
+from acs.section40_bilingual_master_workbook_runtime import (
+    ORIGINAL_SOURCE_GIT_BLOB, _ORIGINAL_SOURCE_TEXT,
+)
 from tools.revised_section37_bilingual_workbook_pack import load_advanced_workbook, make_pack
 from tools.revised_sections37_38_offline_manifest import ROOT, _source_head
 
@@ -39,6 +42,14 @@ def qualify_bilingual_books(*, root: Path = ROOT) -> tuple[dict, dict[str, bytes
         raise LawfulCorpusError("genuine Section37 bilingual workbook unavailable or unsafe")
     original = source.read_bytes()
     source_hash = hashlib.sha256(original).hexdigest()
+    original_git_blob = hashlib.sha1(
+        b"blob " + str(len(original)).encode("ascii") + bytes((0,)) + original
+    ).hexdigest()
+    if (
+        original_git_blob != ORIGINAL_SOURCE_GIT_BLOB
+        or original != _ORIGINAL_SOURCE_TEXT.encode("utf-8")
+    ):
+        raise LawfulCorpusError("Section37 test workbook and production offline Books source bytes diverged")
     work = load_advanced_workbook(source)
     if len(work["lessons"]) != 12 or work["language_codes"] != ["uk", "en"]:
         raise LawfulCorpusError("original Section37 advanced workbook size/language drift")
@@ -165,6 +176,8 @@ def qualify_bilingual_books(*, root: Path = ROOT) -> tuple[dict, dict[str, bytes
         "schema": "acs-section39-original-section37-bilingual-ten-book-import-v1",
         "workbook_source_path": WORKBOOK,
         "workbook_source_sha256": source_hash,
+        "workbook_original_git_blob": original_git_blob,
+        "production_embedded_source_is_byte_identical": True,
         "origin_sample_source_ids": [x[0] for x in SOURCES],
         "original_lesson_count": 12,
         "language_count": 2,
