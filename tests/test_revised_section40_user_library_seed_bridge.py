@@ -131,6 +131,44 @@ class RevisedSection40RuntimeSeedTests(unittest.TestCase):
                         bridge.build_owner_test_seed(forged, output)
                     self.assertFalse(output.exists())
 
+    def test_archive_with_rewritten_source_commit_cannot_seed_current_program(self):
+        """Even internally rehashed older/counterfeit bundles fail exact HEAD."""
+        with tempfile.TemporaryDirectory() as scratch:
+            base = Path(scratch)
+            source = base / "actual.zip"
+            forged = base / "valid-checksums-stale-head.zip"
+            target = base / "no-stale-seed.zip"
+            corpus.build_collection("TEST_BUILD", source)
+            with zipfile.ZipFile(source) as archive:
+                members = [(info, archive.read(info.filename))
+                           for info in archive.infolist()]
+            contents = dict((item.filename, payload) for item, payload in members)
+            manifest = json.loads(contents["catalog/materials.json"])
+            actual_head = manifest["source_commit_sha"]
+            self.assertEqual(len(actual_head), 40)
+            manifest["source_commit_sha"] = (
+                "a" * 40 if actual_head != "a" * 40 else "b" * 40
+            )
+            contents["catalog/materials.json"] = (
+                json.dumps(manifest, ensure_ascii=False, sort_keys=True) + "\n"
+            ).encode("utf-8")
+            receipts = json.loads(contents["catalog/checksums.json"])
+            for row in receipts:
+                payload = contents[row["path"]]
+                row["sha256"] = hashlib.sha256(payload).hexdigest()
+                row["bytes"] = len(payload)
+            contents["catalog/checksums.json"] = (
+                json.dumps(receipts, ensure_ascii=False, sort_keys=True) + "\n"
+            ).encode("utf-8")
+            with zipfile.ZipFile(forged, "w") as archive:
+                for info, _ in members:
+                    archive.writestr(info, contents[info.filename])
+            with self.assertRaisesRegex(
+                corpus.OfflineCollectionError, "exact checked-out HEAD"
+            ):
+                bridge.build_owner_test_seed(forged, target)
+            self.assertFalse(target.exists())
+
     def test_zip_slip_is_rejected(self):
         with tempfile.TemporaryDirectory() as scratch:
             base = Path(scratch)
