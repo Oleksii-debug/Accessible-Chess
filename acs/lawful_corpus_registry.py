@@ -178,3 +178,40 @@ def acquire_cc0_source(record: dict, cache_dir: Path, *, opener=urlopen) -> Path
                 temp.unlink(missing_ok=True)
             except OSError:
                 pass
+
+
+def qualify_offline_collection(
+    records: tuple[dict, ...], cache_dir: Path, *, distribution: str,
+) -> tuple[dict[str, str], ...]:
+    """Inventory only; no implicit extraction, UI publication or chess import.
+
+    PUBLIC_RELEASE is strict CC0 verified material only. Owner TEST_BUILD may use
+    separately authorized sources outside this routine, never by silently
+    changing this third-party rights policy.
+    """
+    if distribution not in {"TEST_BUILD", "PUBLIC_RELEASE"}:
+        raise LawfulCorpusError("offline distribution class invalid")
+    output: list[dict[str, str]] = []
+    for record in records:
+        if (
+            record.get("license") != "CC0"
+            or record.get("redistribution") != "permitted"
+            or record.get("acquisition") != "PINNED_NOT_DOWNLOADED_IN_THIS_PASS"
+            or record.get("format") != "pgn.zst"
+        ):
+            continue
+        identifier = record["id"]
+        if type(identifier) is not str or not _ID.fullmatch(identifier):
+            raise LawfulCorpusError("unsafe offline corpus id")
+        candidate = cache_dir / (identifier + ".pgn.zst")
+        if not candidate.exists() and not candidate.is_symlink():
+            continue
+        digest = verified_local_source(candidate, record)
+        output.append({
+            "source_id": identifier,
+            "filename": candidate.name,
+            "sha256": digest,
+            "distribution": distribution,
+            "semantic_state": "VERIFIED_BYTES_NOT_IMPORTED",
+        })
+    return tuple(sorted(output, key=lambda item: item["source_id"]))
