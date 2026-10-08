@@ -169,6 +169,7 @@ class Version2ReleasePayloadTests(unittest.TestCase):
         optional = coff + 20
         pe32_plus = machine == 0x8664
         struct.pack_into("<H", data, optional, 0x20B if pe32_plus else 0x10B)
+        struct.pack_into("<H", data, optional + 68, 0x0002)
 
         section = optional + optional_size
         data[section : section + 8] = b".text\0\0\0"
