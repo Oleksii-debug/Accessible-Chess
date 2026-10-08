@@ -143,6 +143,8 @@ def main() -> None:
         os.replace(staged, REPORT)
     finally:
         staged.unlink(missing_ok=True)
+    if any(r["actual"]["counts"]["FAIL"] for r in report["sources"]):
+        raise LawfulCorpusError("genuine upstream position semantic failure; see retained receipt")
     print(json.dumps({
         "source_commit_sha": head,
         "original_position_count": report["total_original_records"],
