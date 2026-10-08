@@ -82,6 +82,25 @@ class BilingualSourceGroundingTests(unittest.TestCase):
                 for lang in LANGS:
                     self.assertGreater(len(lesson[lang]["prompt"]), 45)
 
+    def test_checked_in_uk_en_markdown_books_match_canonical_generator_exactly(self):
+        work = load_advanced_workbook()
+        from acs.chesscore import Board
+        for lang in LANGS:
+            with self.subTest(language=lang):
+                checked_in = ROOT / (
+                    "tests/real_corpus/advanced_training/"
+                    f"section37-advanced-workbook-{lang}.md"
+                )
+                generated = render_markdown(work, lang)
+                self.assertEqual(checked_in.read_bytes(), generated)
+                # All 12 semantic FEN blocks must be positions AFTER the
+                # opponent's source move, rather than the original Lichess
+                # pre-opponent FEN that would put the learner on the wrong side.
+                for lesson in work["lessons"]:
+                    board = Board(lesson["fen_before_opponent_move"])
+                    board.push_text(lesson["opponent_previous_move_uci"])
+                    self.assertIn(board.fen().encode("utf-8"), generated)
+
     def test_generated_assets_are_distinct_real_uk_en_text_not_dummy_identical_files(self):
         work = load_advanced_workbook()
         package = make_pack(work)
