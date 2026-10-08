@@ -158,3 +158,18 @@ Durable evidence: `docs/corpus/SECTION43_WINDOWS_WORKSPACE_EVIDENCE.json`.
 | 43.6 | `BLOCKED` | Source tests are listed, but physical Windows UIA/screenshot/DPI/restart and human NVDA acceptance were not run in this environment. |
 
 The next dependency-safe closure front is Section 44.
+
+## Section 45 — current closure front
+
+**Status: `INTERNAL_COMPLETE_EXTERNAL_BLOCKED` (not DONE).**
+
+Durable evidence: `docs/corpus/SECTION45_DESIGN_PROFILE_EVIDENCE.json`.
+
+| Subsection | State | Evidence / exact limitation |
+|---|---|---|
+| 45.1 | `PARTIAL` | Existing keyboard/sound/settings preferences are present; unified visual settings surface is not implemented. |
+| 45.2–45.3 | `BLOCKED` | Named design profiles and one Apply/Cancel/Reset visual-profile workflow are not implemented. |
+| 45.4 | `PARTIAL` | `acs/settings.py` has bounded version/recovery behavior, but theme/board/layout migration is not closed. |
+| 45.5–45.6 | `BLOCKED` | Cross-platform visual sync/conflict policy and complete combination matrix are not implemented. |
+
+The next dependency-safe closure front is Section 46.
