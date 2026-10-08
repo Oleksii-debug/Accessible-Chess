@@ -95,13 +95,37 @@ function flattenText(value, depth = 0) {
   return [];
 }
 
+// Only project the selected route's canonical visual board. Never reuse a
+// stale Play board for Teacher/Book/Media after switching workspaces.
+function activeVisualBoard(snapshot) {
+  if (!snapshot || typeof snapshot !== "object") return null;
+  const route = String(currentRoute || "board");
+  const routeObjects = {
+    board:[snapshot.visualBoard,snapshot.board && snapshot.board.visualBoard],
+    teacher:[snapshot.teacher && snapshot.teacher.visualBoard],
+    online:[snapshot.online && snapshot.online.visualBoard],
+    spectator:[snapshot.spectator && snapshot.spectator.visualBoard],
+    books:[snapshot.books && snapshot.books.visualBoard,
+           snapshot.book && snapshot.book.visualBoard],
+    media:[snapshot.media && snapshot.media.visualBoard]
+  };
+  const possible = routeObjects[route] || [];
+  for (const candidate of possible) {
+    if (!candidate || !Array.isArray(candidate.cells) || candidate.cells.length !== 64) continue;
+    const squares = candidate.cells.map(cell => cell && cell.square);
+    if (squares.every(x => typeof x === "string" && /^[a-h][1-8]$/.test(x))
+        && new Set(squares).size === 64) return candidate;
+  }
+  return null;
+}
 function boardCells(snapshot) {
-  const candidates = [
-    snapshot && snapshot.visualBoard && snapshot.visualBoard.cells,
-    snapshot && snapshot.board && snapshot.board.cells,
+  const visual=activeVisualBoard(snapshot);
+  if (visual) return visual.cells;
+  // Legacy V2 board fallback belongs only to the real Play route.
+  if (currentRoute !== "board") return [];
+  const candidates = [snapshot && snapshot.board && snapshot.board.cells,
     snapshot && snapshot.screen && snapshot.screen.board,
-    snapshot && snapshot.position && snapshot.position.cells
-  ];
+    snapshot && snapshot.position && snapshot.position.cells];
   for (const value of candidates) {
     if (Array.isArray(value) && value.length === 64) return value;
   }
@@ -121,8 +145,7 @@ function renderBoard(snapshot) {
     return;
   }
   boardSurface.hidden = false;
-  const visual = snapshot && snapshot.visualBoard && typeof snapshot.visualBoard === "object"
-    ? snapshot.visualBoard : {};
+  const visual = activeVisualBoard(snapshot) || {};
   const p = visual.preferences && typeof visual.preferences === "object" ? visual.preferences : {};
   const themes = ["classic", "high_contrast", "blue", "classic_wood",
     "modern_graphite", "tournament_blue", "light_minimal"];

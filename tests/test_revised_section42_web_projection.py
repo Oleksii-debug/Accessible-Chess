@@ -24,6 +24,18 @@ class WebBoardProjectionTests(unittest.TestCase):
         for forbidden in ('new Chess(', 'parseFEN(', 'generateLegalMoves(', 'localStorage'):
             self.assertNotIn(forbidden,script)
 
+    def test_one_visual_board_source_per_current_route_no_stale_cross_mode_projection(self):
+        script=(ROOT/"web/accessible_chess_web.js").read_text(encoding="utf-8")
+        self.assertIn("function activeVisualBoard(snapshot)", script)
+        self.assertIn("if (currentRoute !== \"board\") return [];", script)
+        self.assertIn("snapshot.teacher && snapshot.teacher.visualBoard", script)
+        self.assertIn("snapshot.spectator && snapshot.spectator.visualBoard", script)
+        self.assertIn("snapshot.book && snapshot.book.visualBoard", script)
+        self.assertIn("snapshot.media && snapshot.media.visualBoard", script)
+        self.assertIn("new Set(squares).size === 64", script)
+        self.assertIn("const visual = activeVisualBoard(snapshot) || {};", script)
+        self.assertNotIn("const visual = snapshot && snapshot.visualBoard", script)
+
     def test_one_offline_css_palette_available_on_both_surfaces(self):
         css=(ROOT/"web/assets/accessible_chess_design.css").read_text(encoding="utf-8")
         for color in ("classic","high_contrast","blue","classic_wood",
