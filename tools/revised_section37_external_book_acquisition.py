@@ -161,6 +161,59 @@ def verify_original_book(record: dict, external_root: Path) -> dict:
     }
 
 
+def verify_original_cc0_pdf(record: dict, external_root: Path) -> dict:
+    """Read a genuine upstream PDF as bytes only; no PDF parsing or release."""
+    if (
+        record.get("id") != "cc0_capablanca_open_pdf_original_source"
+        or record.get("format") != "pdf"
+        or record.get("acquisition") != "DISCOVERED_NOT_HASH_VERIFIED"
+        or record.get("sha256") is not None
+        or record.get("test_access") != "EXTERNAL_CC0_PDF_SOURCE_ONLY"
+        or record.get("public_release") != "EXCLUDED_PENDING_QUALIFICATION"
+        or not str(record.get("license", "")).startswith("CC0-1.0")
+        or not str(record.get("redistribution", "")).startswith("permitted under source CC0")
+    ):
+        raise LawfulCorpusError("external original PDF source is not authorized")
+    original_blob = record.get("upstream_git_blob")
+    license_blob = record.get("external_license_git_blob")
+    if (
+        type(original_blob) is not str or not _GIT_BLOB.fullmatch(original_blob)
+        or type(license_blob) is not str or not _GIT_BLOB.fullmatch(license_blob)
+    ):
+        raise LawfulCorpusError("original CC0 PDF source/license Git identity is missing")
+    path = _direct_path(external_root, record.get("external_checkout_path"))
+    license_path = _direct_path(external_root, record.get("external_license_checkout_path"))
+    original = _bounded_direct_snapshot(path, record.get("max_bytes"))
+    license_data = _bounded_direct_snapshot(license_path, 1024 * 1024)
+    if (
+        _git_blob(original) != original_blob
+        or not original.startswith(b"%PDF-")
+        or b"%%EOF" not in original[-2048:]
+        or _git_blob(license_data) != license_blob
+        or not license_data.startswith(b"Creative Commons Legal Code")
+        or b"CC0 1.0 Universal" not in license_data[:512]
+    ):
+        raise LawfulCorpusError("original CC0 PDF or its license differs from trusted source")
+    return {
+        "source_id": record["id"],
+        "title": record.get("title"),
+        "author": record.get("author"),
+        "source_page": record.get("source_page"),
+        "source_format": "pdf",
+        "sha256": hashlib.sha256(original).hexdigest(),
+        "git_blob": original_blob,
+        "original_bytes": len(original),
+        "license_git_blob": license_blob,
+        "license_sha256": hashlib.sha256(license_data).hexdigest(),
+        "license_bytes": len(license_data),
+        "acquisition": "VERIFIED_EPHEMERAL_EXTERNAL_GIT_BLOB",
+        "expected_source_sha256_pre_qualified": False,
+        "public_release": "EXCLUDED_PENDING_QUALIFICATION",
+        "semantic_pdf_import": "NOT_TESTED_BY_SOURCE_ACQUISITION",
+        "original_bytes_packaged": False,
+    }
+
+
 def verify_external_books(records: tuple[dict, ...], external_root: Path) -> tuple[dict, ...]:
     selected = [item for item in records if "external_checkout_path" in item]
     if not selected or len(selected) > _MAX_BOOKS:
@@ -171,7 +224,10 @@ def verify_external_books(records: tuple[dict, ...], external_root: Path) -> tup
         if entry["id"] in seen:
             raise LawfulCorpusError("external source identity duplicated")
         seen.add(entry["id"])
-        results.append(verify_original_book(entry, external_root))
+        if entry.get("format") == "pdf":
+            results.append(verify_original_cc0_pdf(entry, external_root))
+        else:
+            results.append(verify_original_book(entry, external_root))
     return tuple(sorted(results, key=lambda item: item["source_id"]))
 
 
