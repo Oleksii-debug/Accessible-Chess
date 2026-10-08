@@ -92,29 +92,21 @@ class UiSemanticGateWorkflowTests(unittest.TestCase):
                 with self.subTest(path=path):
                     self.assertIn(path, block)
 
-    def test_checkout_and_geometry_bind_exact_live_product_identity(self) -> None:
+    def test_checkout_and_geometry_bind_exact_pull_request_identity(self) -> None:
         self.assertIn("fetch-depth: 0", self.workflow)
         self.assertIn("ref: ${{ github.event.pull_request.head.sha || github.sha }}", self.workflow)
         self.assertIn("PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}", self.workflow)
-        self.assertIn(
-            "PRODUCT_BRANCH: work/full-product-teacher-education-reachability-20260911",
-            self.workflow,
-        )
         self.assertIn('event_base="${PR_BASE_SHA:-}"', self.workflow)
         self.assertIn('git cat-file -e "$event_base^{commit}"', self.workflow)
+        self.assertIn('git merge-base --is-ancestor "$event_base" HEAD', self.workflow)
         self.assertIn(
-            'git fetch --no-tags origin "+refs/heads/$PRODUCT_BRANCH:refs/remotes/origin/$PRODUCT_BRANCH"',
+            'test "$(git merge-base "$event_base" HEAD)" = "$event_base"',
             self.workflow,
         )
-        self.assertIn(
-            'live_base="$(git rev-parse "refs/remotes/origin/$PRODUCT_BRANCH")"',
-            self.workflow,
-        )
-        self.assertIn('git merge-base --is-ancestor "$event_base" "$live_base"', self.workflow)
-        self.assertIn('git merge-base --is-ancestor "$live_base" HEAD', self.workflow)
-        self.assertIn('test "$(git merge-base "$live_base" HEAD)" = "$live_base"', self.workflow)
-        self.assertIn('git diff --check "$live_base" HEAD', self.workflow)
-        self.assertNotIn('git diff --check "$event_base" HEAD', self.workflow)
+        self.assertIn('git diff --check "$event_base" HEAD', self.workflow)
+        self.assertIn('echo "UI_SEMANTIC_PR_BASE=$event_base"', self.workflow)
+        self.assertNotIn("PRODUCT_BRANCH:", self.workflow)
+        self.assertNotIn('refs/remotes/origin/$PRODUCT_BRANCH', self.workflow)
 
     def test_accessibility_regressions_and_dual_os_gate_remain(self) -> None:
         self.assertIn("os: [ubuntu-22.04, windows-2025]", self.workflow)
