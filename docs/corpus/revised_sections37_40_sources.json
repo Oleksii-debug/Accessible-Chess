@@ -539,7 +539,7 @@
         }
       },
       "external_oracle_source_checksum": {
-        "file": "TestBaseExport.pgn",
+        "name": "TestBaseExport.pgn",
         "bytes": 1319,
         "sha256": "a393e2b52d23c7f9f7b158fa4c8dd70214ef111be096189853fa001ccc9fd010"
       }
