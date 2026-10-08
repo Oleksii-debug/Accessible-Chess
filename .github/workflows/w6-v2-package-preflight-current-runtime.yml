@@ -51,6 +51,9 @@ env:
   RUNTIME_REQUIRED_RESOURCES_BLOB: 9ea7b3b07a9df59092fad8679b6ec9e38eed144a
   CURRENT_ZIP_TOPOLOGY_BLOB: 2a849e00e192d8d91118d7f2edd5274ff576c5ed
   CURRENT_STOCKFISH_SOURCE_BLOB: 7b772885f8bdb68bbf2c8a65a1e776d0da0f630e
+  SECURITY_WAVE1_PREFLIGHT_BLOB: b77dc0bf6200ba7725e8d4feef0dac8f1e990573
+  SECURITY_WAVE1_PREFLIGHT_TEST_BLOB: 353d0400c37fe3c01f26546d21f32af0e0a9948b
+  SECURITY_WAVE1_REQUIRED_RESOURCES_BLOB: 9ce6fcce7921325e9f777bc3430f99baa916070c
 
 jobs:
   focused:
@@ -74,7 +77,11 @@ jobs:
         run: |
           set -euo pipefail
           git merge-base --is-ancestor "$LEGACY_RUNTIME_BASE" HEAD
-          git diff --check "$LEGACY_RUNTIME_BASE" HEAD
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            git diff --check "${{ github.event.pull_request.base.sha }}"...HEAD
+          else
+            git diff --check "$LEGACY_RUNTIME_BASE" HEAD
+          fi
           changed="$(git diff --name-only "$LEGACY_RUNTIME_BASE" HEAD | sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/w6-v2-package-preflight-current-runtime.yml' \
@@ -88,7 +95,7 @@ jobs:
             test "$(git rev-parse HEAD:tests/test_version2_package_preflight.py)" = "$LEGACY_TEST_BLOB"
             test "$(git rev-parse HEAD:tests/test_version2_package_preflight_hardening.py)" = "$CURRENT_HARDENING_BLOB"
             case "$(git rev-parse HEAD:tests/test_v2_package_required_resources.py)" in
-              "$CURRENT_REQUIRED_RESOURCES_BLOB"|"$RESOURCE_REQUIRED_RESOURCES_BLOB"|"$RUNTIME_REQUIRED_RESOURCES_BLOB") ;;
+              "$CURRENT_REQUIRED_RESOURCES_BLOB"|"$RESOURCE_REQUIRED_RESOURCES_BLOB"|"$RUNTIME_REQUIRED_RESOURCES_BLOB"|"$SECURITY_WAVE1_REQUIRED_RESOURCES_BLOB") ;;
               *) echo 'Unqualified required-resource tests' >&2; exit 1 ;;
             esac
             test "$(git rev-parse "$LEGACY_OWNER_565_CURRENT_HEAD":acs/version2_package_preflight.py)" = "$LEGACY_PREFLIGHT_BLOB"
@@ -101,7 +108,7 @@ jobs:
             preflight_blob="$(git rev-parse HEAD:acs/version2_package_preflight.py)"
             preflight_pair="$preflight_blob:$(git rev-parse HEAD:tests/test_version2_package_preflight.py)"
             case "$preflight_pair" in
-              "$CURRENT_PREFLIGHT_BLOB:$CURRENT_TEST_BLOB"|"$RESOURCE_PREFLIGHT_BLOB:$RESOURCE_PREFLIGHT_TEST_BLOB"|"$RUNTIME_PREFLIGHT_BLOB:$RUNTIME_PREFLIGHT_TEST_BLOB"|"$PE_IDENTITY_PREFLIGHT_BLOB:$RUNTIME_PREFLIGHT_TEST_BLOB"|"$SNAPSHOT_IDENTITY_PREFLIGHT_BLOB:$RUNTIME_PREFLIGHT_TEST_BLOB"|"$STABLE_READS_PREFLIGHT_BLOB:$STABLE_READS_TEST_BLOB") ;;
+              "$CURRENT_PREFLIGHT_BLOB:$CURRENT_TEST_BLOB"|"$RESOURCE_PREFLIGHT_BLOB:$RESOURCE_PREFLIGHT_TEST_BLOB"|"$RUNTIME_PREFLIGHT_BLOB:$RUNTIME_PREFLIGHT_TEST_BLOB"|"$PE_IDENTITY_PREFLIGHT_BLOB:$RUNTIME_PREFLIGHT_TEST_BLOB"|"$SNAPSHOT_IDENTITY_PREFLIGHT_BLOB:$RUNTIME_PREFLIGHT_TEST_BLOB"|"$STABLE_READS_PREFLIGHT_BLOB:$STABLE_READS_TEST_BLOB"|"$SECURITY_WAVE1_PREFLIGHT_BLOB:$SECURITY_WAVE1_PREFLIGHT_TEST_BLOB") ;;
               *) echo 'Unqualified canonical preflight/test pair' >&2; exit 1 ;;
             esac
             if [ "$preflight_blob" = "$PE_IDENTITY_PREFLIGHT_BLOB" ]; then
@@ -113,7 +120,7 @@ jobs:
             fi
             test "$(git rev-parse HEAD:tests/test_version2_package_preflight_hardening.py)" = "$CURRENT_HARDENING_BLOB"
             case "$(git rev-parse HEAD:tests/test_v2_package_required_resources.py)" in
-              "$CURRENT_REQUIRED_RESOURCES_BLOB"|"$RESOURCE_REQUIRED_RESOURCES_BLOB"|"$RUNTIME_REQUIRED_RESOURCES_BLOB") ;;
+              "$CURRENT_REQUIRED_RESOURCES_BLOB"|"$RESOURCE_REQUIRED_RESOURCES_BLOB"|"$RUNTIME_REQUIRED_RESOURCES_BLOB"|"$SECURITY_WAVE1_REQUIRED_RESOURCES_BLOB") ;;
               *) echo 'Unqualified required-resource tests' >&2; exit 1 ;;
             esac
             test "$(git rev-parse HEAD:tests/test_version2_package_zip_topology_preflight.py)" = "$CURRENT_ZIP_TOPOLOGY_BLOB"
