@@ -96,12 +96,36 @@ def run(folder: Path, *, browser_engine: str = "chromium") -> dict:
                             # 125-200% page zoom or enlarged desktop text.
                             page.evaluate("(value) => { document.documentElement.style.zoom = value; }", zoom)
                             page.locator("#ac41-theme").select_option(theme)
-                            page.locator("#ac45-toggle").click()
+                            # Qualify real keyboard activation, not a synthetic
+                            # click or merely programmatic focus.
+                            page.locator("#ac45-toggle").focus()
+                            page.keyboard.press("Enter")
+                            page.wait_for_function(
+                                "() => document.querySelector('#ac45-panel')?.hidden === false"
+                            )
+                            page.keyboard.press("Tab")
+                            keyboard_focus=page.evaluate("document.activeElement?.id")
+                            if keyboard_focus != "ac45-profile":
+                                raise AssertionError((name,theme,zoom,width,
+                                                      "keyboard Tab did not enter studio",keyboard_focus))
+                            # Test all six actual profile choices at this geometry:
+                            # Preview must never emit board mutations or alter
+                            # stored FEN; candidate remains presentation-only.
+                            for profile in ("Classic", "Tournament", "Coach",
+                                            "Classroom Presentation", "Low Vision",
+                                            "High Contrast"):
+                                page.locator("#ac45-profile").select_option(profile)
+                                page.locator("#ac45-preview-button").press("Enter")
+                                if not page.locator("#ac45-preview").is_visible():
+                                    raise AssertionError((name,theme,zoom,width,profile,
+                                                          "preview unavailable"))
+                            page.locator("#ac45-profile").select_option("Classic")
                             page.locator("#ac45-profile").focus()
                             focus = page.evaluate("""() => ({
                                 studio: document.querySelector('#ac45-studio')?.getAttribute('aria-labelledby'),
                                 expanded: document.querySelector('#ac45-toggle')?.getAttribute('aria-expanded'),
                                 focus: document.activeElement?.id,
+                                keyboardFocusInitially: 'ac45-profile',
                                 overflow: document.documentElement.scrollWidth > window.innerWidth + 1,
                                 status: document.querySelector('#ac45-status')?.getAttribute('aria-live'),
                                 theme: document.documentElement.dataset.acUiTheme,
@@ -143,6 +167,8 @@ def run(folder: Path, *, browser_engine: str = "chromium") -> dict:
                                 "sha256": hashlib.sha256(png.read_bytes()).hexdigest(),
                                 "axe_violations": violations, "page_errors": errors,
                                 "semantics": focus,
+                                "keyboard_focus": keyboard_focus,
+                                "profile_preview_count": 6,
                                 "classification": "LOCAL_UI_FIXTURE_NOT_LIVE_DEPLOYMENT",
                             })
                             context.close()
