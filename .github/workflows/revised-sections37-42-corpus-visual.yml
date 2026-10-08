@@ -41,6 +41,8 @@ on:
       - 'tests/test_section39_new_section37_annotated_pgn_qualification.py'
       - 'tools/section39_real_section37_advanced_training_qualification.py'
       - 'tests/test_section39_real_section37_advanced_training_qualification.py'
+      - 'tools/section39_real_official_gutenberg_epub_html.py'
+      - 'tests/test_section39_real_official_gutenberg_epub_html.py'
       - 'tests/test_section39_external_book_semantic.py'
       - 'tools/section39_external_book_semantic.py'
       - 'tests/test_section39_external_position_semantic.py'
@@ -777,3 +779,34 @@ jobs:
           path: section37-bilingual-advanced-PDF/
           retention-days: 21
           if-no-files-found: error
+
+  original-gutenberg-epub-html-source-test-only:
+    name: Section 39 genuine Gutenberg EPUB3 and HTML, rights restricted
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact original product source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Python 3.12 canonical Books readers
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+      - name: Original external-source HTTPS and malicious archive negative controls
+        run: |
+          python -m py_compile tools/section39_real_official_gutenberg_epub_html.py tests/test_section39_real_official_gutenberg_epub_html.py
+          python -m unittest -v tests.test_section39_real_official_gutenberg_epub_html
+      - name: Read original Gutenberg Capablanca EPUB3 and Lasker HTML ZIP without redistribution
+        env:
+          ACCESSIBLE_CHESS_EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: python -m tools.section39_real_official_gutenberg_epub_html
+      - name: Preserve only source URL, observed SHA256 and semantic readback not original book bytes
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: section39-original-gutenberg-epub3-html-license-restricted
+          path: section39-official-original-epub-html-observation.json
+          if-no-files-found: ignore
+          retention-days: 14
