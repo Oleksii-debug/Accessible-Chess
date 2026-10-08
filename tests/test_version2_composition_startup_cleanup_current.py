@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from contextlib import ExitStack
+
 from pathlib import Path
 from types import SimpleNamespace
 import tempfile
@@ -389,91 +391,90 @@ class Version2CompositionStartupCleanupCurrentTests(unittest.TestCase):
             resume = mock.Mock()
             primary = PosterAbort("poster construction abort")
 
-            with (
-                mock.patch.object(
+            with ExitStack() as stack:
+                stack.enter_context(mock.patch.object(
                     release_app,
                     "_prepare_version2_user_data",
                     return_value=self._layout(root),
-                ),
-                mock.patch.object(release_app, "AnalysisService", return_value=analysis),
-                mock.patch.object(
+                ))
+                stack.enter_context(mock.patch.object(release_app, "AnalysisService", return_value=analysis))
+                stack.enter_context(mock.patch.object(
                     release_app,
                     "ContinuousAnalysisService",
                     return_value=continuous,
-                ),
-                mock.patch.object(
+                ))
+                stack.enter_context(mock.patch.object(
                     release_app,
                     "EnginePlayService",
                     return_value=mock.Mock(),
-                ),
-                mock.patch.object(release_app, "Settings", return_value=settings),
-                mock.patch.object(
+                ))
+                stack.enter_context(mock.patch.object(release_app, "Settings", return_value=settings))
+                stack.enter_context(mock.patch.object(
                     release_app,
                     "PackagedSoundAssetResolver",
                     return_value=mock.Mock(),
-                ),
-                mock.patch.object(
+                ))
+                stack.enter_context(mock.patch.object(
                     release_app,
                     "_sound_variant_provider",
                     return_value=lambda: "default",
-                ),
-                mock.patch.object(release_app, "SoundRuntime", return_value=mock.Mock()),
-                mock.patch.object(
+                ))
+                stack.enter_context(mock.patch.object(release_app, "SoundRuntime", return_value=mock.Mock()))
+                stack.enter_context(mock.patch.object(
                     release_app,
                     "GameSoundRuntime",
                     return_value=mock.Mock(),
-                ),
-                mock.patch.object(
+                ))
+                stack.enter_context(mock.patch.object(
                     release_app,
                     "LocalProfileStore",
                     return_value=mock.Mock(),
-                ),
-                mock.patch.object(
+                ))
+                stack.enter_context(mock.patch.object(
                     release_app,
                     "Version2ProfileAccessibleChessAPI",
                     return_value=api,
-                ),
-                mock.patch.object(
+                ))
+                stack.enter_context(mock.patch.object(
                     release_app,
                     "Version2GameTreeResumeCoordinator",
                     return_value=resume,
-                ),
-                mock.patch.object(release_app, "AcsDatabase", return_value=mock.Mock()),
-                mock.patch.object(
+                ))
+                stack.enter_context(mock.patch.object(release_app, "AcsDatabase", return_value=mock.Mock()))
+                stack.enter_context(mock.patch.object(
                     release_app,
                     "BookProgressStore",
                     return_value=mock.Mock(),
-                ),
-                mock.patch.object(
+                ))
+                stack.enter_context(mock.patch.object(
                     release_app,
                     "EngineAssistedWorkflowService",
                     return_value=mock.Mock(),
-                ),
-                mock.patch.object(
+                ))
+                stack.enter_context(mock.patch.object(
                     release_app,
                     "Version2Application",
                     return_value=application,
-                ),
-                mock.patch.object(
+                ))
+                stack.enter_context(mock.patch.object(
                     release_app,
                     "_share_v2_action_registry",
                     return_value=None,
-                ),
-                mock.patch.object(
+                ))
+                stack.enter_context(mock.patch.object(
                     release_app,
                     "Version2WindowsFileWorkflowRuntime",
                     return_value=file_runtime,
-                ),
-                mock.patch.object(
+                ))
+                stack.enter_context(mock.patch.object(
                     release_app,
                     "Version2WinFormsUiPoster",
                     side_effect=primary,
-                ),
-                mock.patch.object(
+                ))
+                book_worker_type = stack.enter_context(mock.patch.object(
                     release_app,
                     "Version2BookOpenWorker",
-                ) as book_worker_type,
-            ):
+                ))
                 _api, build_application, _engine, native_runtime_factory = (
                     release_app.create_version2_release_application(
                         runtime_factory=lambda _config: runtime,
@@ -512,92 +513,91 @@ class Version2CompositionStartupCleanupCurrentTests(unittest.TestCase):
             resume = mock.Mock()
             primary = BookWorkerAbort("book worker construction abort")
 
-            with (
-                mock.patch.object(
+            with ExitStack() as stack:
+                stack.enter_context(mock.patch.object(
                     release_app,
                     "_prepare_version2_user_data",
                     return_value=self._layout(root),
-                ),
-                mock.patch.object(release_app, "AnalysisService", return_value=analysis),
-                mock.patch.object(
+                ))
+                stack.enter_context(mock.patch.object(release_app, "AnalysisService", return_value=analysis))
+                stack.enter_context(mock.patch.object(
                     release_app,
                     "ContinuousAnalysisService",
                     return_value=continuous,
-                ),
-                mock.patch.object(
+                ))
+                stack.enter_context(mock.patch.object(
                     release_app,
                     "EnginePlayService",
                     return_value=mock.Mock(),
-                ),
-                mock.patch.object(release_app, "Settings", return_value=settings),
-                mock.patch.object(
+                ))
+                stack.enter_context(mock.patch.object(release_app, "Settings", return_value=settings))
+                stack.enter_context(mock.patch.object(
                     release_app,
                     "PackagedSoundAssetResolver",
                     return_value=mock.Mock(),
-                ),
-                mock.patch.object(
+                ))
+                stack.enter_context(mock.patch.object(
                     release_app,
                     "_sound_variant_provider",
                     return_value=lambda: "default",
-                ),
-                mock.patch.object(release_app, "SoundRuntime", return_value=mock.Mock()),
-                mock.patch.object(
+                ))
+                stack.enter_context(mock.patch.object(release_app, "SoundRuntime", return_value=mock.Mock()))
+                stack.enter_context(mock.patch.object(
                     release_app,
                     "GameSoundRuntime",
                     return_value=mock.Mock(),
-                ),
-                mock.patch.object(
+                ))
+                stack.enter_context(mock.patch.object(
                     release_app,
                     "LocalProfileStore",
                     return_value=mock.Mock(),
-                ),
-                mock.patch.object(
+                ))
+                stack.enter_context(mock.patch.object(
                     release_app,
                     "Version2ProfileAccessibleChessAPI",
                     return_value=api,
-                ),
-                mock.patch.object(
+                ))
+                stack.enter_context(mock.patch.object(
                     release_app,
                     "Version2GameTreeResumeCoordinator",
                     return_value=resume,
-                ),
-                mock.patch.object(release_app, "AcsDatabase", return_value=mock.Mock()),
-                mock.patch.object(
+                ))
+                stack.enter_context(mock.patch.object(release_app, "AcsDatabase", return_value=mock.Mock()))
+                stack.enter_context(mock.patch.object(
                     release_app,
                     "BookProgressStore",
                     return_value=mock.Mock(),
-                ),
-                mock.patch.object(
+                ))
+                stack.enter_context(mock.patch.object(
                     release_app,
                     "EngineAssistedWorkflowService",
                     return_value=mock.Mock(),
-                ),
-                mock.patch.object(
+                ))
+                stack.enter_context(mock.patch.object(
                     release_app,
                     "Version2Application",
                     return_value=application,
-                ),
-                mock.patch.object(
+                ))
+                stack.enter_context(mock.patch.object(
                     release_app,
                     "_share_v2_action_registry",
                     return_value=None,
-                ),
-                mock.patch.object(
+                ))
+                stack.enter_context(mock.patch.object(
                     release_app,
                     "Version2WindowsFileWorkflowRuntime",
                     return_value=file_runtime,
-                ),
-                mock.patch.object(
+                ))
+                stack.enter_context(mock.patch.object(
                     release_app,
                     "Version2WinFormsUiPoster",
                     return_value=mock.Mock(),
-                ),
-                mock.patch.object(
+                ))
+                stack.enter_context(mock.patch.object(
                     release_app,
                     "Version2BookOpenWorker",
                     side_effect=primary,
-                ),
-            ):
+                ))
                 _api, build_application, _engine, native_runtime_factory = (
                     release_app.create_version2_release_application(
                         runtime_factory=lambda _config: runtime,
