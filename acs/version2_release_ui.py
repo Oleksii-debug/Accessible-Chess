@@ -282,6 +282,21 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
             raise TypeError("Version 2 application requires its accepted WebView adapter")
         self._version2_application = application
 
+    def bind_media_workflow(self, service: Any) -> None:
+        from .media_user_workflow import MediaUserWorkflowService
+
+        if type(service) is not MediaUserWorkflowService:
+            raise TypeError("canonical Media workflow required")
+        if getattr(self, "_media_service", None) is not None:
+            raise RuntimeError("Media workflow already bound")
+        self._media_service = service
+
+    def _media(self) -> Any:
+        service = getattr(self, "_media_service", None)
+        if service is None:
+            raise RuntimeError("Media workflow unavailable")
+        return service
+
     def bind_version2_language_refresh(self, callback: Callable[[], bool]) -> None:
         """Bind the owner-host refresh used to rebuild localized native menus."""
 
