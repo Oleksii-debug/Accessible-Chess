@@ -66,7 +66,7 @@ class OriginalGPLCompanionTests(unittest.TestCase):
                 self.assertEqual(entry["public_release"], "EXCLUDED")
                 self.assertEqual(entry["external_license_git_blob"], "d159169d1050894d3ea3b98e1c965c4058208fe1")
                 companions = entry["external_companion_git_blobs"]
-                self.assertEqual(len(companions), 6)
+                self.assertEqual(len(companions), 11)
                 self.assertEqual(set(companions), {stem + ext for ext in SUFFIXES})
                 self.assertTrue(all(len(digest) == 40 for digest in companions.values()))
                 self.assertEqual(len(entry["external_oracle_git_blob"]), 40)
@@ -77,8 +77,8 @@ class OriginalGPLCompanionTests(unittest.TestCase):
             record = sample_fixture(root)
             before = sorted(p.relative_to(root).as_posix() for p in root.rglob("*"))
             result = verify_gpl_cbh_family(record, root)
-            self.assertEqual(result["original_companion_count"], 6)
-            self.assertEqual(len(result["original_companions"]), 6)
+            self.assertEqual(result["original_companion_count"], 11)
+            self.assertEqual(len(result["original_companions"]), 11)
             self.assertEqual(result["semantic_import"], "NOT_TESTED_BY_SOURCE_ACQUISITION")
             self.assertEqual(result["public_release"], "EXCLUDED")
             self.assertEqual(
