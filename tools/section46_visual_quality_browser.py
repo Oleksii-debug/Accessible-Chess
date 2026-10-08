@@ -29,9 +29,57 @@ REQUIRED_AXE_RULES = (
 )
 
 
+def _fixture_snapshot_bytes() -> bytes:
+    """Clearly nonlive data consumed by the ORIGINAL Web 64-cell renderer.
+
+    This never pretends to be a game, chess rules, a signed-in account or
+    completed actual-data media/library acceptance.
+    """
+    files = "abcdefgh"
+    static = {
+        "a8": "r", "e8": "k", "d8": "q", "h8": "r",
+        "a1": "R", "e1": "K", "d1": "Q", "h1": "R",
+    }
+    cells = [
+        {"square": file + str(rank),
+         "piece": static.get(file + str(rank), ""),
+         "label": "Visual fixture square " + file + str(rank)}
+        for rank in range(8, 0, -1) for file in files
+    ]
+    snapshot = {
+        "document": {"lang": "uk"},
+        "screen": {"route_id": "board", "heading": "Дошка — тестова візуалізація",
+                   "description": "LOCAL_UI_FIXTURE — НЕ реальна партія"},
+        "board": {"cells": cells, "status": "LOCAL_UI_FIXTURE"},
+        "pgn": {"status": "LOCAL_UI_FIXTURE", "notation": "1. e4 e5 2. Nf3"},
+        "library": {"status": "LOCAL_UI_FIXTURE", "games": 5000},
+        "books": {"status": "LOCAL_UI_FIXTURE", "title": "Accessible reading sample"},
+        "training": {"status": "LOCAL_UI_FIXTURE", "puzzles": 100},
+        "media": {"status": "LOCAL_UI_FIXTURE", "playback": "paused"},
+        "teacher": {"status": "LOCAL_UI_FIXTURE", "lessons": 10},
+        "education": {"status": "LOCAL_UI_FIXTURE", "classes": 4},
+        "online": {"status": "LOCAL_UI_FIXTURE", "presence": "offline"},
+        "spectator": {"status": "LOCAL_UI_FIXTURE", "session": None},
+    }
+    return json.dumps({"ok": True, "snapshot": snapshot},
+                      ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+
+
 class _Handler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(WEB), **kwargs)
+
+    def do_GET(self):
+        if urlsplit(self.path).path == "/v1/snapshot":
+            payload = _fixture_snapshot_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+            return
+        super().do_GET()
 
     def translate_path(self, path):
         url = urlsplit(path).path
@@ -99,6 +147,11 @@ def run(folder: Path, *, browser_engine: str = "chromium") -> dict:
                             errors = []
                             page.on("pageerror", lambda error: errors.append(str(error)[:300]))
                             page.goto(url + "/" + name, wait_until="domcontentloaded")
+                            if name=="accessible_chess_web.html":
+                                page.wait_for_function(
+                                    "() => document.querySelectorAll('#board-grid [role=gridcell]').length === 64",
+                                    timeout=12000
+                                )
                             # Browser device pixel density alone does NOT simulate
                             # 125-200% page zoom or enlarged desktop text.
                             page.evaluate("(value) => { document.documentElement.style.zoom = value; }", zoom)
@@ -282,7 +335,7 @@ def run(folder: Path, *, browser_engine: str = "chromium") -> dict:
               "native_windows_UIA_NVDA": "NOT_PERFORMED",
               "full_product_performance": "NOT_PERFORMED",
               "browser_scale_type": "CSS_ZOOM_AND_DEVICE_SCALE_NOT_NATIVE_WINDOWS_DPI",
-              "web_backend": "NOT_CONNECTED_LOCAL_UI_FIXTURE",
+              "web_backend": "SYNTHETIC_LOOPBACK_SNAPSHOT_NOT_AUTHENTICATED_PRODUCT",
               "axe_executed": True}
     (folder / "quality-manifest.json").write_text(
         json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8"
