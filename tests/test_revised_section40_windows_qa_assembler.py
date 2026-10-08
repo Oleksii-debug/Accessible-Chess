@@ -74,6 +74,14 @@ class Section40RealWindowsQAPackageTests(unittest.TestCase):
             self.assertEqual(report["section37_authentic_advanced_lessons"], 12)
             self.assertEqual(len(report["section37_workbook_source_sha256"]), 64)
             self.assertFalse(report["compiled_real_exe_attested"])
+            # The deliberately synthetic prepared executable fixture carries
+            # a different source identity. Do not present its successful ZIP
+            # structure test as an exact-sha real Windows build proof.
+            self.assertFalse(report["nested_original_source_matches_package_sha"])
+            self.assertEqual(len(report["nested_original_source_sha"]), 40)
+            self.assertNotEqual(
+                report["nested_original_source_sha"], report["source_sha"],
+            )
             self.assertFalse(report["section40_done"])
             self.assertEqual(before, hashlib.sha256(
                 (product / "web/index.html").read_bytes()).hexdigest())
