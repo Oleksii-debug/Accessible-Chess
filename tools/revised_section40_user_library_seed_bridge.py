@@ -16,6 +16,8 @@ import tempfile
 import zipfile
 
 from acs.acsdb import AcsDatabase
+from acs.gametree import serialize_game
+from acs.pgn_roundtrip import parse_pgn_text
 from acs.user_library_seed import (
     BUNDLE_KIND, MANIFEST_NAME, SCHEMA_VERSION,
     import_user_library_seed, load_user_library_seed,
@@ -134,7 +136,22 @@ def build_owner_test_seed(collection_zip: Path, output_zip: Path) -> dict:
     output_zip = Path(output_zip)
     if output_zip.exists() or output_zip.is_symlink():
         raise OfflineCollectionError("Section 40 seed output already exists")
-    pgn = _read_qualified_collection(Path(collection_zip))
+    original = _read_qualified_collection(Path(collection_zip))
+    try:
+        original_games = parse_pgn_text(original.decode("utf-8"), strict=False)
+        if len(original_games) != 512 or any(not game.line.moves for game in original_games):
+            raise OfflineCollectionError("original corpus lost canonical games")
+        # This exact normalization is required by the existing startup seed
+        # contract. The original 512-game PGN may parse in recovery mode but
+        # fail strict; reuse the canonical serializer instead of hand-repairing.
+        canonical = ("\\n\\n".join(serialize_game(game).rstrip()
+                                     for game in original_games) + "\\n").encode("utf-8")
+        checked = parse_pgn_text(canonical.decode("utf-8"), strict=True)
+        if len(checked) != 512 or any(not game.line.moves for game in checked):
+            raise OfflineCollectionError("normalized owner Library seed is not strict PGN")
+    except (UnicodeError, ValueError) as exc:
+        raise OfflineCollectionError("canonical Library seed normalization failed") from exc
+    pgn = canonical
     output_zip.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="section40-seed-", dir=output_zip.parent) as scratch:
         work = Path(scratch)
@@ -160,13 +177,16 @@ def build_owner_test_seed(collection_zip: Path, output_zip: Path) -> dict:
         validated = load_user_library_seed(seed)
         with AcsDatabase(work / "qa-import.acsdb") as db:
             first = import_user_library_seed(db, validated)
-            again = import_user_library_seed(db, validated)
             db.verify_integrity()
-            if (first.source_count != 1 or first.game_count != 512
-                or first.reused_source_count != 0
-                or again.reused_source_count != 1
-                or again.game_count != 512):
-                raise OfflineCollectionError("runtime seed import/reuse qualification failed")
+        # Actual SQLite process-boundary readback, not same-handle reimport.
+        with AcsDatabase(work / "qa-import.acsdb") as reopened:
+            again = import_user_library_seed(reopened, validated)
+            reopened.verify_integrity()
+        if (first.source_count != 1 or first.game_count != 512
+            or first.reused_source_count != 0
+            or again.reused_source_count != 1
+            or again.game_count != 512):
+            raise OfflineCollectionError("runtime seed import/restart/reuse failed")
         temp_zip = work / "seed.zip"
         with zipfile.ZipFile(temp_zip, "x", compression=zipfile.ZIP_DEFLATED) as out:
             for path in (seed / MANIFEST_NAME, seed / _SEED_PGN):
@@ -189,6 +209,8 @@ def build_owner_test_seed(collection_zip: Path, output_zip: Path) -> dict:
         "game_count": 512, "source_count": 1,
         "readback": "CANONICAL_RUNTIME_SEED_ACSDB_RESTART_AND_REUSE_PASS",
         "archive_sha256": _sha(output_zip.read_bytes()),
+        "source_pgn_sha256": _sha(original),
+        "normalized_strict_pgn_sha256": _sha(pgn),
         "owner_accepted": False, "section40_done": False,
     }
 
