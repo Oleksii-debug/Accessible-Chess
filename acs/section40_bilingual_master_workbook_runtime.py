@@ -26,7 +26,7 @@ _ORIGINAL_SOURCE_TEXT = "{\n  \"schema\": \"accessible-chess-advanced-bilingual-
 
 def _canonical_source() -> dict:
     raw = _ORIGINAL_SOURCE_TEXT.encode("utf-8")
-    digest = hashlib.sha1(b"blob " + str(len(raw)).encode("ascii") + b"\\0" + raw).hexdigest()
+    digest = hashlib.sha1(b"blob " + str(len(raw)).encode("ascii") + bytes((0,)) + raw).hexdigest()
     if digest != ORIGINAL_SOURCE_GIT_BLOB:
         raise ValueError("original Section37 bilingual workbook Git source identity changed")
     data = json.loads(raw)
