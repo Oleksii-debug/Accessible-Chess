@@ -52,7 +52,7 @@ def fake_record(raw: bytes) -> dict:
 class ExternalOriginalBookTests(unittest.TestCase):
     def test_real_source_catalog_references_are_exact_not_false_downloads(self):
         originals = {r["id"]: r for r in load_catalog()}
-        self.assertEqual(_git_blob(b"test"), hashlib.sha1(b"blob 4\\0test").hexdigest())
+        self.assertEqual(_git_blob(b"test"), hashlib.sha1(b"blob 4\0test").hexdigest())
         for identity, (git_sha, sha256, length) in BOOK_IDS.items():
             with self.subTest(source=identity):
                 source = originals[identity]
