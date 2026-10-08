@@ -57,6 +57,11 @@ class OwnerLevelAndProvenanceTests(unittest.TestCase):
             "ibca_2025_world_individual_classical_game_search",
             "ibca_2025_world_individual_rapid_game_search",
             "uk_bca_2026_classical_championship_results",
+            "ibca_2019_world_individual_376_real_pgn_archive",
+            "ibca_2017_olympiad_465_real_pgn_archive",
+            "ibca_world_team_643262_111_real_pgn_archive",
+            "blind_six_nations_2015_historical_game_pgn_archive",
+            "ibca_2012_olympiad_india_414_real_pgn_archive",
         )
         for ident in ids:
             with self.subTest(source=ident):
@@ -77,6 +82,22 @@ class OwnerLevelAndProvenanceTests(unittest.TestCase):
         self.assertEqual(thirteen["external_search_page_reported_game_count"], 351)
         self.assertIn("PGN", thirteen["notes"])
         self.assertIn("128264", thirteen["event_link"])
+        reference_counts = (
+            ("ibca_13th_world_individual_real_351_games", 351, "128264"),
+            ("ibca_2019_world_individual_376_real_pgn_archive", 376, "422502"),
+            ("ibca_2017_olympiad_465_real_pgn_archive", 465, "281869"),
+            ("ibca_2012_olympiad_india_414_real_pgn_archive", 414, "78816"),
+            ("ibca_world_team_643262_111_real_pgn_archive", 111, "643262"),
+            ("blind_six_nations_2015_historical_game_pgn_archive", 60, "sixnations"),
+        )
+        self.assertEqual(sum(n for _, n, _ in reference_counts), 1777)
+        for key, game_count, event_identifier in reference_counts:
+            with self.subTest(tournament=key):
+                record = source[key]
+                self.assertEqual(record["external_search_page_reported_game_count"], game_count)
+                self.assertIn(event_identifier, record["event_link"])
+                self.assertEqual(record["public_release"], "EXCLUDED")
+                self.assertIsNone(record["sha256"])
 
     def test_genuine_historical_study_sources_have_authorship_but_no_licensed_original_bytes(self):
         originals = {item["id"]: item for item in load_catalog()}
