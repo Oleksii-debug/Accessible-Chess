@@ -5,6 +5,21 @@ on:
     paths:
       - 'acs/protection_boundary.py'
       - 'acs/protection_advanced_boundary.py'
+      - 'acs/account_cloud.py'
+      - 'acs/classroom_realtime_media.py'
+      - 'acs/full_product_actions.py'
+      - 'acs/media_application.py'
+      - 'acs/protection_privacy_boundary.py'
+      - 'acs/protection_product_boundaries.py'
+      - 'acs/server_application_boundary.py'
+      - 'acs/subscription_web.py'
+      - 'acs/tactile_graphics.py'
+      - 'acs/tactile_input.py'
+      - 'acs/tactile_sync.py'
+      - 'acs/universal_chess_agent.py'
+      - 'acs/version2_application.py'
+      - 'acs/version2_profile.py'
+      - 'acs/web_client_gateway.py'
       - 'acs/version2_release_app.py'
       - 'acs/update_security.py'
       - 'acs/release_update_center.py'
@@ -61,6 +76,21 @@ jobs:
           python -m py_compile
           acs/protection_boundary.py
           acs/protection_advanced_boundary.py
+          acs/account_cloud.py
+          acs/classroom_realtime_media.py
+          acs/full_product_actions.py
+          acs/media_application.py
+          acs/protection_privacy_boundary.py
+          acs/protection_product_boundaries.py
+          acs/server_application_boundary.py
+          acs/subscription_web.py
+          acs/tactile_graphics.py
+          acs/tactile_input.py
+          acs/tactile_sync.py
+          acs/universal_chess_agent.py
+          acs/version2_application.py
+          acs/version2_profile.py
+          acs/web_client_gateway.py
           acs/version2_release_app.py
           acs/update_security.py
           acs/release_update_center.py
