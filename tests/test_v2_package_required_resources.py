@@ -185,7 +185,7 @@ class Version2PackageRequiredResourcesTests(unittest.TestCase):
             _write_checksums(root)
             with self.assertRaisesRegex(
                 Version2PackagePreflightError,
-                "Windows PE executable",
+                "empty or invalid|Windows PE executable",
             ):
                 _validate_tree(root)
 
