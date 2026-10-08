@@ -213,6 +213,12 @@
       }
       return Promise.resolve(null);
     }
+    if (snapshot.providerId === "youtube_iframe_v1" && snapshot.autoplayBlocked === true) {
+      setStatus(uiText(
+        "YouTube заблокував автоматичне або програмне відтворення. Натисніть кнопку програвача.",
+        "YouTube playback was blocked. Use the player's own Play button."
+      ), true);
+    }
     if (!Number.isSafeInteger(snapshot.positionMs) || snapshot.positionMs < 0 ||
         (snapshot.durationMs !== null &&
          (!Number.isSafeInteger(snapshot.durationMs) ||
