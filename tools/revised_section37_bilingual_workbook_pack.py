@@ -21,6 +21,7 @@ from xml.sax.saxutils import escape as xml_escape
 from zipfile import ZipFile, ZIP_DEFLATED, ZIP_STORED
 
 from acs.chesscore import Board
+from acs.lawful_corpus_registry import load_catalog, verified_local_source
 
 SOURCE = Path(__file__).resolve().parents[1] / (
     "tests/real_corpus/advanced_training/section37_master_workbook_bilingual.json"
@@ -289,11 +290,49 @@ def main() -> None:
         if path.exists():
             raise FileExistsError("refusing to replace preexisting workbook")
         path.write_bytes(body)
+    receipt = source_receipt(data, pack)
+    # Source-qualified real chess formats accompany each bilingual book: one
+    # historically authored composed study and four annotated high-level games.
+    # Both pass the exact real-source SHA256 verifier before copying.
+    registry = {item["id"]: item for item in load_catalog()}
+    for source_id, name in (
+        ("historical_reti_1921_original_bilingual_study_pgn", "original-reti-1921-uk-en-study.pgn"),
+        ("lichess_cc0_high_level_4_original_annotated_games", "original-lichess-2200-plus-annotated-games.pgn"),
+    ):
+        original = registry[source_id]
+        source = SOURCE.parents[3] / original["local_source"]
+        verified_local_source(source, original)
+        content = source.read_bytes()
+        if sha256(content).hexdigest() != original["sha256"]:
+            raise ValueError("qualified real PGN changed after source snapshot")
+        target = args.output_dir / name
+        if target.exists():
+            raise FileExistsError("refusing to overwrite existing PGN export")
+        target.write_bytes(content)
+        receipt["generated_files"][name] = {
+            "sha256": sha256(content).hexdigest(),
+            "bytes": len(content),
+            "source_id": source_id,
+            "real_original_pgn": True,
+        }
+    # FEN text is a factual export of real CC0 source positions, before the
+    # preceding opponent's move. No second FEN parser/chess rules authority.
+    fen_bytes = ("\n".join(item["fen_before_opponent_move"] for item in data["lessons"]) + "\n").encode("utf-8")
+    name = "original-advanced-before-opponent-move.fen"
+    (args.output_dir / name).write_bytes(fen_bytes)
+    receipt["generated_files"][name] = {
+        "sha256": sha256(fen_bytes).hexdigest(),
+        "bytes": len(fen_bytes),
+        "position_count": len(data["lessons"]),
+        "real_original_licensing": "Lichess CC0",
+        "first_opponent_move_not_applied": True,
+    }
     (args.output_dir / "section37-bilingual-manifest.json").write_text(
-        json.dumps(source_receipt(data, pack), ensure_ascii=False, sort_keys=True, indent=2) + "\n",
+        json.dumps(receipt, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
         encoding="utf-8",
     )
-    print(json.dumps({"files": len(pack), "languages": list(LANGS),
+    print(json.dumps({"books": len(pack), "game_and_position_files": 3,
+                      "languages": list(LANGS),
                       "lessons_per_language": len(data["lessons"])}, sort_keys=True))
 
 
