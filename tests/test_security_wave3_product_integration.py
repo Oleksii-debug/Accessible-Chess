@@ -191,6 +191,39 @@ def test_existing_release_update_center_runs_on_private_wave3_adapters(tmp_path)
     assert installs == [("install", "0.3.3", package_bytes)]
 
 
+@pytest.mark.parametrize("redirect", ["handoff", "updates", "state_root"])
+def test_verified_handoff_refuses_redirected_directory_before_writing(tmp_path, redirect):
+    """A symlinked handoff directory/ancestor must not receive release bytes."""
+    runtime, calls, package_bytes = _runtime_v4(tmp_path)
+    state = tmp_path / "state"
+    updates = state / "security-updates"
+    handoff = updates / "handoff"
+    outside = tmp_path / "redirected-destination"
+    if redirect == "handoff":
+        outside.mkdir()
+        link = handoff
+    elif redirect == "updates":
+        updates.rename(outside)
+        link = updates
+    else:
+        state.rename(outside)
+        link = state
+    try:
+        link.symlink_to(outside, target_is_directory=True)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(
+            f"directory symlink unavailable on this platform: {type(exc).__name__}"
+        )
+
+    installer = ProtectionUpdateInstaller(_client(tmp_path, runtime))
+    assert installer.install(version="0.3.3", stream=io.BytesIO(package_bytes)) is False
+    assert not list(tmp_path.rglob("verified-*.package"))
+    assert not [
+        item for kind, item in calls
+        if kind == "update" and isinstance(item, tuple) and item[0] == "install"
+    ]
+
+
 def test_update_staging_rejects_path_outside_private_update_root(tmp_path):
     runtime, calls, _ = _runtime_v4(tmp_path)
     outside = tmp_path / "outside.package"

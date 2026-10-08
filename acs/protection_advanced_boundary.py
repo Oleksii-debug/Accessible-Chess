@@ -277,6 +277,10 @@ class ProtectionUpdateChannel:
             if root.resolve(strict=True) != root or path.resolve(strict=True) != path:
                 raise ProtectionAdvancedError("private secure-update package is unsafe")
             info = path.lstat()
+        except ProtectionAdvancedError:
+            # Preserve an explicit trust denial; it must not be mistaken for an
+            # unavailable staging file (ProtectionBoundaryError is RuntimeError).
+            raise
         except (OSError, RuntimeError) as exc:
             raise ProtectionAdvancedError("private secure-update package is unavailable") from exc
         reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
@@ -359,6 +363,34 @@ class ProtectionTrustedTimeSource:
         return parsed
 
 
+def _safe_handoff_directory_tree(path: Path) -> bool:
+    """Reject an existing symlink/junction at *any* lexical directory ancestor.
+
+    Resolve-before-check is unsafe here: it hides the substitution. A fresh
+    handoff directory is permitted, but not a pre-existing redirect into an
+    unrelated location. This is a source-level alias guard, not an assertion
+    that an untrusted concurrently mutating filesystem offers atomicity.
+    """
+    try:
+        absolute = Path(os.path.abspath(os.fspath(path)))
+        for directory in (absolute, *absolute.parents):
+            try:
+                info = directory.lstat()
+            except FileNotFoundError:
+                continue
+            if (
+                not stat.S_ISDIR(info.st_mode)
+                or bool(
+                    getattr(info, "st_file_attributes", 0)
+                    & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+                )
+            ):
+                return False
+    except (OSError, RuntimeError, ValueError, TypeError):
+        return False
+    return True
+
+
 class ProtectionUpdateInstaller:
     """Pass already verified bytes to the private R34-R37 installer for revalidation."""
 
@@ -376,8 +408,20 @@ class ProtectionUpdateInstaller:
         if not callable(operation):
             return False
         root = self.client.state_root / "security-updates" / "handoff"
-        root.mkdir(parents=True, exist_ok=True)
-        fd, name = tempfile.mkstemp(prefix="verified-", suffix=".package", dir=root)
+        # A pre-existing handoff symlink (or Windows junction) otherwise makes
+        # mkstemp() write verified release bytes outside the private state tree.
+        # Check *before* mkdir to avoid creating any directory through an
+        # already redirected state_root or security-updates ancestor, then
+        # check the actual directory again before creating a temporary file.
+        if not _safe_handoff_directory_tree(root):
+            return False
+        try:
+            root.mkdir(parents=True, exist_ok=True)
+            if not _safe_handoff_directory_tree(root):
+                return False
+            fd, name = tempfile.mkstemp(prefix="verified-", suffix=".package", dir=root)
+        except OSError:
+            return False
         path = Path(name)
         try:
             total = 0
