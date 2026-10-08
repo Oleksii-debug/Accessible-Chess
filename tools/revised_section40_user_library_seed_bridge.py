@@ -145,8 +145,8 @@ def build_owner_test_seed(collection_zip: Path, output_zip: Path) -> dict:
         # This exact normalization is required by the existing startup seed
         # contract. The original 512-game PGN may parse in recovery mode but
         # fail strict; reuse the canonical serializer instead of hand-repairing.
-        canonical = ("\\n\\n".join(serialize_game(game).rstrip()
-                                     for game in original_games) + "\\n").encode("utf-8")
+        canonical = ("\n\n".join(serialize_game(game).rstrip()
+                                     for game in original_games) + "\n").encode("utf-8")
         checked = parse_pgn_text(canonical.decode("utf-8"), strict=True)
         if len(checked) != 512 or any(not game.line.moves for game in checked):
             raise OfflineCollectionError("normalized owner Library seed is not strict PGN")
