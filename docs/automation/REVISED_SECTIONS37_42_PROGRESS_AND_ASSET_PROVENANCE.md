@@ -2,6 +2,16 @@
 
 The owner revised the canonical Drive plan on 2026-10-08. **Sections 37–42 now have new meanings.** Historical GitHub DONE receipts for Section 37 (persistence), 38 (release infrastructure) and 39 (whole-product convergence) are **not acceptance for their new section numbers**.
 
+## 2026-10-08 — Section 37 download boundary repair (incremental, not closure)
+
+- Existing canonical PR #2494 is retained; no alternate downloader, parser or shipping authority was created.
+- `acs.lawful_corpus_registry` now installs an explicit no-redirect `HTTPRedirectHandler` for production transport. A 3xx response is refused *before* a follow-on request to a non-pinned endpoint; injected test transports still have their final URL checked.
+- Malformed URL ports and broken bracket syntax now produce the stable `LawfulCorpusError` refusal rather than escaping as an unrelated raw parser exception.
+- Added exact regression cases in `tests/test_revised_sections37_40_corpus.py`: production no-follow handler installation, secondary-URL refusal, malformed host/port cases, and no network on invalid source URLs.
+- Re-read source blob `a233dbd0adbe26d68717d63927ebd9fe3b3e89a0` and test blob `2aea54f8d99337426cd737b0eac1ab653d952a98` on PR #2494 after GitHub writes. Isolated local Python preflight of the URL/handler logic passed; **this is not the full repository suite**.
+- Exact changed PR head `8c569867ba3cc2a662e1b7eeb951499a313b7c91` registered workflow `Revised Sections 37-42 Corpus and Visual Contracts` run `37782107664`, which was **QUEUED**, not GREEN, at readback. Prior run `37727802669` was SUCCESS on the earlier `2c159866...` head, and cannot qualify this changed head.
+- All substantive 37.1–37.6 and 38.1–38.6 real multi-source acquisition, lawful rights decisions, format import/readback, integration, source hashes and multi-platform qualification remain outstanding. Current revised Sections 37 and 38 remain **OPEN / NOT DONE — TERMINAL**; do not write a closure row or edit the owner Drive plan to DONE on these facts.
+
 ## Sections 37–40: actual material provenance
 
 Source registry: `docs/corpus/revised_sections37_40_sources.json`.
