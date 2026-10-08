@@ -17,6 +17,7 @@ on:
       - 'tests/test_revised_section38_official_openings_library.py'
       - 'tests/test_revised_section38_stockfish_real_library.py'
       - 'tests/test_revised_section37_38_offline_manifest.py'
+      - 'tests/test_revised_section38_real_cbh_oracles.py'
       - 'tools/revised_sections37_38_offline_manifest.py'
       - '.gitattributes'
       - 'tests/real_corpus/**'
@@ -112,3 +113,73 @@ jobs:
             revised-section37-live-cc0-readback.json
           if-no-files-found: ignore
           retention-days: 14
+
+  real-cbh-gpl-upstream-readback:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      LIBCBH_COMMIT: 9641c5c3949d8fb210b17dd9aa54455645843696
+    steps:
+      - name: Checkout exact product candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          path: product
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+      - name: Checkout original pinned GPL licensed external decoder and legal CBH fixtures
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: rolandlo/libcbh
+          ref: 9641c5c3949d8fb210b17dd9aa54455645843696
+          path: upstream/libcbh
+          fetch-depth: 1
+      - name: Assert immutable source identities and genuine complete fixture families
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C product rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(git -C upstream/libcbh rev-parse HEAD)" = "$LIBCBH_COMMIT"
+          test -s upstream/libcbh/gtest/Annotation/TestBase.cbh
+          test -s upstream/libcbh/gtest/Annotation/TestBaseExport.pgn
+          test -s upstream/libcbh/gtest/WithVariations/WithVariations.cbh
+          test -s upstream/libcbh/gtest/WithVariations/GamesWithVariations.pgn
+          test -s upstream/libcbh/gtest/UnusualStart/UnusualStartBytes.cbh
+          test -s upstream/libcbh/gtest/UnusualStart/UnusualStart.pgn
+          sha256sum upstream/libcbh/gtest/Annotation/TestBase.cbh upstream/libcbh/gtest/Annotation/TestBaseExport.pgn upstream/libcbh/gtest/WithVariations/WithVariations.cbh upstream/libcbh/gtest/WithVariations/GamesWithVariations.pgn upstream/libcbh/gtest/UnusualStart/UnusualStartBytes.cbh upstream/libcbh/gtest/UnusualStart/UnusualStart.pgn
+      - name: Python 3.12 for canonical source
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+      - name: Build pinned GPL decoder externally without packaging it
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S upstream/libcbh -B upstream/libcbh/build -DCMAKE_BUILD_TYPE=Release -DGTEST=OFF
+          cmake --build upstream/libcbh/build --config Release --parallel 2
+          mkdir -p product/build/libcbh
+          c++ -std=c++20 -O2 \
+            -DLIBCBH_SOURCE_COMMIT=\\"$LIBCBH_COMMIT\\" \
+            -I upstream/libcbh/include \
+            product/tools/optional/libcbh_json_bridge.cpp \
+            -L upstream/libcbh/build -lcbh \
+            -Wl,-rpath,'$ORIGIN' \
+            -o product/build/libcbh/libcbh-json-bridge
+          cp -a upstream/libcbh/build/libcbh.so* product/build/libcbh/
+          test -x product/build/libcbh/libcbh-json-bridge
+      - name: Execute real CBH annotations, nested RAV, NAG, ACSDB search, export and restart oracles
+        working-directory: product
+        env:
+          LIBCBH_BRIDGE: ${{ github.workspace }}/product/build/libcbh/libcbh-json-bridge
+          LIBCBH_ANNOTATION_DIR: ${{ github.workspace }}/upstream/libcbh/gtest/Annotation
+          LIBCBH_VARIATION_DIR: ${{ github.workspace }}/upstream/libcbh/gtest/WithVariations
+          LIBCBH_UNUSUAL_DIR: ${{ github.workspace }}/upstream/libcbh/gtest/UnusualStart
+        run: |
+          python -m py_compile tests/test_revised_section38_real_cbh_oracles.py
+          python -m unittest -v tests.test_revised_section38_real_cbh_oracles
+      - name: Existing canonical ChessBase decoder/integrity regressions
+        working-directory: product
+        run: >-
+          python -m unittest -v
+          tests.test_chessbase_decoder
+          tests.test_chessbase_integrity
+          tests.test_chessbase_libcbh_external_fixture
