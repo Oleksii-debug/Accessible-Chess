@@ -293,6 +293,25 @@ def build_section40_windows_test_package(
         copied_checksum = hashlib.sha256(copied.read_bytes()).hexdigest()
         if original_checksum != copied_checksum:
             raise OfflineCollectionError("copied offline corpus ZIP checksum differs")
+        (materials / "TEST_ONLY_NOT_FOR_PUBLIC_RELEASE.json").write_text(
+            json.dumps(
+                {
+                    "schema": "acs-section40-owner-test-rights-v1",
+                    "test_only": True,
+                    "public_release_approved": False,
+                    "permission": "OWNER_QA_ONLY_DO_NOT_DISTRIBUTE_AS_PUBLIC_PRODUCT",
+                    "canonical_code_sha": exact_source_sha,
+                    "collection_sha256": copied_checksum,
+                    "ready_to_open_native_books": len(ready_index),
+                    "added_library_sources": 3,
+                    "added_library_games": 517,
+                    "clean_up_after_owner_acceptance_only": True,
+                    "never_delete_existing_owner_library": True,
+                },
+                ensure_ascii=False, sort_keys=True, indent=2,
+            ) + "\n",
+            encoding="utf-8",
+        )
         (materials / "READ_FIRST_UK.txt").write_text(
             "Accessible Chess — тимчасова перевірочна колекція Section 40.\n"
             "Ця Windows-комплектація тільки для тестів. НЕ є публічним релізом.\n"
