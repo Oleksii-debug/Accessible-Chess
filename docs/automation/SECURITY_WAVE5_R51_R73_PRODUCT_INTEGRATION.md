@@ -174,3 +174,43 @@ Fixture results remain synthetic. No real Windows/NVDA user acceptance,
 commercial protector PoC, private provider deployment, independent signed
 release decision, shipping merge, or R51–R73 terminal product integration
 is claimed.
+
+## R57–R60 private commercial runtime startup — source candidate only
+
+The existing `acs.protection_hardened_boundary.HardenedReleaseBoundary`
+now enforces four additional **independent private v5** verifier receipts,
+in fixed order: R57 protected native-runtime integrity, R58 independently
+verified instrumentation-clear policy, R59 scoped sensitive-memory admission,
+and R60 ephemeral endpoint key assurance. The check IDs are fixed product
+constants; the public client cannot select tests or supply trust verdicts.
+
+`acs.version2_release_app` invokes this existing private boundary *after*
+R42/R44–R50 and the existing R52 license-container gate, and *before* any
+normal user-data recovery, local database, profile, Stockfish, or other premium
+composition. A missing check, denied check, exception, mismatched build/check,
+forged boolean or API version, or unsupported private runtime fails closed;
+recovery/login/help/update/own-data rights remain under the original
+`ProtectionDecision` rather than any new grant. Previous v1–v4 behavior
+remains exactly on its existing path.
+
+No client-side debugger detection, native page hook, plaintext decryption,
+embedded key, secret exposure, anti-dump process termination, NVDA blocking
+or secondary license issuance is introduced. All native R57–R60 validation,
+independent signatures, replay/clock/proof checks and Windows accessibility
+qualification must be implemented in a real independently verified private
+provider. Its deployed implementation is **NOT AVAILABLE** and these fake
+tests do **NOT** demonstrate actual commercial anti-tamper or white-box
+protection. A mock provider is a contract test only.
+
+`tests/test_security_r57_r60_product_runtime.py` covers check coverage,
+exact-version and exact-boolean rejection, forged/replayed receipts, per-check
+deny/recovery, private error sanitization, and startup short-circuit before
+user-data or engine. The existing dual-OS Wave-5 workflow compiles and runs
+this suite. CI registration is not a PASS; verify exact-head executed results.
+
+R61 signed per-artifact attribution is a trusted build/issuer operation and R62
+leak attribution / revocation is a trusted incident-response service; neither
+may be converted into a public-client license check or a self-issued release
+PASS. R63/R64 require independent provider-backed subscription/billing
+authority and durable reconciliation; R66–R72 require independent physical or
+operational evidence. Those capabilities are not proven deployed here.
