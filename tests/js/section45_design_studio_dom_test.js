@@ -70,6 +70,7 @@ function mount(options={}){
    setItem(k,v){store[k]=String(v);}
   },
   addEventListener(type,fn){(listeners[type]||(listeners[type]=[])).push(fn);},
+  dispatchEvent(event){for(const fn of listeners[event.type]||[])fn(event);},
   confirm:()=>true
  };
  if(options.native) window.pywebview={api:options.native};
@@ -84,6 +85,9 @@ function mount(options={}){
 async function settle(){for(let i=0;i<12;i++)await Promise.resolve();}
 (async()=>{
  const app=mount();
+ let activeBoardRepaints=0;
+ app.window.addEventListener("accessible-chess-design-change",
+   ()=>activeBoardRepaints++);
  assert.equal(app.get("ac45-toggle").getAttribute("aria-expanded"),"false");
  assert.equal(app.get("ac45-panel").hidden,true);
  assert.equal(app.get("ac45-profile").children.length,6);
@@ -110,6 +114,7 @@ async function settle(){for(let i=0;i<12;i++)await Promise.resolve();}
    cell.children.some(item=>item.tagName==="IMG" && String(item.src).endsWith(".svg"))));
 
  assert.equal(app.events.length,0,"preview must never trigger chess or board mutation");
+ assert.equal(activeBoardRepaints,0,"preview cannot repaint the real Web board");
  app.get("ac45-preview-button").click();
  assert.equal(app.events.length,0);
  app.get("ac45-cancel").click();
@@ -118,6 +123,7 @@ async function settle(){for(let i=0;i<12;i++)await Promise.resolve();}
  low.value="High Contrast";low.dispatchEvent({type:"change"});
  app.get("ac45-apply").click();await settle();
  assert.equal(app.get("ac45-profile").value,"High Contrast");
+ assert.equal(activeBoardRepaints,1,"Apply must signal canonical Web board repaint once");
  assert.equal(JSON.parse(app.store["accessible-chess.design-profiles.v1"]).selected,"High Contrast");
  assert.equal(app.doc.documentElement.dataset.acUiTheme,undefined,"theme applies through original control handler, not a replacement");
  assert.equal(app.get("ac41-theme").value,"contrast");
@@ -202,5 +208,5 @@ async function settle(){for(let i=0;i<12;i++)await Promise.resolve();}
  assert.equal(durable.selected,"Low Vision");
  assert.equal(win.get("ac45-profile").value,"Low Vision");
  assert.equal(win.store["accessible-chess.design-profiles.v1"],undefined,"native private profile must not use localStorage");
- console.log("Section45 real studio DOM: 10 groups PASS (preview, Apply/Cancel, restart, input security, native CAS mock)");
+ console.log("Section45 real studio DOM: 11 groups PASS (preview, Apply/Cancel, restart, input security, native CAS mock)");
 })().catch(err=>{console.error(err);process.exitCode=1;});
