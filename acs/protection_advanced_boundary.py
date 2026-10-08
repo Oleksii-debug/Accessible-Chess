@@ -125,7 +125,8 @@ class ProtectionCapabilityGate:
             "api_version", "boundary_id", "authorized", "reason", "live_region", "action"
         }:
             raise ProtectionAdvancedError("private product-boundary schema is invalid")
-        if value.get("api_version") != ADVANCED_SECURITY_RUNTIME_API_VERSION:
+        if (type(value.get("api_version")) is not int
+                or value["api_version"] != ADVANCED_SECURITY_RUNTIME_API_VERSION):
             raise ProtectionAdvancedError("private product-boundary API version is unsupported")
         if value.get("boundary_id") != boundary_id:
             raise ProtectionAdvancedError("private product-boundary identity mismatch")
@@ -188,7 +189,8 @@ class ProtectionTrustBoundary:
         required = {"api_version", "state", "reason", "sequence", "live_region", "action"}
         if not isinstance(value, dict) or set(value) != required:
             raise ProtectionAdvancedError("private trust-status schema is invalid")
-        if value.get("api_version") != ADVANCED_SECURITY_RUNTIME_API_VERSION:
+        if (type(value.get("api_version")) is not int
+                or value["api_version"] != ADVANCED_SECURITY_RUNTIME_API_VERSION):
             raise ProtectionAdvancedError("private trust-status API version is unsupported")
         state = value.get("state")
         if state not in _TRUST_STATES:
@@ -245,7 +247,8 @@ class ProtectionUpdateChannel:
             "api_version", "metadata_utf8", "package_path", "source_url"
         }:
             raise ProtectionAdvancedError("private secure-update staging schema is invalid")
-        if value.get("api_version") != ADVANCED_SECURITY_RUNTIME_API_VERSION:
+        if (type(value.get("api_version")) is not int
+                or value["api_version"] != ADVANCED_SECURITY_RUNTIME_API_VERSION):
             raise ProtectionAdvancedError("private secure-update API version is unsupported")
         metadata = value.get("metadata_utf8")
         if not isinstance(metadata, str):
