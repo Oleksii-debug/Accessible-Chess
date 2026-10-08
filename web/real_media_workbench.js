@@ -117,6 +117,8 @@
           "Власник заборонив вбудовування цього відео." :
           snap.errorCode === 100 ? "Відео видалене, приватне або недоступне." :
           snap.errorCode === 5 ? "Помилка підтримки HTML5-плеєра." :
+          snap.errorCode === 153 ? "Провайдер не отримав HTTP Referer або ідентифікацію API-клієнта." :
+          snap.errorCode === 2 ? "Невірний параметр або ID відео." :
           "Провайдер відхилив відтворення.";
         ytStatus(state, "YouTube, помилка " + snap.errorCode + ". " + reason);
       } else if (snap.autoplayBlocked) {
