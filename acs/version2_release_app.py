@@ -564,6 +564,9 @@ def create_version2_release_application(
                         protection_session.client,
                     )
                 capability_gate = ProtectionCapabilityGate(protection_session.client)
+                capability_gate.require_surface("licensing.local")
+                capability_gate.require_surface("persistence.local")
+                capability_gate.require_surface("integration.local")
                 release_update_center = ReleaseUpdateCenter(
                     current_version=_product_version.split("-", 1)[0],
                     channel=ProtectionUpdateChannel(protection_session.client),
@@ -599,7 +602,7 @@ def create_version2_release_application(
     continuous: Any | None = None
     try:
         if capability_gate is not None:
-            capability_gate.require("engine.analysis")
+            capability_gate.require_surface("engine.local")
         engine_runtime = runtime_factory(StockfishRuntimeConfig(application_dir=app_dir))
         analysis = AnalysisService(engine_runtime.provider, owns_engine=False)
         continuous = ContinuousAnalysisService(analysis)
@@ -628,7 +631,7 @@ def create_version2_release_application(
         game_sounds = GameSoundRuntime(sound_runtime)
 
         if capability_gate is not None:
-            capability_gate.require("profile.local")
+            capability_gate.require_surface("chess.local")
         api = Version2ProfileAccessibleChessAPI(
             continuous_analysis=continuous,
             profile_store=LocalProfileStore(layout.root / "profile.json"),
@@ -660,8 +663,8 @@ def create_version2_release_application(
         database: Any | None = None
         try:
             if capability_gate is not None:
-                capability_gate.require("library.database")
-                capability_gate.require("books.training")
+                capability_gate.require_surface("library.local")
+                capability_gate.require_surface("books.training")
             database = AcsDatabase(database_path)
             candidate = Version2Application(
                 database,
@@ -672,11 +675,16 @@ def create_version2_release_application(
                 copy_text=copy_text,
                 language=language,
                 release_update_center=release_update_center,
+                security_action_guard=(
+                    capability_gate.require_action
+                    if capability_gate is not None
+                    else None
+                ),
             )
             progress_binder = getattr(candidate, "bind_student_progress_store", None)
             if callable(progress_binder):
                 if capability_gate is not None:
-                    capability_gate.require("classroom.local")
+                    capability_gate.require_surface("classroom.local")
                 progress_binder(
                     StudentProgressStore(layout.root / "student-progress.json")
                 )
@@ -724,7 +732,7 @@ def create_version2_release_application(
 
     def native_runtime_factory(owner_control: object) -> Version2WindowsFileWorkflowRuntime:
         if capability_gate is not None:
-            capability_gate.require("formats.local")
+            capability_gate.require_surface("formats.core")
         if owner_control is None:
             raise RuntimeError("Version 2 Windows owner control is unavailable")
         if application is None:
