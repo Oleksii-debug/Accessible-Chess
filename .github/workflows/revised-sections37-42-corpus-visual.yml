@@ -19,6 +19,8 @@ on:
       - 'tests/test_revised_section37_38_offline_manifest.py'
       - 'tests/test_revised_section38_real_cbh_oracles.py'
       - 'tools/revised_sections37_38_offline_manifest.py'
+      - 'tools/revised_section37_external_book_acquisition.py'
+      - 'tests/test_revised_section37_external_book_acquisition.py'
       - '.gitattributes'
       - 'tests/real_corpus/**'
       - 'tests/test_revised_sections41_42_design.py'
@@ -56,6 +58,8 @@ jobs:
           tests/test_revised_section38_stockfish_real_library.py
           tests/test_revised_section37_38_offline_manifest.py
           tools/revised_sections37_38_offline_manifest.py
+          tools/revised_section37_external_book_acquisition.py
+          tests/test_revised_section37_external_book_acquisition.py
           tests/test_revised_sections41_42_design.py
       - name: Test real source catalog authorization and existing visual authority
         run: >-
@@ -66,6 +70,7 @@ jobs:
           tests.test_revised_section38_official_openings_library
           tests.test_revised_section38_stockfish_real_library
           tests.test_revised_section37_38_offline_manifest
+          tests.test_revised_section37_external_book_acquisition
           tests.test_revised_sections41_42_design
           tests.test_section15_visual_board_contract
       - name: Build exact-checkout offline corpus manifest with real semantic results
@@ -183,3 +188,81 @@ jobs:
           tests.test_chessbase_decoder
           tests.test_chessbase_integrity
           tests.test_chessbase_libcbh_external_fixture
+
+  original-books-test-only-provenance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact product source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          path: product
+          ref: \${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Checkout original Staunton book
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: GITenberg/The-Blue-Book-of-Chess--13-Teaching-the-Rudiments-of-the-Game-and-Giving-an-Analysis-of-All-t__16377
+          path: upstream/blue
+          persist-credentials: false
+      - name: Checkout original Bird historical chess book
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: GITenberg/Chess-History-and-Reminiscences_4902
+          path: upstream/bird
+          persist-credentials: false
+      - name: Checkout original Fishburne chess positions
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: GITenberg/Checkmates-for-Three-Pieces_4542
+          path: upstream/checkmates
+          persist-credentials: false
+      - name: Assert exact product SHA and pinned original Git object identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C product rev-parse HEAD)" = "\${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(git -C upstream/blue rev-parse HEAD:16377.txt)" = "d946777f0eaee2b5f8f7a73afb9c1dd104eb4142"
+          test "$(git -C upstream/bird rev-parse HEAD:4902.txt)" = "fe18ddf36538952c95c62052b5d05464ca64abe7"
+          test "$(git -C upstream/checkmates rev-parse HEAD:4542.txt)" = "ab6af427f4de27d8e98c0cc25e025b1984cc60cb"
+          for directory in blue bird checkmates; do
+            test "$(git -C upstream/$directory rev-parse HEAD:LICENSE)" = "8d062dda262bcdc42d45b861bd796117feb6d0fe"
+          done
+      - name: Stage verified raw original Git objects into ephemeral test root
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p source-originals/blue source-originals/bird source-originals/checkmates
+          git -C upstream/blue show HEAD:16377.txt > source-originals/blue/16377.txt
+          git -C upstream/blue show HEAD:LICENSE > source-originals/blue/LICENSE
+          git -C upstream/bird show HEAD:4902.txt > source-originals/bird/4902.txt
+          git -C upstream/bird show HEAD:LICENSE > source-originals/bird/LICENSE
+          git -C upstream/checkmates show HEAD:4542.txt > source-originals/checkmates/4542.txt
+          git -C upstream/checkmates show HEAD:LICENSE > source-originals/checkmates/LICENSE
+      - name: Setup Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+      - name: Verify true external book and license bytes without redistribution
+        working-directory: product
+        env:
+          ACS_37_GITENBERG_ROOT: \${{ github.workspace }}/source-originals
+          ACCESSIBLE_CHESS_EXPECTED_HEAD: \${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          python -m unittest -v tests.test_revised_section37_external_book_acquisition
+          python -m tools.revised_section37_external_book_acquisition
+      - name: Preserve path-free source-only receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: revised-section37-original-book-evidence
+          path: product/revised-section37-original-books-readback.json
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Erase every original book and license test copy
+        if: always()
+        shell: bash
+        run: |
+          rm -rf -- source-originals upstream
+          test ! -e source-originals
+          test ! -e upstream
