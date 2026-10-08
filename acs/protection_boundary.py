@@ -70,10 +70,16 @@ def _regular_release_manifest(application_dir: Path) -> bool:
     )
     for path in candidates:
         try:
-            if stat.S_ISREG(path.lstat().st_mode):
-                return True
-        except OSError:
+            # A release marker that is a symlink, directory or other unexpected
+            # filesystem object must never disable entitlement enforcement.
+            # The private verifier will reject a malformed or missing manifest.
+            path.lstat()
+        except FileNotFoundError:
             continue
+        except OSError:
+            # Unreadable marker metadata is not proof of a source checkout.
+            return True
+        return True
     return False
 
 
