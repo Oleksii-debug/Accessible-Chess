@@ -45,6 +45,7 @@ class FakePlayer {
   ready() { this.options.events.onReady({ target: this }); }
   change(state) { this.state = state; this.options.events.onStateChange({ data: state, target: this }); }
   error(code) { this.options.events.onError({ data: code, target: this }); }
+  autoplayBlocked() { this.options.events.onAutoplayBlocked({ target: this }); }
 }
 FakePlayer.instances = [];
 
@@ -100,6 +101,11 @@ check(snapshots[0].sourceKind === "remote_media", "remote media source kind is w
 check(snapshots[0].positionMs === 12345, "current time was not converted to milliseconds");
 check(snapshots[0].durationMs === 125500, "duration was not converted to milliseconds");
 check(snapshots[0].playbackState === "unstarted", "ready state mapping is wrong");
+check(snapshots[0].autoplayBlocked === false, "fresh IFrame player is flagged blocked");
+player.autoplayBlocked();
+check(snapshots.at(-1).autoplayBlocked === true, "documented autoplay blocked event missing");
+player.change(1);
+check(snapshots.at(-1).autoplayBlocked === false, "playing did not recover autoplay blocked state");
 check(Object.isFrozen(snapshots[0]), "published snapshot is mutable");
 
 player.change(1);
