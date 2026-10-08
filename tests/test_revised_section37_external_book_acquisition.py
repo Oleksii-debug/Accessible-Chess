@@ -8,7 +8,7 @@ import unittest
 
 from acs.lawful_corpus_registry import LawfulCorpusError, load_catalog
 from tools.revised_section37_external_book_acquisition import (
-    _git_blob, verify_external_books, verify_original_book,
+    _git_blob, verify_external_books, verify_original_book, verify_original_cc0_pdf,
 )
 
 
@@ -188,6 +188,74 @@ class ExternalOriginalBookTests(unittest.TestCase):
                 _bounded_direct_snapshot(path, True)
             with self.assertRaises(LawfulCorpusError):
                 _bounded_direct_snapshot(path, 0)
+
+    def test_real_cc0_pdf_record_is_pinned_but_not_falsely_qualified(self):
+        record = next(
+            item for item in load_catalog()
+            if item["id"] == "cc0_capablanca_open_pdf_original_source"
+        )
+        self.assertEqual(record["upstream_git_blob"], "eab7c13bdd5a21a33fa2bef863781e4c40794c2c")
+        self.assertEqual(record["external_license_git_blob"], "0e259d42c996742e9e3cba14c677129b2c1b6311")
+        self.assertEqual(record["acquisition"], "DISCOVERED_NOT_HASH_VERIFIED")
+        self.assertIsNone(record["sha256"])
+        self.assertEqual(record["public_release"], "EXCLUDED_PENDING_QUALIFICATION")
+
+    def test_ephemeral_pdf_binary_and_cc0_license_readback_fail_closed(self):
+        original = b"%PDF-1.4\\nsource-only fixture\\n%%EOF\\n"
+        license_data = b"Creative Commons Legal Code\\nCC0 1.0 Universal\\n"
+        record = {
+            "id": "cc0_capablanca_open_pdf_original_source",
+            "format": "pdf",
+            "acquisition": "DISCOVERED_NOT_HASH_VERIFIED",
+            "sha256": None,
+            "test_access": "EXTERNAL_CC0_PDF_SOURCE_ONLY",
+            "public_release": "EXCLUDED_PENDING_QUALIFICATION",
+            "license": "CC0-1.0",
+            "redistribution": "permitted under source CC0",
+            "max_bytes": len(original),
+            "upstream_git_blob": _git_blob(original),
+            "external_license_git_blob": _git_blob(license_data),
+            "external_checkout_path": "pdf/book.pdf",
+            "external_license_checkout_path": "pdf/LICENSE",
+        }
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "pdf").mkdir()
+            source = root / "pdf/book.pdf"
+            licence = root / "pdf/LICENSE"
+            source.write_bytes(original)
+            licence.write_bytes(license_data)
+            before = sorted(p.relative_to(root).as_posix() for p in root.rglob("*"))
+            actual = verify_original_cc0_pdf(record, root)
+            self.assertEqual(actual["source_format"], "pdf")
+            self.assertEqual(actual["sha256"], hashlib.sha256(original).hexdigest())
+            self.assertEqual(actual["license_sha256"], hashlib.sha256(license_data).hexdigest())
+            self.assertFalse(actual["original_bytes_packaged"])
+            self.assertEqual(actual["public_release"], "EXCLUDED_PENDING_QUALIFICATION")
+            self.assertEqual(
+                sorted(p.relative_to(root).as_posix() for p in root.rglob("*")), before,
+            )
+            self.assertEqual(verify_external_books((record,), root)[0]["source_format"], "pdf")
+            for changed in (
+                {"upstream_git_blob": "0" * 40},
+                {"external_license_git_blob": "0" * 40},
+                {"public_release": "INCLUDED"},
+                {"redistribution": "NOT_CLEARED"},
+                {"test_access": "PUBLIC_RELEASE"},
+                {"max_bytes": True},
+                {"max_bytes": 1},
+                {"external_checkout_path": "../outside"},
+            ):
+                with self.subTest(changed=changed):
+                    with self.assertRaises(LawfulCorpusError):
+                        verify_original_cc0_pdf({**record, **changed}, root)
+            source.write_bytes(b"not a PDF at all")
+            with self.assertRaises(LawfulCorpusError):
+                verify_original_cc0_pdf(record, root)
+            source.write_bytes(original)
+            licence.write_bytes(b"an unrelated license")
+            with self.assertRaises(LawfulCorpusError):
+                verify_original_cc0_pdf(record, root)
 
     def test_malformed_batch_or_symlinked_checkout_is_denied(self):
         data = b"safe test source"
