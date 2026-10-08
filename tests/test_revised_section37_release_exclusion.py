@@ -187,6 +187,61 @@ class PublicReleaseExclusionTests(unittest.TestCase):
         self.assertIn("OWNER_FINAL_POST_AUDIT_ZIP_DRIFT", workflow)
         self.assertLess(workflow.index("OWNER_FINAL_PUBLIC_CORPUS_EXCLUSION=PASS"), workflow.index("OWNER_FINAL_POST_AUDIT_ZIP_DRIFT"))
 
+    def test_nested_zip_cannot_launder_excluded_original_or_basename(self):
+        # Owner packages can legally carry an inner test-collection ZIP. Its
+        # contents must be checked, including renamed private source bytes.
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp)
+            inner = directory / "inner.zip"
+            outer = directory / "release.zip"
+            build_zip(inner, {"a/renamed-and-hidden.bin": RAW_EXCLUDED})
+            for name in ("assets/collection.zip", "assets/disguised.dat"):
+                with self.subTest(name=name):
+                    build_zip(outer, {name: inner.read_bytes()})
+                    with self.assertRaisesRegex(
+                        LawfulCorpusError, "byte-identical excluded original source"
+                    ):
+                        audit_public_archive(outer, (RECORD,))
+            build_zip(inner, {"private/ORIGINAL-CHESS-BOOK.MD": b"changed"})
+            build_zip(outer, {"test-package.zip": inner.read_bytes()})
+            with self.assertRaisesRegex(
+                LawfulCorpusError, "excluded original source filename"
+            ):
+                audit_public_archive(outer, (RECORD,))
+
+    def test_benign_nested_owner_collection_is_inspected_not_banned(self):
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp)
+            inner = directory / "collection.zip"
+            outer = directory / "release.zip"
+            build_zip(inner, {"books/guide.txt": b"permitted metadata"})
+            build_zip(outer, {
+                "owner-test/TEST_COLLECTION.zip": inner.read_bytes(),
+                "readme.txt": b"public product files",
+            })
+            receipt = audit_public_archive(outer, (RECORD,))
+            self.assertEqual(receipt["archive_member_count"], 2)
+            self.assertEqual(receipt["embedded_archives_checked"], 1)
+            self.assertFalse(receipt["public_distribution_rights_granted"])
+
+    def test_invalid_or_excessively_nested_archive_fails_closed(self):
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp)
+            outer = directory / "release.zip"
+            build_zip(outer, {"fabricated.zip": b"not a real ZIP"})
+            with self.assertRaises(LawfulCorpusError):
+                audit_public_archive(outer, (RECORD,))
+            payload = b"ordinary data"
+            for depth in range(6):
+                child = directory / f"level-{depth}.zip"
+                build_zip(child, {f"layer-{depth}.zip": payload})
+                payload = child.read_bytes()
+            build_zip(outer, {"six-levels.zip": payload})
+            with self.assertRaisesRegex(
+                LawfulCorpusError, "nesting exceeds inspection depth"
+            ):
+                audit_public_archive(outer, (RECORD,))
+
     def test_source_registry_empty_or_bad_hash_is_fail_closed(self):
         with self.assertRaises(LawfulCorpusError):
             excluded_public_source_index(())
