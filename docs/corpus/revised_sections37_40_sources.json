@@ -69,13 +69,13 @@
       "format": "pgn.zst",
       "source_page": "https://database.lichess.org/standard/",
       "download_url": "https://database.lichess.org/standard/lichess_db_standard_rated_2013-02.pgn.zst",
-      "sha256": null,
+      "sha256": "c136acdf343293c45252906fee91e3b561fb26a936979f52dbe04bb649a2fd86",
       "max_bytes": 33554432,
       "license": "CC0",
       "redistribution": "permitted",
-      "acquisition": "DISCOVERED_NOT_HASH_VERIFIED",
+      "acquisition": "PINNED_NOT_DOWNLOADED_IN_THIS_PASS",
       "canonical_qa": "canonical PGN and Library import only after SHA256 pinning and byte verification",
-      "notes": "Official monthly index lists 18,151,480 compressed bytes; NOT downloaded or imported in this run"
+      "notes": "SHA-256 from official https://database.lichess.org/standard/sha256sums.txt; source bytes have NOT been downloaded or imported in this work pass"
     },
     {
       "id": "lichess_standard_rated_2013_03",
@@ -84,13 +84,13 @@
       "format": "pgn.zst",
       "source_page": "https://database.lichess.org/standard/",
       "download_url": "https://database.lichess.org/standard/lichess_db_standard_rated_2013-03.pgn.zst",
-      "sha256": null,
+      "sha256": "89da64fc3c1fe3bfd571d7f626232189f3259aa728b46ea81e5cb8f3fdb34b9e",
       "max_bytes": 33554432,
       "license": "CC0",
       "redistribution": "permitted",
-      "acquisition": "DISCOVERED_NOT_HASH_VERIFIED",
+      "acquisition": "PINNED_NOT_DOWNLOADED_IN_THIS_PASS",
       "canonical_qa": "canonical PGN and Library import only after SHA256 pinning and byte verification",
-      "notes": "Official monthly index lists 23,590,691 compressed bytes; NOT downloaded or imported in this run"
+      "notes": "SHA-256 from official https://database.lichess.org/standard/sha256sums.txt; source bytes have NOT been downloaded or imported in this work pass"
     },
     {
       "id": "gutenberg_chess_strategy_lasker",
@@ -146,11 +146,11 @@
       "download_url": null,
       "sha256": null,
       "max_bytes": 16777216,
-      "license": "US public domain per Project Gutenberg; local jurisdiction and trademark terms require review",
+      "license": "COPYRIGHTED — Project Gutenberg ebook #15201 lists Copyrighted; verify authorized test use",
       "redistribution": "NOT_CLEARED",
       "acquisition": "SOURCE_PAGE_ONLY",
       "canonical_qa": "Polish BookDocument Unicode/language regression after lawful download",
-      "notes": "Polish-language edition for future real-book multilingual evidence; no byte acquisition/hash/reader validation claimed"
+      "notes": "Official Gutenberg entry explicitly labels this Polish-language edition COPYRIGHTED; no public-domain assertion, download, import or redistribution permission claimed"
     }
   ]
 }
