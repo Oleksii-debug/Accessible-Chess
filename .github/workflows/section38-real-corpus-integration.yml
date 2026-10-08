@@ -1,0 +1,44 @@
+name: Section 38 real corpus integration
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'acs/book_library_import.py'
+      - 'tools/section38_real_corpus_integration.py'
+      - 'tests/test_book_library_import_journey.py'
+      - '.github/workflows/section38-real-corpus-integration.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  real-corpus-readback:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Download test-only real sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/section38/chessit" "$RUNNER_TEMP/section38/extracted/alekhine" "$RUNNER_TEMP/section38/gutenberg-33870/html"
+          curl --fail --location --retry 3 --max-time 90 -o "$RUNNER_TEMP/section38/chessit/cotswold_2023.pgn" https://www.chessit.co.uk/Congresses/Cotswold/2023/Cotswold_Open_2023.pgn
+          curl --fail --location --retry 3 --max-time 90 -o "$RUNNER_TEMP/alekhine.zip" https://www.pgnmentor.com/players/Alekhine.zip
+          unzip -p "$RUNNER_TEMP/alekhine.zip" Alekhine.pgn > "$RUNNER_TEMP/section38/extracted/alekhine/Alekhine.pgn"
+          curl --fail --location --retry 3 --max-time 90 -o "$RUNNER_TEMP/section38/gutenberg-33870/pg33870.txt" https://www.gutenberg.org/cache/epub/33870/pg33870.txt
+          curl --fail --location --retry 3 --max-time 90 -o "$RUNNER_TEMP/gutenberg.zip" https://www.gutenberg.org/cache/epub/33870/pg33870-h.zip
+          unzip -q "$RUNNER_TEMP/gutenberg.zip" 'pg33870-images.html' -d "$RUNNER_TEMP/section38/gutenberg-33870/html"
+          curl --fail --location --retry 3 --max-time 90 -o "$RUNNER_TEMP/section38/gutenberg-33870/pg33870.epub3" https://www.gutenberg.org/ebooks/33870.epub3.images
+      - name: Run Section 38 readback
+        run: |
+          python tools/section38_real_corpus_integration.py \
+            --corpus-root "$RUNNER_TEMP/section38" \
+            --output "$RUNNER_TEMP/section38-evidence.json"
+      - name: Run focused integration tests
+        env:
+          PYTHONPATH: tests
+        run: python -m unittest -v tests.test_book_library_import_journey

@@ -45,10 +45,21 @@ local external oracle: `status=PASS`, CBV→CBH family entries=14, decoded/impor
 CBF/CBI/2CBH/CBONE evidence: BLOCKED (no lawful fixture + independent semantic oracle)
 ```
 
-## Ordered frontier
+## Section 38 — current closure front
 
-The next dependency-safe front is Section 38 only after the Section 37 external
-readback workflow produces its bounded artifact. Sections 38–53 remain pending
-until their own acceptance evidence is produced. No later section is marked
-`DONE` by this record, and no status is inferred from chat history or from a
-single green test.
+**Status: `INTERNAL_COMPLETE_EXTERNAL_BLOCKED` (not DONE).**
+
+Durable evidence: `docs/corpus/SECTION38_REAL_CORPUS_INTEGRATION.json`.
+
+| Subsection | State | Evidence / exact limitation |
+|---|---|---|
+| 38.1 | `PARTIAL` | Real Cotswold (113 games) and Alekhine (1661 games) PGN sources are canonical-readback verified; broad annotated/Chess960/EPD/FEN source matrix remains open. |
+| 38.2 | `PARTIAL` | Real Project Gutenberg English TXT, HTML-with-images and EPUB3 are downloaded in test workspace and read through the canonical book importers. A comparable Ukrainian third-party corpus, plus lawful PDF/DOCX fixtures, is not bundled. |
+| 38.3 | `PARTIAL` | PGN Library publication, exact count, restart, idempotent reuse and cancellation atomicity pass. Full cross-surface Position Explorer/Web/Windows acceptance is not claimed by this gate. |
+| 38.4 | `PARTIAL` | CBV/CBH remains covered by Section 37 external readback; CBF+CBI, 2CBH and CBONE have no lawful fixture plus independent oracle. |
+| 38.5 | `DONE` | Section 38 evidence records source URL, format, SHA-256, rights boundary, expected/actual counts and warnings; downloaded bytes stay outside the repository. |
+| 38.6 | `PARTIAL` | TXT/HTML/EPUB3 now route through `BookLibrarySource` and existing Library import; PDF/DOCX and the unavailable ChessBase families remain explicitly blocked. |
+
+The next dependency-safe front is Section 39 after the Section 38 evidence and
+workflow are integrated. No later section is marked `DONE` by this record, and
+no status is inferred from chat history or from a single green test.

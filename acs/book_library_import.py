@@ -18,7 +18,7 @@ from .import_contract import SourceFingerprint, SourceReadCancelledError, read_s
 from .report_paths import report_safe_name
 
 
-BOOK_LIBRARY_SUFFIXES = frozenset({'.epub', '.html', '.htm', '.xhtml', '.md', '.markdown'})
+BOOK_LIBRARY_SUFFIXES = frozenset({'.epub', '.epub3', '.html', '.htm', '.xhtml', '.txt', '.md', '.markdown'})
 
 
 class BookLibrarySourceReadError(ValueError):
@@ -40,9 +40,9 @@ def open_book_library_source(
     suffix = source_path.suffix.casefold()
     if suffix not in BOOK_LIBRARY_SUFFIXES:
         raise ValueError('book format is not supported for Library game import')
-    if suffix == '.epub':
+    if suffix in {'.epub', '.epub3'}:
         limit = MAX_EPUB_SOURCE_BYTES
-    elif suffix in {'.md', '.markdown'}:
+    elif suffix in {'.txt', '.md', '.markdown'}:
         limit = MAX_TEXT_SOURCE_BYTES
     else:
         limit = MAX_HTML_SOURCE_BYTES
@@ -61,10 +61,15 @@ def open_book_library_source(
 
     poll()
     control = {"control_checkpoint": poll} if cancel_check is not None else {}
-    if suffix == '.epub':
+    if suffix in {'.epub', '.epub3'}:
         imported = import_epub_book(raw, source_name=report_safe_name(source_path), **control)
-    elif suffix in {'.md', '.markdown'}:
-        imported = import_text_book(raw, source_name=report_safe_name(source_path), source_format=BookTextFormat.MARKDOWN, **control)
+    elif suffix in {'.txt', '.md', '.markdown'}:
+        imported = import_text_book(
+            raw,
+            source_name=report_safe_name(source_path),
+            source_format=(BookTextFormat.TXT if suffix == '.txt' else BookTextFormat.MARKDOWN),
+            **control,
+        )
     else:
         imported = import_html_book(raw, source_name=report_safe_name(source_path), available_assets=(), **control)
     poll()

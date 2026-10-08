@@ -22,6 +22,19 @@ PGN = '[Event "Книга"]\n[White "Олексій"]\n[Black "Émile"]\n1. e4 {
 
 
 class BookLibraryImportJourneyTests(unittest.TestCase):
+    def test_txt_and_epub3_sources_use_canonical_book_importers(self):
+        with tempfile.TemporaryDirectory() as directory:
+            txt = Path(directory) / 'book.txt'
+            txt.write_text('A real readable chapter.\n\nNo fabricated chess position.', encoding='utf-8')
+            opened_txt = open_book_library_source(txt)
+            self.assertEqual(opened_txt.games, ())
+            self.assertTrue(opened_txt.retained_book_blocks)
+
+            epub = Path(directory) / 'book.epub3'
+            epub.write_bytes(epub_book(html_book(PGN)))
+            opened_epub = open_book_library_source(epub)
+            self.assertEqual([game.source_index for game in opened_epub.games], [0, 1])
+
     def test_html_and_epub_import_into_real_library_without_source_mutation(self):
         with tempfile.TemporaryDirectory() as directory:
             for suffix, raw in (('.html', html_book(PGN).encode()), ('.epub', epub_book(html_book(PGN)))):
