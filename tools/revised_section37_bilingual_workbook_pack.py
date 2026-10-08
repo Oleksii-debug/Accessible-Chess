@@ -46,14 +46,24 @@ def _verify_original_cc0_puzzle_lineage(lessons: list[dict]) -> None:
     families = (
         ("lichess_cc0_advanced_16_original_derived",
          "tests/real_corpus/advanced_training/lichess_cc0_advanced_puzzles_100_sample.json",
-         "rating", "uci_moves_with_opponent_first"),
+         "rating", "uci_moves_with_opponent_first",
+         "d7b86f83c1a355fa511420a36dbdc656a3cc6fef"),
         ("lichess_cc0_extreme_4_original_derived_puzzles",
          "tests/real_corpus/advanced_training/lichess_cc0_extreme_3000_3166_original_puzzles.json",
-         "puzzle_rating", "uci_moves_opponent_first"),
+         "puzzle_rating", "uci_moves_opponent_first",
+         "acb74625e5ebd0ae9b454779a371ac87091c8c0e"),
     )
-    for source_id, relative, rating_field, moves_field in families:
+    for source_id, relative, rating_field, moves_field, upstream_blob in families:
         record = registry.get(source_id)
-        if not isinstance(record, dict) or record.get("local_source") != relative:
+        if (
+            not isinstance(record, dict)
+            or record.get("local_source") != relative
+            or record.get("acquisition") != "VENDORED_SOURCE_VERIFIED"
+            or record.get("redistribution") != "permitted"
+            or not str(record.get("license", "")).startswith("CC0-1.0")
+            or record.get("public_release") in ("EXCLUDED", "EXCLUDED_PENDING_QUALIFICATION")
+            or record.get("source_original_git_blob") != upstream_blob
+        ):
             raise ValueError("missing exact licensed advanced CC0 original identity")
         candidate = SOURCE.parents[3] / relative
         verified_local_source(candidate, record)
