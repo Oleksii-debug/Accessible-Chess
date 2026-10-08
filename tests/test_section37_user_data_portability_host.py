@@ -5,6 +5,7 @@ from pathlib import Path
 import tempfile
 import threading
 import unittest
+from unittest.mock import patch
 
 from acs.user_data_portability import (
     BundleKind, DomainAdapter, DomainSnapshot,
@@ -86,9 +87,21 @@ class Section37ProductionHostTests(unittest.TestCase):
             host = UserDataPortabilityHost(
                 coordinator, owner=lambda: _Owner(), dialogs=_Dialogs(save=target),
             )
-            with self.assertRaises(FileExistsError):
+            with self.assertRaisesRegex(UserDataPortabilityError, "already exists"):
                 host("data.backup", {})
             self.assertEqual(target.read_bytes(), b"DO-NOT-CHANGE")
+
+    def test_fsync_failure_removes_only_owned_partial_archive(self):
+        coordinator, _ = _coordinator()
+        with tempfile.TemporaryDirectory() as td:
+            target = Path(td) / "partial.acbackup"
+            host = UserDataPortabilityHost(
+                coordinator, owner=lambda: _Owner(), dialogs=_Dialogs(save=target),
+            )
+            with patch("acs.user_data_portability_host.os.fsync", side_effect=OSError("disk failure")):
+                with self.assertRaises(OSError):
+                    host("data.backup", {})
+            self.assertFalse(target.exists())
 
     def test_browser_paths_never_reach_native_dialog(self):
         coordinator, _ = _coordinator()
