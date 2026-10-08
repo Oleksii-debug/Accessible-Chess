@@ -4,6 +4,8 @@
   const leaseInput = document.getElementById('lease-input');
   const onlineLogin = document.getElementById('online-login');
   const onlineRegister = document.getElementById('online-register');
+  const onlineRecovery = document.getElementById('online-recovery');
+  const deviceTransfer = document.getElementById('device-transfer');
   const onlineCheck = document.getElementById('online-check');
   const securityNoticeSummary = document.getElementById('security-notice-summary');
   const securityConsentAccept = document.getElementById('security-consent-accept');
@@ -26,6 +28,8 @@
       if (value.online_available) {
         onlineLogin.disabled = false;
         onlineRegister.disabled = false;
+        onlineRecovery.disabled = false;
+        deviceTransfer.disabled = false;
         onlineCheck.disabled = false;
         try {
           const notice = await bridge.security_notice();
@@ -42,6 +46,8 @@
       } else {
         onlineLogin.disabled = true;
         onlineRegister.disabled = true;
+        onlineRecovery.disabled = true;
+        deviceTransfer.disabled = true;
         onlineCheck.disabled = true;
         securityConsentAccept.disabled = true;
         securityConsentDecline.disabled = true;
@@ -75,15 +81,27 @@
   const beginOnline = async (kind) => {
     try {
       const bridge = await api();
-      const value = kind === 'login'
-        ? await bridge.begin_online_login()
-        : await bridge.begin_online_registration();
+      let value;
+      if (kind === 'login') {
+        value = await bridge.begin_online_login();
+      } else if (kind === 'register') {
+        value = await bridge.begin_online_registration();
+      } else if (kind === 'recover') {
+        value = await bridge.begin_online_recovery();
+      } else {
+        value = await bridge.begin_device_transfer();
+      }
       if (!value.ok) {
         announce('Онлайн-доступ не вдалося розпочати: ' + value.error);
         return;
       }
-      const label = kind === 'login' ? 'Вхід' : 'Реєстрацію';
-      announce(label + ' відкрито у системному браузері. Після завершення поверніться сюди й натисніть «Перевірити завершення входу».');
+      const labels = {
+        login: 'Вхід',
+        register: 'Реєстрацію',
+        recover: 'Відновлення доступу',
+        transfer_device: 'Перенесення доступу',
+      };
+      announce(labels[kind] + ' відкрито у системному браузері. Після завершення поверніться сюди й натисніть «Перевірити завершення операції».');
       onlineCheck.focus();
     } catch (error) {
       announce(String(error));
@@ -92,6 +110,8 @@
 
   onlineLogin.addEventListener('click', () => beginOnline('login'));
   onlineRegister.addEventListener('click', () => beginOnline('register'));
+  onlineRecovery.addEventListener('click', () => beginOnline('recover'));
+  deviceTransfer.addEventListener('click', () => beginOnline('transfer_device'));
 
   onlineCheck.addEventListener('click', async () => {
     try {
