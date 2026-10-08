@@ -410,6 +410,25 @@
       "license_sha256": "a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499",
       "zip_member": "2moves_v2.pgn",
       "max_unpacked_bytes": 16777216
+    },
+    {
+      "id": "gitenberg_capablanca_33870_original_txt",
+      "title": "Chess Fundamentals (original real book TXT, Gutenberg #33870 Git mirror)",
+      "author": "José Raúl Capablanca; Project Gutenberg transcribers",
+      "format": "txt",
+      "source_page": "https://github.com/GITenberg/Chess-Fundamentals_33870/blob/6d533e519e965dfb29df2b5c053cab3b3a5685dd/33870.txt",
+      "download_url": null,
+      "sha256": "dfbd48d5b513ea45f07a3701a9148b7aa2a473080a82f39728dbd62b5019c160",
+      "max_bytes": 262824,
+      "indexed_bytes": 262824,
+      "license": "Project Gutenberg ebook #33870; public domain in the USA, retain full Gutenberg notice/license; other jurisdictions must be evaluated",
+      "redistribution": "NOT_CLEARED",
+      "acquisition": "VENDORED_SOURCE_VERIFIED",
+      "upstream_commit": "6d533e519e965dfb29df2b5c053cab3b3a5685dd",
+      "upstream_git_blob": "c9a674d3281ccd8a39de7ca673467b79902a103a",
+      "local_source": "tests/real_corpus/books/gitenberg_capablanca_33870.txt",
+      "canonical_qa": "Original source SHA256 and Git blob readback; text is readable by existing Book TXT importer in focused tests, not a claim of diagram fidelity/PDF/DOCX support",
+      "notes": "Original full genuine 262824-byte Gutenberg TXT includes Gutenberg license and attribution. Vendored only as a real QA source with exact upstream Git identity and checksum. No automated network dependency, no permission to repackage it into commercial/public releases inferred, and no claim of full Section-37/38 closure."
     }
   ]
 }
