@@ -34,6 +34,9 @@ def _genuine_opening_examples():
             raise LawfulCorpusError("opening source rights are not qualified")
         path = ROOT / record["local_source"]
         raw = path.read_bytes()
+        # Bind the consumed row bytes, not merely a later pathname read.
+        if len(raw) != record["indexed_bytes"] or hashlib.sha256(raw).hexdigest() != record["sha256"]:
+            raise LawfulCorpusError("consumed official ECO bytes differ from pinned source")
         verified_local_source(path, record)
         rows = csv.DictReader(io.StringIO(raw.decode("utf-8-sig")), delimiter="\t")
         if tuple(rows.fieldnames or ()) != ("eco", "name", "pgn"):
