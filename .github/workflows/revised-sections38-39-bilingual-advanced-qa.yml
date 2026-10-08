@@ -56,6 +56,16 @@ jobs:
           tests.test_section38_bilingual_advanced_windows_books_open
           tests.test_revised_section40_product_books_advanced_integration
           tests.test_revised_section40_advanced_training
+      - name: Materialize ten expert bilingual Books files (EPUB3 HTML TXT MD DOCX)
+        run: >-
+          python -m tools.revised_section37_bilingual_workbook_pack
+          --output-dir _section38_39_advanced_books_qa
+      - name: Preserve ten genuine-CC0-derived Books for user and English testers
+        uses: actions/upload-artifact@v4
+        with:
+          name: section38-39-bilingual-advanced-books-${{ matrix.os }}
+          path: _section38_39_advanced_books_qa/
+          retention-days: 14
       - name: Generate language-independent PGN of 20 real advanced puzzles for Windows testing
         run: python -m tools.revised_section38_39_advanced_puzzle_pgn
       - name: Preserve legal advanced FEN/SAN PGN test download with provenance
