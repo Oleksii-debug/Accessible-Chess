@@ -204,6 +204,8 @@ def render_docx(data: dict, lang: str) -> bytes:
         '<Default Extension="xml" ContentType="application/xml"/>'
         '<Override PartName="/word/document.xml" ContentType='
         '"application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
+        '<Override PartName="/word/styles.xml" ContentType='
+        '"application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>'
         '<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>'
         '</Types>'
     ).encode("utf-8")
@@ -214,11 +216,34 @@ def render_docx(data: dict, lang: str) -> bytes:
         '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>'
         '</Relationships>'
     ).encode("utf-8")
+    # Real Word heading styles: style names in w:pPr/w:pStyle without an
+    # accompanying styles part may not be exposed as headings by office
+    # applications or NVDA, even if a narrow test importer understands them.
+    word_styles = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        '<w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/></w:style>'
+        '<w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="heading 1"/>'
+        '<w:basedOn w:val="Normal"/><w:pPr><w:keepNext/><w:outlineLvl w:val="0"/></w:pPr></w:style>'
+        '<w:style w:type="paragraph" w:styleId="Heading2"><w:name w:val="heading 2"/>'
+        '<w:basedOn w:val="Normal"/><w:pPr><w:keepNext/><w:outlineLvl w:val="1"/></w:pPr></w:style>'
+        '</w:styles>'
+    ).encode("utf-8")
+    document_rels = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Id="rIdStyles" Type='
+        '"http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles"'
+        ' Target="styles.xml"/></Relationships>'
+    ).encode("utf-8")
     buf = BytesIO()
     with ZipFile(buf, "w", compression=ZIP_DEFLATED) as z:
         for name, body in {
             "[Content_Types].xml": contents, "_rels/.rels": rels,
-            "word/document.xml": document, "docProps/core.xml": core,
+            "word/document.xml": document,
+            "word/styles.xml": word_styles,
+            "word/_rels/document.xml.rels": document_rels,
+            "docProps/core.xml": core,
         }.items():
             z.writestr(name, body)
     return buf.getvalue()
