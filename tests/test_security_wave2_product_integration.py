@@ -9,7 +9,9 @@ import pytest
 from acs.protection_boundary import (
     ProtectionDecision,
     ProtectionRuntimeClient,
+    ProtectionStartupSession,
     authorize_release_startup,
+    open_release_protection_session,
 )
 from acs.protection_locked_ui import ProtectionLockedAPI
 from acs.protection_online_boundary import (
@@ -17,9 +19,12 @@ from acs.protection_online_boundary import (
     ProtectionOnlineError,
 )
 from acs.protection_entitlement_lifecycle import (
+    EntitlementLifecycleSnapshot,
     ProtectionEntitlementLifecycle,
     ProtectionLifecycleError,
 )
+from acs.protection_privacy_boundary import ProtectionPrivacyClient, ProtectionPrivacyError
+from acs.protection_runtime_monitor import ProtectionLifecycleMonitor
 
 SAFE = ["help", "login", "own-data-export", "own-data-read", "recovery", "update"]
 
@@ -41,7 +46,7 @@ def _runtime_v2(*, poll_states=None, authorization_url="https://auth.example.inv
 
     def begin_online_access(**kwargs):
         assert set(kwargs) == {"package_root", "state_root", "mode"}
-        assert kwargs["mode"] in {"login", "register"}
+        assert kwargs["mode"] in {"login", "register", "recover", "transfer_device"}
         return {
             "api_version": 2,
             "flow_id": "abcdefghijklmnop",
@@ -388,3 +393,187 @@ def test_public_lifecycle_surface_has_no_admin_or_revocation_subject_mutators():
         "set_refresh_token",
     ):
         assert forbidden not in public
+
+
+def test_open_release_session_retains_private_client_without_exposing_it_in_decision(tmp_path):
+    runtime = _runtime_v2()
+    runtime.evaluate_startup = lambda **kwargs: {
+        "api_version": 2,
+        "state": "authorized",
+        "reason": "none",
+        "safe_operations": list(SAFE),
+        "capabilities": ["local-chess"],
+        "build_id": "build-2",
+    }
+    session = open_release_protection_session(
+        application_dir=tmp_path / "app",
+        state_root=tmp_path / "state",
+        required=True,
+        module_loader=lambda _name: runtime,
+    )
+    assert isinstance(session, ProtectionStartupSession)
+    assert session.decision.authorized
+    assert isinstance(session.client, ProtectionRuntimeClient)
+    assert not hasattr(session.decision, "access_token")
+    assert not hasattr(session.decision, "refresh_token")
+
+
+def test_r24_notice_and_consent_surface_never_accepts_telemetry_payload(tmp_path):
+    calls = []
+    runtime = _runtime_v3()
+    runtime.security_notice = lambda **kwargs: {
+        "api_version": 3,
+        "notice_version": "security-v1",
+        "summary": "Integrity, update and lease diagnostics only.",
+        "consent_required": True,
+        "consent_granted": False,
+    }
+    def set_consent(**kwargs):
+        calls.append(kwargs)
+        return {
+            "api_version": 3,
+            "notice_version": kwargs["notice_version"],
+            "summary": "Integrity, update and lease diagnostics only.",
+            "consent_required": True,
+            "consent_granted": kwargs["granted"],
+        }
+    runtime.set_security_consent = set_consent
+    privacy = ProtectionPrivacyClient(_client(tmp_path, runtime))
+    notice = privacy.notice()
+    assert notice["notice_version"] == "security-v1"
+    updated = privacy.set_consent(granted=True, notice_version="security-v1")
+    assert updated["consent_granted"] is True
+    assert set(calls[0]) == {"package_root", "state_root", "notice_version", "granted"}
+    assert "event" not in inspect.signature(privacy.set_consent).parameters
+    assert "anomaly_code" not in inspect.signature(privacy.set_consent).parameters
+
+
+def test_r24_notice_rejects_extra_raw_telemetry_fields(tmp_path):
+    runtime = _runtime_v3()
+    runtime.security_notice = lambda **kwargs: {
+        "api_version": 3,
+        "notice_version": "security-v1",
+        "summary": "Bounded diagnostics.",
+        "consent_required": True,
+        "consent_granted": False,
+        "raw_path": "C:/Users/example/private.txt",
+    }
+    with pytest.raises(ProtectionPrivacyError, match="schema"):
+        ProtectionPrivacyClient(_client(tmp_path, runtime)).notice()
+
+
+@pytest.mark.parametrize("mode", ["recover", "transfer_device"])
+def test_r27_recovery_and_transfer_use_opaque_browser_flow_without_device_inputs(mode, tmp_path):
+    runtime = _runtime_v3()
+    opened = []
+    client = ProtectionOnlineClient(
+        _client(tmp_path, runtime),
+        browser_open=lambda url: opened.append(url) or True,
+    )
+    flow = client.begin(mode=mode)
+    assert flow.mode == mode
+    assert len(opened) == 1
+    params = inspect.signature(client.begin).parameters
+    assert set(params) == {"mode"}
+    for forbidden in ("account_id", "old_device_id", "new_device_id", "access_token"):
+        assert forbidden not in params
+
+
+def test_r24_consent_required_lifecycle_blocks_premium_until_notice_action(tmp_path):
+    runtime = _runtime_v3(lifecycle={
+        "api_version": 3,
+        "state": "consent_required",
+        "reason": "security_notice_required",
+        "actions": ["review_privacy"],
+        "live_region": "assertive",
+        "retry_after_seconds": 0,
+        "lease_remaining_seconds": None,
+    })
+    snapshot = ProtectionEntitlementLifecycle(_client(tmp_path, runtime)).synchronize()
+    assert snapshot.premium_allowed is False
+    assert snapshot.actions == ("review_privacy",)
+
+
+def test_r26_monitor_blocks_immediately_on_revocation_without_waiting_for_next_app_start(tmp_path):
+    client = _client(tmp_path, _runtime_v3())
+    class Lifecycle:
+        def synchronize(self):
+            return EntitlementLifecycleSnapshot(
+                state="revoked",
+                reason="device_revoked",
+                actions=("recover",),
+                live_region="assertive",
+                retry_after_seconds=0,
+                lease_remaining_seconds=None,
+            )
+    monitor = ProtectionLifecycleMonitor(client, lifecycle=Lifecycle())
+    blocked = []
+    monitor.start(
+        warning_callback=lambda snapshot: None,
+        block_callback=lambda snapshot: blocked.append(snapshot),
+    )
+    monitor.stop()
+    assert monitor.blocked_or_failed
+    assert monitor.blocked is not None
+    assert monitor.blocked.state == "revoked"
+    assert blocked and blocked[0].state == "revoked"
+
+
+def test_r26_monitor_reports_bounded_warning_before_later_block(tmp_path):
+    client = _client(tmp_path, _runtime_v3())
+    sequence = [
+        EntitlementLifecycleSnapshot(
+            state="renewal_due",
+            reason="renewal_due",
+            actions=("retry",),
+            live_region="polite",
+            retry_after_seconds=1,
+            lease_remaining_seconds=120,
+        ),
+        EntitlementLifecycleSnapshot(
+            state="reauth_required",
+            reason="lease_expired",
+            actions=("login",),
+            live_region="assertive",
+            retry_after_seconds=0,
+            lease_remaining_seconds=None,
+        ),
+    ]
+    class Lifecycle:
+        def synchronize(self):
+            return sequence.pop(0)
+    monitor = ProtectionLifecycleMonitor(client, lifecycle=Lifecycle())
+    first = monitor.poll_once()
+    assert first.state == "renewal_due"
+    assert monitor._delay(first) == 30
+    second = monitor.poll_once()
+    assert second.state == "reauth_required"
+    assert monitor.blocked_or_failed
+
+
+def test_r23_end_user_product_has_no_admin_control_plane_methods(tmp_path):
+    runtime = _runtime_v3()
+    client = _client(tmp_path, runtime)
+    surfaces = [
+        ProtectionOnlineClient(client, browser_open=lambda _url: True),
+        ProtectionEntitlementLifecycle(client),
+        ProtectionPrivacyClient(client),
+    ]
+    forbidden = {
+        "admin_login",
+        "admin_session",
+        "revoke_account",
+        "restore_account",
+        "list_revocations",
+        "signing_key",
+        "factor_assertion",
+    }
+    for surface in surfaces:
+        assert forbidden.isdisjoint(set(dir(surface)))
+
+
+def test_compiled_launcher_requires_private_protection_runtime_package():
+    launcher = (Path(__file__).resolve().parents[1] / "run_accessible_chess_v2.py").read_text(
+        encoding="utf-8"
+    )
+    assert "--include-package=accessible_chess_protection_runtime" in launcher
