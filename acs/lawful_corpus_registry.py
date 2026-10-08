@@ -459,6 +459,11 @@ def inventory_vendored_corpus(
         if type(source_id) is not str or not _ID.fullmatch(source_id) or source_id in seen:
             raise LawfulCorpusError("vendored corpus ID invalid or duplicate")
         seen.add(source_id)
+        if (
+            type(entry.get("indexed_bytes")) is not int
+            or not 0 < entry["indexed_bytes"] <= _bounded_source_size(entry)
+        ):
+            raise LawfulCorpusError("vendored source provenance size invalid")
         expected_license = entry.get("license_sha256")
         if type(expected_license) is not str or not _HASH.fullmatch(expected_license):
             raise LawfulCorpusError("vendored corpus license is not hash-pinned")
