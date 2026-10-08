@@ -14,6 +14,8 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import tempfile
+import time
 
 from acs.gametree import PgnGame
 from acs.pgn_roundtrip import parse_pgn_text
@@ -95,22 +97,50 @@ def _original_games_signature(games: tuple[PgnGame, ...]) -> tuple:
 
 
 def _run_external_pgn(binary: Path, source: Path) -> bytes:
-    """One bounded, immutable source-only CLI invocation; never use a shell."""
+    """Stream external decoder output to bounded disk files, never huge PIPE RAM.
+
+    The file size is checked WHILE the decoder runs. On timeout or output
+    overflow, kill and join the only subprocess before raising. An external
+    source-only QA helper is never trusted to set memory/disk budgets.
+    """
+    max_stderr = 1024 * 1024
     try:
-        result = subprocess.run(
-            [os.fspath(binary), "pgn", os.fspath(source)],
-            cwd=os.fspath(binary.parent), stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            shell=False, timeout=45, check=False,
-        )
+        with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
+            process = subprocess.Popen(
+                [os.fspath(binary), "pgn", os.fspath(source)],
+                cwd=os.fspath(binary.parent), stdin=subprocess.DEVNULL,
+                stdout=stdout, stderr=stderr, shell=False,
+            )
+            deadline = time.monotonic() + 45
+            try:
+                while process.poll() is None:
+                    if (
+                        os.fstat(stdout.fileno()).st_size > _MAX_PGN
+                        or os.fstat(stderr.fileno()).st_size > max_stderr
+                    ):
+                        raise LawfulCorpusError("MIT cbvault output exceeds resource budget")
+                    if time.monotonic() >= deadline:
+                        raise LawfulCorpusError("MIT cbvault PGN export timed out")
+                    time.sleep(0.03)
+                if (
+                    process.returncode != 0
+                    or not 0 < os.fstat(stdout.fileno()).st_size <= _MAX_PGN
+                    or os.fstat(stderr.fileno()).st_size > max_stderr
+                ):
+                    raise LawfulCorpusError("MIT cbvault exported no bounded complete PGN")
+                stdout.seek(0)
+                data = stdout.read(_MAX_PGN + 1)
+                if not 0 < len(data) <= _MAX_PGN:
+                    raise LawfulCorpusError("MIT cbvault PGN readback exceeded budget")
+                return data
+            finally:
+                if process.poll() is None:
+                    process.kill()
+                process.wait(timeout=10)
+    except LawfulCorpusError:
+        raise
     except (OSError, subprocess.SubprocessError) as exc:
         raise LawfulCorpusError("MIT cbvault external export did not complete") from exc
-    if (
-        result.returncode != 0 or not result.stdout
-        or len(result.stdout) > _MAX_PGN or len(result.stderr) > 1024 * 1024
-    ):
-        raise LawfulCorpusError("MIT cbvault exported no bounded complete PGN")
-    return result.stdout
 
 
 def qualify_mit_cbvault(
