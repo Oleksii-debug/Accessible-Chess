@@ -127,9 +127,26 @@ def prepare_owner_test_stockfish_seed(destination: Path, *, repository_root: Pat
         verified = load_user_library_seed(staging)
         if len(verified.entries) != 1 or verified.entries[0].sha256 != digest:
             raise LawfulCorpusError("actual-source seed failed canonical preflight")
-        if destination.exists() or destination.is_symlink():
-            raise FileExistsError("destination changed before seed publication")
-        os.rename(staging, destination)
+        # Reserve the destination with an atomic exclusive mkdir. On POSIX,
+        # os.rename(staging, destination) may replace an existing *empty*
+        # directory created between the existence check and the rename.
+        # Such a race would violate the owner's no-clobber promise. The
+        # manifest is published LAST; before that the standard Library seed
+        # consumer fails closed instead of accepting a partially staged set.
+        destination.mkdir(mode=0o700, exist_ok=False)
+        published = []
+        try:
+            for name in (SEED_PGN_NAME, MANIFEST_NAME):
+                os.replace(staging / name, destination / name)
+                published.append(name)
+        except BaseException:
+            # Only remove paths this call just created. If the directory is
+            # unexpectedly altered by another actor, rmdir refuses and no
+            # third-party inventory is deleted.
+            for name in reversed(published):
+                (destination / name).unlink(missing_ok=True)
+            destination.rmdir()
+            raise
 
     return {
         "status": "OWNER_TEST_PREPARED_NOT_PUBLIC_RELEASE",
