@@ -238,6 +238,38 @@ def test_release_composition_contains_distinct_wave3_service_gates():
     assert '_product_version.split("-", 1)[0]' in source
 
 
+def test_wave3_all_canonical_ids_admitted_without_broadening_id_grammar(tmp_path):
+    """The exact published 48-ID inventory works without accepting arbitrary uppercase IDs."""
+    from acs.protection_product_boundaries import CANONICAL_PRODUCT_BOUNDARY_IDS
+
+    runtime, calls, _ = _runtime_v4(tmp_path)
+    gate = ProtectionCapabilityGate(_client(tmp_path, runtime))
+    for boundary in CANONICAL_PRODUCT_BOUNDARY_IDS:
+        gate.require(boundary)
+    assert [value for kind, value in calls if kind == "boundary"] == list(
+        CANONICAL_PRODUCT_BOUNDARY_IDS
+    )
+
+
+@pytest.mark.parametrize(
+    "invalid_id",
+    [
+        "BND.AC-S99-UNKNOWN",
+        "BND.AC-S13-engine",
+        "BND.AC-S13-ENGINE ",
+        "BND.AC-S13-ENGINE/../x",
+        "BND.AC-S13-ENGINE\\x00",
+        "ENGINE.ANALYSIS",
+    ],
+)
+def test_wave3_noncanonical_uppercase_ids_fail_before_private_authorization(tmp_path, invalid_id):
+    runtime, calls, _ = _runtime_v4(tmp_path)
+    gate = ProtectionCapabilityGate(_client(tmp_path, runtime))
+    with pytest.raises(ProtectionAdvancedError, match="product boundary id is invalid"):
+        gate.require(invalid_id)
+    assert not calls
+
+
 def test_wave3_surface_expansion_uses_canonical_boundaries_and_fails_closed(tmp_path):
     """Every mapped boundary must be individually authorized; one deny blocks."""
     from acs.protection_product_boundaries import boundaries_for_surface
