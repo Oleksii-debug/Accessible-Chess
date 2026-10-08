@@ -392,6 +392,43 @@ def _zip_tree(root: Path, destination: Path) -> None:
 
 
 class Version2PackagePreflightTests(unittest.TestCase):
+    def test_r43_canonical_v2_tree_rejects_checksummed_native_debug_artifacts(self):
+        for relative in (
+            "AccessibleChess.pdb", "AccessibleChess.ILK", "generated.MAP",
+            "web/source.js.map", "native/module.iobj", "native/scan.profraw",
+            ".coverage",
+            "AccessibleChess.dSYM/Contents/Resources/DWARF/AccessibleChess",
+        ):
+            with self.subTest(relative=relative), tempfile.TemporaryDirectory() as td:
+                root = Path(td) / "package"
+                root.mkdir()
+                _make_tree(root)
+                leaked = root / "AccessibleChess" / relative
+                leaked.parent.mkdir(parents=True, exist_ok=True)
+                leaked.write_bytes(b"native debug payload")
+                _write_checksums(root)
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError, "native debug symbols"
+                ):
+                    _validate_tree(root)
+
+    def test_r43_canonical_v2_zip_rejects_native_debug_members_before_extraction(self):
+        for relative, directory in (
+            ("AccessibleChess/AccessibleChess.pdb", False),
+            ("AccessibleChess/compilation.ILK", False),
+            ("AccessibleChess/web/app.js.map", False),
+            ("AccessibleChess/native/AccessibleChess.dSYM/", True),
+        ):
+            with self.subTest(relative=relative), tempfile.TemporaryDirectory() as td:
+                archive_path = Path(td) / "candidate.zip"
+                with zipfile.ZipFile(archive_path, "w") as archive:
+                    archive.writestr(relative, b"" if directory else b"debug")
+                with zipfile.ZipFile(archive_path) as archive:
+                    with self.assertRaisesRegex(
+                        Version2PackagePreflightError, "native debug symbols"
+                    ):
+                        preflight._validate_zip_entries(archive, PackageLimits())
+
     def test_relative_token_enforces_exact_win32_utf16_component_boundary(self):
         astral = "\U0001f642"
         accepted = astral * 125 + "a.txt"
