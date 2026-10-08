@@ -126,8 +126,8 @@ def _https_url(url: object, *, source_page: bool = False) -> str:
         or port not in (None, 443)
         or parsed.fragment or parsed.query
         or parsed.hostname not in (
-            {"database.lichess.org", "www.gutenberg.org", "github.com", "shop.chessbase.com", "help.chessbase.com", "ibca-info.org", "s2.chess-results.com", "s1.chess-results.com", "chess-results.com", "www.olimpbase.org", "www.arves.org", "braillechess.org.uk", "studies.chessbase.com"}
-            if source_page else {"database.lichess.org", "www.gutenberg.org", "de.chessbase.com"}
+            {"database.lichess.org", "www.gutenberg.org", "github.com", "shop.chessbase.com", "help.chessbase.com", "ibca-info.org", "s2.chess-results.com", "s1.chess-results.com", "chess-results.com", "www.olimpbase.org", "www.arves.org", "braillechess.org.uk", "studies.chessbase.com", "www.nwchess.com", "compete.newzealandchess.co.nz"}
+            if source_page else {"database.lichess.org", "www.gutenberg.org", "de.chessbase.com", "www.nwchess.com"}
         )
     ):
         raise LawfulCorpusError("source URL must be recognized, credential-free HTTPS")

@@ -27,11 +27,26 @@ class Section37BothLanguageWorktypeMatrix(unittest.TestCase):
                 self.assertEqual(set(part["languages"]), {"uk", "en"})
                 self.assertEqual(part["min_required_level"], "first category or higher")
                 self.assertTrue(all(part["languages"][lang]["language_verified"] for lang in ("uk", "en")))
-                self.assertTrue(all(
-                    part["languages"][lang]["available_advanced_material"] ==
-                    "original_project_authored_bilingual_workbook"
-                    for lang in ("uk", "en")
-                ))
+                exact = part["actual_product_source"]
+                source_path = ROOT / exact["real_source"]
+                self.assertTrue(source_path.is_file(), exact["real_source"])
+                self.assertTrue(exact["actual_shared_formats"])
+                native = exact["native_source_kind"]
+                claimed = (
+                    "authentic_app_readable_pgn_with_bilingual_original_annotations_or_explanatory_workbook"
+                    if native == "Library PGN"
+                    else "original_project_authored_bilingual_workbook"
+                )
+                for lang in ("uk", "en"):
+                    self.assertEqual(part["languages"][lang]["available_advanced_material"], claimed)
+                if "pgn" in exact["actual_shared_formats"]:
+                    self.assertTrue(native.startswith("Library") or "Library" in native)
+                if native == "Library PGN":
+                    from acs.pgn_roundtrip import parse_pgn_text
+                    self.assertGreaterEqual(
+                        len(parse_pgn_text(source_path.read_text(encoding="utf-8"), strict=False)),
+                        1,
+                    )
                 self.assertFalse(part["english_external_advanced_bibliography"]["acquired_full_book"])
                 self.assertEqual(
                     part["english_external_advanced_bibliography"]["public_distribution"],
@@ -54,9 +69,18 @@ class Section37BothLanguageWorktypeMatrix(unittest.TestCase):
         self.assertIn("no implicit chess", status["txt"].lower())
         self.assertIn("BookEpubImport", status["epub"])
         self.assertIn("BookDocxImport", status["docx"])
-        self.assertFalse(d["ukrainian_external_book_status"]["downloaded"])
-        self.assertEqual(d["ukrainian_external_book_status"]["redistribution"], "NOT_AUTHORIZED")
-        self.assertTrue(d["ukrainian_external_book_status"]["low_level_sections_excluded"])
+        paid = d["ukrainian_external_book_status"]
+        self.assertFalse(paid["imported_into_accessible_chess"])
+        self.assertFalse(paid["listed_as_owner_test_file"])
+        self.assertFalse(paid["full_original_rights_to_redistribute"])
+        self.assertTrue(paid["owner_reading_policy"].startswith("NO_PAID"))
+        self.assertFalse(d["external_publication_is_program_content"])
+        for track in d["worktypes"]:
+            self.assertEqual(track["ukrainian_external_verified_references"], [])
+            self.assertEqual(
+                track["usable_in_accessible_chess"]["paid_external_book"],
+                "NOT_IMPORTED_NOT_INCLUDED",
+            )
 
     def test_actual_both_language_shareable_markdown_is_full_source_not_only_index(self):
         a = UK.read_text(encoding="utf-8")

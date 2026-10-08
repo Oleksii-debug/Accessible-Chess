@@ -1931,6 +1931,15 @@ def _validate_required_runtime_resources(
         if observed != expected:
             _fail("Section 42 CC0 pack incomplete")
 
+    # One offline visual annotation implementation is shared by Web and
+    # Windows WebView. Missing script must reject advertised package release.
+    if b'board_overlay_renderer.js' in index_bytes:
+        _require_package_file(
+            root, inventory,
+            "AccessibleChess/web/board_overlay_renderer.js",
+            label="packaged Section 42 shared offline annotation projector",
+        )
+
     stockfish = _require_package_file(
         root,
         inventory,

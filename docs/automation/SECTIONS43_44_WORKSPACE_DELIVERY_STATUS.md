@@ -89,3 +89,11 @@ accessibility boundaries. Manual owner NVDA approval is the **final product**
 gate per AGENTS.md v3 and must not falsely block intermediate source
 qualification, but a known internal failure or absent feature may not be
 silently reclassified as PASS.
+
+## Integration reconciliation — 2026-10-08, PR #2499
+
+Created genuine two-parent merge commit `e77a5abf8a2d5397bebf6664326f52cd5f961c79` from the existing Sections 43–44 feature head `2be937d7230f6fbe2cf45c88ec998baddcb255da` and the then-current canonical Section41/42 ancestor `1096ddb3e3bf33c9397dbe6cc791967f22212305` (not a forced rewrite). Verified by source blob comparison that the eight non-overlapping Section43/44 files were left intact, while the **additive** Stage1 HTML IIFE (8,666 characters) and Section43/44 CSS styles (13,568 characters) were applied to the upstream source without deleting the newer Section42 licensed-piece renderer, low-power/forced-colors fallback, live copyable annotations, or the WCAG contrast correction.
+
+Merge readback: PR #2499 remained open on its existing canonical integration lineage. Both inline Stage1 scripts passed V8 syntax parsing; 12-panel Section43 Workspace function was then actually executed in a V8 DOM fixture. Checked panel-fold focus retention, saved-state restoration in the English-language workspace, and reset to expanded/default layout. All assertions passed. The worker's original `tests/js/sections43_44_workspace_contract_test.js` and Python native Settings tests remain part of this same PR, without duplicate authority.
+
+**Do not mistake this for terminal Section43 or 44 DONE.** Newer upstream worker commits may advance the #2494 base; confirm mergeability and exact-source readback at the final merge. Required unverified evidence: real Windows executable workspace route and UIA/NVDA keyboard recovery, DPI/zoom/screenshot baselines, complete module journeys, exact-head CI, and final owner acceptance. This note records real *integration progress* only.

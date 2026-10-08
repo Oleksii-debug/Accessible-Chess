@@ -35,6 +35,7 @@ from acs.section40_advanced_training_runtime import (
     build_advanced_offline_material, build_extreme_offline_material,
 )
 from tools.revised_section40_advanced_training import build_complete_advanced_training
+from tools.section39_section37_bilingual_workbook_qualification import qualify_bilingual_books
 from acs.section40_historical_reti_runtime import build_historical_reti_offline_material
 from acs.section40_historical_reti_dataset import original_reti_source_bytes
 
@@ -397,6 +398,53 @@ def build_collection(profile: str, output: Path, *, root: Path = ROOT) -> dict:
         "import_status": "ORIGINAL_RETI_1921_STRICT_PGN_AND_FEN_PASS",
         "repeat_download": "BUNDLED_OFFLINE",
     })
+    # Consume the original Section37 12-lesson bilingual generator, not a
+    # second five-format producer. Each of ten actual EPUB3/HTML/MD/TXT/DOCX
+    # bytes has already passed production Version2Application Books import,
+    # canonical CC0 original puzzles, disk bookmark and per-format semantics.
+    real_workbook_proof, bilingual_real_books = qualify_bilingual_books(root=root)
+    if (
+        real_workbook_proof["original_lesson_count"] != 12
+        or real_workbook_proof["observed_derivative_count"] != 10
+        or not real_workbook_proof["real_original_cc0_position_provenance"]
+        or real_workbook_proof["original_third_party_publisher_file_claim"] is not False
+    ):
+        raise OfflineCollectionError("genuine Section37 bilingual advanced source not qualified")
+    evidence_by_name = {row["filename"]: row for row in real_workbook_proof["sources"]}
+    for filename, encoded in sorted(bilingual_real_books.items()):
+        row = evidence_by_name.get(filename)
+        if (
+            row is None or row["derived_sha256"] != _digest(encoded)
+            or row["derived_bytes"] != len(encoded)
+            or row["bookdocument_semantic_reimport"] != "PASS"
+            or row["book_progress_disk_restart"] != "PASS"
+            or row["independent_publisher_original_file"] is not False
+        ):
+            raise OfflineCollectionError("Section37 bilingual original-source format evidence differs")
+        dest = "books/" + filename
+        if dest in assets:
+            raise OfflineCollectionError("Section37 bilingual book duplicates an existing asset")
+        assets[dest] = encoded
+        rows.append({
+            "id": "section37_bilingual_original_workbook_" +
+                  row["language"] + "_" + row["format"].lower(),
+            "title": "Section37 advanced 12-source chess workbook: " + row["language"].upper(),
+            "author": "Accessible Chess original authored learning prose; Lichess CC0 chess positions",
+            "genre": "advanced calculation, tactics, middlegame, endgame",
+            "language": row["language"],
+            "format": row["format"].lower(),
+            "source_url": "https://database.lichess.org/#puzzles",
+            "download_url": None,
+            "source_path": dest,
+            "size_bytes": len(encoded), "sha256": _digest(encoded),
+            "original_workbook_source_sha256": real_workbook_proof["workbook_source_sha256"],
+            "original_lesson_count": 12,
+            "source_kind": "NEW_ORIGINAL_PROJECT_AUTHORSHIP_DERIVED_FROM_PINNED_CC0_POSITIONS",
+            "license": "original project-authored narrative and CC0-1.0 chess positions",
+            "redistribution": "permitted",
+            "import_status": "ACTUAL_NATIVE_BOOK_IMPORT_RESTART_PASS_DERIVED_SOURCE",
+            "repeat_download": "BUNDLED_OFFLINE",
+        })
     advanced_assets, advanced_rows = build_complete_advanced_training(root=root)
     if set(assets) & set(advanced_assets):
         raise OfflineCollectionError("duplicate advanced training content key")
@@ -467,6 +515,16 @@ def build_collection(profile: str, output: Path, *, root: Path = ROOT) -> dict:
         assets["catalog/external-links.json"] = _json_bytes(links)
         assets["README_UK.txt"] = (
             "Accessible Chess: офлайнова бібліотека для перевірок.\n"
+            "Новий вбудований двомовний курс «Майстерська шахова лабораторія» містить 12 справжніх "
+            "позицій Lichess і відкривається прямо у Книгах, без мережі чи ручного імпорту. "
+            "Додатково books/section37-advanced-workbook-uk.* та "
+            "books/section37-advanced-workbook-en.* містять ПО П'ЯТЬ перевірених форматів "
+            "TXT, MD, HTML, EPUB3 та DOCX. Ці 10 файлів — власні навчальні видання "
+            "на основі CC0 позицій, а не сторонні повні книги. "
+            "У ZIP ці файли служать для додаткового тестування імпорту: спочатку "
+            "розпакуйте TEST_COLLECTION.zip, потім відкрийте окремий файл через меню Книги. "
+            "TXT/DOCX зберігають текст, але не видають FEN у прозі за позицію; "
+            "Markdown/HTML/EPUB зберігають явно розмічені шахові позиції. "
             "Файли books/*.json читає канонічний BookDocument; training/*.json "
             "містить авторські вправи й справжні задачі Lichess 2200+ (НЕ FIDE Elo). У TEST_BUILD файл library/*.acsdb "
             "містить 512 справжніх PGN-партій та добірки 32/128/512, імпортовані через існуючу Library.\n"
@@ -478,6 +536,14 @@ def build_collection(profile: str, output: Path, *, root: Path = ROOT) -> dict:
         assets["README_EN.txt"] = (
             "Accessible Chess offline corpus for QA. Canonical BookDocument "
             "course/booklets, authored Training and real CC0 Lichess 2200+ puzzles (not FIDE Elo) are included. "
+            "A real 12-position source-verified master workbook is now built into the application's "
+            "offline Books menu, with Ukrainian and English selection and canonical Training/Board positions. "
+            "The ten supplemental books/section37-advanced-workbook-(uk,en).(txt,md,html,epub,docx) "
+            "files are separately importable ORIGINAL PROJECT-AUTHORED books derived from authentic "
+            "Lichess CC0 chess positions, NOT ten unrelated original publisher ebooks. "
+            "For individual format testing, extract TEST_COLLECTION.zip before using Books' file-open feature. "
+            "TXT and DOCX contain genuine reading text but never infer a position from unmarked prose; "
+            "HTML/EPUB3/Markdown have explicit 12-position chess semantics. "
             "TEST_BUILD contains real 32/128/512 game collections and 512 genuine games in canonical ACSDB. "
             "PUBLIC_RELEASE is more restrictive and includes links only for "
             "unqualified external sources. This is not a Windows EXE, "

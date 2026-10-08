@@ -1,0 +1,95 @@
+"use strict";
+// Runtime (not grep-only) invariants for the shared Section-42 teacher / media overlays.
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const vm = require("node:vm");
+
+class FakeSvg {
+  constructor(tag) {
+    this.tag = tag;
+    this.children = [];
+    this.attributes = new Map();
+    this.dataset = {};
+    this.css = new Map();
+    this.style = {setProperty: (name, value) => this.css.set(name, value)};
+    this.classList = {add: name => {this.cssClass = name;}};
+  }
+  setAttribute(name, value) {this.attributes.set(name, String(value));}
+  appendChild(node) {this.children.push(node);return node;}
+}
+function freshBoard() {
+  const nodes = Array.from({length:64},()=>new FakeSvg("gridcell"));
+  const grid = new FakeSvg("grid");
+  grid.querySelectorAll = selector => {
+    assert.equal(selector, '[role="gridcell"]');
+    return nodes;
+  };
+  return {grid,nodes};
+}
+const moduleFile = path.join(__dirname,"..","..","web","board_overlay_renderer.js");
+const source = fs.readFileSync(moduleFile,"utf8");
+const mockDocument = {createElementNS:(namespace,kind)=>{
+  assert.equal(namespace,"http://www.w3.org/2000/svg");
+  assert.ok(["svg","line","polygon"].includes(kind));
+  return new FakeSvg(kind);
+}};
+const sandbox = {document: mockDocument};
+vm.runInNewContext(source,sandbox,{filename:"board_overlay_renderer.js",timeout:1000});
+const projector = sandbox.AccessibleChessBoardOverlay;
+assert.equal(typeof projector.project,"function");
+assert.equal(Object.isFrozen(projector),true);
+const squares=Array.from({length:64},(_,i)=>({
+  square:"abcdefgh"[i%8]+String(8-Math.floor(i/8))
+}));
+const valid={highlights:[{square:"e4",purpose:"attack",color:"#123abc"}],
+  arrows:[{from:"e2",to:"e4",purpose:"idea",color:"#ff1100"}]};
+{
+ const {grid,nodes}=freshBoard();
+ projector.project(grid,squares,valid);
+ const idx=squares.findIndex(x=>x.square==="e4");
+ assert.equal(nodes[idx].dataset.ac42Highlight,"true");
+ assert.equal(nodes[idx].dataset.ac42HighlightPurpose,"attack");
+ assert.equal(nodes[idx].css.get("--ac42-highlight-color"),"#123abc");
+ assert.equal(grid.children.length,1);
+ const svg=grid.children[0];
+ assert.equal(svg.tag,"svg");
+ assert.equal(svg.attributes.get("aria-hidden"),"true");
+ assert.equal(svg.attributes.get("focusable"),"false");
+ assert.equal(svg.children.length,2);
+ assert.equal(svg.children[0].tag,"line");
+ assert.equal(svg.children[1].tag,"polygon");
+ assert.equal(Object.keys(nodes[idx]).includes("ariaLabel"),false);
+}
+{
+ const {grid,nodes}=freshBoard();
+ const hostile={highlights:[
+   {square:"e4",purpose:"attack",color:"url(http://evil)"},
+   {square:"e5",purpose:"<script>",color:"#ffffff"},
+   {square:"z9",purpose:"attack",color:"#ffffff"}],
+   arrows:[
+   {from:"e2",to:"e2",purpose:"idea",color:"#ffffff"},
+   {from:"e2",to:"e4",purpose:"idea",color:"var(--hidden)"},
+   {from:"e2",to:"z9",purpose:"idea",color:"#ffffff"}
+ ]};
+ projector.project(grid,squares,hostile);
+ assert.equal(grid.children.length,0);
+ assert.equal(nodes.some(n=>n.dataset.ac42Highlight),false);
+}
+{
+ const {grid}=freshBoard();
+ projector.project(grid,squares.slice(1),valid);
+ assert.equal(grid.children.length,0,"partial board must be fail closed");
+ const duplicated=[...squares];duplicated[63]=duplicated[0];
+ projector.project(grid,duplicated,valid);
+ assert.equal(grid.children.length,0,"duplicate square must be fail closed");
+}
+{
+ const {grid}=freshBoard();
+ const bounded={highlights:Array.from({length:1000},()=>valid.highlights[0]),
+   arrows:Array.from({length:1000},()=>valid.arrows[0])};
+ projector.project(grid,squares,bounded);
+ assert.equal(grid.children.length,1);
+ assert.equal(grid.children[0].children.length,96,"only 48 arrow pairs allowed");
+}
+console.log("section42_overlay_runtime_test: PASS; real VM, bounds, safe SVG, rejection and ARIA");

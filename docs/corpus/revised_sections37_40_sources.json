@@ -1344,6 +1344,54 @@
       "public_release": "INCLUDED_OWN_TEXT_HISTORICAL_COMPOSITION",
       "canonical_qa": "Canonical parse -> LibraryImportService -> ACSDB restart/idempotence test; hosted CI status separately tracked",
       "notes": "Real authored endgame study, white to draw, FEN 7K/8/k1P5/7p/8/8/8/8 w - - 0 1. Not confused with Lichess practice puzzle."
+    },
+    {
+      "id": "northwest_chess_2013_01_annotated_cbv_original_external",
+      "title": "Northwest Chess January 2013 Annotated Published Games — Original CBV",
+      "author": "Northwest Chess / published contributors",
+      "format": "cbv",
+      "source_page": "https://www.nwchess.com/articles/games/published/published_games.htm",
+      "download_url": "https://www.nwchess.com/articles/games/published/NWC%202013-01%20Published%20Games.cbv",
+      "sha256": null,
+      "max_bytes": 33554432,
+      "license": "Publicly offered annotated CBV for download by Northwest Chess; ownership remains with original authors/publisher; sharing and redistribution NOT cleared",
+      "redistribution": "NOT_CLEARED",
+      "acquisition": "SOURCE_PAGE_ONLY",
+      "public_release": "EXCLUDED",
+      "canonical_qa": "Temporary GitHub runner original publisher CBV+paired original PGN; SHA observation then cbvault pgn and canonical GameTree/ACSDB restart with external source check",
+      "notes": "Original official publisher links for genuine January 2013 annotated CBV and matching PGN; this source record does NOT assert bytes were downloaded, independently pinned, imported, endorsed for GM difficulty, or authorized for redistribution. Only ephemeral external test acquisition."
+    },
+    {
+      "id": "northwest_chess_2013_01_annotated_pgn_independent_oracle_external",
+      "title": "Northwest Chess January 2013 Annotated Published Games — paired publisher PGN",
+      "author": "Northwest Chess / published contributors",
+      "format": "pgn",
+      "source_page": "https://www.nwchess.com/articles/games/published/published_games.htm",
+      "download_url": "https://www.nwchess.com/articles/games/published/NWC%202013-01%20Published%20Games.pgn",
+      "sha256": null,
+      "max_bytes": 33554432,
+      "license": "Publicly offered annotated game scores for download; author copyright and redistribution not cleared",
+      "redistribution": "NOT_CLEARED",
+      "acquisition": "SOURCE_PAGE_ONLY",
+      "public_release": "EXCLUDED",
+      "canonical_qa": "Independent official matched-date PGN score oracle for genuine companion CBV; verify original file SHA in external QA, compare all game moves/variations/comments through canonical PGN parser",
+      "notes": "Companion to northwest_chess_2013_01_annotated_cbv_original_external, not an original-source SHA-pinned qualified test. It cannot serve as a full CBV PASS before actual latest source readback."
+    },
+    {
+      "id": "nzcf_peter_stuart_historical_full_cbv_pgn_bibliography",
+      "title": "New Zealand Chess Federation / Peter Stuart Historical CBV+PGN Database",
+      "author": "Peter Stuart and New Zealand Chess Federation / Bill Forster",
+      "format": "cbv+pgn",
+      "source_page": "https://compete.newzealandchess.co.nz/resources/peter-stuart-database/",
+      "download_url": null,
+      "sha256": null,
+      "max_bytes": 0,
+      "license": "New Zealand Chess Federation has family permission to publish for free; independent program redistribution rights NOT established",
+      "redistribution": "NOT_CLEARED",
+      "acquisition": "SOURCE_PAGE_ONLY",
+      "public_release": "EXCLUDED",
+      "canonical_qa": "Future exact-original source test: real paired CBV/PGN from publisher, full game count and annotations, per-source SHA and license; do not bundle into product",
+      "notes": "NZCF official page confirms historic Peter Stuart collection released for free and paired CBV/PGN; no source binary or checksum obtained in this pass. Large source requires separate quotas. Not automatically advanced GM instruction."
     }
   ]
 }

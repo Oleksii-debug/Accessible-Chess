@@ -28,6 +28,11 @@ from .section40_historical_reti_runtime import (
     HISTORICAL_RETI_BOOK_KEY, HISTORICAL_RETI_MATERIAL_ID,
     build_historical_reti_offline_material,
 )
+from .section40_bilingual_master_workbook_runtime import (
+    MATERIAL_ID as MASTER_WORKBOOK_MATERIAL_ID,
+    BOOK_KEY_PREFIX as MASTER_WORKBOOK_BOOK_KEY,
+    build_real_bilingual_master_workbook,
+)
 from .section38_39_professional_catalog_book import (
     MATERIAL_ID as PROFESSIONAL_CATALOG_MATERIAL_ID,
     BOOK_KEY_UK as PROFESSIONAL_CATALOG_BOOK_KEY_UK,
@@ -48,14 +53,14 @@ _CATALOGUE_LABELS = {
         "heading": "Офлайнова шахова бібліотека",
         "label": "Матеріал",
         "open": "Відкрити матеріал",
-        "description": "24 посібники, стартовий курс, 16 задач Lichess 2200+, 4 задачі 3000+ (не FIDE) і оригінальний етюд Реті 1921 року доступні офлайн.",
+        "description": "24 посібники, стартовий курс, двомовний посібник із 12 складних позицій, 16 складних задач Lichess 2200+, 4 задачі 3000+ (рейтинг задач, не FIDE), етюд Реті 1921 року та окремий довідник 25 жанрів літератури й шахових баз (УКР/EN). Повні книги видавців не вбудовані.",
         "opened": "Відкрито матеріал",
     },
     UILanguage.EN: {
         "heading": "Offline chess learning library",
         "label": "Material",
         "open": "Open material",
-        "description": "24 booklets, starter course, 16 Lichess 2200+ and four 3000+ rated puzzles (not FIDE), plus an original Reti 1921 endgame study, open offline.",
+        "description": "24 booklets, starter course, one bilingual 12-position advanced workbook, 16 Lichess 2200+ and four 3000+ difficulty puzzles (not FIDE), an original Reti 1921 study, and a separately accessible catalogue of 25 chess literature and database genres (UA/EN). Copyrighted books are not bundled.",
         "opened": "Opened material",
     },
 }
@@ -88,6 +93,14 @@ class Version2StarterContentApplication(Version2EducationMutationApplication):
         self._historical_reti_document_en, historical_en_content = (
             build_historical_reti_offline_material(language="en")
         )
+        self._master_workbook_uk, master_truth_uk = (
+            build_real_bilingual_master_workbook(language="uk")
+        )
+        self._master_workbook_en, master_truth_en = (
+            build_real_bilingual_master_workbook(language="en")
+        )
+        if master_truth_uk != master_truth_en or len(master_truth_uk) != 12:
+            raise RuntimeError("original Section37 bilingual master workbook is not source-identical")
         self._professional_catalog_uk = build_professional_genre_book(language="uk")
         self._professional_catalog_en = build_professional_genre_book(language="en")
         # Language is presentation only. Never fork puzzle moves, answer or FEN.
@@ -132,6 +145,7 @@ class Version2StarterContentApplication(Version2EducationMutationApplication):
             or EXTREME_MATERIAL_ID in documents
             or HISTORICAL_RETI_MATERIAL_ID in documents
             or PROFESSIONAL_CATALOG_MATERIAL_ID in documents
+            or MASTER_WORKBOOK_MATERIAL_ID in documents
             or len(self._advanced_offline_tasks) != 16
             or len(self._extreme_offline_tasks) != 4
             or self._historical_reti_content.get("game_count") != 1):
@@ -140,6 +154,7 @@ class Version2StarterContentApplication(Version2EducationMutationApplication):
         documents[EXTREME_MATERIAL_ID] = self._extreme_offline_document
         documents[HISTORICAL_RETI_MATERIAL_ID] = self._historical_reti_document
         documents[PROFESSIONAL_CATALOG_MATERIAL_ID] = self._professional_catalog_uk
+        documents[MASTER_WORKBOOK_MATERIAL_ID] = self._master_workbook_uk
         self._starter_material_documents = documents
         self._starter_material_entries = tuple(entries)
 
@@ -264,6 +279,12 @@ class Version2StarterContentApplication(Version2EducationMutationApplication):
                           else self._historical_reti_document.title),
             },
             {
+                "material_id": MASTER_WORKBOOK_MATERIAL_ID,
+                "title": (self._master_workbook_en.title
+                          if self.shell.language is UILanguage.EN
+                          else self._master_workbook_uk.title),
+            },
+            {
                 "material_id": PROFESSIONAL_CATALOG_MATERIAL_ID,
                 "title": (self._professional_catalog_en.title
                           if self.shell.language is UILanguage.EN
@@ -280,6 +301,7 @@ class Version2StarterContentApplication(Version2EducationMutationApplication):
             "advanced_puzzle_count": len(self._advanced_offline_tasks),
             "extreme_puzzle_count": len(self._extreme_offline_tasks),
             "original_study_count": self._historical_reti_content["game_count"],
+            "authentic_advanced_bilingual_workbook_lessons": 12,
             "items": items,
         }
 
@@ -339,6 +361,12 @@ class Version2StarterContentApplication(Version2EducationMutationApplication):
                 else self._historical_reti_document
             )
             book_key = HISTORICAL_RETI_BOOK_KEY + (":en" if is_en else "")
+        elif material_id == MASTER_WORKBOOK_MATERIAL_ID:
+            is_en = self.shell.language is UILanguage.EN
+            document = (
+                self._master_workbook_en if is_en else self._master_workbook_uk
+            )
+            book_key = MASTER_WORKBOOK_BOOK_KEY + (":en" if is_en else ":uk")
         elif material_id == PROFESSIONAL_CATALOG_MATERIAL_ID:
             is_en = self.shell.language is UILanguage.EN
             document = (
