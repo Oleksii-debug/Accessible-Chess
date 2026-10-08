@@ -36,6 +36,9 @@ jobs:
         with:
           python-version: '3.12.10'
 
+      - name: Install retained test dependencies
+        run: python -m pip install --disable-pip-version-check --no-input pytest==8.4.2
+
       - name: Prove exact candidate
         shell: bash
         run: |
