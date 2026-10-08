@@ -180,6 +180,28 @@ def _real_library_sample(root: Path, catalog: tuple[dict, ...], work: Path):
         game.source_index = index
     db_path = work / "source-games.acsdb"
     source_sha = _digest(source_pgn)
+    advanced_records = [x for x in catalog
+                        if x.get("id") == "lichess_cc0_high_level_4_original_annotated_games"]
+    if len(advanced_records) != 1:
+        raise OfflineCollectionError("original annotated master-game corpus missing")
+    advanced_record = advanced_records[0]
+    if (advanced_record.get("acquisition") != "VENDORED_SOURCE_VERIFIED"
+        or not str(advanced_record.get("license", "")).startswith("CC0")
+        or not str(advanced_record.get("redistribution", "")).startswith("permitted")):
+        raise OfflineCollectionError("advanced real PGN source rights missing")
+    advanced_license = read_verified_source_snapshot(
+        root / advanced_record["license_source"],
+        {"sha256": advanced_record["license_sha256"],
+         "max_bytes": 1024 * 1024},
+    )
+    advanced_pgn = read_verified_source_snapshot(
+        root / advanced_record["local_source"], advanced_record)
+    advanced_games = parse_pgn_text(
+        advanced_pgn.decode("utf-8", errors="strict"), strict=False)
+    if len(advanced_games) != 4 or any(not game.line.moves for game in advanced_games):
+        raise OfflineCollectionError("real annotated CC0 master games not preserved")
+    for index, game in enumerate(advanced_games):
+        game.source_index = index
     with AcsDatabase(db_path) as db:
         result = LibraryImportService(db).import_games(
             games, source_name="Stockfish CC0 2moves_v2 first 512 verified games",
@@ -187,6 +209,13 @@ def _real_library_sample(root: Path, catalog: tuple[dict, ...], work: Path):
         )
         if result.reused or result.game_count != _GAME_SAMPLE_COUNT:
             raise OfflineCollectionError("first canonical Library publication failed")
+        annotated = LibraryImportService(db).import_games(
+            advanced_games,
+            source_name="Four authentic annotated CC0 Lichess 2200+ online games (not FIDE)",
+            source_format="pgn", source_sha256=advanced_record["sha256"],
+        )
+        if annotated.reused or annotated.game_count != 4:
+            raise OfflineCollectionError("advanced 4-game canonical Library import failed")
         db.verify_integrity()
     with AcsDatabase(db_path) as db:
         source = LibrarySourceCatalogService(db).get_source(result.source_id)
@@ -195,11 +224,27 @@ def _real_library_sample(root: Path, catalog: tuple[dict, ...], work: Path):
         page = LibrarySourceCatalogService(db).source_games(result.source_id, limit=32)
         if len(page.items) != 32 or any(x.source_index != i for i, x in enumerate(page.items)):
             raise OfflineCollectionError("source search/index readback failed")
+        advanced_source = LibrarySourceCatalogService(db).get_source(annotated.source_id)
+        if (advanced_source is None or advanced_source.game_count != 4
+            or advanced_source.source_sha256 != advanced_record["sha256"]):
+            raise OfflineCollectionError("annotated game Library restart/readback failed")
+        advanced_page = LibrarySourceCatalogService(db).source_games(
+            annotated.source_id, limit=8)
+        if (len(advanced_page.items) != 4
+            or any(item.source_index != i
+                   for i, item in enumerate(advanced_page.items))):
+            raise OfflineCollectionError("advanced annotated source index failed")
         again = LibraryImportService(db).import_games(
             games, source_name="repeat verified offline QA source",
             source_format="pgn", source_sha256=source_sha,
         )
-        if not again.reused or again.source_id != result.source_id:
+        annotated_again = LibraryImportService(db).import_games(
+            advanced_games, source_name="repeat original annotated real games",
+            source_format="pgn", source_sha256=advanced_record["sha256"],
+        )
+        if (not again.reused or again.source_id != result.source_id
+            or not annotated_again.reused
+            or annotated_again.source_id != annotated.source_id):
             raise OfflineCollectionError("canonical Library idempotent readback failed")
         db.verify_integrity()
     assets = {
@@ -207,13 +252,17 @@ def _real_library_sample(root: Path, catalog: tuple[dict, ...], work: Path):
         for size, blob in samples.items()
     }
     assets["library/real-stockfish-first-512.acsdb"] = db_path.read_bytes()
+    assets["library/real-lichess-four-annotated-original-games.pgn"] = advanced_pgn
     return assets, {
         "source_id": _PGN_SOURCE_ID,
         "game_count": _GAME_SAMPLE_COUNT, "sample_sizes": [32, 128, 512],
+        "advanced_annotated_game_count": 4,
+        "advanced_annotated_source_sha256": advanced_record["sha256"],
+        "total_database_games": _GAME_SAMPLE_COUNT + 4,
         "derivative_pgn_sha256": source_sha, "database_sha256": _digest(assets[
             "library/real-stockfish-first-512.acsdb"]),
         "import_status": "CANONICAL_LIBRARY_IMPORTED_RESTART_REUSED_SEARCHED",
-        "scope_note": "512 verified original mini-games, not 12092 imported games",
+        "scope_note": "512 authentic Stockfish mini-games plus four annotated original Lichess full games; no GM title or FIDE inference",
     }
 
 def build_collection(profile: str, output: Path, *, root: Path = ROOT) -> dict:
