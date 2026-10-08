@@ -114,3 +114,16 @@ jobs:
         run: |
           $derived = Join-Path "${{ runner.temp }}/section47-videos" "Joaquin_Perkins_blitz_chess_vs_USCF_expert.qa.mp4"
           node tests/js/section47_canonical_browser_playback.js "$derived"
+
+  live-iframe:
+    name: Real YouTube chess provider (not a mock)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --no-save --no-package-lock playwright@1.56.1
+      - run: npx playwright install chromium --with-deps
+      - run: node tests/js/section48_canonical_youtube_live_smoke.js k4BS-4O1iI0
