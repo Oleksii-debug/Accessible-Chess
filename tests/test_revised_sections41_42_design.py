@@ -67,7 +67,11 @@ class RevisedBoardDesignTests(unittest.TestCase):
         self.assertIn('class="ac-heading-icon"', self.html)
         self.assertIn('aria-hidden="true" focusable="false"', self.html)
         self.assertNotIn("cdn.jsdelivr.net", self.html)
-        self.assertNotIn("http://", self.html)
+        # The SVG XML namespace is a fixed URI, not a network fetch.
+        # Forbid active CDN-loaded scripts/styles, not standards namespaces.
+        self.assertNotIn('<script src="http', self.html)
+        self.assertNotIn('<link rel="stylesheet" href="http', self.html)
+        self.assertNotIn('@import url(http', self.html)
 
     def test_css_accessibility_safety_in_both_languages(self):
         for theme in ("classic_wood", "modern_graphite", "tournament_blue", "light_minimal"):
