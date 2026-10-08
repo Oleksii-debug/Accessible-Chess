@@ -133,6 +133,59 @@ class ExternalOriginalBookTests(unittest.TestCase):
             with self.assertRaises(LawfulCorpusError):
                 verify_original_book(record, root)
 
+    def test_verification_never_uses_unbounded_read_bytes(self):
+        from unittest.mock import patch
+
+        data = b"original authorized source"
+        record = fake_record(data)
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "original").mkdir()
+            (root / "original/original.txt").write_bytes(data)
+            (root / "original/LICENSE").write_bytes(LICENSE_BYTES)
+            # Both the book AND its legal-attribution fixture must be read
+            # through the bounded same-descriptor path, never Path.read_bytes.
+            with patch.object(Path, "read_bytes", side_effect=AssertionError("unbounded source read")):
+                receipt = verify_original_book(record, root)
+            self.assertEqual(receipt["original_bytes"], len(data))
+            self.assertEqual(receipt["license_bytes"], len(LICENSE_BYTES))
+
+    def test_post_verification_source_growth_is_denied(self):
+        from unittest.mock import patch
+
+        data = b"original verified source"
+        record = fake_record(data)
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "original").mkdir()
+            source = root / "original/original.txt"
+            source.write_bytes(data)
+            (root / "original/LICENSE").write_bytes(LICENSE_BYTES)
+
+            def grow_after_verifier(_path, _record):
+                source.write_bytes(data * 100)
+                return record["sha256"]
+
+            with patch(
+                "tools.revised_section37_external_book_acquisition.verified_local_source",
+                side_effect=grow_after_verifier,
+            ):
+                with self.assertRaises(LawfulCorpusError):
+                    verify_original_book(record, root)
+
+    def test_license_snapshot_is_resource_bounded(self):
+        from tools.revised_section37_external_book_acquisition import _bounded_direct_snapshot
+
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "LICENSE"
+            path.write_bytes(b"THE FULL PROJECT GUTENBERG LICENSE" + b"A" * 5000)
+            with self.assertRaises(LawfulCorpusError):
+                _bounded_direct_snapshot(path, 64)
+            with self.assertRaises(LawfulCorpusError):
+                _bounded_direct_snapshot(path, True)
+            with self.assertRaises(LawfulCorpusError):
+                _bounded_direct_snapshot(path, 0)
+
     def test_malformed_batch_or_symlinked_checkout_is_denied(self):
         data = b"safe test source"
         original = fake_record(data)
