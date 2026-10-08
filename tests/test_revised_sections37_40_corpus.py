@@ -44,6 +44,23 @@ class RevisedCorpusContractTests(unittest.TestCase):
             with self.assertRaisesRegex(LawfulCorpusError, "exceeds maximum"):
                 load_catalog(too_large)
 
+    def test_catalog_schema_version_rejects_bool_and_float_forgery(self):
+        # JSON true == 1 and 1.0 == 1 under Python equality; neither is
+        # an actual integer schema revision. Reject before trusting records.
+        canonical = (Path(__file__).resolve().parents[1] /
+                     "docs/corpus/revised_sections37_40_sources.json").read_bytes()
+        marker = b'"schema_version": 1'
+        self.assertIn(marker, canonical)
+        with tempfile.TemporaryDirectory() as tmp:
+            catalog = Path(tmp) / "forged-schema.json"
+            for forged in (b"true", b"1.0", b'"1"', b"false", b"null"):
+                with self.subTest(schema=forged):
+                    catalog.write_bytes(
+                        canonical.replace(marker, b'"schema_version": ' + forged, 1)
+                    )
+                    with self.assertRaisesRegex(LawfulCorpusError, "schema invalid"):
+                        load_catalog(catalog)
+
     def test_source_growth_stops_hashing_at_byte_budget(self):
         payload = b"origin"
         record = self._record(payload)
