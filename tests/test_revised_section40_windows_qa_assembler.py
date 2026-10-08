@@ -62,9 +62,9 @@ class Section40RealWindowsQAPackageTests(unittest.TestCase):
             ).hexdigest()
             report = build_section40_windows_test_package(
                 product, notices, collection, output, exact_source_sha=_SHA)
-            self.assertEqual(report["seed_sources"], 2)
-            self.assertEqual(report["seed_games"], 516)
-            self.assertEqual(report["restart_reused_sources"], 2)
+            self.assertEqual(report["seed_sources"], 3)
+            self.assertEqual(report["seed_games"], 517)
+            self.assertEqual(report["restart_reused_sources"], 3)
             self.assertEqual(report["original_seed_files_untouched"], 0)
             self.assertTrue(report["canonical_version2_package_readback"])
             self.assertFalse(report["compiled_real_exe_attested"])
@@ -81,7 +81,9 @@ class Section40RealWindowsQAPackageTests(unittest.TestCase):
                 )
                 manifest = json.loads(archive.read(
                     "AccessibleChess/release-content/user-library-seed/manifest.json"))
-                self.assertEqual(len(manifest["files"]), 2)
+                self.assertEqual(len(manifest["files"]), 3)
+                self.assertIn("section40-original-reti-1921-uk-en-study.pgn",
+                              [item["file"] for item in manifest["files"]])
                 self.assertEqual(manifest["bundle_kind"], BUNDLE_KIND)
                 self.assertEqual(manifest["schema_version"], SCHEMA_VERSION)
 
@@ -113,15 +115,15 @@ class Section40RealWindowsQAPackageTests(unittest.TestCase):
             output = root / "preserved-test-build.zip"
             report = build_section40_windows_test_package(
                 product, notices, collection, output, exact_source_sha=_SHA)
-            self.assertEqual(report["seed_sources"], 3)
-            self.assertEqual(report["seed_games"], 517)
+            self.assertEqual(report["seed_sources"], 4)
+            self.assertEqual(report["seed_games"], 518)
             self.assertEqual(report["original_seed_files_untouched"], 1)
             self.assertEqual(manifest.read_bytes(), old_manifest)
             self.assertEqual((seed / "original-owner.pgn").read_bytes(), original_pgn)
             with zipfile.ZipFile(output) as archived:
                 payload = json.loads(archived.read(
                     "AccessibleChess/release-content/user-library-seed/manifest.json"))
-                self.assertEqual(len(payload["files"]), 3)
+                self.assertEqual(len(payload["files"]), 4)
                 self.assertEqual(payload["files"][0], old["files"][0])
 
     def test_public_only_archive_must_not_become_rich_windows_test_build(self):
