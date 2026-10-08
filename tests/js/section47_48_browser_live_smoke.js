@@ -53,10 +53,10 @@ async function testLocal(page, filePath) {
   let status = await page.locator("#real-media-status").innerText();
   assert(!status.includes("не підтримується"), "real browser rejects codec");
   // Start a genuine media decode/playback path, not an HTML mock.
-  await page.locator("#real-media-video").evaluate(video => video.play());
+  await page.locator("#real-media-play").click();
   await page.waitForFunction(() => document.querySelector("#real-media-video").currentTime > 0.2,
     null, { timeout: 12000 });
-  await page.locator("#real-media-video").evaluate(video => video.pause());
+  await page.locator("#real-media-pause").click();
   const initial = await page.locator("#real-media-video").evaluate(video => ({
     time: video.currentTime, duration: video.duration, paused: video.paused,
     error: video.error && video.error.code,
