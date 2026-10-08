@@ -96,7 +96,7 @@ def validate_preferences(value: object) -> dict[str, Any]:
 def _name(value: object) -> str:
     if type(value) is not str or not _NAME_RE.fullmatch(value) or value.strip() != value:
         raise DesignProfileError("unsafe or invalid profile name")
-    if value in PRESETS or value in (".", "..") or value.casefold() in {
+    if value in PRESETS or value in (".", "..", "__proto__", "constructor", "prototype") or value.casefold() in {
         name.casefold() for name in PRESETS
     }:
         raise DesignProfileError("built-in profile cannot be overwritten")
