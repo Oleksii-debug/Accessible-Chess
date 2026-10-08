@@ -60,6 +60,10 @@ class Section42LocalAssetsHttpTests(unittest.TestCase):
         self.assertIn('svg.setAttribute("aria-hidden","true")',code)
         self.assertIn('svg.setAttribute("focusable","false")',code)
         self.assertIn("positions.size !== 64",code)
+        self.assertIn('summary.textContent=descriptions.join("; ")',code)
+        for name in ("web/index.html","web/accessible_chess_web.html"):
+            ui=(ROOT/name).read_text(encoding="utf-8")
+            self.assertIn('class="ac42-board-annotation-summary" tabindex="0" aria-live="off"',ui)
         self.assertIn("validPurpose(item.purpose)",code)
         self.assertIn("validColor(item.color)",code)
         for forbidden in ("fetch(","innerHTML","eval(","localStorage","document.cookie"):

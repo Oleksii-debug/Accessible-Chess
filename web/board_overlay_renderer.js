@@ -8,7 +8,12 @@
   const validPurpose = value => typeof value === "string" && /^[a-z0-9_-]{1,32}$/.test(value);
   const svgNode = name => document.createElementNS(SVG,name);
   function project(grid, ordered, visual) {
-    if (!grid || !Array.isArray(ordered) || ordered.length !== 64 || !visual) return;
+    if (!grid) return;
+    const holder=grid.parentElement || grid.parentNode;
+    const summary=holder && typeof holder.querySelector==="function" ?
+      holder.querySelector(".ac42-board-annotation-summary") : null;
+    if (summary) summary.textContent="";
+    if (!Array.isArray(ordered) || ordered.length !== 64 || !visual) return;
     const cells = [...grid.querySelectorAll('[role="gridcell"]')];
     if (cells.length !== 64) return;
     const positions = new Map();
@@ -18,6 +23,16 @@
       }
     });
     if (positions.size !== 64) return;
+    const en=!!(document.documentElement && document.documentElement.lang==="en");
+    const labelFor=(purpose)=> {
+      const meanings={attack:["Атака","Attack"],defence:["Захист","Defence"],
+        idea:["Ідея","Idea"],legal:["Дозволений хід","Legal move"],
+        target:["Ціль","Target"],selected:["Вибір","Selection"],
+        custom:["Позначка","Mark"],"last-move":["Останній хід","Last move"]};
+      const pair=meanings[purpose];
+      return pair ? pair[en?1:0] : purpose;
+    };
+    const descriptions=[];
     const highlights = Array.isArray(visual.highlights) ? visual.highlights.slice(0,64) : [];
     for (const item of highlights) {
       if (!item || !validSquare(item.square) || !validColor(item.color)
@@ -25,12 +40,13 @@
       const index = positions.get(item.square);
       const node = cells[index];
       if (!node) continue;
+      descriptions.push(labelFor(item.purpose)+": "+item.square);
       node.dataset.ac42Highlight = "true";
       node.dataset.ac42HighlightPurpose = item.purpose;
       node.style.setProperty("--ac42-highlight-color",item.color);
     }
     const arrows = Array.isArray(visual.arrows) ? visual.arrows.slice(0,48) : [];
-    if (!arrows.length) return;
+    if (!arrows.length) {if(summary)summary.textContent=descriptions.join("; ");return;}
     const svg = svgNode("svg");
     svg.classList.add("ac42-board-arrows");
     svg.setAttribute("viewBox","0 0 800 800");
@@ -43,6 +59,7 @@
           || item.from === item.to || !positions.has(item.from)
           || !positions.has(item.to) || !validColor(item.color)
           || !validPurpose(item.purpose)) continue;
+      descriptions.push(labelFor(item.purpose)+": "+item.from+"–"+item.to);
       const from = positions.get(item.from), to = positions.get(item.to);
       const sx = 50+(from%8)*100, sy = 50+Math.floor(from/8)*100;
       const ex = 50+(to%8)*100, ey = 50+Math.floor(to/8)*100;
@@ -66,6 +83,7 @@
       plotted++;
     }
     if (plotted > 0) grid.appendChild(svg);
+    if(summary)summary.textContent=descriptions.join("; ");
   }
   globalThis.AccessibleChessBoardOverlay = Object.freeze({project});
 })();

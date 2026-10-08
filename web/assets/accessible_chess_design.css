@@ -129,3 +129,7 @@
   #board-grid .ac42-piece-art{display:none!important}
   #board-grid .ac42-piece-fallback{display:inline!important;color:CanvasText!important}
 }
+
+/* Copyable, non-live semantic equivalent of teacher and study annotations. */
+.ac42-board-annotation-summary{white-space:pre-wrap;overflow-wrap:anywhere;color:var(--ac41-ink);max-width:70ch}
+.ac42-board-annotation-summary:empty{display:none}
