@@ -145,6 +145,43 @@ def verified_local_source(path: Path, record: dict) -> str:
     return digest
 
 
+
+def iter_bounded_corpus_lines(
+    source, *, max_line_chars: int = 128 * 1024,
+    max_decoded_chars: int = 64 * 1024 * 1024,
+):
+    """Limit decompressed PGN framing input before buffering complete games.
+
+    This guards the existing transport record framer (not PGN semantics) from
+    malicious or unexpectedly huge decoded lines and records. It is deliberately
+    independent of the compression library and reuses the canonical PGN parser.
+    """
+    if (
+        type(max_line_chars) is not int or max_line_chars <= 0
+        or type(max_decoded_chars) is not int or max_decoded_chars <= 0
+    ):
+        raise LawfulCorpusError("decoded corpus limits must be positive integers")
+    total = 0
+    while True:
+        line = source.readline(max_line_chars + 1)
+        if not line:
+            return
+        if type(line) is not str:
+            raise LawfulCorpusError("decoded corpus reader must yield text")
+        # readline(size) can return an incomplete long physical line.
+        # Reject instead of accidentally framing its remainder as a new line.
+        if len(line) > max_line_chars or (
+            len(line) == max_line_chars
+            and not line.endswith(("\\n", "\\r"))
+            and bool(source.read(1))
+        ):
+            raise LawfulCorpusError("decoded corpus line exceeds resource limit")
+        total += len(line)
+        if total > max_decoded_chars:
+            raise LawfulCorpusError("decoded corpus exceeds resource limit")
+        yield line
+
+
 def acquire_cc0_source(record: dict, cache_dir: Path, *, opener=None) -> Path:
     """Download *only* an explicit CC0 source with known digest; never publish it."""
     if (
