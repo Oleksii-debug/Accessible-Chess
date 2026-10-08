@@ -88,6 +88,9 @@ def merge_real_receipts(base: dict, original_positions: dict, original_books: di
             workbook.get("schema") != "acs-section39-original-section37-bilingual-ten-book-import-v1"
             or workbook.get("source_commit_sha") != expected_sha
             or not _valid_digest(workbook.get("workbook_source_sha256"), 64)
+            or not _valid_digest(workbook.get("workbook_original_git_blob"), 40)
+            or workbook.get("workbook_original_git_blob") != "b836b763f814087d45c2a3481cd9bcb22d13be05"
+            or workbook.get("production_embedded_source_is_byte_identical") is not True
             or workbook.get("original_lesson_count") != 12
             or workbook.get("language_count") != 2
             or workbook.get("source_native_derived_format_count") != 5
