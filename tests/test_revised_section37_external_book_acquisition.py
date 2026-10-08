@@ -31,6 +31,9 @@ BOOK_IDS = {
 }
 
 
+LICENSE_BYTES = b"THE FULL PROJECT GUTENBERG LICENSE\nSynthetic unit-test license fixture"
+
+
 def fake_record(raw: bytes) -> dict:
     return {
         "id": "local_real_source",
@@ -46,6 +49,9 @@ def fake_record(raw: bytes) -> dict:
         "test_access": "EXTERNAL_EPHEMERAL_ONLY",
         "public_release": "EXCLUDED",
         "external_checkout_path": "original/original.txt",
+        "external_license_checkout_path": "original/LICENSE",
+        "external_license_git_blob": _git_blob(LICENSE_BYTES),
+        "external_license_indexed_bytes": len(LICENSE_BYTES),
     }
 
 
@@ -65,6 +71,8 @@ class ExternalOriginalBookTests(unittest.TestCase):
                 self.assertEqual(source["test_access"], "EXTERNAL_EPHEMERAL_ONLY")
                 self.assertEqual(source["acquisition"], "PINNED_NOT_DOWNLOADED_IN_THIS_PASS")
                 self.assertIn("gutenberg.org/ebooks/", source["source_page"])
+                self.assertEqual(source["external_license_git_blob"], "8d062dda262bcdc42d45b861bd796117feb6d0fe")
+                self.assertEqual(source["external_license_indexed_bytes"], 17504)
 
     def test_original_source_readback_never_copies_or_promotes_rights(self):
         data = b"an authentic source of bounded bytes for negative test only"
@@ -73,6 +81,7 @@ class ExternalOriginalBookTests(unittest.TestCase):
             root = Path(temp)
             (root / "original").mkdir()
             (root / record["external_checkout_path"]).write_bytes(data)
+            (root / "original/LICENSE").write_bytes(LICENSE_BYTES)
             before = sorted(str(p.relative_to(root)) for p in root.rglob("*"))
             result = verify_original_book(record, root)
             self.assertEqual(result["sha256"], hashlib.sha256(data).hexdigest())
@@ -96,6 +105,7 @@ class ExternalOriginalBookTests(unittest.TestCase):
             (root / "original").mkdir()
             path = root / "original/original.txt"
             path.write_bytes(data)
+            (root / "original/LICENSE").write_bytes(LICENSE_BYTES)
             for bad in (
                 {"sha256": "0" * 64},
                 {"upstream_git_blob": "0" * 40},
@@ -106,6 +116,9 @@ class ExternalOriginalBookTests(unittest.TestCase):
                 {"redistribution": "permitted"},
                 {"acquisition": "SOURCE_PAGE_ONLY"},
                 {"format": "pdf"},
+                {"external_license_git_blob": "0" * 40},
+                {"external_license_indexed_bytes": 1},
+                {"external_license_checkout_path": "../outside"},
                 {"id": "../other"},
                 {"external_checkout_path": "../escape.txt"},
                 {"external_checkout_path": "/absolute/path"},
@@ -127,6 +140,7 @@ class ExternalOriginalBookTests(unittest.TestCase):
             root = Path(temp)
             (root / "original").mkdir()
             (root / "original/original.txt").write_bytes(data)
+            (root / "original/LICENSE").write_bytes(LICENSE_BYTES)
             with self.assertRaises(LawfulCorpusError):
                 verify_external_books((original, original), root)
             with self.assertRaises(LawfulCorpusError):
