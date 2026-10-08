@@ -45,6 +45,7 @@
         (video.paused ? "paused" : (video.readyState < 3 ? "buffering" : "playing")),
       positionMs: secondsMs(video.currentTime),
       durationMs: secondsMs(video.duration),
+      playbackRate: video.playbackRate,
       // This browser surface provides time evidence, NOT verified PGN/FEN.
       qualification: "unlinked",
       chessRef: null,
