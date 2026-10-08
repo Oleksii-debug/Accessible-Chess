@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "role": "V2-CHESSBASE-FORMATS",
+  "swarm_lane_key": "ACCESSIBLE-CHESS-V2-CBCLOUD-LOCAL-FORMAT-UNBLOCK-20260828",
+  "parent_pr": 306,
+  "parent_sha": "e3c13d07a338d79764e71e4bef096900aa860cac",
+  "format": "CBCLOUD",
+  "status": "BLOCKED",
+  "support_promotion_allowed": false,
+  "product_decoder_available": false,
+  "product_safe_to_import": false,
+  "scope": "local file format only; excludes ChessBase online/cloud service APIs",
+  "official_evidence": {
+    "primary_extension": ".cbcloud",
+    "local_database": true,
+    "offline_local_copy_supported": true,
+    "family_file_count": 4,
+    "same_game_data_as_cbh_reported": true,
+    "player_tournament_index_files_absent": true,
+    "sorting_supported": true,
+    "two_level_delete_supported": true,
+    "companion_suffixes_qualified": false,
+    "sources": [
+      "https://help.chessbase.com/CBase/17/Eng/database_formats.htm",
+      "https://en.chessbase.com/support-kb/content/details/1306/Cloud_databases?AspxAutoDetectCookieSupport=1",
+      "https://support.chessbase.com/en/content/details/CBAccount/7ef7e9c4-9697-456a-b71c-f25caf56aaf2",
+      "https://en.chessbase.com/post/the-future-is-here-cloud-databases-2"
+    ]
+  },
+  "real_world_evidence": {
+    "official_real_local_database_examples_shown": true,
+    "authentic_downloadable_family_found": false,
+    "lawful_ci_reuse_proven": false,
+    "independent_pgn_or_gametree_oracle_found": false,
+    "exact_family_hashes_available": false
+  },
+  "open_source_backend_probe": {
+    "rolandlo_libcbh": {
+      "commit": "9641c5c3949d8fb210b17dd9aa54455645843696",
+      "cbcloud_surface_found": false
+    },
+    "foolnotion_scidb": {
+      "commit": "7c1c9d89f2fabab0c1252cdd14c515fb9bfc1415",
+      "cbcloud_surface_found": false
+    },
+    "isarhamster_chessx": {
+      "commit": "e734a075346ca2ad7e3f3e35b42140169637c5ca",
+      "cbcloud_surface_found": false
+    },
+    "antoyo_uncbv": {
+      "commit": "3c18e8a7c6a30c21f945a1ab5462521c306dca57",
+      "cbcloud_surface_found": false
+    }
+  },
+  "semantic_claims": {
+    "family_components_authenticated": false,
+    "moves_decoded": false,
+    "variations_decoded": false,
+    "annotations_decoded": false,
+    "metadata_decoded": false,
+    "canonical_gametree_proven": false,
+    "library_roundtrip_proven": false
+  },
+  "blockers": [
+    "lawfully reusable authentic CBCLOUD four-file family",
+    "evidence-qualified companion suffixes and component roles",
+    "pinned licensed CBCLOUD reader/backend",
+    "independent PGN or GameTree oracle for the exact family",
+    "bounded and trusted external execution contract",
+    "canonical legality and GameTree validation",
+    "Library/Search/Open/Export/Reopen/Integrity end-to-end equivalence",
+    "applicable Windows runtime qualification before user-facing activation"
+  ]
+}
