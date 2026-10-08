@@ -58,6 +58,18 @@
         "uk": "Only actual original source-driven workbook in canonical five Book formats, plus the verified CC0 PGN/FEN as separate product source types",
         "en": "Only actual original source-driven workbook in canonical five Book formats, plus verified CC0 PGN/FEN as separate product source types",
         "paid_external_book": "NOT_IMPORTED_NOT_INCLUDED"
+      },
+      "actual_product_source": {
+        "native_source_kind": "BookDocument",
+        "actual_shared_formats": [
+          "md",
+          "txt",
+          "html",
+          "epub",
+          "docx"
+        ],
+        "real_source": "tests/real_corpus/advanced_training/section37_master_workbook_bilingual.json",
+        "qualification": "12 original bilingual exercise source; actual native Books route tests pending hosted CI"
       }
     },
     {
@@ -100,6 +112,18 @@
         "uk": "Only actual original source-driven workbook in canonical five Book formats, plus the verified CC0 PGN/FEN as separate product source types",
         "en": "Only actual original source-driven workbook in canonical five Book formats, plus verified CC0 PGN/FEN as separate product source types",
         "paid_external_book": "NOT_IMPORTED_NOT_INCLUDED"
+      },
+      "actual_product_source": {
+        "native_source_kind": "BookDocument",
+        "actual_shared_formats": [
+          "md",
+          "txt",
+          "html",
+          "epub",
+          "docx"
+        ],
+        "real_source": "tests/real_corpus/advanced_training/section37_master_workbook_bilingual.json",
+        "qualification": "Real high-rated tactical motifs and combinations from genuine CC0"
       }
     },
     {
@@ -108,7 +132,7 @@
       "languages": {
         "uk": {
           "category": "Авторські етюди високого рівня",
-          "available_advanced_material": "original_project_authored_bilingual_workbook",
+          "available_advanced_material": "authentic_app_readable_pgn_with_bilingual_original_annotations_or_explanatory_workbook",
           "language_verified": true,
           "learning_objective": "Довести композицію до авторського результату без підглядання",
           "local_workbook_source": "tests/real_corpus/advanced_training/section37_master_workbook_bilingual.json",
@@ -118,7 +142,7 @@
         },
         "en": {
           "category": "Advanced authored chess studies",
-          "available_advanced_material": "original_project_authored_bilingual_workbook",
+          "available_advanced_material": "authentic_app_readable_pgn_with_bilingual_original_annotations_or_explanatory_workbook",
           "language_verified": true,
           "learning_objective": "Prove the study objective without seeing the composed solution",
           "local_workbook_source": "tests/real_corpus/advanced_training/section37_master_workbook_bilingual.json",
@@ -142,6 +166,14 @@
         "uk": "Only actual original source-driven workbook in canonical five Book formats, plus the verified CC0 PGN/FEN as separate product source types",
         "en": "Only actual original source-driven workbook in canonical five Book formats, plus verified CC0 PGN/FEN as separate product source types",
         "paid_external_book": "NOT_IMPORTED_NOT_INCLUDED"
+      },
+      "actual_product_source": {
+        "native_source_kind": "Library PGN",
+        "actual_shared_formats": [
+          "pgn"
+        ],
+        "real_source": "tests/real_corpus/advanced_training/reti_1921_historical_study_bilingual.pgn",
+        "qualification": "Actual 1921 Richard Reti original authored study; two languages in original editorial comments"
       }
     },
     {
@@ -184,6 +216,19 @@
         "uk": "Only actual original source-driven workbook in canonical five Book formats, plus the verified CC0 PGN/FEN as separate product source types",
         "en": "Only actual original source-driven workbook in canonical five Book formats, plus verified CC0 PGN/FEN as separate product source types",
         "paid_external_book": "NOT_IMPORTED_NOT_INCLUDED"
+      },
+      "actual_product_source": {
+        "native_source_kind": "BookDocument + ECO table",
+        "actual_shared_formats": [
+          "md",
+          "txt",
+          "html",
+          "epub",
+          "docx",
+          "tsv"
+        ],
+        "real_source": "tests/real_corpus/advanced_training/section37_master_workbook_bilingual.json",
+        "qualification": "Actual source-book opening problems + existing 5 genuine Lichess CC0 ECO A-E TSV; ECO not native Book formatted"
       }
     },
     {
@@ -226,6 +271,18 @@
         "uk": "Only actual original source-driven workbook in canonical five Book formats, plus the verified CC0 PGN/FEN as separate product source types",
         "en": "Only actual original source-driven workbook in canonical five Book formats, plus verified CC0 PGN/FEN as separate product source types",
         "paid_external_book": "NOT_IMPORTED_NOT_INCLUDED"
+      },
+      "actual_product_source": {
+        "native_source_kind": "BookDocument",
+        "actual_shared_formats": [
+          "md",
+          "txt",
+          "html",
+          "epub",
+          "docx"
+        ],
+        "real_source": "tests/real_corpus/advanced_training/section37_master_workbook_bilingual.json",
+        "qualification": "Actual expert middlegame exercises with annotated candidate-move study"
       }
     },
     {
@@ -268,6 +325,19 @@
         "uk": "Only actual original source-driven workbook in canonical five Book formats, plus the verified CC0 PGN/FEN as separate product source types",
         "en": "Only actual original source-driven workbook in canonical five Book formats, plus verified CC0 PGN/FEN as separate product source types",
         "paid_external_book": "NOT_IMPORTED_NOT_INCLUDED"
+      },
+      "actual_product_source": {
+        "native_source_kind": "BookDocument + Library PGN",
+        "actual_shared_formats": [
+          "md",
+          "txt",
+          "html",
+          "epub",
+          "docx",
+          "pgn"
+        ],
+        "real_source": "tests/real_corpus/advanced_training/section37_master_workbook_bilingual.json",
+        "qualification": "Actual difficult practical endgames plus authentic 1921 Reti composed-study PGN"
       }
     },
     {
@@ -276,7 +346,7 @@
       "languages": {
         "uk": {
           "category": "Анотовані партії й критичні рішення",
-          "available_advanced_material": "original_project_authored_bilingual_workbook",
+          "available_advanced_material": "authentic_app_readable_pgn_with_bilingual_original_annotations_or_explanatory_workbook",
           "language_verified": true,
           "learning_objective": "Зберегти оригінальні PGN-коментарі й варіації",
           "local_workbook_source": "tests/real_corpus/advanced_training/section37_master_workbook_bilingual.json",
@@ -286,7 +356,7 @@
         },
         "en": {
           "category": "Annotated games and critical decisions",
-          "available_advanced_material": "original_project_authored_bilingual_workbook",
+          "available_advanced_material": "authentic_app_readable_pgn_with_bilingual_original_annotations_or_explanatory_workbook",
           "language_verified": true,
           "learning_objective": "Preserve original PGN annotations and variations",
           "local_workbook_source": "tests/real_corpus/advanced_training/section37_master_workbook_bilingual.json",
@@ -310,6 +380,14 @@
         "uk": "Only actual original source-driven workbook in canonical five Book formats, plus the verified CC0 PGN/FEN as separate product source types",
         "en": "Only actual original source-driven workbook in canonical five Book formats, plus verified CC0 PGN/FEN as separate product source types",
         "paid_external_book": "NOT_IMPORTED_NOT_INCLUDED"
+      },
+      "actual_product_source": {
+        "native_source_kind": "Library PGN",
+        "actual_shared_formats": [
+          "pgn"
+        ],
+        "real_source": "tests/real_corpus/advanced_training/lichess_cc0_2200_both_players_annotated_original_games.pgn",
+        "qualification": "Four exact genuine CC0 original heavily annotated games with source-validated 2200+ online players; original PGN annotation English; bilingual workbook explains how to analyze"
       }
     },
     {
@@ -352,6 +430,15 @@
         "uk": "Only actual original source-driven workbook in canonical five Book formats, plus the verified CC0 PGN/FEN as separate product source types",
         "en": "Only actual original source-driven workbook in canonical five Book formats, plus verified CC0 PGN/FEN as separate product source types",
         "paid_external_book": "NOT_IMPORTED_NOT_INCLUDED"
+      },
+      "actual_product_source": {
+        "native_source_kind": "Library / ACSDB",
+        "actual_shared_formats": [
+          "pgn",
+          "acsdb"
+        ],
+        "real_source": "tests/real_corpus/advanced_training/lichess_cc0_2200_both_players_annotated_original_games.pgn",
+        "qualification": "Real multi-game imported PGN/ACSDB via canonical library source, 4-game original; no unlicensed IBCA PGNs bundled"
       }
     }
   ],
@@ -375,5 +462,6 @@
     "bookreader_heading_navigation": true,
     "restart_readback": true,
     "independent_github_action_success": "PENDING_NOT_CLAIMED"
-  }
+  },
+  "owner_qualification_policy": "Each work type names at least one concrete existing native-openable source, not a merchant link; only CI acceptance makes this formally QUALIFIED. Any no-native reader format is SOURCE_ONLY or MISSING, never a user book."
 }
