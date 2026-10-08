@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 import sqlite3
+from contextlib import closing
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -376,6 +377,21 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
+    def seed_legacy_sqlite(self, sql, params):
+        # Explicit cursor/connection finalization matters on Windows when the
+        # database is in WAL mode; the subsequent product operation must not
+        # inherit a fixture-owned file handle.
+        db = sqlite3.connect(self.store.path)
+        cursor = None
+        try:
+            cursor = db.cursor()
+            cursor.execute(sql, params)
+            db.commit()
+        finally:
+            if cursor is not None:
+                cursor.close()
+            db.close()
+
     def controller(self, participant="student-1", quota=None):
         return ClassroomCollaborationController(
             room_id="room-1",
@@ -625,15 +641,14 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         # later authoritative row. The public append boundary now correctly
         # rejects this shape, so seed the historical state below that boundary.
         later = history[2]
-        with sqlite3.connect(self.store.path) as db:
-            db.execute(
-                """
+        self.seed_legacy_sqlite(
+            """
                 INSERT INTO collaboration_messages(
                     message_id, room_id, sender_id, sequence_no, body,
                     retention, hidden, sent_at_unix_ms
                 ) VALUES(?,?,?,?,?,?,?,?)
                 """,
-                (
+            (
                     later.message_id,
                     later.room_id,
                     later.sender_id,
@@ -643,7 +658,7 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
                     int(later.hidden),
                     later.sent_at_unix_ms,
                 ),
-            )
+        )
         controller = self.controller("teacher-1")
 
         repaired = controller.sync_chat()
@@ -673,15 +688,14 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         self.chat.ordered = list(messages)
         self.chat.messages = {message.message_id: message for message in messages}
         self.store.append_message(messages[0])
-        with sqlite3.connect(self.root / "collaboration.sqlite3") as db:
-            db.execute(
-                """
+        self.seed_legacy_sqlite(
+            """
                 INSERT INTO collaboration_messages(
                     message_id, room_id, sender_id, sequence_no, body,
                     retention, hidden, sent_at_unix_ms
                 ) VALUES(?,?,?,?,?,?,?,?)
                 """,
-                (
+            (
                     messages[2].message_id,
                     messages[2].room_id,
                     messages[2].sender_id,
@@ -691,8 +705,7 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
                     int(messages[2].hidden),
                     messages[2].sent_at_unix_ms,
                 ),
-            )
-            db.commit()
+        )
 
         received = controller.receive_chat(messages[3])
 
@@ -823,15 +836,14 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
         third = self.chat.send_message(
             ChatDraft("legacy-gap-2", "room-1", "teacher-1", "Third")
         )
-        with sqlite3.connect(self.store.path) as db:
-            db.execute(
-                """
+        self.seed_legacy_sqlite(
+            """
                 INSERT INTO collaboration_messages(
                     message_id, room_id, sender_id, sequence_no, body,
                     retention, hidden, sent_at_unix_ms
                 ) VALUES(?,?,?,?,?,?,?,?)
                 """,
-                (
+            (
                     third.message_id,
                     third.room_id,
                     third.sender_id,
@@ -841,7 +853,7 @@ class ClassroomCollaborationContractTests(unittest.TestCase):
                     int(third.hidden),
                     third.sent_at_unix_ms,
                 ),
-            )
+        )
 
         synced = controller.sync_chat()
 

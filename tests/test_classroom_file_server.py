@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 from dataclasses import replace
 import hashlib
 import sqlite3
@@ -214,6 +215,19 @@ class ClassroomFileServerTests(unittest.TestCase):
         )
         return PreparedFile(path, metadata)
 
+    def test_store_releases_sqlite_file_handle_after_operation(self):
+        # Windows refuses this rename while any SQLite connection still owns
+        # the database file. This is a direct regression for WinError 32.
+        renamed = self.root / "file-server-renamed.sqlite3"
+        self.store.history_after(
+            room_id="room-1",
+            after_sequence=None,
+            limit=1,
+        )
+        self.db_path.rename(renamed)
+        renamed.rename(self.db_path)
+        self.assertTrue(self.db_path.exists())
+
     def test_store_requires_durable_database_target_and_sanitizes_open_failure(self):
         for target in ("", ":memory:"):
             with self.subTest(target=target):
@@ -234,7 +248,7 @@ class ClassroomFileServerTests(unittest.TestCase):
 
     def test_store_rejects_versioned_but_incompatible_schema_on_restart(self):
         path = self.root / "incompatible-v1.sqlite3"
-        with sqlite3.connect(path) as db:
+        with closing(sqlite3.connect(path)) as db, db:
             db.executescript(
                 """
                 CREATE TABLE classroom_file_server_meta(
@@ -273,7 +287,7 @@ class ClassroomFileServerTests(unittest.TestCase):
 
     def test_store_sanitizes_partial_schema_migration_failure(self):
         path = self.root / "partial-v1.sqlite3"
-        with sqlite3.connect(path) as db:
+        with closing(sqlite3.connect(path)) as db, db:
             db.executescript(
                 """
                 CREATE TABLE classroom_file_server_meta(
@@ -489,7 +503,7 @@ class ClassroomFileServerTests(unittest.TestCase):
 
         self.assertEqual(self.objects.put_calls, [])
         self.assertNotIn(prepared.metadata.object_key, self.objects.objects)
-        with self.store._connect() as db:
+        with closing(self.store._connect()) as db, db:
             self.assertIsNone(
                 db.execute(
                     "SELECT 1 FROM classroom_file_server_attachments "
@@ -898,7 +912,7 @@ class ClassroomFileServerTests(unittest.TestCase):
         self.assertEqual(reopened.rollback_pending_uploads(), 1)
         self.assertNotIn(prepared.metadata.object_key, self.objects.objects)
         self.assertEqual(reopened_store.pending_deletions(), ())
-        with reopened_store._connect() as db:
+        with closing(reopened_store._connect()) as db, db:
             self.assertIsNone(
                 db.execute(
                     "SELECT 1 FROM classroom_file_server_attachments "
@@ -1017,7 +1031,7 @@ class ClassroomFileServerTests(unittest.TestCase):
 
         self.assertNotIn(prepared.metadata.object_key, self.objects.objects)
         self.assertEqual(self.store.pending_deletions(), ())
-        with self.store._connect() as db:
+        with closing(self.store._connect()) as db, db:
             self.assertIsNone(
                 db.execute(
                     "SELECT 1 FROM classroom_file_server_attachments "
@@ -1461,7 +1475,7 @@ class ClassroomFileServerTests(unittest.TestCase):
         stored = self.student1.upload(
             self.prepared(attachment_id="gap-existing-a0")
         )
-        with self.store._connect() as db, db:
+        with closing(self.store._connect()) as db, db:
             db.execute(
                 "UPDATE classroom_file_server_attachments "
                 "SET sequence_no=5 WHERE attachment_id=?",
@@ -1481,7 +1495,7 @@ class ClassroomFileServerTests(unittest.TestCase):
             self.student1.upload(prepared)
 
         self.assertEqual(len(self.objects.put_calls), put_calls_before)
-        with self.store._connect() as db:
+        with closing(self.store._connect()) as db, db:
             self.assertIsNone(
                 db.execute(
                     "SELECT 1 FROM classroom_file_server_attachments "
@@ -1498,7 +1512,7 @@ class ClassroomFileServerTests(unittest.TestCase):
             self.prepared(attachment_id="revision-gap-a1")
         )
         self.student1.cancel(attachment_id=first.attachment_id)
-        with self.store._connect() as db, db:
+        with closing(self.store._connect()) as db, db:
             db.execute(
                 "UPDATE classroom_file_server_state_updates "
                 "SET revision=2 WHERE attachment_id=?",
@@ -1525,7 +1539,7 @@ class ClassroomFileServerTests(unittest.TestCase):
         second = self.student1.upload(
             self.prepared(attachment_id="read-gap-a1")
         )
-        with self.store._connect() as db, db:
+        with closing(self.store._connect()) as db, db:
             db.execute(
                 "UPDATE classroom_file_server_attachments "
                 "SET sequence_no=2 WHERE attachment_id=?",
@@ -1691,7 +1705,7 @@ class ClassroomFileServerTests(unittest.TestCase):
         )
         self.student1.cancel(attachment_id=first.attachment_id)
         self.student1.cancel(attachment_id=second.attachment_id)
-        with self.store._connect() as db, db:
+        with closing(self.store._connect()) as db, db:
             db.execute(
                 "UPDATE classroom_file_server_state_updates "
                 "SET revision=2 WHERE attachment_id=?",
@@ -1735,7 +1749,7 @@ class ClassroomFileServerTests(unittest.TestCase):
             trusted_sender_id="student-1",
             attachment_id=stored.attachment_id,
         )
-        with self.store._connect() as db, db:
+        with closing(self.store._connect()) as db, db:
             db.execute(
                 "UPDATE classroom_file_server_attachments "
                 "SET object_key=? WHERE attachment_id=?",
@@ -1761,7 +1775,7 @@ class ClassroomFileServerTests(unittest.TestCase):
         stored = self.student1.upload(
             self.prepared(attachment_id="corrupt-a0")
         )
-        with self.store._connect() as db:
+        with closing(self.store._connect()) as db, db:
             db.execute(
                 "UPDATE classroom_file_server_attachments "
                 "SET sequence_no=5 WHERE attachment_id=?",
