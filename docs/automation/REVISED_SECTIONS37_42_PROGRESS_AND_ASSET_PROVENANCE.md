@@ -2,6 +2,14 @@
 
 The owner revised the canonical Drive plan on 2026-10-08. **Sections 37–42 now have new meanings.** Historical GitHub DONE receipts for Section 37 (persistence), 38 (release infrastructure) and 39 (whole-product convergence) are **not acceptance for their new section numbers**.
 
+## 2026-10-08 — Section 37 official corpus hashes and copyright correction
+
+- Continued the EXISTING canonical finisher PR #2494, rather than making a competing implementation.
+- Verified the official Lichess standard source checksum index `https://database.lichess.org/standard/sha256sums.txt`. Added SHA-256 source pins for 2013-02 (`c136acdf343293c45252906fee91e3b561fb26a936979f52dbe04bb649a2fd86`) and 2013-03 (`89da64fc3c1fe3bfd571d7f626232189f3259aa728b46ea81e5cb8f3fdb34b9e`); neither file is falsely called downloaded/imported.
+- Rechecked Gutenberg ebook #15201's official copyright label: **Copyrighted**. Corrected its catalog rights claim, retained `NOT_CLEARED`, and added a regression test against accidentally reclassifying it as US public domain.
+- Updated source authorization tests on the same PR to expect the two official hashes and correct copyright status. Catalog JSON and 64-character lowercase digest invariants passed local static checks; **Python tests and live corpus download have NOT been executed by this authoring session**. GitHub Actions exact-current-head qualification must be checked separately, and queued/cancelled is not GREEN.
+- New Section 37 remains **OPEN — not terminal**: many real varied corpus acquisitions and lawful readbacks are still missing. New Section 38 remains **OPEN** and depends on real Section-37 acceptance. Historical numbered closures are not applicable.
+
 ## 2026-10-08 — Section 37 download boundary repair (incremental, not closure)
 
 - Existing canonical PR #2494 is retained; no alternate downloader, parser or shipping authority was created.
