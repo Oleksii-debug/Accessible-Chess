@@ -42,7 +42,12 @@ def _docx(*, xml: bytes | None = None, extra: dict[str, bytes] | None = None) ->
         xmlns:dc="{DCTERMS}"><dc:title>Accessible Word Chess Book</dc:title>
         <dc:creator>Example Author</dc:creator></cp:coreProperties>'''.encode("utf-8")
     members = {
-        "[Content_Types].xml": b"<Types/>",
+        "[Content_Types].xml": (
+            b'<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+            b'<Override PartName="/word/document.xml" '
+            b'ContentType="application/vnd.openxmlformats-officedocument.'
+            b'wordprocessingml.document.main+xml"/></Types>'
+        ),
         "word/document.xml": xml,
         "docProps/core.xml": core,
         **(extra or {}),
@@ -135,6 +140,19 @@ class RealDocxIngressContractTests(unittest.TestCase):
             self.assertEqual(restored.location(), location)
             self.assertEqual(restored.next_block().kind, "Note")
             self.assertEqual(restored.restore_return_point("bookmark"), location)
+
+    def test_zip_with_word_xml_but_without_opc_document_declaration_is_refused(self):
+        genuine = _docx()
+        buffer = io.BytesIO()
+        with ZipFile(buffer, "w", compression=ZIP_DEFLATED) as archive:
+            with ZipFile(io.BytesIO(genuine)) as valid:
+                for item in valid.infolist():
+                    payload = valid.read(item.filename)
+                    if item.filename == "[Content_Types].xml":
+                        payload = b'<Types/>'
+                    archive.writestr(item.filename, payload)
+        with self.assertRaisesRegex(DocxBookImportError, "genuine Word document"):
+            import_docx_book(buffer.getvalue(), source_name="not-really-a-docx.docx")
 
     def test_malformed_xml_package_navigation_and_limits_refused(self):
         for source in (
