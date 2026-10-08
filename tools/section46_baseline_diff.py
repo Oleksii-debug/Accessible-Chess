@@ -66,7 +66,7 @@ def qualify(capture_dir: Path, approved_dir: Path) -> dict:
     if (type(manifest["reviewer"]) is not str
         or not 3 <= len(manifest["reviewer"].strip()) <= 128
         or type(manifest["reviewed_at"]) is not str
-        or re.fullmatch(r"\\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\d:\\d\\dZ",
+        or re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ",
                         manifest["reviewed_at"]) is None):
         raise VisualBaselineError("missing reviewer identity or UTC review date")
     baseline_sha = manifest["baseline_source_sha"]
