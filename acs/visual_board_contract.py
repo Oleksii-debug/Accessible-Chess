@@ -28,6 +28,10 @@ class BoardTheme(str, Enum):
     CLASSIC = "classic"
     HIGH_CONTRAST = "high_contrast"
     BLUE = "blue"
+    CLASSIC_WOOD = "classic_wood"
+    MODERN_GRAPHITE = "modern_graphite"
+    TOURNAMENT_BLUE = "tournament_blue"
+    LIGHT_MINIMAL = "light_minimal"
 
 
 class PieceTheme(str, Enum):
@@ -77,8 +81,8 @@ class VisualBoardPreferences:
         object.__setattr__(self, "piece_theme", _enum_value(PieceTheme, self.piece_theme, "piece theme"))
         object.__setattr__(self, "orientation", _enum_value(BoardOrientation, self.orientation, "board orientation"))
         object.__setattr__(self, "coordinate_mode", _enum_value(CoordinateMode, self.coordinate_mode, "coordinate mode"))
-        if type(self.scale_percent) is not int or not 75 <= self.scale_percent <= 150:
-            raise ValueError("scale_percent must be an exact integer in 75..150")
+        if type(self.scale_percent) is not int or not 75 <= self.scale_percent <= 200:
+            raise ValueError("scale_percent must be an exact integer in 75..200")
         if type(self.show_last_move) is not bool:
             raise ValueError("show_last_move must be boolean")
 
