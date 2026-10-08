@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import hashlib
+import zipfile
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -34,6 +36,33 @@ class RealBookOnlyAcceptance(unittest.TestCase):
         text = MATRIX.read_text(encoding="utf-8")
         self.assertNotIn("Хабінець", text)
         self.assertNotIn("Шахова тактика. Від a до h", text)
+
+    def test_shareable_release_zip_is_licensed_hash_checked_and_reopens_in_real_program(self):
+        with tempfile.TemporaryDirectory(prefix="section37-final-uk-en-pack-") as root:
+            original = Path(root) / "originals"
+            ready_zip = Path(root) / "section37-advanced-uk-en-real-tests.zip"
+            with patch("sys.argv", ["pack-builder", "--output-dir", str(original),
+                                    "--zip-output", str(ready_zip)]):
+                build_main()
+            self.assertTrue(ready_zip.is_file())
+            with zipfile.ZipFile(ready_zip) as archive:
+                self.assertIsNone(archive.testzip())
+                names = archive.namelist()
+                self.assertEqual(len(names), 14)
+                self.assertEqual(set(names), {p.name for p in original.iterdir() if p.is_file()})
+                manifest = json.loads(archive.read("section37-bilingual-manifest.json"))
+                self.assertEqual(len(manifest["generated_files"]), 13)
+                for name, details in manifest["generated_files"].items():
+                    with self.subTest(source=name):
+                        raw = archive.read(name)
+                        self.assertEqual(hashlib.sha256(raw).hexdigest(), details["sha256"])
+                        self.assertEqual(len(raw), details["bytes"])
+                        restored = Path(root) / "restored" / name
+                        restored.parent.mkdir(exist_ok=True)
+                        restored.write_bytes(raw)
+                        if restored.suffix in (".txt", ".md", ".html", ".epub", ".docx"):
+                            imported = Version2Application.prepare_book_open(restored)
+                            self.assertGreater(len(imported.document.blocks), 20)
 
     def test_all_actual_shareable_book_content_is_opened_by_product_not_just_linked(self):
         with tempfile.TemporaryDirectory(prefix="acs-37-real-reader-only-") as root:
