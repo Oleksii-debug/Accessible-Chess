@@ -43,6 +43,12 @@ class ProtectedStartupLocked(ProtectionBoundaryError):
 
 
 @dataclass(frozen=True)
+class ProtectionStartupSession:
+    decision: "ProtectionDecision"
+    client: "ProtectionRuntimeClient"
+
+
+@dataclass(frozen=True)
 class ProtectionDecision:
     state: str
     reason: str
@@ -255,6 +261,39 @@ class ProtectionRuntimeClient:
             raise ProtectionBoundaryError("entitlement import was rejected") from exc
 
 
+def open_release_protection_session(
+    *,
+    application_dir: str | Path,
+    state_root: str | Path,
+    required: bool | None = None,
+    module_loader: Callable[[str], ModuleType] = importlib.import_module,
+) -> ProtectionStartupSession:
+    must_protect = protection_required(application_dir) if required is None else bool(required)
+    client = ProtectionRuntimeClient(
+        application_dir=application_dir,
+        state_root=state_root,
+        module_loader=module_loader,
+    )
+    if not must_protect:
+        return ProtectionStartupSession(
+            decision=ProtectionDecision(
+                state="authorized",
+                reason="source-development",
+                safe_operations=_SAFE_OPERATIONS,
+                capabilities=frozenset(),
+                build_id="source-development",
+            ),
+            client=client,
+        )
+    try:
+        decision = client.evaluate()
+    except ProtectionBoundaryError:
+        decision = _locked("runtime_unavailable_or_invalid")
+    if not decision.authorized:
+        raise ProtectedStartupLocked(decision, client)
+    return ProtectionStartupSession(decision=decision, client=client)
+
+
 def authorize_release_startup(
     *,
     application_dir: str | Path,
@@ -262,27 +301,12 @@ def authorize_release_startup(
     required: bool | None = None,
     module_loader: Callable[[str], ModuleType] = importlib.import_module,
 ) -> ProtectionDecision:
-    must_protect = protection_required(application_dir) if required is None else bool(required)
-    if not must_protect:
-        return ProtectionDecision(
-            state="authorized",
-            reason="source-development",
-            safe_operations=_SAFE_OPERATIONS,
-            capabilities=frozenset(),
-            build_id="source-development",
-        )
-    client = ProtectionRuntimeClient(
+    return open_release_protection_session(
         application_dir=application_dir,
         state_root=state_root,
+        required=required,
         module_loader=module_loader,
-    )
-    try:
-        decision = client.evaluate()
-    except ProtectionBoundaryError:
-        decision = _locked("runtime_unavailable_or_invalid")
-    if not decision.authorized:
-        raise ProtectedStartupLocked(decision, client)
-    return decision
+    ).decision
 
 
 __all__ = [
@@ -296,6 +320,8 @@ __all__ = [
     "ProtectionDecision",
     "ProtectedStartupLocked",
     "ProtectionRuntimeClient",
+    "ProtectionStartupSession",
     "authorize_release_startup",
+    "open_release_protection_session",
     "protection_required",
 ]
