@@ -117,7 +117,8 @@ def _validate_decision(value: object, *, runtime_api_version: int) -> Protection
         "api_version", "state", "reason", "safe_operations", "capabilities", "build_id"
     }:
         raise ProtectionBoundaryError("private protection decision schema is invalid")
-    if value.get("api_version") != runtime_api_version:
+    if (type(value.get("api_version")) is not int
+            or value["api_version"] != runtime_api_version):
         raise ProtectionBoundaryError("private protection decision API version does not match runtime")
     state = value.get("state")
     reason = value.get("reason")
@@ -180,10 +181,10 @@ class ProtectionRuntimeClient:
         except Exception as exc:
             raise ProtectionBoundaryError("private protection runtime is unavailable") from exc
         version = getattr(module, "RUNTIME_API_VERSION", None)
-        if version not in SUPPORTED_RUNTIME_API_VERSIONS:
+        if type(version) is not int or version not in SUPPORTED_RUNTIME_API_VERSIONS:
             raise ProtectionBoundaryError("private protection runtime API version is unsupported")
         self._module = module
-        self._runtime_api_version = int(version)
+        self._runtime_api_version = version
         return module
 
     def evaluate(self) -> ProtectionDecision:
@@ -207,9 +208,9 @@ class ProtectionRuntimeClient:
         version = self._runtime_api_version
         if version is None:
             version = getattr(runtime, "RUNTIME_API_VERSION", None)
-        if version not in SUPPORTED_RUNTIME_API_VERSIONS:
+        if type(version) is not int or version not in SUPPORTED_RUNTIME_API_VERSIONS:
             raise ProtectionBoundaryError("private protection runtime API version is unsupported")
-        return int(version)
+        return version
 
     def runtime_extension(self, *, minimum_api_version: int) -> ModuleType:
         if not isinstance(minimum_api_version, int) or isinstance(minimum_api_version, bool):
