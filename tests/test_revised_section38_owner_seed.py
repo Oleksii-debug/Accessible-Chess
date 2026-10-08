@@ -4,8 +4,10 @@ from __future__ import annotations
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from acs.acsdb import AcsDatabase
+from acs.version2_package_assembler import Version2PackageAssemblyError
 from acs.library_source_service import LibrarySourceCatalogService
 from acs.user_library_seed import (
     UserLibrarySeedError, import_user_library_seed, load_user_library_seed,
@@ -62,6 +64,29 @@ class RealStockfishOwnerLibrarySeedTests(unittest.TestCase):
                 prepare_owner_test_stockfish_seed(target)
             self.assertEqual(tuple(target.iterdir()), ())
             self.assertTrue(target.is_dir())
+
+    def test_concurrent_owner_destination_is_not_clobbered(self):
+        """Existing package publisher is the sole atomic NOREPLACE authority."""
+        with tempfile.TemporaryDirectory() as temp:
+            parent = Path(temp) / "release-content"
+            parent.mkdir()
+            target = parent / "user-library-seed"
+
+            def hostile_creator(_staged, dest):
+                dest.mkdir()
+                (dest / "owner.txt").write_text("preserve", encoding="utf-8")
+                raise Version2PackageAssemblyError("target appeared")
+
+            with patch(
+                "tools.revised_section38_stockfish_owner_seed._publish_directory_no_replace",
+                side_effect=hostile_creator,
+            ) as publisher:
+                with self.assertRaises(Version2PackageAssemblyError):
+                    prepare_owner_test_stockfish_seed(target)
+                publisher.assert_called_once()
+            self.assertEqual((target / "owner.txt").read_text(encoding="utf-8"),
+                             "preserve")
+            self.assertEqual(tuple(path.name for path in target.iterdir()), ("owner.txt",))
 
     def test_no_clobber_and_corrupted_real_seed_fail_closed(self):
         with tempfile.TemporaryDirectory() as temp:
