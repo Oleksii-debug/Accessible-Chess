@@ -225,6 +225,20 @@ class Version2Application:
         self.confirm_book_progress_recovery = lambda: False
         self.open_book_dialog = lambda: None
 
+    def _dispatch_tactile_action(self, action_id, payload):
+        """Dispatch tactile input only through visible canonical Board commands."""
+        self._assert_thread()
+        if self.shell.current_route.route_id != "board":
+            raise ValueError("tactile board input requires the visible Board")
+        if self.shell.active_dialog_id is not None:
+            raise ValueError("close the active dialog before tactile board input")
+        result = self.router.dispatch(
+            action_id,
+            payload,
+            current_focus_id=self._focus,
+        )
+        return result.value
+
     def _assert_thread(self):
         if threading.get_ident() != self._thread:
             raise RuntimeError("V2 application requires the native UI thread")
