@@ -44,7 +44,7 @@ class SemanticDocumentCopyContractTests(unittest.TestCase):
             "if(e.ctrlKey&&!e.altKey&&selection&&selection.toString())return;"
         )
         binding_resolution = "const chord=eventChord(e);"
-        binding_prevent_default = "if(a){e.preventDefault();executeAction(a.actionId)}"
+        binding_prevent_default = "if(a){e.preventDefault();e.stopPropagation();executeAction(a.actionId)}"
 
         ctrl_c_index = handler.index(ctrl_c_guard)
         selection_index = handler.index(selection_guard)
