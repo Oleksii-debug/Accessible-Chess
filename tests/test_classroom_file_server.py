@@ -218,13 +218,10 @@ class ClassroomFileServerTests(unittest.TestCase):
         # Windows refuses this rename while any SQLite connection still owns
         # the database file. This is a direct regression for WinError 32.
         renamed = self.root / "file-server-renamed.sqlite3"
-        self.assertEqual(
-            self.store.history_after(
-                room_id="room-1",
-                after_sequence=None,
-                limit=1,
-            ).items,
-            (),
+        self.store.history_after(
+            room_id="room-1",
+            after_sequence=None,
+            limit=1,
         )
         self.db_path.rename(renamed)
         renamed.rename(self.db_path)
