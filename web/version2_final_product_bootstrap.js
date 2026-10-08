@@ -308,13 +308,24 @@
   let productLayoutDirty = false;
   let productNativeHydrationStarted = false;
   let productNativeWrites = Promise.resolve();
+  let productSaveFailureAnnounced = false;
+  function productNativeWriteResult(ok) {
+    if (ok) { productSaveFailureAnnounced = false; return; }
+    if (productSaveFailureAnnounced) return;
+    productSaveFailureAnnounced = true;
+    announce(uiText(
+      "Не вдалося зберегти вигляд розділу в налаштуваннях Windows.",
+      "Could not save section layout to Windows settings."
+    ));
+  }
   function queueNativeProductLayout() {
     const bridge = api();
     if (!bridge || typeof bridge.save_presentation_layout !== "function") return;
     const payload = { version: 1, routes: Object.assign({}, productLayouts) };
     productNativeWrites = productNativeWrites.then(function () {
-      return bridge.save_presentation_layout("product", payload);
-    }).catch(function () {});
+      return Promise.resolve(bridge.save_presentation_layout("product", payload))
+        .then(function (result) { productNativeWriteResult(!!(result && result.ok === true)); });
+    }).catch(function () { productNativeWriteResult(false); });
   }
   function persistProductLayouts() {
     productLayoutDirty = true;
