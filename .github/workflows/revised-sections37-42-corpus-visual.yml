@@ -832,13 +832,13 @@ jobs:
           python -m unittest -v tests.test_revised_section37_bilingual_pdf_pack
       - name: Produce genuine external-PDF-reader testing copies
         run: python -m tools.revised_section37_bilingual_pdf_pack --output-dir section37-bilingual-advanced-PDF
-      - name: Preserve the two genuine independently readable PDFs
+      - name: Preserve metadata receipt ONLY — native Accessible Chess cannot open PDFs
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: section37-uk-en-advanced-unicode-PDF-external-reader
-          path: section37-bilingual-advanced-PDF/
-          retention-days: 21
+          name: section37-uk-en-PDF-source-only-qualification-NOT-SHAREABLE
+          path: section37-bilingual-advanced-PDF/section37-bilingual-pdf-receipt.json
+          retention-days: 14
           if-no-files-found: error
 
   original-gutenberg-epub-html-source-test-only:
