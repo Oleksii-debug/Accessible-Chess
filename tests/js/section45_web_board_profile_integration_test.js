@@ -50,7 +50,7 @@ const snapshot={cells:known,visualBoard:{
 const before=JSON.stringify(snapshot);
 const window={accessibleChessDesignPreferences:null};
 const sandbox={
- window,document,boardGrid,boardSurface,
+ window,document,boardGrid,boardSurface,currentRoute:"board",
  boardCells:s=>s.cells,activeVisualBoard:s=>s.visualBoard,
  AccessibleChessBoardOverlay:{project(){}}
 };
@@ -98,6 +98,24 @@ let prevented=false;
 next({key:"ArrowRight",preventDefault(){prevented=true;}});
 assert.equal(prevented,true);
 assert.equal(document.activeElement.dataset.index,"1");
+// Design settings are subordinate to canonical Teacher permission and
+// disclosure boundaries: profile may NOT show intentionally suppressed data.
+sandbox.currentRoute="teacher";
+const restricted=JSON.parse(JSON.stringify(snapshot));
+restricted.visualBoard.preferences.coordinateMode="off";
+restricted.visualBoard.preferences.showLastMove=false;
+const restrictedBefore=JSON.stringify(restricted);
+window.accessibleChessDesignPreferences={
+ board_theme:"classic",piece_theme:"letters",coordinates:"every_square",
+ orientation:"white",board_scale:125,highlight:true,animations:false
+};
+sandbox.productionRenderBoard(restricted);
+assert.ok(boardGrid.children.every(node=>node.children.length===1),
+  "teacher-hidden coordinates cannot be reenabled by visual profile");
+assert.equal(boardGrid.children.some(node=>node.dataset.lastMove==="true"),false,
+  "teacher-hidden last move cannot be revealed");
+assert.equal(JSON.stringify(restricted),restrictedBefore);
+sandbox.currentRoute="board";
 // Reject poisoned CSS/theme state by falling back to the canonical snapshot.
 window.accessibleChessDesignPreferences={
  board_theme:"url(javascript:evil)",piece_theme:"<script>",orientation:"evil",
