@@ -252,6 +252,22 @@ class BilingualSourceGroundingTests(unittest.TestCase):
             self.assertTrue(report["generated_files"]["original-advanced-after-opponent-solver-positions.fen"]
                             ["first_opponent_move_already_applied"])
 
+    def test_original_source_swap_after_first_digest_gate_is_denied_by_same_byte_snapshot(self):
+        original_reader = Path.read_bytes
+        fixture = ROOT / "tests/real_corpus/advanced_training/lichess_cc0_advanced_puzzles_100_sample.json"
+
+        def swapped_only_after_verification(path):
+            actual = original_reader(path)
+            if path == fixture:
+                # Still valid JSON, still legitimate-looking puzzles; the
+                # changed source bytes must never be parsed or distributed.
+                return actual + b" "
+            return actual
+
+        with patch.object(Path, "read_bytes", new=swapped_only_after_verification):
+            with self.assertRaisesRegex(ValueError, "byte snapshot changed"):
+                load_advanced_workbook()
+
     def test_licensed_original_catalog_cannot_be_demoted_or_spoofed_into_distributed_book(self):
         original = load_catalog()
         source_id = "lichess_cc0_extreme_4_original_derived_puzzles"
