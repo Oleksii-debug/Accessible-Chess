@@ -63,12 +63,18 @@ class BrowserSourceAuthority:
     source_revision: str
     session_id: str
     source_kind: MediaSourceKind
+    browser_revision: int | None = None
 
     def __post_init__(self) -> None:
         for name in ("source_id", "source_revision", "session_id"):
             _text(getattr(self, name), name)
         if type(self.source_kind) is not MediaSourceKind:
             raise BrowserMediaClockError("source kind must be trusted MediaSourceKind")
+        if self.source_kind is MediaSourceKind.LOCAL_FILE:
+            if type(self.browser_revision) is not int or self.browser_revision < 1:
+                raise BrowserMediaClockError("local source requires trusted browser revision")
+        elif self.browser_revision is not None:
+            raise BrowserMediaClockError("remote source must not carry local browser revision")
 
 
 def accept_browser_clock(
@@ -107,6 +113,8 @@ def accept_browser_clock(
         revision = snapshot["sourceRevision"]
         if type(revision) is not int or revision <= 0:
             raise BrowserMediaClockError("invalid local transient source revision")
+        if revision != authority.browser_revision:
+            raise BrowserMediaClockError("stale or foreign local browser revision")
     else:
         video_id = snapshot["videoId"]
         if type(video_id) is not str or len(video_id) != 11:
