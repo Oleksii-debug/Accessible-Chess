@@ -341,6 +341,54 @@ def build_collection(profile: str, output: Path, *, root: Path = ROOT) -> dict:
         if profile == "TEST_BUILD":
             real_assets, imported = _real_library_sample(root, catalog, work)
             assets.update(real_assets)
+            # Latest Section37 real historically composed endgame source is an
+            # original 1921 Réti study with *project-authored* bilingual notes.
+            # Supply an explicitly source-bound PGN for owner QA, not a rated
+            # Lichess puzzle, and do not silently change the existing canonical
+            # 516-game startup seed acceptance contract.
+            historical = next(
+                (item for item in catalog
+                 if item["id"] == "historical_reti_1921_original_bilingual_study_pgn"),
+                None,
+            )
+            if (
+                historical is None
+                or historical.get("acquisition") != "VENDORED_SOURCE_VERIFIED"
+                or historical.get("public_release") != "INCLUDED_OWN_TEXT_HISTORICAL_COMPOSITION"
+                or not str(historical.get("redistribution", "")).startswith("permitted")
+            ):
+                raise OfflineCollectionError("historic Réti original study is unavailable or rights changed")
+            study_bytes = read_verified_source_snapshot(
+                root / historical["local_source"], historical
+            )
+            study_games = parse_pgn_text(study_bytes.decode("utf-8"), strict=False)
+            if (
+                len(study_games) != 1
+                or study_games[0].tags.get("FEN") != "7K/8/k1P5/7p/8/8/8/8 w - - 0 1"
+                or study_games[0].tags.get("SetUp") != "1"
+                or len(study_games[0].line.moves) != 11
+                or not any("EN:" in line and "UK:" in line
+                           for line in study_bytes.decode("utf-8").splitlines())
+            ):
+                raise OfflineCollectionError("historical bilingual composed study semantic data changed")
+            study_path = "library/original-reti-1921-uk-en-study.pgn"
+            if study_path in assets:
+                raise OfflineCollectionError("historical study output collides with existing owner data")
+            assets[study_path] = study_bytes
+            rows.append({
+                "id": historical["id"],
+                "title": historical["title"],
+                "author": historical["author"],
+                "genre": "historical original authored endgame study with bilingual analysis",
+                "language": "uk,en", "format": "pgn",
+                "source_url": historical["source_page"], "download_url": None,
+                "source_path": study_path,
+                "size_bytes": len(study_bytes), "sha256": _digest(study_bytes),
+                "license": historical["license"],
+                "redistribution": historical["redistribution"],
+                "import_status": "GENUINE_HISTORICAL_STUDY_PGN_SEMANTIC_READBACK",
+                "repeat_download": "BUNDLED_TEST_BUILD_ONLY",
+            })
         links = [
             {"id": r["id"], "title": r["title"], "format": r["format"],
              "source_url": r.get("source_page"), "download_url": r.get("download_url"),
