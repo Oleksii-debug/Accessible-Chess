@@ -57,6 +57,22 @@ class GenuineCorpusReceiptTests(unittest.TestCase):
                 self.assertEqual(item["actual_sha256"], item["expected_sha256"])
                 self.assertEqual(item["actual_bytes"], item["expected_bytes"])
 
+    def test_authentic_cbh_source_families_are_cataloged_without_false_local_pass(self):
+        report = build_manifest()
+        records = {item["source_id"]: item for item in report["sources"]}
+        for identifier in (
+            "libcbh_gpl_original_annotation_cbh_family",
+            "libcbh_gpl_original_nested_variations_cbh_family",
+            "libcbh_gpl_original_unusual_start_cbh_family",
+        ):
+            with self.subTest(source=identifier):
+                entry = records[identifier]
+                self.assertEqual(entry["acquisition"], "SOURCE_PAGE_ONLY")
+                self.assertEqual(entry["redistribution"], "NOT_CLEARED")
+                self.assertEqual(entry["semantic_state"], "NOT_QUALIFIED")
+                self.assertFalse(entry["public_release_published"])
+                self.assertIsNone(entry["actual_sha256"])
+
     def test_tampered_original_cc0_source_is_not_reported_as_verified(self):
         # This is deliberately a temporary copy: never modify committed upstream
         # fixtures or overwrite any owner Library database.
