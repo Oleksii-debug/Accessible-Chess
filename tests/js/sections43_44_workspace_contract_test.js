@@ -212,6 +212,7 @@ const key = "accessible-chess.workspace-layout.v1";
       "const workspaceLayoutLabel={textContent:''};",
       "const workspaceLayoutMode={options:options,value:'',addEventListener(type,fn){this.event=fn}};",
       "const uiTextFor=(language,uk,en)=>language==='en'?en:uk;",
+      "const api=()=>null;",
       "const global={localStorage:{getItem(k){return data[k] || null},setItem(k,v){data[k]=v}}};",
       authority,
       "return {data,workspace,workspaceLayout,workspaceLayoutMode,productLayouts,applyProductLayout};"
