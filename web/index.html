@@ -203,11 +203,25 @@ window.addEventListener('pywebviewready',async()=>{await refreshState();await lo
   let nativeHydrationStarted=false;
   let changedSinceHydrate=false;
   let nativeWrites=Promise.resolve();
+  let nativeSaveFailureAnnounced=false;
+  function nativeSaveStatus(ok){
+    if(ok){nativeSaveFailureAnnounced=false;return;}
+    if(nativeSaveFailureAnnounced)return;
+    nativeSaveFailureAnnounced=true;
+    if(typeof announceUserAction==="function")announceUserAction(
+      document.documentElement.lang==="en"?
+      "Workspace layout could not be saved to Windows settings.":
+      "Не вдалося зберегти макет у налаштуваннях Windows."
+    );
+  }
   function queueNativeWrite(){
     const api=nativeBridge();
     if(!api||typeof api.save_presentation_layout!=="function")return;
     const payload=JSON.parse(JSON.stringify(state));
-    nativeWrites=nativeWrites.then(()=>api.save_presentation_layout("workspace",payload)).catch(()=>{});
+    nativeWrites=nativeWrites.then(()=>Promise.resolve(
+      api.save_presentation_layout("workspace",payload)
+    ).then(result=>nativeSaveStatus(!!(result&&result.ok===true))))
+    .catch(()=>nativeSaveStatus(false));
   }
   function persist(){
     changedSinceHydrate=true;
