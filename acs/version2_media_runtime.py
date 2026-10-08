@@ -24,25 +24,52 @@ _ALLOWED_LOCAL_SUFFIXES = frozenset({".mp4", ".webm"})
 
 
 def _youtube_id(source: str) -> str:
-    if type(source) is not str:
-        raise TypeError("YouTube source must be text")
-    text = source.strip()
-    if _YOUTUBE_ID.fullmatch(text):
-        return text
-    parsed = urlparse(text)
+    """Parse only approved, single-video YouTube HTTPS URLs or exact IDs.
+
+    Remote media requests cannot specify arbitrary authority/transport data.
+    The browser's documented IFrame adapter uses the same allowlist, so a
+    source accepted by the native host cannot subsequently be rejected as an
+    unsafe URL by the provider layer.
+    """
+    if type(source) is not str or not source or source != source.strip():
+        raise ValueError("YouTube source must be a non-empty exact URL or ID")
+    if len(source) > 2048 or any(ord(char) < 32 for char in source):
+        raise ValueError("invalid YouTube source")
+    if _YOUTUBE_ID.fullmatch(source):
+        return source
+    parsed = urlparse(source)
+    if parsed.scheme != "https" or parsed.username or parsed.password or parsed.port is not None:
+        raise ValueError("YouTube URL must use plain HTTPS")
     host = (parsed.hostname or "").casefold()
-    candidate = ""
-    if host in {"youtu.be", "www.youtu.be"}:
-        candidate = parsed.path.strip("/").split("/", 1)[0]
-    elif host in {"youtube.com", "www.youtube.com", "m.youtube.com", "youtube-nocookie.com", "www.youtube-nocookie.com"}:
+    if parsed.fragment:
+        # Fragments have no IFrame source identity and are easy to confuse
+        # with another video or a navigation command.
+        raise ValueError("YouTube fragment is not supported")
+    query = parse_qs(parsed.query, keep_blank_values=True)
+    if "list" in query or "playlist" in query or len(query.get("v", [])) > 1:
+        raise ValueError("YouTube playlists and duplicate video IDs are not accepted")
+    segments = [segment for segment in parsed.path.split("/") if segment]
+    if host == "youtu.be":
+        if len(segments) != 1:
+            raise ValueError("invalid YouTube short URL")
+        candidate = segments[0]
+    elif host in {"youtube.com", "www.youtube.com", "m.youtube.com"}:
         if parsed.path == "/watch":
-            candidate = parse_qs(parsed.query).get("v", [""])[0]
+            if len(query.get("v", [])) != 1:
+                raise ValueError("single YouTube watch ID required")
+            candidate = query["v"][0]
+        elif len(segments) == 2 and segments[0] in {"embed", "shorts", "live"}:
+            candidate = segments[1]
         else:
-            parts = [item for item in parsed.path.split("/") if item]
-            if len(parts) >= 2 and parts[0] in {"embed", "shorts", "live"}:
-                candidate = parts[1]
+            raise ValueError("unsupported YouTube path")
+    elif host in {"youtube-nocookie.com", "www.youtube-nocookie.com"}:
+        if len(segments) != 2 or segments[0] != "embed":
+            raise ValueError("unsupported YouTube no-cookie path")
+        candidate = segments[1]
+    else:
+        raise ValueError("unapproved YouTube host")
     if not _YOUTUBE_ID.fullmatch(candidate):
-        raise ValueError("unsupported YouTube URL or video ID")
+        raise ValueError("invalid YouTube ID")
     return candidate
 
 
