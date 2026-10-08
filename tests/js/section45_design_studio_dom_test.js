@@ -137,6 +137,16 @@ async function settle(){for(let i=0;i<12;i++)await Promise.resolve();}
  tab2.get("ac45-apply").click();await settle();
  assert.equal(JSON.parse(shared["accessible-chess.design-profiles.v1"]).selected,"Coach");
  assert.equal(tab2.get("ac45-status").dataset.error,"true");
+ // Strict profile JSON parity: Web must never silently accept duplicate keys.
+ for(const payload of [
+   '{"version":1,"selected":"Classic","selected":"High Contrast","profiles":{}}',
+   '{"version":1,"selected":"Classic","profiles":{"Safe":{"theme":"light","theme":"dark"}}}',
+   '{"version":1,"selected":"Classic","profiles":{"Same":{},"Same":{}}}'
+ ]){
+   const duplicate=mount({storage:{"accessible-chess.design-profiles.v1":payload}});
+   assert.equal(duplicate.get("ac45-profile").value,"Classic");
+   assert.equal(duplicate.get("ac45-profile").children.length,6);
+ }
  let revision="first";
  let durable={version:1,selected:"Coach",profiles:{}};
  const native={
@@ -155,5 +165,5 @@ async function settle(){for(let i=0;i<12;i++)await Promise.resolve();}
  assert.equal(durable.selected,"Low Vision");
  assert.equal(win.get("ac45-profile").value,"Low Vision");
  assert.equal(win.store["accessible-chess.design-profiles.v1"],undefined,"native private profile must not use localStorage");
- console.log("Section45 real studio DOM: 6 groups PASS (preview, Apply/Cancel, restart, input security, native CAS mock)");
+ console.log("Section45 real studio DOM: 7 groups PASS (preview, Apply/Cancel, restart, input security, native CAS mock)");
 })().catch(err=>{console.error(err);process.exitCode=1;});
