@@ -97,6 +97,7 @@ function flattenText(value, depth = 0) {
 
 function boardCells(snapshot) {
   const candidates = [
+    snapshot && snapshot.visualBoard && snapshot.visualBoard.cells,
     snapshot && snapshot.board && snapshot.board.cells,
     snapshot && snapshot.screen && snapshot.screen.board,
     snapshot && snapshot.position && snapshot.position.cells
@@ -109,25 +110,104 @@ function boardCells(snapshot) {
 
 function renderBoard(snapshot) {
   const cells = boardCells(snapshot);
+  const oldCells = [...boardGrid.querySelectorAll('[role="gridcell"]')];
+  const focusedSquare = document.activeElement &&
+    document.activeElement.closest && document.activeElement.closest("#board-grid") === boardGrid
+    ? document.activeElement.dataset.square : null;
+  const oldPieces = new Map(oldCells.map(node => [node.dataset.square, node.dataset.piece || ""]));
   boardGrid.replaceChildren();
   if (!cells.length) {
     boardSurface.hidden = true;
     return;
   }
   boardSurface.hidden = false;
-  cells.forEach((cell, index) => {
+  const visual = snapshot && snapshot.visualBoard && typeof snapshot.visualBoard === "object"
+    ? snapshot.visualBoard : {};
+  const p = visual.preferences && typeof visual.preferences === "object" ? visual.preferences : {};
+  const themes = ["classic", "high_contrast", "blue", "classic_wood",
+    "modern_graphite", "tournament_blue", "light_minimal"];
+  const theme = themes.includes(p.boardTheme) ? p.boardTheme : "classic";
+  const style = ["unicode", "letters", "rhosgfx"].includes(p.pieceTheme) ? p.pieceTheme : "unicode";
+  const ordered = p.orientation === "black" ? [...cells].reverse() : [...cells];
+  const legal = new Set(Array.isArray(visual.legalTargets) ? visual.legalTargets : []);
+  const last = visual.lastMove && typeof visual.lastMove === "object"
+    ? [visual.lastMove.from, visual.lastMove.to] : [];
+  const activeSquare = typeof visual.selectedSquare === "string" ? visual.selectedSquare : null;
+  const glyphs = {K:"♔",Q:"♕",R:"♖",B:"♗",N:"♘",P:"♙",
+    k:"♚",q:"♛",r:"♜",b:"♝",n:"♞",p:"♟"};
+  const scale = [75,100,125,150,175,200].includes(Number(p.scalePercent))
+    ? Number(p.scalePercent) : 100;
+  boardGrid.dataset.theme = theme;
+  boardGrid.dataset.pieceTheme = style;
+  boardGrid.dataset.presentation = p.presentationMode === true ? "true" : "false";
+  boardGrid.dataset.motion = p.animateMoves === true ? "true" : "false";
+  boardGrid.style.maxWidth = p.fitToWindow === true
+    ? "min(100%,calc(100dvh - 6rem))"
+    : p.presentationMode === true ? "min(98vw,85rem)" : String(52*scale/100)+"rem";
+  const activeIndex = Math.max(0,ordered.findIndex(cell =>
+    cell && typeof cell === "object" && String(cell.square || cell.name || "") === focusedSquare));
+  ordered.forEach((cell, index) => {
     const button = document.createElement("button");
     button.type = "button";
     button.setAttribute("role", "gridcell");
     const square = cell && typeof cell === "object"
-      ? String(cell.square || cell.name || "")
-      : "";
+      ? String(cell.square || cell.name || "") : "";
+    const validSquare = /^[a-h][1-8]$/.test(square);
+    const token = cell && typeof cell === "object" && typeof cell.piece === "string"
+      && /^[KQRBNPkqrbnp]$/.test(cell.piece) ? cell.piece : "";
+    const fallback = String(cell || ("Клітинка " + (index+1)));
     const label = cell && typeof cell === "object"
-      ? String(cell.label || cell.description || square || ("Клітинка " + (index + 1)))
-      : String(cell || ("Клітинка " + (index + 1)));
-    button.textContent = square || label;
-    button.setAttribute("aria-label", label);
+      ? String(cell.label || cell.description || square || fallback) : fallback;
+    button.dataset.square = square;
     button.dataset.index = String(index);
+    button.dataset.piece = token;
+    button.tabIndex = index === activeIndex ? 0 : -1;
+    button.setAttribute("aria-label", label);
+    button.setAttribute("aria-rowindex", String(Math.floor(index/8)+1));
+    button.setAttribute("aria-colindex", String(index%8+1));
+    button.setAttribute("aria-selected", square && square === activeSquare ? "true" : "false");
+    if (validSquare) {
+      const file = square.charCodeAt(0)-97, rank = Number(square[1])-1;
+      button.dataset.light = (file+rank)%2===1 ? "true" : "false";
+      if (p.showLastMove !== false && last.includes(square)) button.dataset.lastMove = "true";
+      if (legal.has(square)) button.dataset.legalTarget = "true";
+    }
+    const decoration = document.createElement("span");
+    decoration.className = "board-piece";
+    decoration.setAttribute("aria-hidden", "true");
+    if (token && style === "rhosgfx") {
+      const image = document.createElement("img");
+      const file = (token === token.toUpperCase() ? "w" : "b") + token.toUpperCase() + ".svg";
+      image.src = "assets/pieces/rhosgfx/" + file;
+      image.alt = "";
+      image.className = "ac42-piece-art";
+      image.setAttribute("aria-hidden", "true");
+      image.draggable = false;
+      image.addEventListener("error", () => {
+        image.remove();
+        decoration.textContent = glyphs[token] || token;
+      });
+      decoration.appendChild(image);
+    } else {
+      decoration.textContent = !token ? "" : style === "letters" ? token : glyphs[token];
+    }
+    if (p.animateMoves === true && validSquare && last[1] === square
+      && oldPieces.has(square) && oldPieces.get(square) !== token) {
+      decoration.dataset.ac42Animate = "true";
+    }
+    button.appendChild(decoration);
+    if (validSquare && p.coordinateMode !== "off") {
+      const position = p.coordinateMode === "every_square" ? square
+        : (index >= 56 && index%8 === 0) ? square
+        : index >= 56 ? square[0] : index%8 === 0 ? square[1] : "";
+      if (position) {
+        const node = document.createElement("span");
+        node.className = "board-coordinate";
+        node.setAttribute("aria-hidden", "true");
+        node.textContent = position;
+        button.appendChild(node);
+      }
+    }
     button.addEventListener("keydown", (event) => {
       let delta = 0;
       if (event.key === "ArrowRight") delta = 1;
@@ -135,15 +215,20 @@ function renderBoard(snapshot) {
       else if (event.key === "ArrowDown") delta = 8;
       else if (event.key === "ArrowUp") delta = -8;
       if (!delta) return;
-      const next = Math.max(0, Math.min(63, index + delta));
+      const next = Math.max(0,Math.min(63,index+delta));
       const target = boardGrid.querySelector('[data-index="' + next + '"]');
       if (target) {
         event.preventDefault();
+        button.tabIndex = -1;
+        target.tabIndex = 0;
         target.focus();
       }
     });
     boardGrid.appendChild(button);
   });
+  if (focusedSquare && boardGrid.children[activeIndex]) {
+    boardGrid.children[activeIndex].focus({preventScroll:true});
+  }
 }
 
 function renderProgress(value) {
