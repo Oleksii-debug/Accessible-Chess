@@ -177,7 +177,41 @@
     });
   }
 
-  function syncYouTubeSnapshot(snapshot) {
+  function syncYouTubeSnapshot(snapshot, observedGeneration) {
+    // The embedded player's callbacks are untrusted timing observations.
+    // A callback issued before a different local/YouTube source was opened
+    // must never republish a prior source over the new canonical chess state.
+    const generation = observedGeneration === undefined
+      ? providerGeneration : observedGeneration;
+    if (!snapshot || typeof snapshot !== "object" ||
+        typeof snapshot.sourceId !== "string" ||
+        snapshot.sourceId !== activeSourceId ||
+        generation !== providerGeneration) {
+      return Promise.resolve(null);
+    }
+    if (snapshot.providerId === "youtube_iframe_v1" &&
+        (snapshot.ok !== true || snapshot.ready !== true)) {
+      if (snapshot.ok === false) {
+        const code = snapshot.errorCode;
+        const reason = code === 101 || code === 150
+          ? uiText("Автор заборонив вбудовування відео.", "Video embedding is disabled by its owner.")
+          : code === 100
+            ? uiText("Відео приватне або видалене.", "Video is private or unavailable.")
+            : code === 153
+              ? uiText("YouTube не отримав HTTP Referer або ідентифікатор клієнта.",
+                       "YouTube requires an HTTP Referer or client identity.")
+              : uiText("YouTube відхилив відтворення.", "YouTube could not play this source.");
+        setStatus(reason, true);
+      }
+      return Promise.resolve(null);
+    }
+    if (!Number.isSafeInteger(snapshot.positionMs) || snapshot.positionMs < 0 ||
+        (snapshot.durationMs !== null &&
+         (!Number.isSafeInteger(snapshot.durationMs) ||
+          snapshot.durationMs < snapshot.positionMs))) {
+      setStatus(uiText("Некоректний час відео.", "Invalid video timing."), true);
+      return Promise.resolve(null);
+    }
     const synchronize = requiredApi("media_workflow_sync_playback");
     return synchronize(
       snapshot.sourceId,
@@ -185,9 +219,11 @@
       snapshot.durationMs,
       snapshot.playbackState
     ).then(function (next) {
+      if (generation !== providerGeneration || snapshot.sourceId !== activeSourceId) return null;
       renderEnvelope(next, false);
       return validateEnvelope(next);
     }).catch(function () {
+      if (generation !== providerGeneration) return null;
       setStatus(
         uiText(
           "Не вдалося безпечно синхронізувати час медіа з шаховою позицією.",
