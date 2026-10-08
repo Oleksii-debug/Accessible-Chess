@@ -39,6 +39,29 @@ class NorthwestChessSourceOnlyTests(unittest.TestCase):
         with self.assertRaises((LawfulCorpusError, TypeError)):
             nw._qualified_url(None)
 
+    def test_new_original_cbv_and_pgn_are_registered_only_as_source_pages(self):
+        from acs.lawful_corpus_registry import load_catalog
+        catalogue = {r["id"]: r for r in load_catalog()}
+        expected = (
+            ("northwest_chess_2013_01_annotated_cbv_original_external", nw.CBV_URL, "cbv"),
+            ("northwest_chess_2013_01_annotated_pgn_independent_oracle_external", nw.PGN_URL, "pgn"),
+        )
+        for ident, uri, extension in expected:
+            with self.subTest(source=ident):
+                item = catalogue[ident]
+                self.assertEqual(item["source_page"], nw.PUBLISHER)
+                self.assertEqual(item["download_url"], uri)
+                self.assertEqual(item["format"], extension)
+                self.assertEqual(item["acquisition"], "SOURCE_PAGE_ONLY")
+                self.assertIsNone(item["sha256"])
+                self.assertEqual(item["redistribution"], "NOT_CLEARED")
+                self.assertEqual(item["public_release"], "EXCLUDED")
+        nzcf = catalogue["nzcf_peter_stuart_historical_full_cbv_pgn_bibliography"]
+        self.assertEqual(nzcf["acquisition"], "SOURCE_PAGE_ONLY")
+        self.assertEqual(nzcf["redistribution"], "NOT_CLEARED")
+        self.assertIsNone(nzcf["download_url"])
+        self.assertIsNone(nzcf["sha256"])
+
     def test_absent_external_mit_binary_refuses_before_network(self):
         with tempfile.TemporaryDirectory() as temp:
             no_file = Path(temp) / "not-cbvault.exe"
