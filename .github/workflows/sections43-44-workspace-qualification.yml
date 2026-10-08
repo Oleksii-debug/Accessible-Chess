@@ -8,6 +8,9 @@ on:
       - 'web/accessible_chess_web.html'
       - 'web/assets/accessible_chess_design.css'
       - 'web/version2_final_product_bootstrap.js'
+      - 'acs/settings.py'
+      - 'acs/stage1_release_ui.py'
+      - 'tests/test_sections43_44_native_layout_persistence.py'
       - 'tests/js/sections43_44_workspace_contract_test.js'
       - '.github/workflows/sections43-44-workspace-qualification.yml'
   push:
@@ -62,6 +65,10 @@ jobs:
             node --check "$test_file"
             node "$test_file"
           done
+      - name: Native persistence in existing upgrade-locked Settings
+        run: |
+          python -m py_compile acs/settings.py acs/stage1_release_ui.py tests/test_sections43_44_native_layout_persistence.py
+          python -m unittest -v tests.test_sections43_44_native_layout_persistence
       - name: Preserve real web and keyboard behavior
         run: |
           python -m unittest -v tests.test_accessible_webui tests.test_section34_web_client
