@@ -1234,6 +1234,28 @@
       "external_search_page_reported_game_count": 60,
       "round_count": 5,
       "notes": "OlimpBase displays 60 PGN games and individual View PGN for 2015; source site game PGN link not fetched or hashed. Multiple historic years 2001–2015 listed, do not auto treat as product-owned data."
+    },
+    {
+      "id": "ibca_2012_olympiad_india_414_real_pgn_archive",
+      "title": "2012 TATA 14th IBCA World Blind Chess Olympiad in India — 414 recorded games incl Ukraine and Slovakia teams",
+      "author": "International Braille Chess Association and All India Chess Federation (tournament source) / Chess-Results custodians",
+      "format": "Chess-Results PGN search/export, original bytes not yet acquired",
+      "source_page": "https://s2.chess-results.com/Test/partiesuche.aspx",
+      "event_link": "https://s2.chess-results.com/Test/partiesuche.aspx?art=3&lan=5&tnr=78816",
+      "event_standings": "https://s4.chess-results.com/tnrWZ.aspx?lan=1&tno=78816",
+      "chess_results_dbkey": "78816",
+      "external_search_page_reported_game_count": 414,
+      "round_count": 9,
+      "download_url": null,
+      "sha256": null,
+      "max_bytes": 0,
+      "license": "Historical blind national-team match/game scores; full original PGN source compilation rights unknown",
+      "redistribution": "NOT_CLEARED",
+      "acquisition": "SOURCE_PAGE_ONLY",
+      "test_access": "EXTERNAL_LINK_ONLY",
+      "public_release": "EXCLUDED",
+      "canonical_qa": "Independent Chess-Results documented exact 414 scores across 9 rounds; no actual downloaded PGN SHA or canonical import PASS",
+      "notes": "International blind olympiad 2012 official standings include Ukraine 2nd among national teams and Slovakia 20th. Chess-Results has real PGN export form, but no permission established to redistribute source data."
     }
   ]
 }
