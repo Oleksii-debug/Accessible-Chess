@@ -109,6 +109,24 @@ subscription/billing/quota authorities and durable production stores. The
 public product does **not** synthesize that backend, issue paid receipts,
 implement a billing provider, or declare LIVE server deployment.
 
+## R55 first-party whole-binary readback (prepared)
+
+`scripts/security_r55_whole_binary_gate.py` uses the accepted neutral
+`continuum_runtime.whole_binary.check_whole_binary` and R53/R54 receipt chain
+against real application EXE file bytes. This first product-specific boundary
+allows only `AccessibleChess.exe`. It explicitly excludes GPL Stockfish and
+other third-party Python/WebView2/.NET executables from proprietary wrapping.
+Each candidate binds exact R55 plan, trusted build identity, product digest,
+source and protected file bytes, externally injected build variation secret,
+and whole-binary manifest. Missing/malformed/changed sources or receipts deny.
+The comparison is structural PE and SHA integrity **only**; it cannot prove a
+commercial protector was run. The candidate never issues release authorization
+and never appears in the shipped executable.
+
+The existing dual-OS Wave-5 workflow includes `tests/test_security_r55_whole_binary_gate.py`
+covering synthetic PE candidate, tampering, cross-build/release reuse, receipt
+forgery, symlink, source-copy bypass, and third-party scope rejection.
+
 ## R53–R62 and R63–R72
 
 The neutral source components are terminally closed in continuum-runtime
