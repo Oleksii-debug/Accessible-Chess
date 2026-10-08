@@ -13,6 +13,8 @@ on:
       - 'tests/test_section38_39_advanced_bilingual_product_books.py'
       - 'tools/revised_section38_39_advanced_puzzle_pgn.py'
       - 'tests/test_section38_39_advanced_puzzle_pgn.py'
+      - 'tests/test_section38_bilingual_advanced_windows_books_open.py'
+      - 'tools/revised_section37_bilingual_workbook_pack.py'
       - '.github/workflows/revised-sections38-39-bilingual-advanced-qa.yml'
   workflow_dispatch: {}
 permissions:
@@ -44,12 +46,14 @@ jobs:
           tests/test_section38_39_advanced_bilingual_product_books.py
           tools/revised_section38_39_advanced_puzzle_pgn.py
           tests/test_section38_39_advanced_puzzle_pgn.py
+          tests/test_section38_bilingual_advanced_windows_books_open.py
       - name: Verify 16 format boundaries, UK/EN bibliographic truth and 20 real puzzles through Books and Board
         run: >-
           python -m unittest -v
           tests.test_section38_39_advanced_bilingual_qa_catalog
           tests.test_section38_39_advanced_bilingual_product_books
           tests.test_section38_39_advanced_puzzle_pgn
+          tests.test_section38_bilingual_advanced_windows_books_open
           tests.test_revised_section40_product_books_advanced_integration
           tests.test_revised_section40_advanced_training
       - name: Generate language-independent PGN of 20 real advanced puzzles for Windows testing
