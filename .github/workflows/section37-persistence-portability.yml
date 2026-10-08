@@ -4,10 +4,15 @@ on:
   push:
     branches:
       - 'section37/persistence-portability-20261007-sol56'
+      - 'repair/section37-production-portability-20261008-sol56'
+      - 'converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb'
     paths:
       - 'acs/user_data_portability.py'
       - 'acs/full_product_actions.py'
       - 'acs/version2_application.py'
+      - 'tests/test_section37_production_portability.py'
+      - 'acs/version2_release_app.py'
+      - 'acs/version2_user_data_portability_host.py'
       - 'tests/test_section37_user_data_portability.py'
       - 'docs/automation/SECTION37_PERSISTENCE_PORTABILITY.md'
       - '.github/workflows/section37-persistence-portability.yml'
@@ -78,6 +83,21 @@ jobs:
           for action in ("data.backup", "data.restore", "data.export", "data.import"):
               if action not in actions or action not in app:
                   raise SystemExit(f"missing accessible action wiring: {action}")
+          production = Path("acs/version2_release_app.py").read_text(encoding="utf-8")
+          host = Path("acs/version2_user_data_portability_host.py").read_text(encoding="utf-8")
+          required_production = (
+              "begin_pending_user_data_operation(layout)",
+              "portability_transaction.rollback()",
+              "portability_transaction.commit()",
+              "application.bind_user_data_portability(portability_host)",
+              "_Version2OwnedUserDataArchiveDialogs",
+          )
+          for token in required_production:
+              if token not in production:
+                  raise SystemExit(f"missing production portability binding: {token}")
+          for token in ("schedule_user_data_backup", "schedule_user_data_restore", "PendingUserDataTransaction"):
+              if token not in host:
+                  raise SystemExit(f"missing production portability host contract: {token}")
           PY
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
@@ -90,10 +110,16 @@ jobs:
           acs/user_data_portability.py
           acs/full_product_actions.py
           acs/version2_application.py
+          acs/version2_user_data_portability_host.py
+          acs/version2_release_app.py
           tests/test_section37_user_data_portability.py
+          tests/test_section37_production_portability.py
 
-      - name: Execute Section 37 portability contract
-        run: python -m unittest -v tests.test_section37_user_data_portability
+      - name: Execute Section 37 portability and production reachability contracts
+        run: >-
+          python -m unittest -v
+          tests.test_section37_user_data_portability
+          tests.test_section37_production_portability
 
       - name: Execute inherited crash-safe persistence contracts
         run: >-
