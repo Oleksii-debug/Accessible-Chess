@@ -172,7 +172,7 @@ def iter_bounded_corpus_lines(
         # Reject instead of accidentally framing its remainder as a new line.
         if len(line) > max_line_chars or (
             len(line) == max_line_chars
-            and not line.endswith(("\\n", "\\r"))
+            and not line.endswith(("\n", "\r"))
             and bool(source.read(1))
         ):
             raise LawfulCorpusError("decoded corpus line exceeds resource limit")
