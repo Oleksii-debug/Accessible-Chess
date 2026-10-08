@@ -21,6 +21,7 @@ from .move_entry import MAX_MOVE_ENTRY_CHARS
 from .notation import format_accessible_compact_san, format_san
 from .position_text import parse_position_text
 from .ui_review_adapter import ReviewPresentationAdapter
+from .ai_provider_gateway import AIProviderError, AIProviderGateway, ProviderProfile, ProviderRequest
 
 VERSION = "0.4.0-dev3"
 
@@ -65,6 +66,7 @@ class AccessibleChessAPI:
         self.review_history = ReviewHistory(self.start_fen)
         self.review_adapter = ReviewPresentationAdapter(self.review_history, language=self.lang)
         self.live_history_node = self.review_history.cursor_node_id
+        self.ai_gateway = AIProviderGateway()
 
     @property
     def review_cursor(self) -> int:
@@ -451,6 +453,39 @@ class AccessibleChessAPI:
             "reviewCursor": display_view.ply, "historyLength": len(self.sans),
             "reviewStatus": display_view.status, "atHistoryEnd": self._at_history_end(),
         }
+
+    def ai_provider_profiles(self) -> list[dict[str, Any]]:
+        """Return editable provider metadata without exposing credential values."""
+        return self.ai_gateway.profiles_for_editor()
+
+    def ai_update_profile(self, name: str, base_url: str, model: str, api_key_env: str) -> dict[str, Any]:
+        """Update a provider profile in the current session; secrets stay in env vars."""
+        try:
+            if not all(type(value) is str for value in (name, base_url, model, api_key_env)):
+                raise ValueError("Provider profile fields must be text")
+            current = next((item for item in self.ai_gateway.profiles_for_editor() if item["name"] == name), None)
+            profile = ProviderProfile(
+                name=name.strip(), base_url=base_url.strip(), model=model.strip(),
+                api_key_env=api_key_env.strip(), enabled=True,
+                timeout_seconds=float(current.get("timeout_seconds", 30.0)) if current else 30.0,
+            )
+            self.ai_gateway.upsert_profile(profile)
+            return {"ok": True, "profiles": self.ai_provider_profiles(), "announcement": "AI provider profile updated." if self.lang == "en" else "Профіль AI-провайдера оновлено."}
+        except (ValueError, TypeError):
+            return {"ok": False, "profiles": self.ai_provider_profiles(), "announcement": "Invalid AI provider profile." if self.lang == "en" else "Некоректний профіль AI-провайдера."}
+
+    def ai_complete(self, profile_name: str, messages: list[dict[str, str]], temperature: float = 0.2, max_tokens: int = 512) -> dict[str, Any]:
+        """Run an optional agent completion through the selected provider."""
+        try:
+            if type(profile_name) is not str or not isinstance(messages, list) or not messages:
+                raise ValueError
+            clean = tuple({"role": str(item["role"]), "content": str(item["content"])} for item in messages if isinstance(item, dict) and "role" in item and "content" in item)
+            if not clean:
+                raise ValueError
+            result = self.ai_gateway.complete(profile_name, ProviderRequest(clean, temperature=temperature, max_tokens=max_tokens))
+            return {"ok": True, "text": result.text, "provider": result.provider, "model": result.model, "usage": dict(result.usage)}
+        except (AIProviderError, ValueError, TypeError):
+            return {"ok": False, "announcement": "AI provider request could not be completed." if self.lang == "en" else "Не вдалося виконати запит до AI-провайдера."}
 
     def _ok(self, message: str) -> dict[str, Any]:
         self.announcement = message

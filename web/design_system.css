@@ -171,6 +171,23 @@ legend { padding: 0 .4rem; color: var(--ac-accent-strong); font-weight: 750; }
 dialog { border: 1px solid var(--ac-border-strong); box-shadow: var(--ac-shadow); }
 dialog::backdrop { background: rgb(5 18 29 / 62%); backdrop-filter: blur(3px); }
 
+#media-player-region { display: grid; gap: 1rem; }
+#media-source-controls { display: grid; gap: .8rem; padding: .9rem; border: 1px solid var(--ac-border); border-radius: var(--ac-radius-sm); background: var(--ac-surface-tint); }
+#media-source-controls .row { align-items: end; }
+#video-source-url { flex: 1 1 28rem; min-width: min(28rem, 100%); }
+#video-player-region { display: grid; gap: .65rem; min-height: 4rem; }
+#youtube-player, #local-video { width: min(100%, 56rem); aspect-ratio: 16 / 9; border: 1px solid var(--ac-border-strong); border-radius: var(--ac-radius-sm); background: #07131d; box-shadow: var(--ac-shadow-soft); }
+#local-video { object-fit: contain; }
+#video-status { min-height: 2.5rem; }
+#ai-agent-region { display: grid; gap: .75rem; }
+#ai-agent-region fieldset { display: grid; gap: .75rem; }
+#ai-agent-region input[type="url"] { min-width: 22rem; }
+#ai-agent-status { min-height: 2.8rem; }
+@media (max-width: 42rem) {
+  #video-source-url { min-width: 100%; }
+  #youtube-player, #local-video { aspect-ratio: 16 / 10; }
+}
+
 /* Shared platform shell: WebView routes and dynamically created surfaces use
    the same visual language as the chess workspace. */
 #v2-navigation {
