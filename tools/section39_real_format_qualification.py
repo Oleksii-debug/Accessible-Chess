@@ -225,6 +225,7 @@ def build_report() -> dict:
                 "read": readback["read"], "write": readback["write"],
                 "roundtrip": readback["roundtrip"],
                 "actual_importer": readback["importer"],
+                "qualified_source_id": readback["source_id"],
                 "source_kind": (
                     "PINNED_GENUINE_UPSTREAM_BYTES"
                     if readback["real_source_read"]
@@ -252,7 +253,7 @@ def build_report() -> dict:
             (r for r in rows
              if r["qualification"] == "PASS"
              and isinstance(r["actual"], dict)
-             and r["actual"].get("source_id") == item["id"]
+             and r.get("qualified_source_id") == item["id"]
              and current["actual_sha256"] is not None
              and current["actual_sha256"] == item.get("sha256")
              and current["actual_bytes"] == item.get("indexed_bytes")), None
