@@ -55,11 +55,14 @@ jobs:
       - name: Requalify canonical application/server adjacency
         run: >-
           python -m unittest -v
-          tests.test_version2_application
+          tests.test_sections28_30_executed_red_repairs
           tests.test_version2_classroom_orchestration_binding
           tests.test_classroom_join_credentials
           tests.test_classroom_chat_rpc
           tests.test_classroom_file_rpc
+
+      - name: Core selftest
+        run: python -m acs.selftest
       - name: Prove server layer has no chess/domain authority
         shell: bash
         run: |
