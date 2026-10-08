@@ -57,6 +57,8 @@ class PublicReleaseExclusionTests(unittest.TestCase):
             original["stockfish_2moves_v2_pgn_zip"]["sha256"],
             deny["sha256"],
         )
+        self.assertEqual(deny["basenames"]["endgamestudiesgrigoriev.pgn"], "grigoriev_historical_original_studies_pgn_unlicensed")
+        self.assertEqual(deny["basenames"]["kaspariandominationstudies.pgn"], "kasparian_domination_original_studies_pgn_unlicensed")
 
     def test_clean_release_passes_and_honestly_disclaims_public_authorization(self):
         with tempfile.TemporaryDirectory() as temp:
