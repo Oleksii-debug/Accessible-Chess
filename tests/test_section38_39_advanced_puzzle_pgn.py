@@ -88,6 +88,22 @@ class AdvancedPuzzlePgnWindowsLibraryTests(unittest.TestCase):
                 self.assertEqual(second.source_id, first.source_id)
                 database.verify_integrity()
 
+    def test_section39_matrix_separates_genuine_original_and_advanced_derived(self):
+        from tools.section39_real_format_qualification import build_report
+        report = build_report()
+        self.assertEqual(report["format_count"], 16)
+        evidence = report["evidence"]["advanced_master_derived_qa"]
+        self.assertEqual(evidence["qualified_puzzle_positions"], 20)
+        self.assertEqual(evidence["source_kind"],
+                         "CANONICAL_DERIVED_FROM_CHECKED_IN_CC0_PUZZLES")
+        self.assertFalse(evidence["original_publisher_pgn_qualified"])
+        self.assertFalse(evidence["external_author_original_full_corpus_sha_pass"])
+        self.assertFalse(evidence["terminal_section_done"])
+        self.assertFalse(report["terminal_done"])
+        self.assertGreaterEqual(evidence["min_puzzle_rating"], 2200)
+        self.assertGreaterEqual(evidence["max_puzzle_rating"], 3000)
+        self.assertEqual(len(evidence["pgn_sha256"]), 64)
+
     def test_invalid_chess_moves_and_fake_rating_claims_fail_closed(self):
         from unittest.mock import patch
         from tools import revised_section38_39_advanced_puzzle_pgn as exporter
