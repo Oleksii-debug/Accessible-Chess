@@ -31,7 +31,8 @@ def _valid_digest(value: object, length: int) -> bool:
 
 
 def merge_real_receipts(base: dict, original_positions: dict, original_books: dict,
-                        catalog: tuple[dict, ...], expected_sha: str) -> dict:
+                        catalog: tuple[dict, ...], expected_sha: str,
+                        cbh: dict | None = None) -> dict:
     if not _valid_digest(expected_sha, 40):
         raise LawfulCorpusError("Section 39 merge lacks exact source SHA")
     reports = (base, original_positions, original_books)
@@ -66,6 +67,68 @@ def merge_real_receipts(base: dict, original_positions: dict, original_books: di
         raise LawfulCorpusError("original licensed external-file matrices incomplete")
 
     imported_external = []
+    # The CBH authority is the already-existing original libcbh test adapter.
+    # Retain the full 11-file companion identity for each of three real families.
+    if cbh is not None:
+        if (
+            cbh.get("schema") != "accessible-chess-section39-cbh-authentic-oracle-v1"
+            or cbh.get("source_commit_sha") != expected_sha
+            or cbh.get("all_three_real_semantic_tests_executed") is not True
+            or cbh.get("all_three_real_semantic_tests_success") is not True
+            or cbh.get("full_cb_family_format_supported") is not False
+            or cbh.get("original_source_bytes_packaged") is not False
+        ):
+            raise LawfulCorpusError("CBH real source oracle is stale, skipped or falsely supported")
+        original_cbh = cbh.get("sources", [])
+        if (
+            len(original_cbh) != 3 or
+            {e.get("source_id") for e in original_cbh} != {
+                "libcbh_gpl_original_annotation_cbh_family",
+                "libcbh_gpl_original_nested_variations_cbh_family",
+                "libcbh_gpl_original_unusual_start_cbh_family",
+            }
+        ):
+            raise LawfulCorpusError("all three pinned original CBH families are required")
+        authentic_cbh = []
+        for entry in original_cbh:
+            registered = sources[entry["source_id"]]
+            members = entry.get("original_member_sha256", {})
+            qualified = entry.get("qualification")
+            if (
+                entry.get("original_source_read") is not True
+                or entry.get("mock_used") is not False
+                or entry.get("backend_commit") != registered.get("upstream_commit")
+                or entry.get("original_member_count") != 11
+                or not isinstance(members, dict)
+                or len(members) != 11
+                or {k: v["sha256"] for k, v in registered["external_companion_source_checksums"].items()} != members
+                or qualified not in {"PASS", "PARTIAL"}
+                or (entry["source_id"] == "libcbh_gpl_original_unusual_start_cbh_family" and qualified != "PARTIAL")
+                or registered.get("public_release") != "EXCLUDED"
+            ):
+                raise LawfulCorpusError("original CBH companion SHA256s or true semantics mismatch")
+            receipt = base_receipts[entry["source_id"]]
+            receipt["actual_component_sha256"] = members
+            receipt["status"] = "PARTIAL"
+            receipt["note"] = "real GPL original 11-component CBH family; source-only test; whole format remains partial"
+            authentic_cbh.append({
+                "source_id": entry["source_id"], "qualification": qualified,
+                "actual_importer": entry["actual_importer"],
+                "original_member_sha256": members,
+                "semantic_oracle_test": entry["semantic_oracle_test"],
+            })
+        cbh_row = rows["CBH"]
+        cbh_row.update({
+            "qualification": "PARTIAL", "read": "PARTIAL",
+            "write": "UNSUPPORTED", "roundtrip": "UNSUPPORTED",
+            "actual_importer": "acs.chessbase_decoder + acs.chessbase_library_import",
+            "source_kind": "PINNED_GENUINE_UPSTREAM_BYTES",
+            "coverage": "EXECUTED_BOUNDED_SLICE",
+            "genuine_external_sources": authentic_cbh,
+            "actual": "two authentic annotated/recursive-RAV families passed independent PGN export/ACSDB/restart oracle; unusual-start remains partial",
+            "source_ids": sorted(set(cbh_row["source_ids"]) | {e["source_id"] for e in authentic_cbh}),
+        })
+
     for entry in (*position_evidence, *book_evidence):
         source_id = entry["source_id"]
         if source_id not in sources or entry.get("real_source_read") is not True:
@@ -197,7 +260,7 @@ def merge_real_receipts(base: dict, original_positions: dict, original_books: di
     return {
         "schema": "accessible-chess-section39-combined-external-genuine-evidence-v1",
         "section": 39, "source_commit_sha": expected_sha,
-        "original_source_count": len(imported_external),
+        "original_source_count": len(imported_external) + (3 if cbh is not None else 0),
         "format_count": 16, "format_rows": [rows[r["format"]] for r in original_rows],
         "source_receipts": [base_receipts[r["source_id"]] for r in base["source_receipts"]],
         "full_matrix_completed": False,
@@ -227,11 +290,12 @@ def main() -> None:
     parser.add_argument("--base", type=Path, required=True)
     parser.add_argument("--positions", type=Path, required=True)
     parser.add_argument("--books", type=Path, required=True)
+    parser.add_argument("--cbh", type=Path, required=True)
     args = parser.parse_args()
     head = _source_head()
     result = merge_real_receipts(
         _read(args.base), _read(args.positions), _read(args.books),
-        load_catalog(), head,
+        load_catalog(), head, _read(args.cbh),
     )
     staged = REPORT.with_suffix(".tmp")
     try:
