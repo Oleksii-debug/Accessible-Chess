@@ -19,6 +19,9 @@ from typing import Callable
 
 PRIVATE_RUNTIME_MODULE = "accessible_chess_protection_runtime"
 EXPECTED_RUNTIME_API_VERSION = 1
+ONLINE_RUNTIME_API_VERSION = 2
+ENTITLEMENT_RUNTIME_API_VERSION = 3
+SUPPORTED_RUNTIME_API_VERSIONS = frozenset({EXPECTED_RUNTIME_API_VERSION, ONLINE_RUNTIME_API_VERSION, ENTITLEMENT_RUNTIME_API_VERSION})
 REQUIRED_STARTUP_CAPABILITY = "local-chess"
 _MAX_DECISION_ITEMS = 64
 _MAX_DECISION_TEXT = 256
@@ -37,6 +40,12 @@ class ProtectedStartupLocked(ProtectionBoundaryError):
         super().__init__(f"Accessible Chess premium startup is locked: {decision.reason}")
         self.decision = decision
         self.client = client
+
+
+@dataclass(frozen=True)
+class ProtectionStartupSession:
+    decision: "ProtectionDecision"
+    client: "ProtectionRuntimeClient"
 
 
 @dataclass(frozen=True)
@@ -101,13 +110,13 @@ def _validate_string_list(value: object, *, name: str) -> frozenset[str]:
     return frozenset(value)
 
 
-def _validate_decision(value: object) -> ProtectionDecision:
+def _validate_decision(value: object, *, runtime_api_version: int) -> ProtectionDecision:
     if not isinstance(value, dict) or set(value) != {
         "api_version", "state", "reason", "safe_operations", "capabilities", "build_id"
     }:
         raise ProtectionBoundaryError("private protection decision schema is invalid")
-    if value.get("api_version") != EXPECTED_RUNTIME_API_VERSION:
-        raise ProtectionBoundaryError("private protection API version is unsupported")
+    if value.get("api_version") != runtime_api_version:
+        raise ProtectionBoundaryError("private protection decision API version does not match runtime")
     state = value.get("state")
     reason = value.get("reason")
     build_id = value.get("build_id")
@@ -159,6 +168,7 @@ class ProtectionRuntimeClient:
         self.state_root = Path(state_root)
         self._module_loader = module_loader
         self._module: ModuleType | None = None
+        self._runtime_api_version: int | None = None
 
     def _runtime(self) -> ModuleType:
         if self._module is not None:
@@ -167,9 +177,11 @@ class ProtectionRuntimeClient:
             module = self._module_loader(PRIVATE_RUNTIME_MODULE)
         except Exception as exc:
             raise ProtectionBoundaryError("private protection runtime is unavailable") from exc
-        if getattr(module, "RUNTIME_API_VERSION", None) != EXPECTED_RUNTIME_API_VERSION:
+        version = getattr(module, "RUNTIME_API_VERSION", None)
+        if version not in SUPPORTED_RUNTIME_API_VERSIONS:
             raise ProtectionBoundaryError("private protection runtime API version is unsupported")
         self._module = module
+        self._runtime_api_version = int(version)
         return module
 
     def evaluate(self) -> ProtectionDecision:
@@ -178,13 +190,34 @@ class ProtectionRuntimeClient:
             evaluate = getattr(runtime, "evaluate_startup", None)
             if not callable(evaluate):
                 raise ProtectionBoundaryError("private protection evaluator is unavailable")
+            version = self.runtime_api_version()
             return _validate_decision(
-                evaluate(package_root=self.application_dir, state_root=self.state_root)
+                evaluate(package_root=self.application_dir, state_root=self.state_root),
+                runtime_api_version=version,
             )
         except ProtectionBoundaryError:
             raise
         except Exception as exc:
             raise ProtectionBoundaryError("private protection evaluation failed") from exc
+
+    def runtime_api_version(self) -> int:
+        runtime = self._runtime()
+        version = self._runtime_api_version
+        if version is None:
+            version = getattr(runtime, "RUNTIME_API_VERSION", None)
+        if version not in SUPPORTED_RUNTIME_API_VERSIONS:
+            raise ProtectionBoundaryError("private protection runtime API version is unsupported")
+        return int(version)
+
+    def runtime_extension(self, *, minimum_api_version: int) -> ModuleType:
+        if not isinstance(minimum_api_version, int) or isinstance(minimum_api_version, bool):
+            raise TypeError("minimum_api_version must be an integer")
+        runtime = self._runtime()
+        if self.runtime_api_version() < minimum_api_version:
+            raise ProtectionBoundaryError(
+                f"private protection runtime API v{minimum_api_version}+ is required"
+            )
+        return runtime
 
     def create_activation_request(self) -> dict[str, object]:
         runtime = self._runtime()
@@ -228,6 +261,39 @@ class ProtectionRuntimeClient:
             raise ProtectionBoundaryError("entitlement import was rejected") from exc
 
 
+def open_release_protection_session(
+    *,
+    application_dir: str | Path,
+    state_root: str | Path,
+    required: bool | None = None,
+    module_loader: Callable[[str], ModuleType] = importlib.import_module,
+) -> ProtectionStartupSession:
+    must_protect = protection_required(application_dir) if required is None else bool(required)
+    client = ProtectionRuntimeClient(
+        application_dir=application_dir,
+        state_root=state_root,
+        module_loader=module_loader,
+    )
+    if not must_protect:
+        return ProtectionStartupSession(
+            decision=ProtectionDecision(
+                state="authorized",
+                reason="source-development",
+                safe_operations=_SAFE_OPERATIONS,
+                capabilities=frozenset(),
+                build_id="source-development",
+            ),
+            client=client,
+        )
+    try:
+        decision = client.evaluate()
+    except ProtectionBoundaryError:
+        decision = _locked("runtime_unavailable_or_invalid")
+    if not decision.authorized:
+        raise ProtectedStartupLocked(decision, client)
+    return ProtectionStartupSession(decision=decision, client=client)
+
+
 def authorize_release_startup(
     *,
     application_dir: str | Path,
@@ -235,37 +301,27 @@ def authorize_release_startup(
     required: bool | None = None,
     module_loader: Callable[[str], ModuleType] = importlib.import_module,
 ) -> ProtectionDecision:
-    must_protect = protection_required(application_dir) if required is None else bool(required)
-    if not must_protect:
-        return ProtectionDecision(
-            state="authorized",
-            reason="source-development",
-            safe_operations=_SAFE_OPERATIONS,
-            capabilities=frozenset(),
-            build_id="source-development",
-        )
-    client = ProtectionRuntimeClient(
+    return open_release_protection_session(
         application_dir=application_dir,
         state_root=state_root,
+        required=required,
         module_loader=module_loader,
-    )
-    try:
-        decision = client.evaluate()
-    except ProtectionBoundaryError:
-        decision = _locked("runtime_unavailable_or_invalid")
-    if not decision.authorized:
-        raise ProtectedStartupLocked(decision, client)
-    return decision
+    ).decision
 
 
 __all__ = [
     "EXPECTED_RUNTIME_API_VERSION",
+    "ONLINE_RUNTIME_API_VERSION",
+    "ENTITLEMENT_RUNTIME_API_VERSION",
+    "SUPPORTED_RUNTIME_API_VERSIONS",
     "PRIVATE_RUNTIME_MODULE",
     "REQUIRED_STARTUP_CAPABILITY",
     "ProtectionBoundaryError",
     "ProtectionDecision",
     "ProtectedStartupLocked",
     "ProtectionRuntimeClient",
+    "ProtectionStartupSession",
     "authorize_release_startup",
+    "open_release_protection_session",
     "protection_required",
 ]

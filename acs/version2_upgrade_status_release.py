@@ -18,6 +18,7 @@ from typing import Any, Iterator
 from . import version2_education_mutation_release as _education_release
 from . import version2_release_app as _release_app
 from . import version2_release_ui as _release_ui
+from .protection_runtime_monitor import ProtectionLifecycleMonitor
 from .full_product_ui_shell import UILanguage
 from .version2_upgrade import Version2UpgradeReport
 from .version2_windows_upgrade_status import (
@@ -172,31 +173,83 @@ def create_version2_release_application(*args: Any, **kwargs: Any):
 
 
 def main() -> None:
-    """Run the real final product with its final-product bindings held for UI life."""
+    """Run the final product with live R26 protection monitoring when available."""
 
     # The Education/final-product composition owns process-global menu/resource
-    # bindings for the complete synchronous UI lifetime. Keep that proven lifetime
-    # contract while replacing only its create step with the status-aware wrapper.
+    # bindings for the complete synchronous UI lifetime. Security re-auth/recovery
+    # may intentionally rebuild the product after the previous premium window has
+    # fully shut down.
     with _education_release._final_product_mutation_bindings():
-        try:
-            api, application, runtime, native_runtime_factory = (
-                create_version2_release_application(defer_ui=True)
+        while True:
+            try:
+                api, application, runtime, native_runtime_factory = (
+                    create_version2_release_application(defer_ui=True)
+                )
+            except _release_app.ProtectedStartupLocked as locked:
+                if not _release_app.run_locked_security_window(
+                    locked.client,
+                    locked.decision,
+                ):
+                    return
+                continue
+
+            session = getattr(api, "_protection_session", None)
+            monitor = None
+            if (
+                isinstance(session, _release_app.ProtectionStartupSession)
+                and session.decision.build_id != "source-development"
+            ):
+                try:
+                    if (
+                        session.client.runtime_api_version()
+                        >= _release_app.ENTITLEMENT_RUNTIME_API_VERSION
+                    ):
+                        monitor = ProtectionLifecycleMonitor(session.client)
+                except Exception:
+                    # A packaged protected runtime that cannot report its API version
+                    # must not silently gain an unmonitored premium lifetime.
+                    decision = _release_app.ProtectionDecision(
+                        state="locked",
+                        reason="runtime_unavailable_or_invalid",
+                        safe_operations=session.decision.safe_operations,
+                        capabilities=frozenset(),
+                        build_id=session.decision.build_id,
+                    )
+                    if not _release_app.run_locked_security_window(
+                        session.client,
+                        decision,
+                    ):
+                        return
+                    continue
+
+            _release_ui.run_version2_release_window(
+                api,
+                application,
+                runtime,
+                file_runtime_factory=native_runtime_factory,
+                protection_monitor=monitor,
             )
-        except _release_app.ProtectedStartupLocked as locked:
+
+            if monitor is None or not monitor.blocked_or_failed:
+                return
+
+            reason = (
+                monitor.blocked.reason
+                if monitor.blocked is not None
+                else monitor.failure_reason or "online_lifecycle_unavailable"
+            )
+            decision = _release_app.ProtectionDecision(
+                state="locked",
+                reason=reason,
+                safe_operations=session.decision.safe_operations,
+                capabilities=frozenset(),
+                build_id=session.decision.build_id,
+            )
             if not _release_app.run_locked_security_window(
-                locked.client,
-                locked.decision,
+                session.client,
+                decision,
             ):
                 return
-            api, application, runtime, native_runtime_factory = (
-                create_version2_release_application(defer_ui=True)
-            )
-        _release_ui.run_version2_release_window(
-            api,
-            application,
-            runtime,
-            file_runtime_factory=native_runtime_factory,
-        )
 
 
 __all__ = [
