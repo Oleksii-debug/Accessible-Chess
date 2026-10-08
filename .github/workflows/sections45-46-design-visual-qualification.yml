@@ -48,9 +48,13 @@ jobs:
           node --check tests/js/section45_design_studio_dom_test.js
           node tests/js/section45_design_studio_dom_test.js
           node tests/js/sections43_44_workspace_contract_test.js
+          node --check tests/js/section42_overlay_runtime_test.js
+          node tests/js/section42_overlay_runtime_test.js
+          node --check tests/js/section42_route_scope_runtime_test.js
+          node tests/js/section42_route_scope_runtime_test.js
       - name: Retain existing accessible Windows WebView application contracts
         run: |
-          python -m unittest -v tests.test_accessible_webui tests.test_section34_web_client tests.test_nvda_p0_contract tests.test_stage1_webview2_accessibility_boundary
+          python -m unittest -v tests.test_accessible_webui tests.test_section34_web_client tests.test_nvda_p0_contract tests.test_stage1_webview2_accessibility_boundary tests.test_section15_visual_board_contract tests.test_section42_board_palette_contrast
 
   section46-browser-screenshots-axe:
     runs-on: ubuntu-24.04
