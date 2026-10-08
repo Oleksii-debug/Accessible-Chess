@@ -422,6 +422,7 @@ def _build_pack(args) -> None:
             # ZIP between our initial existence check and final publication.
             # The staged and final names are siblings on the same filesystem.
             os.link(staging, args.zip_output)
+            args._published_by_this_attempt = True
             with ZipFile(args.zip_output, "r") as archive:
                 if set(archive.namelist()) != set(entries) or archive.testzip() is not None:
                     raise ValueError("public ZIP readback failed")
@@ -453,6 +454,7 @@ def main() -> None:
             raise FileExistsError("refusing preexisting package ZIP")
         if args.output_dir.resolve() == args.zip_output.resolve().parent:
             raise ValueError("ZIP output must be outside its staged source folder")
+    args._published_by_this_attempt = False
     try:
         _build_pack(args)
     except BaseException:
@@ -461,8 +463,10 @@ def main() -> None:
         # published (but partially generated) accessible chess book corpus.
         if args.output_dir.is_dir() and not args.output_dir.is_symlink():
             shutil.rmtree(args.output_dir)
-        if args.zip_output is not None and args.zip_output.is_file():
-            args.zip_output.unlink()
+        if args._published_by_this_attempt and args.zip_output is not None:
+            # Never delete an output another writer created between preflight
+            # and our exclusive os.link publication attempt.
+            args.zip_output.unlink(missing_ok=True)
         raise
 
 
