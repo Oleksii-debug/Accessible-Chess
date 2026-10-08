@@ -162,7 +162,9 @@ def render_docx(data: dict, lang: str) -> bytes:
         if kind == "fen":
             value = "FEN: " + value
         escaped = xml_escape(value)
-        parts.append("<w:p>" + style + '<w:r><w:t xml:space="preserve">' +
+        voice_locale = "uk-UA" if lang == "uk" else "en-US"
+        parts.append("<w:p>" + style + '<w:r><w:rPr><w:lang w:val="' +
+                     voice_locale + '"/></w:rPr><w:t xml:space="preserve">' +
                      escaped + "</w:t></w:r></w:p>")
     document = (
         '<?xml version="1.0" encoding="UTF-8"?>'
