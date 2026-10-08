@@ -9,6 +9,7 @@ on:
       - 'web/accessible_chess_web.js'
       - 'web/board_overlay_renderer.js'
       - 'tests/js/section42_overlay_runtime_test.js'
+      - 'tests/js/section42_route_scope_runtime_test.js'
       - 'acs/web_client_http.py'
       - 'acs/teacher_webview_projection.py'
       - 'web/accessible_chess_web.html'
@@ -48,6 +49,8 @@ jobs:
           node --check web/board_overlay_renderer.js
           node --check tests/js/section42_overlay_runtime_test.js
           node tests/js/section42_overlay_runtime_test.js
+          node --check tests/js/section42_route_scope_runtime_test.js
+          node tests/js/section42_route_scope_runtime_test.js
       - name: Compile source and exercise exact CC0 / NVDA-safe board acceptance
         run: |
           python -m py_compile tools/revised_section42_render_piece_pack.py tests/test_revised_section42_cc0_pieces.py tests/test_revised_section42_raster_qualification.py tests/test_revised_section42_web_projection.py tests/test_revised_section42_overlay_contract.py tests/test_revised_section42_overlay_http.py
