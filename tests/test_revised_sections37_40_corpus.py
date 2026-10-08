@@ -523,5 +523,69 @@ class RevisedCorpusContractTests(unittest.TestCase):
         )
 
 
+
+    def test_real_lichess_eco_c_d_e_upstream_sources_and_canonical_readback(self):
+        """Official CC0 source bytes, never synthetic completed games or ChessBase."""
+        import csv
+
+        from acs.pgn_roundtrip import parse_pgn_text
+
+        records = {item["id"]: item for item in load_catalog()}
+        root = Path(__file__).resolve().parents[1]
+        for family, expected_rows, expected_size, expected_digest, expected_blob in (
+            ("c", 1250, 132304, "45e843c7b7e79a0d04d5bda879c9bd23f5a10974488bd8615e4f4c5d0749986f", "4b3d9c90c67864db6eb728d82b225b44d91fccbd"),
+            ("d", 644, 73318, "1cf4057a8aece94f27bb3f278ad410ee2844831a642364eeceaafa091dbcceda", "a829bac9d2f288b033d605e842f3b802379e3455"),
+            ("e", 367, 44061, "48c6f6645b031a5937c8386839debab0e2e48837251687ba1afb6369677f8546", "93a82e1f505e06256530736b45460738bd50e897"),
+        ):
+            with self.subTest(eco=family):
+                record = records["lichess_openings_original_eco_" + family + "_tsv"]
+                path = root / record["local_source"]
+                raw = path.read_bytes()
+                self.assertEqual(len(raw), expected_size)
+                self.assertEqual(record["indexed_bytes"], expected_size)
+                self.assertEqual(record["max_bytes"], expected_size)
+                self.assertEqual(record["license"], "CC0")
+                self.assertEqual(record["redistribution"], "permitted")
+                self.assertEqual(record["acquisition"], "VENDORED_SOURCE_VERIFIED")
+                self.assertEqual(record["upstream_git_blob"], expected_blob)
+                self.assertEqual(verified_local_source(path, record), expected_digest)
+                self.assertEqual(
+                    hashlib.sha1(f"blob {len(raw)}\\0".encode("ascii") + raw).hexdigest(),
+                    expected_blob,
+                )
+                license_file = root / record["license_source"]
+                self.assertEqual(
+                    hashlib.sha256(license_file.read_bytes()).hexdigest(),
+                    record["license_sha256"],
+                )
+                rows = list(csv.DictReader(
+                    io.StringIO(raw.decode("utf-8-sig")), delimiter="\\t"
+                ))
+                self.assertEqual(len(rows), expected_rows)
+                self.assertEqual(tuple(rows[0]), ("eco", "name", "pgn"))
+                for row in rows:
+                    self.assertTrue(row["eco"].startswith(family.upper()))
+                    self.assertTrue(row["name"])
+                    self.assertTrue(row["pgn"].startswith("1. "))
+                for row in rows[:8]:
+                    self.assertEqual(len(parse_pgn_text(
+                        '[Event "Official Lichess opening"]\\n[Result "*"]\\n\\n'
+                        + row["pgn"] + " *\\n", strict=False,
+                    )), 1)
+                with tempfile.TemporaryDirectory() as tmp:
+                    corrupted = Path(tmp) / "corrupted.tsv"
+                    damaged = bytearray(raw)
+                    damaged[-1] ^= 1
+                    corrupted.write_bytes(damaged)
+                    with self.assertRaises(LawfulCorpusError):
+                        verified_local_source(corrupted, record)
+                    with self.assertRaises(LawfulCorpusError):
+                        acquire_cc0_source(
+                            record, Path(tmp),
+                            opener=lambda *_a, **_kw: self.fail(
+                                "vendored TSV cannot trigger implicit network"
+                            ),
+                        )
+
 if __name__ == "__main__":
     unittest.main()
