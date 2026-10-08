@@ -8,6 +8,7 @@ CAS and source fence remain external, as does anti-rollback/HA qualification.
 from __future__ import annotations
 
 from dataclasses import asdict
+from contextlib import contextmanager
 import hashlib
 import json
 from pathlib import Path
@@ -69,16 +70,24 @@ class SqliteMigrationJournal:
         except (OSError, sqlite3.Error):
             raise MigrationError("MIGRATION_JOURNAL_UNAVAILABLE") from None
 
-    def _open(self) -> sqlite3.Connection:
+    @contextmanager
+    def _open(self):
+        if self.path.is_symlink():
+            raise MigrationError("MIGRATION_JOURNAL_PATH_UNSAFE")
         db = sqlite3.connect(self.path, timeout=10, isolation_level=None)
         try:
             db.execute("PRAGMA busy_timeout=10000")
             db.execute("PRAGMA synchronous=FULL")
             db.execute("PRAGMA journal_mode=WAL")
-            return db
-        except Exception:
-            db.close()
+            yield db
+            if db.in_transaction:
+                db.commit()
+        except BaseException:
+            if db.in_transaction:
+                db.rollback()
             raise
+        finally:
+            db.close()
 
     @staticmethod
     def _proof_digest(proof: MigrationProof) -> str:
