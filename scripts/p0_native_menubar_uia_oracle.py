@@ -166,6 +166,127 @@ def _uia_snapshot(
         return value
 
 
+def _uia_menu_handle_binding_checks(
+    uia: dict[str, Any],
+    *,
+    pid: int,
+    menu_handle: int,
+) -> dict[str, bool]:
+    """Bind the WinForms MenuStrip handle to the exact canonical UIA MenuBar.
+
+    A process-scoped search alone can find a different/stale MenuBar and still
+    satisfy name/count assertions.  FromHandle evidence proves that the concrete
+    native handle attached as MainMenuStrip is itself the accessible menu.
+    """
+
+    from_handle = uia.get("menu_from_handle")
+    if not isinstance(from_handle, dict):
+        from_handle = {}
+    exact_rows = uia.get("exact_menu_bars")
+    exact_row = (
+        exact_rows[0]
+        if isinstance(exact_rows, list)
+        and len(exact_rows) == 1
+        and isinstance(exact_rows[0], dict)
+        else {}
+    )
+    any_id_rows = uia.get("same_process_elements_with_exact_automation_id")
+    any_id_row = (
+        any_id_rows[0]
+        if isinstance(any_id_rows, list)
+        and len(any_id_rows) == 1
+        and isinstance(any_id_rows[0], dict)
+        else {}
+    )
+    process_menu_rows = uia.get("same_process_menu_bars")
+    process_menu_row = (
+        process_menu_rows[0]
+        if isinstance(process_menu_rows, list)
+        and len(process_menu_rows) == 1
+        and isinstance(process_menu_rows[0], dict)
+        else {}
+    )
+    return {
+        "uia_handle_element_present": bool(from_handle),
+        "uia_handle_automation_id_canonical": (
+            from_handle.get("automation_id") == "AccessibleChessFullProductMenu"
+        ),
+        "uia_handle_control_type_menubar": (
+            from_handle.get("control_type") == "ControlType.MenuBar"
+        ),
+        "uia_handle_process_matches": from_handle.get("process_id") == pid,
+        "uia_handle_native_handle_matches": (
+            menu_handle != 0 and from_handle.get("native_window_handle") == menu_handle
+        ),
+        "uia_handle_enabled": from_handle.get("enabled") is True,
+        "uia_handle_onscreen": from_handle.get("offscreen") is False,
+        "uia_handle_probe_clean": not bool(uia.get("menu_from_handle_error")),
+        "uia_probe_binding_stable": uia.get("menu_binding_stable") is True,
+        "uia_poll_snapshot_clean": uia.get("poll_snapshot_error") == "",
+        "uia_process_menu_bar_unique": (
+            isinstance(process_menu_rows, list) and len(process_menu_rows) == 1
+        ),
+        "uia_process_menu_bar_binds_same_handle": (
+            menu_handle != 0
+            and process_menu_row.get("automation_id") == "AccessibleChessFullProductMenu"
+            and process_menu_row.get("control_type") == "ControlType.MenuBar"
+            and process_menu_row.get("process_id") == pid
+            and process_menu_row.get("native_window_handle") == menu_handle
+            and process_menu_row.get("enabled") is True
+            and process_menu_row.get("offscreen") is False
+        ),
+        "uia_automation_id_unique_in_process": (
+            isinstance(any_id_rows, list) and len(any_id_rows) == 1
+        ),
+        "uia_automation_id_row_binds_same_handle": (
+            menu_handle != 0
+            and any_id_row.get("automation_id") == "AccessibleChessFullProductMenu"
+            and any_id_row.get("control_type") == "ControlType.MenuBar"
+            and any_id_row.get("process_id") == pid
+            and any_id_row.get("native_window_handle") == menu_handle
+        ),
+        "uia_from_handle_matches_automation_id_row": (
+            bool(from_handle)
+            and bool(any_id_row)
+            and all(
+                from_handle.get(field) == any_id_row.get(field)
+                for field in (
+                    "automation_id",
+                    "control_type",
+                    "process_id",
+                    "native_window_handle",
+                    "enabled",
+                    "offscreen",
+                )
+            )
+        ),
+        "uia_exact_row_binds_same_handle": (
+            menu_handle != 0
+            and exact_row.get("automation_id") == "AccessibleChessFullProductMenu"
+            and exact_row.get("control_type") == "ControlType.MenuBar"
+            and exact_row.get("process_id") == pid
+            and exact_row.get("native_window_handle") == menu_handle
+        ),
+        "uia_exact_row_enabled": exact_row.get("enabled") is True,
+        "uia_exact_row_onscreen": exact_row.get("offscreen") is False,
+        "uia_from_handle_matches_exact_row": (
+            bool(from_handle)
+            and bool(exact_row)
+            and all(
+                from_handle.get(field) == exact_row.get(field)
+                for field in (
+                    "automation_id",
+                    "control_type",
+                    "process_id",
+                    "native_window_handle",
+                    "enabled",
+                    "offscreen",
+                )
+            )
+        ),
+    }
+
+
 def main() -> int:
     if sys.platform != "win32":
         raise SystemExit("This oracle requires Windows")
@@ -225,9 +346,11 @@ def main() -> int:
                 def inspect() -> None:
                     try:
                         result["winforms"] = _winforms_snapshot(api, window)
+                        probed_menu_handle = int(result["winforms"].get("menu_handle") or 0)
+                        result["probed_menu_handle"] = probed_menu_handle
                         result["uia"] = _uia_snapshot(
                             os.getpid(),
-                            menu_handle=int(result["winforms"].get("menu_handle") or 0),
+                            menu_handle=probed_menu_handle,
                         )
                         result["winforms_after_uia"] = _winforms_snapshot(api, window)
                     except Exception as exc:
@@ -264,16 +387,26 @@ def main() -> int:
     uia = result.get("uia") or {}
     names = uia.get("top_level_names") or []
     patterns = uia.get("top_level_expand_collapse") or []
+    menu_handle = int(result.get("probed_menu_handle") or 0)
+    post_probe_menu_handle = int(winforms.get("menu_handle") or 0)
     checks = {
         "host_handle_created": bool(winforms.get("host_is_handle_created")),
         "menu_parent_is_host": bool(winforms.get("menu_parent_is_host")),
         "main_menu_strip_is_menu": bool(winforms.get("main_menu_strip_is_menu")),
         "menu_handle_created": bool(winforms.get("menu_is_handle_created")),
-        "menu_handle_nonzero": int(winforms.get("menu_handle") or 0) != 0,
+        "menu_handle_nonzero": menu_handle != 0,
+        "menu_handle_stable_after_uia": (
+            menu_handle != 0 and post_probe_menu_handle == menu_handle
+        ),
         "winforms_top_level_count_matches_canonical": int(winforms.get("menu_item_count") or 0) == expected_count,
         "uia_exact_menu_bar_count_1": int(uia.get("exact_menu_bar_count") or 0) == 1,
         "uia_top_level_profile_matches_canonical": tuple(names) in (expected_ua, expected_en),
         "uia_expand_collapse_all": len(patterns) == expected_count and all(patterns),
+        **_uia_menu_handle_binding_checks(
+            uia,
+            pid=os.getpid(),
+            menu_handle=menu_handle,
+        ),
     }
     passed = not errors and all(checks.values())
     summary = {
@@ -281,6 +414,7 @@ def main() -> int:
         "machine_scope": "Windows source final-product WinForms plus external process-scoped UIA",
         "checks": checks,
         "winforms": result.get("winforms"),
+        "probed_menu_handle": result.get("probed_menu_handle"),
         "uia": result.get("uia"),
         "winforms_after_uia": result.get("winforms_after_uia"),
         "errors": errors,

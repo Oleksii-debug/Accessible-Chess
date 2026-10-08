@@ -84,49 +84,119 @@ function Convert-MenuBarDetail([System.Windows.Automation.AutomationElement]$Men
     }
 }
 
+function Test-CanonicalMenuBinding(
+    [object]$FromHandle,
+    [object[]]$AllMenuRows,
+    [object[]]$ExactRows,
+    [object[]]$AnyIdRows,
+    [int]$ExpectedProcessId,
+    [long]$ExpectedMenuHandle
+) {
+    if($null -eq $FromHandle -or $ExpectedMenuHandle -eq 0){ return $false }
+    if($AllMenuRows.Count -ne 1 -or $ExactRows.Count -ne 1 -or $AnyIdRows.Count -ne 1){ return $false }
+    foreach($row in @($FromHandle, $AllMenuRows[0], $ExactRows[0], $AnyIdRows[0])) {
+        if($null -eq $row){ return $false }
+        if([string]$row['automation_id'] -ne 'AccessibleChessFullProductMenu'){ return $false }
+        if([string]$row['control_type'] -ne 'ControlType.MenuBar'){ return $false }
+        if([int]$row['process_id'] -ne $ExpectedProcessId){ return $false }
+        if([long]$row['native_window_handle'] -ne $ExpectedMenuHandle){ return $false }
+        if(-not [bool]$row['enabled']){ return $false }
+        if([bool]$row['offscreen']){ return $false }
+    }
+    return $true
+}
+
 $bars = $null
 $exact = $null
 $anyId = $null
+$barsRows = @()
+$exactRows = @()
+$anyIdRows = @()
+$barDetails = @()
+$topNames = @()
+$topPatterns = @()
+$fromHandle = $null
+$fromHandleError = ''
+$pollSnapshotError = ''
+$bindingStable = $false
 $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
 do {
-    $bars = $root.FindAll([System.Windows.Automation.TreeScope]::Descendants, $menuCondition)
-    $exact = $root.FindAll([System.Windows.Automation.TreeScope]::Descendants, $exactCondition)
-    $anyId = $root.FindAll([System.Windows.Automation.TreeScope]::Descendants, $anyIdCondition)
-    if($exact.Count -eq 1 -or $bars.Count -gt 0){ break }
+    $bindingStable = $false
+    $pollSnapshotError = ''
+    try {
+        $bars = $root.FindAll([System.Windows.Automation.TreeScope]::Descendants, $menuCondition)
+        $exact = $root.FindAll([System.Windows.Automation.TreeScope]::Descendants, $exactCondition)
+        $anyId = $root.FindAll([System.Windows.Automation.TreeScope]::Descendants, $anyIdCondition)
+        $barsRows = @(Convert-UiaCollection $bars)
+        $exactRows = @(Convert-UiaCollection $exact)
+        $anyIdRows = @(Convert-UiaCollection $anyId)
+
+        $candidateBarDetails = @()
+        for($index = 0; $index -lt $bars.Count; $index++) {
+            $candidateBarDetails += ,(Convert-MenuBarDetail $bars.Item($index))
+        }
+        $candidateTopNames = @()
+        $candidateTopPatterns = @()
+        if($exact.Count -eq 1) {
+            $detail = Convert-MenuBarDetail $exact.Item(0)
+            $candidateTopNames = @($detail.top_level_names)
+            $candidateTopPatterns = @($detail.top_level_expand_collapse)
+        }
+
+        $fromHandle = $null
+        $fromHandleError = ''
+        if($MenuHandle -ne 0) {
+            try {
+                $handleElement = [System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]$MenuHandle)
+                if($null -ne $handleElement){ $fromHandle = Convert-UiaRow $handleElement }
+            }
+            catch {
+                $fromHandleError = $_.Exception.GetType().Name + ': ' + $_.Exception.Message
+            }
+        }
+
+        # Presence and uniqueness can precede provider stabilization.  Keep polling
+        # until the exact AutomationId and FromHandle views bind the same concrete
+        # MenuStrip HWND and all three views are enabled and on-screen.  Capture
+        # detail rows in the same successful iteration so no stale AutomationElement
+        # is dereferenced after the stable binding decision.
+        $bindingStable = Test-CanonicalMenuBinding `
+            -FromHandle $fromHandle `
+            -AllMenuRows $barsRows `
+            -ExactRows $exactRows `
+            -AnyIdRows $anyIdRows `
+            -ExpectedProcessId $TargetProcessId `
+            -ExpectedMenuHandle $MenuHandle
+        $barDetails = @($candidateBarDetails)
+        $topNames = @($candidateTopNames)
+        $topPatterns = @($candidateTopPatterns)
+    }
+    catch {
+        # UIA providers can transiently invalidate an element while the host is
+        # materializing.  Treat that as an unstable sample and retry until the
+        # bounded deadline; a persistent failure remains visible and fail-closed.
+        $pollSnapshotError = $_.Exception.GetType().Name + ': ' + $_.Exception.Message
+        $barsRows = @()
+        $exactRows = @()
+        $anyIdRows = @()
+        $barDetails = @()
+        $topNames = @()
+        $topPatterns = @()
+        $fromHandle = $null
+        $bindingStable = $false
+    }
+    if($bindingStable){ break }
     Start-Sleep -Milliseconds 200
 } while([DateTime]::UtcNow -lt $deadline)
 
-$fromHandle = $null
-$fromHandleError = ''
-if($MenuHandle -ne 0) {
-    try {
-        $handleElement = [System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]$MenuHandle)
-        if($null -ne $handleElement){ $fromHandle = Convert-UiaRow $handleElement }
-    }
-    catch {
-        $fromHandleError = $_.Exception.GetType().Name + ': ' + $_.Exception.Message
-    }
-}
-
-$barDetails = @()
-for($index = 0; $index -lt $bars.Count; $index++) {
-    $barDetails += ,(Convert-MenuBarDetail $bars.Item($index))
-}
-
-$topNames = @()
-$topPatterns = @()
-if($exact.Count -eq 1) {
-    $detail = Convert-MenuBarDetail $exact.Item(0)
-    $topNames = @($detail.top_level_names)
-    $topPatterns = @($detail.top_level_expand_collapse)
-}
-
 $result = [ordered]@{
-    same_process_menu_bars = @(Convert-UiaCollection $bars)
+    same_process_menu_bars = @($barsRows)
     same_process_menu_bar_details = @($barDetails)
-    same_process_elements_with_exact_automation_id = @(Convert-UiaCollection $anyId)
-    exact_menu_bars = @(Convert-UiaCollection $exact)
-    exact_menu_bar_count = [int]$exact.Count
+    same_process_elements_with_exact_automation_id = @($anyIdRows)
+    exact_menu_bars = @($exactRows)
+    exact_menu_bar_count = [int]$exactRows.Count
+    menu_binding_stable = [bool]$bindingStable
+    poll_snapshot_error = $pollSnapshotError
     menu_from_handle = $fromHandle
     menu_from_handle_error = $fromHandleError
     top_level_names = @($topNames)

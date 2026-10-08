@@ -38,10 +38,21 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: '3.12.10'
+
+      - name: Prove exact checked-out candidate
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $expected='${{ github.event.pull_request.head.sha || github.sha }}'
+          $actual=(git rev-parse HEAD).Trim()
+          if($LASTEXITCODE -ne 0 -or $actual -ne $expected){
+            throw "Unexpected candidate checkout: expected=$expected actual=$actual"
+          }
 
       - name: Install exact Windows host dependencies
         shell: pwsh
@@ -145,13 +156,40 @@ jobs:
             }
           }
 
-      - name: Prove shipping source MenuBar through process-scoped Windows UIA
+      - name: Prove shipping source MenuBar and concrete handle binding through process-scoped Windows UIA
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
           $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS='--force-renderer-accessibility'
           python scripts/p0_native_menubar_uia_oracle.py
           if($LASTEXITCODE -ne 0){throw 'Source final-product native MenuBar UIA oracle failed'}
+          $evidence=Get-Content -Raw p0-native-menubar-uia-source-summary.json | ConvertFrom-Json
+          foreach($check in @(
+            'menu_handle_stable_after_uia',
+            'uia_handle_element_present',
+            'uia_handle_automation_id_canonical',
+            'uia_handle_control_type_menubar',
+            'uia_handle_process_matches',
+            'uia_handle_native_handle_matches',
+            'uia_handle_enabled',
+            'uia_handle_onscreen',
+            'uia_handle_probe_clean',
+            'uia_probe_binding_stable',
+            'uia_poll_snapshot_clean',
+            'uia_process_menu_bar_unique',
+            'uia_process_menu_bar_binds_same_handle',
+            'uia_automation_id_unique_in_process',
+            'uia_automation_id_row_binds_same_handle',
+            'uia_from_handle_matches_automation_id_row',
+            'uia_exact_row_binds_same_handle',
+            'uia_exact_row_enabled',
+            'uia_exact_row_onscreen',
+            'uia_from_handle_matches_exact_row'
+          )){
+            if(-not [bool]$evidence.checks.$check){
+              throw "Concrete native MenuBar UIA handle binding check failed: $check"
+            }
+          }
 
       - name: Upload bounded MenuBar source evidence
         if: always()
