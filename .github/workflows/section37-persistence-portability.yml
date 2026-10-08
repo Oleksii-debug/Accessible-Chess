@@ -6,6 +6,8 @@ on:
       - 'section37/persistence-portability-20261007-sol56'
     paths:
       - 'acs/user_data_portability.py'
+      - 'acs/user_data_portability_host.py'
+      - 'tests/test_section37_user_data_portability_host.py'
       - 'acs/full_product_actions.py'
       - 'acs/version2_application.py'
       - 'tests/test_section37_user_data_portability.py'
@@ -14,6 +16,8 @@ on:
   pull_request:
     paths:
       - 'acs/user_data_portability.py'
+      - 'acs/user_data_portability_host.py'
+      - 'tests/test_section37_user_data_portability_host.py'
       - 'acs/full_product_actions.py'
       - 'acs/version2_application.py'
       - 'tests/test_section37_user_data_portability.py'
@@ -88,12 +92,14 @@ jobs:
         run: >-
           python -m py_compile
           acs/user_data_portability.py
+          acs/user_data_portability_host.py
           acs/full_product_actions.py
           acs/version2_application.py
           tests/test_section37_user_data_portability.py
+          tests/test_section37_user_data_portability_host.py
 
       - name: Execute Section 37 portability contract
-        run: python -m unittest -v tests.test_section37_user_data_portability
+        run: python -m unittest -v tests.test_section37_user_data_portability tests.test_section37_user_data_portability_host
 
       - name: Execute inherited crash-safe persistence contracts
         run: >-
