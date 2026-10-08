@@ -85,6 +85,27 @@ class Section41RealDesignTests(unittest.TestCase):
         self.assertNotIn("@import",css)
         self.assertNotIn("https://",css)
 
+    def test_offline_component_fixture_has_native_keyboard_semantics_and_focus_recovery(self):
+        page=(ROOT/"web/section41_components.html").read_text(encoding="utf-8")
+        for term in (
+            'href="#main"', 'id="main" tabindex="-1"', 'aria-label="Навігація прикладів"',
+            '<form id="fixture-form">', '<fieldset>', '<legend>',
+            '<th scope="col">', '<th scope="row">',
+            'role="status" aria-live="polite"', '<dialog id="fixture-dialog"',
+            'aria-labelledby="dialog-heading"', 'aria-describedby="dialog-help"',
+            'dialog.showModal()', 'dialog.addEventListener("close",',
+            'openButton.focus({preventScroll:true})', '<summary>',
+            'id="copy-content" tabindex="0"', 'assets/accessible_chess_design.css',
+        ):
+            with self.subTest(component=term):
+                self.assertIn(term,page)
+        self.assertNotIn('onfocus=',page)
+        self.assertNotIn('onblur=',page)
+        self.assertNotIn('onerror=',page)
+        self.assertNotIn('<script src="http',page)
+        css=(ROOT/"web/assets/accessible_chess_design.css").read_text(encoding="utf-8")
+        self.assertIn('.ac41-skip:focus-visible',css)
+
     def test_windows_package_must_include_all_local_design_dependencies(self):
         from acs.version2_package_preflight import Version2PackagePreflightError
         from tests.test_version2_package_preflight import (
