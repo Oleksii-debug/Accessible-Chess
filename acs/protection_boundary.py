@@ -12,7 +12,6 @@ from dataclasses import dataclass
 import importlib
 import json
 from pathlib import Path
-import stat
 import sys
 from types import ModuleType
 from typing import Callable
@@ -22,7 +21,8 @@ EXPECTED_RUNTIME_API_VERSION = 1
 ONLINE_RUNTIME_API_VERSION = 2
 ENTITLEMENT_RUNTIME_API_VERSION = 3
 ADVANCED_SECURITY_RUNTIME_API_VERSION = 4
-SUPPORTED_RUNTIME_API_VERSIONS = frozenset({EXPECTED_RUNTIME_API_VERSION, ONLINE_RUNTIME_API_VERSION, ENTITLEMENT_RUNTIME_API_VERSION, ADVANCED_SECURITY_RUNTIME_API_VERSION})
+HARDENED_SECURITY_RUNTIME_API_VERSION = 5
+SUPPORTED_RUNTIME_API_VERSIONS = frozenset({EXPECTED_RUNTIME_API_VERSION, ONLINE_RUNTIME_API_VERSION, ENTITLEMENT_RUNTIME_API_VERSION, ADVANCED_SECURITY_RUNTIME_API_VERSION, HARDENED_SECURITY_RUNTIME_API_VERSION})
 REQUIRED_STARTUP_CAPABILITY = "local-chess"
 _MAX_DECISION_ITEMS = 64
 _MAX_DECISION_TEXT = 256
@@ -69,10 +69,16 @@ def _regular_release_manifest(application_dir: Path) -> bool:
     )
     for path in candidates:
         try:
-            if stat.S_ISREG(path.lstat().st_mode):
-                return True
-        except OSError:
+            # A release marker that is a symlink, directory or other unexpected
+            # filesystem object must never disable entitlement enforcement.
+            # The private verifier will reject a malformed or missing manifest.
+            path.lstat()
+        except FileNotFoundError:
             continue
+        except OSError:
+            # Unreadable marker metadata is not proof of a source checkout.
+            return True
+        return True
     return False
 
 
