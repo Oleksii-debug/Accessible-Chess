@@ -434,7 +434,7 @@ class RevisedCorpusContractTests(unittest.TestCase):
             verified_local_source(source, record),
             "1d5ed134ebbd87915ead5683416e37583bb3e5ae3582b4d8cb5cb4aa7ef4f623",
         )
-        header = f"blob {len(original)}\\0".encode("ascii")
+        header = f"blob {len(original)}\0".encode("ascii")
         self.assertEqual(
             hashlib.sha1(header + original).hexdigest(),
             "41c3727d28fc0b5915f30f3b634c07bd296f4bdb",
@@ -444,7 +444,7 @@ class RevisedCorpusContractTests(unittest.TestCase):
             record["license_sha256"],
         )
         rows = list(csv.DictReader(
-            io.StringIO(original.decode("utf-8-sig")), delimiter="\\t"
+            io.StringIO(original.decode("utf-8-sig")), delimiter="\t"
         ))
         self.assertEqual(len(rows), 781)
         self.assertEqual(tuple(rows[0]), ("eco", "name", "pgn"))
@@ -453,8 +453,8 @@ class RevisedCorpusContractTests(unittest.TestCase):
                 self.assertTrue(row["eco"].startswith("B"))
                 self.assertTrue(row["pgn"].startswith("1. "))
                 parsed = parse_pgn_text(
-                    '[Event "Official Lichess ECO B opening"]\\n[Result "*"]\\n\\n'
-                    + row["pgn"] + " *\\n", strict=False,
+                    '[Event "Official Lichess ECO B opening"]\n[Result "*"]\n\n'
+                    + row["pgn"] + " *\n", strict=False,
                 )
                 self.assertEqual(len(parsed), 1)
         with tempfile.TemporaryDirectory() as temp:
