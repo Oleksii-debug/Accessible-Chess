@@ -214,6 +214,15 @@ class ClassroomFileServerTests(unittest.TestCase):
         )
         return PreparedFile(path, metadata)
 
+    def test_store_releases_sqlite_file_handle_after_operation(self):
+        # Windows refuses this rename while any SQLite connection still owns
+        # the database file. This is a direct regression for WinError 32.
+        renamed = self.root / "file-server-renamed.sqlite3"
+        self.assertEqual(self.store.history_after("room-1", None, limit=1).items, ())
+        self.db_path.rename(renamed)
+        renamed.rename(self.db_path)
+        self.assertTrue(self.db_path.exists())
+
     def test_store_requires_durable_database_target_and_sanitizes_open_failure(self):
         for target in ("", ":memory:"):
             with self.subTest(target=target):
