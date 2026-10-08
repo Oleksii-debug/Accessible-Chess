@@ -125,3 +125,60 @@ def test_each_individual_denial_stops_later_checks_and_preserves_retry(tmp_path)
     calls.clear()
     HardenedReleaseBoundary(client).require_all(build_id="build-1")
     assert len(calls) == len(REQUIRED_HARDENED_CHECKS)
+
+
+def test_v5_hardening_denial_stops_product_before_user_data_and_engine(tmp_path, monkeypatch):
+    from acs.protection_boundary import ProtectionDecision, ProtectionStartupSession, ProtectedStartupLocked
+    from acs import version2_release_app as release_app
+
+    def edit(value, kwargs):
+        if kwargs["check_id"] == "protected-resource-integrity":
+            return {**value, "authorized": False, "reason": "integrity_denied"}
+        return value
+
+    client, calls, _ = make_client(tmp_path, edit=edit)
+    session = ProtectionStartupSession(
+        decision=ProtectionDecision(
+            state="authorized",
+            reason="none",
+            safe_operations=frozenset({
+                "recovery", "login", "update", "help", "own-data-read", "own-data-export"
+            }),
+            capabilities=frozenset({"local-chess"}),
+            build_id="build-1",
+        ),
+        client=client,
+    )
+    monkeypatch.setattr(
+        release_app, "ProtectionEntitlementLifecycle",
+        lambda _client: SimpleNamespace(
+            synchronize=lambda: SimpleNamespace(premium_allowed=True)
+        ),
+    )
+    monkeypatch.setattr(
+        release_app, "ProtectionTrustBoundary",
+        lambda _client: SimpleNamespace(
+            synchronize=lambda: SimpleNamespace(state="trusted")
+        ),
+    )
+    engine_calls = []
+
+    def no_engine(_config):
+        engine_calls.append("called")
+        raise AssertionError("protected denial must precede engine startup")
+
+    user_root = tmp_path / "user-data"
+    with pytest.raises(ProtectedStartupLocked) as caught:
+        release_app.create_version2_release_application(
+            application_dir=tmp_path / "app",
+            data_root=user_root,
+            runtime_factory=no_engine,
+            protection_authorizer=lambda **_kwargs: session,
+            defer_ui=True,
+        )
+    assert caught.value.decision.reason == "advanced_security_unavailable"
+    assert [item["check_id"] for item in calls] == [
+        "native-runtime-integrity", "protected-resource-integrity"
+    ]
+    assert not engine_calls
+    assert not user_root.exists()
