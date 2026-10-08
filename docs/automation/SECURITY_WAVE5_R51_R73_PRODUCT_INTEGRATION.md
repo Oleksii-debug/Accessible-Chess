@@ -47,6 +47,32 @@ Wave-5 workflow. No real commercial protector is claimed installed.
 Workflow registration is **not an executed CI PASS**; verify exact-SHA
 hosted results independently before advancing this candidate.
 
+## R54 protected-build diversity readback (build-only)
+
+The existing canonical `continuum_runtime.protection_diversity`
+`check_diverse_candidate` is now exposed to the product's **build-time
+qualification** only by
+`scripts/security_r54_diversity_candidate_gate.py`. This requires an
+already-qualified **R53 candidate** against the actual source and protected
+bytes, an externally pinned opaque product SHA-256, the existing exact
+protector profile and a confidential per-build secret injected by the trusted
+build provider. The private variation secret never appears in source,
+command-line arguments, result receipts, logs or release files.
+
+The canonical neutral verifier checks both separated variation commitments,
+protected image hash, product/build context and secret-key identity; missing
+parent, copied/tampered bytes, wrong secret, forged status, schema drift,
+duplicate-key JSON and receipt substitution all deny. This module does not
+invent protector logic or alternate licensing authority. Tests in
+`tests/test_security_r54_diversity_candidate_gate.py` exercise synthetic
+positive/negative fixtures on the existing dual-OS Wave-5 workflow.
+
+The only permitted success label is
+`DIVERSITY_CANDIDATE_READBACK_ONLY` with
+`release_approved=false`. Real independent native vendor diversity,
+actual deployed protector, Windows/NVDA binary qualification and third-party
+release approval are still MISSING. No fixture may promote them to PASS.
+
 ## R52 license transport
 
 The existing Version 2 production composition now requires
