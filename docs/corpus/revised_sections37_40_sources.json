@@ -93,6 +93,38 @@
       "notes": "SHA-256 from official https://database.lichess.org/standard/sha256sums.txt; source bytes have NOT been downloaded or imported in this work pass"
     },
     {
+      "id": "lichess_standard_rated_2013_04",
+      "title": "Lichess Standard Rated 2013-04",
+      "author": "Lichess players",
+      "format": "pgn.zst",
+      "source_page": "https://database.lichess.org/standard/",
+      "download_url": "https://database.lichess.org/standard/lichess_db_standard_rated_2013-04.pgn.zst",
+      "sha256": "11c795d3c81c49fa97cd958b0984c044410c78ad90f454ed08abb57ab7d00d52",
+      "max_bytes": 33554432,
+      "indexed_bytes": 23299559,
+      "license": "CC0",
+      "redistribution": "permitted",
+      "acquisition": "PINNED_NOT_DOWNLOADED_IN_THIS_PASS",
+      "canonical_qa": "tools/revised_section37_real_cc0_readback.py",
+      "notes": "Official sha256sums.txt checksum plus /standard/ listing size 23299559 bytes; source not downloaded or imported by this catalog update; governed by live SHA256/size and 128-game canonical parser gate"
+    },
+    {
+      "id": "lichess_standard_rated_2013_08",
+      "title": "Lichess Standard Rated 2013-08",
+      "author": "Lichess players",
+      "format": "pgn.zst",
+      "source_page": "https://database.lichess.org/standard/",
+      "download_url": "https://database.lichess.org/standard/lichess_db_standard_rated_2013-08.pgn.zst",
+      "sha256": "6202408d1c1cf11b1a9043b84c6bd2c03a01cb31597863857c26ee6ff82eea1b",
+      "max_bytes": 67108864,
+      "indexed_bytes": 47706246,
+      "license": "CC0",
+      "redistribution": "permitted",
+      "acquisition": "PINNED_NOT_DOWNLOADED_IN_THIS_PASS",
+      "canonical_qa": "tools/revised_section37_real_cc0_readback.py",
+      "notes": "Official sha256sums.txt checksum plus /standard/ listing size 47706246 bytes; source not downloaded or imported by this catalog update; governed by live SHA256/size and 128-game canonical parser gate"
+    },
+    {
       "id": "gutenberg_chess_strategy_lasker",
       "title": "Chess Strategy",
       "author": "Edward Lasker; translated by J. Du Mont",
