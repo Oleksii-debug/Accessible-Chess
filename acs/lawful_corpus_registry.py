@@ -14,6 +14,7 @@ from pathlib import Path
 import re
 import stat
 import tempfile
+import zipfile
 from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
@@ -260,6 +261,58 @@ def acquire_cc0_source(record: dict, cache_dir: Path, *, opener=None) -> Path:
                 temp.unlink(missing_ok=True)
             except OSError:
                 pass
+
+
+
+def read_verified_zip_member(
+    archive_path: Path, record: dict, *, expected_member: str,
+    max_unpacked_bytes: int = 16 * 1024 * 1024,
+) -> bytes:
+    """Bounded, checksum-pinned single-member ZIP reader, never path-extracting.
+
+    This only obtains real test-source bytes. EPD/PGN semantics are delegated
+    to the existing canonical format services by later qualification stages.
+    """
+    if (
+        type(expected_member) is not str or not expected_member
+        or len(expected_member) > 128
+        or expected_member in {".", ".."}
+        or "/" in expected_member or "\\" in expected_member
+        or any(ord(char) < 0x20 for char in expected_member)
+    ):
+        raise LawfulCorpusError("ZIP member name must be a safe direct filename")
+    if (
+        type(max_unpacked_bytes) is not int
+        or not 0 < max_unpacked_bytes <= 64 * 1024 * 1024
+    ):
+        raise LawfulCorpusError("ZIP expansion budget invalid")
+    verified_local_source(archive_path, record)
+    try:
+        with zipfile.ZipFile(archive_path) as source:
+            members = source.infolist()
+            if len(members) != 1:
+                raise LawfulCorpusError("ZIP must contain exactly one file")
+            member = members[0]
+            unix_mode = (member.external_attr >> 16) & 0xFFFF
+            if (
+                member.filename != expected_member or member.is_dir()
+                or (member.flag_bits & 1)
+                or stat.S_IFMT(unix_mode) not in (0, stat.S_IFREG)
+                or member.file_size <= 0
+                or member.file_size > max_unpacked_bytes
+            ):
+                raise LawfulCorpusError("unsafe or oversized ZIP member")
+            with source.open(member, "r") as stream:
+                content = stream.read(max_unpacked_bytes + 1)
+                if len(content) != member.file_size:
+                    raise LawfulCorpusError("ZIP member length mismatch")
+                if stream.read(1):
+                    raise LawfulCorpusError("ZIP decompression exceeded bound")
+            return content
+    except LawfulCorpusError:
+        raise
+    except (OSError, RuntimeError, EOFError, zipfile.BadZipFile, zipfile.LargeZipFile) as exc:
+        raise LawfulCorpusError("verified ZIP cannot be read safely") from exc
 
 
 def qualify_offline_collection(

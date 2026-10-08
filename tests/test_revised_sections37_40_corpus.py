@@ -587,32 +587,93 @@ class RevisedCorpusContractTests(unittest.TestCase):
                             ),
                         )
 
-    def test_official_stockfish_epd_and_pgn_zip_discovery_stays_non_executable(self):
-        """Authentic upstream archive metadata is not downloaded format qualification."""
+
+    def test_official_stockfish_original_zip_bytes_provenance_and_bounded_read(self):
+        """Real upstream CC0 archive bytes, not a claim of full format roundtrip."""
+        import zipfile
+        from acs.lawful_corpus_registry import read_verified_zip_member
+        from acs.epd import parse_epd, serialize_epd
+
         records = {entry["id"]: entry for entry in load_catalog()}
+        root = Path(__file__).resolve().parents[1]
         sources = (
-            ("stockfish_startpos_epd_zip", "epd.zip", 216, "1cab3bc1cfbfe2291591d454004269b3bcda5ab3"),
-            ("stockfish_frc_openings_epd_zip", "epd.zip", 6426, "05710b911d050ba511c382f735034ae90ba35151"),
-            ("stockfish_4mvs_90_99_epd_zip", "epd.zip", 7399, "4ef91a4563e3bb310026f04b731a9ea517117d58"),
-            ("stockfish_2moves_v2_pgn_zip", "pgn.zip", 57325, "ba7bb324fa5763d961bb50d7a28d03c9462a5e51"),
+            ("stockfish_startpos_epd_zip", "epd.zip", 216, "1cab3bc1cfbfe2291591d454004269b3bcda5ab3", "startpos.epd"),
+            ("stockfish_frc_openings_epd_zip", "epd.zip", 6426, "05710b911d050ba511c382f735034ae90ba35151", "FRC_openings.epd"),
+            ("stockfish_4mvs_90_99_epd_zip", "epd.zip", 7399, "4ef91a4563e3bb310026f04b731a9ea517117d58", "4mvs_+90_+99.epd"),
+            ("stockfish_2moves_v2_pgn_zip", "pgn.zip", 57325, "ba7bb324fa5763d961bb50d7a28d03c9462a5e51", "2moves_v2.pgn"),
         )
-        for identifier, expected_format, expected_size, upstream_blob in sources:
+        for identifier, fmt, size, upstream_blob, member in sources:
             with self.subTest(source=identifier):
                 record = records[identifier]
-                self.assertEqual(record["format"], expected_format)
-                self.assertEqual(record["indexed_bytes"], expected_size)
+                archive_path = root / record["local_source"]
+                license_file = root / record["license_source"]
+                self.assertEqual(record["format"], fmt)
+                self.assertEqual(record["indexed_bytes"], size)
                 self.assertEqual(record["upstream_git_blob"], upstream_blob)
                 self.assertEqual(record["upstream_commit"], "65815ccdbc7727cd4f6aee252ba8f67fb740e92f")
-                self.assertEqual(record["acquisition"], "SOURCE_PAGE_ONLY")
-                self.assertEqual(record["redistribution"], "NOT_CLEARED")
-                self.assertIsNone(record["sha256"])
+                self.assertEqual(record["acquisition"], "VENDORED_SOURCE_VERIFIED")
+                self.assertEqual(record["max_bytes"], size)
                 self.assertIsNone(record["download_url"])
-                self.assertEqual(record["max_bytes"], 0)
+                self.assertEqual(archive_path.stat().st_size, size)
+                self.assertEqual(verified_local_source(archive_path, record), record["sha256"])
+                self.assertEqual(hashlib.sha256(license_file.read_bytes()).hexdigest(), record["license_sha256"])
+                self.assertIn(b"CC0 1.0 Universal", license_file.read_bytes())
+                content = read_verified_zip_member(
+                    archive_path, record, expected_member=member,
+                    max_unpacked_bytes=record["max_unpacked_bytes"],
+                )
+                self.assertTrue(content.strip())
+                # The upstream ZIP is a single genuine data member; no path extraction.
+                with zipfile.ZipFile(archive_path) as zf:
+                    self.assertEqual(zf.namelist(), [member])
+                    self.assertIsNone(zf.testzip())
+                if identifier == "stockfish_startpos_epd_zip":
+                    first = content.decode("utf-8").strip().splitlines()[0]
+                    parsed = parse_epd(first)
+                    self.assertEqual(parse_epd(serialize_epd(parsed)), parsed)
                 with tempfile.TemporaryDirectory() as tmp:
+                    tampered = Path(tmp) / "tampered.zip"
+                    raw = bytearray(archive_path.read_bytes())
+                    raw[0] ^= 1
+                    tampered.write_bytes(raw)
                     with self.assertRaises(LawfulCorpusError):
-                        acquire_cc0_source(record, Path(tmp), opener=lambda *_a, **_kw: self.fail(
-                            "source-only discovery must not start network acquisition"
-                        ))
+                        read_verified_zip_member(tampered, record, expected_member=member)
+                    with self.assertRaises(LawfulCorpusError):
+                        acquire_cc0_source(
+                            record, Path(tmp),
+                            opener=lambda *_a, **_kw: self.fail("vendored archive must never contact network"),
+                        )
+
+    def test_verified_zip_reader_rejects_traversal_extra_files_and_bombs(self):
+        import zipfile
+        from acs.lawful_corpus_registry import read_verified_zip_member
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            archive_path = root / "malicious.zip"
+            for names, payload, max_unpacked in (
+                (("../escape.epd",), b"safe", 1024),
+                (("safe.epd", "other.epd"), b"safe", 1024),
+                (("safe.epd",), b"x" * 4096, 1024),
+            ):
+                with self.subTest(names=names):
+                    with zipfile.ZipFile(archive_path, "w", zipfile.ZIP_DEFLATED) as zf:
+                        for name in names:
+                            zf.writestr(name, payload)
+                    raw = archive_path.read_bytes()
+                    record = {
+                        **self._record(raw),
+                        "max_bytes": max(len(raw), 1),
+                    }
+                    with self.assertRaises(LawfulCorpusError):
+                        read_verified_zip_member(
+                            archive_path, record, expected_member="safe.epd",
+                            max_unpacked_bytes=max_unpacked,
+                        )
+            with self.assertRaisesRegex(LawfulCorpusError, "ZIP member name"):
+                read_verified_zip_member(archive_path, record, expected_member="../unsafe")
+            with self.assertRaisesRegex(LawfulCorpusError, "ZIP expansion budget"):
+                read_verified_zip_member(archive_path, record, expected_member="safe.epd", max_unpacked_bytes=True)
+
 
 if __name__ == "__main__":
     unittest.main()
