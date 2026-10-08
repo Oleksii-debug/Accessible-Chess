@@ -12,6 +12,8 @@ on:
       - 'tests/test_revised_section41_design_system.py'
       - 'tests/test_revised_sections41_42_design.py'
       - 'acs/spdx_sbom.py'
+      - 'acs/version2_package_preflight.py'
+      - 'tests/test_version2_package_preflight.py'
       - '.github/workflows/revised-section41-design-assets.yml'
   workflow_dispatch: {}
 permissions:
@@ -40,7 +42,7 @@ jobs:
       - name: Compile and run real asset, accessibility, design regression
         run: |
           python -m py_compile tools/revised_section41_mit_asset_qualification.py tests/test_revised_section41_design_system.py
-          python -m unittest -v tests.test_revised_section41_design_system tests.test_revised_sections41_42_design
+          python -m unittest -v tests.test_revised_section41_design_system tests.test_revised_sections41_42_design tests.test_v2_package_required_resources
       - name: Create precise source-only MIT asset SPDX 2.3 and actual bytes receipt
         shell: bash
         run: |
