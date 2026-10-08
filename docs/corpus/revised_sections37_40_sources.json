@@ -221,16 +221,19 @@
       "format": "tsv (ECO, opening name, PGN move sequence)",
       "source_page": "https://github.com/lichess-org/chess-openings/blob/a6189a30dc273ccb21fc2536a9a2fefd5592a67a/a.tsv",
       "download_url": null,
-      "sha256": null,
-      "max_bytes": 0,
+      "sha256": "3282e4c9155289a29224f9a85fba0decb46efa35c2fa5e39662d2ac48fb0f793",
+      "max_bytes": 67257,
       "license": "CC0",
-      "redistribution": "NOT_CLEARED",
-      "acquisition": "SOURCE_PAGE_ONLY",
+      "redistribution": "permitted",
+      "acquisition": "VENDORED_SOURCE_VERIFIED",
       "upstream_commit": "a6189a30dc273ccb21fc2536a9a2fefd5592a67a",
       "upstream_git_blob": "561099854a15dfb523759aa87993a1fe480a6abc",
       "indexed_bytes": 67257,
-      "canonical_qa": "reuse existing PGN/SAN core only after lawful hash-bound acquisition; TSV is not a full PGN game database",
-      "notes": "Verified 2026-10-08 against official lichess-org/chess-openings README/COPYING.txt. This is original ECO/PGN TSV, NOT generated EPD and NOT downloaded/imported. Git blob is Git object identity, NOT SHA-256. No public/test package inclusion until byte checksum and format-specific readback."
+      "canonical_qa": "automated genuine upstream TSV byte/structure/licensing check only; NOT a full PGN database import",
+      "notes": "824 TSV lines including header, 823 original ECO A opening PGN move-line records; exact original upstream a.tsv and CC0 COPYING.txt vendored after verifying Git blob identity equality. SHA-256 of downloaded file and license pinned. This is a real source acquisition, NOT complete game PGN, ChessBase, or EPD format readback; runtime automatic network acquisition remains forbidden for TSV.",
+      "local_source": "tests/real_corpus/lichess_openings_a.tsv",
+      "license_source": "tests/real_corpus/lichess_openings_COPYING.txt",
+      "license_sha256": "a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499"
     }
   ]
 }
