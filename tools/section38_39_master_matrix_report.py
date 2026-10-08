@@ -10,10 +10,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import tempfile
 from pathlib import Path
 
 from acs.lawful_corpus_registry import load_catalog
 from acs.format_capabilities import FORMAT_CAPABILITIES
+from acs.version2_package_assembler import _publish_directory_no_replace
 from tools.revised_sections37_38_offline_manifest import ROOT
 
 
@@ -176,16 +178,36 @@ def build_master_qa_matrix() -> dict:
     }
 
 
-def main() -> None:
-    report = build_master_qa_matrix()
-    if OUTPUT_DIR.exists() or OUTPUT_DIR.is_symlink():
+def publish_master_qa_matrix(destination: Path) -> dict:
+    """No owner overwrite or half-created 800-cell evidence on interruption."""
+    if type(destination) is not Path:
+        raise TypeError("master matrix output must be a Path")
+    if destination.exists() or destination.is_symlink():
         raise FileExistsError("would overwrite the owner QA coverage report")
-    OUTPUT_DIR.mkdir(mode=0o700)
-    destination = OUTPUT_DIR / OUTPUT_FILE
-    destination.write_text(
-        json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    if not destination.parent.is_dir() or destination.parent.is_symlink():
+        raise ValueError("master QA output parent must be a direct directory")
+    report = build_master_qa_matrix()
+    raw = (
+        json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    ).encode("utf-8")
+    with tempfile.TemporaryDirectory(
+        prefix=".acs-master-matrix-", dir=destination.parent
+    ) as workspace:
+        staged = Path(workspace) / "report"
+        staged.mkdir(mode=0o700)
+        output = staged / OUTPUT_FILE
+        output.write_bytes(raw)
+        if (
+            hashlib.sha256(output.read_bytes()).digest() != hashlib.sha256(raw).digest()
+            or json.loads(output.read_text(encoding="utf-8"))["requirement_cells"] != 800
+        ):
+            raise ValueError("master matrix output failed exact readback")
+        _publish_directory_no_replace(staged, destination)
+    return report
+
+
+def main() -> None:
+    report = publish_master_qa_matrix(OUTPUT_DIR)
     print(json.dumps({
         "requirements": report["requirement_cells"],
         "format_families": report["formats"],
