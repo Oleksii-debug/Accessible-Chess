@@ -226,6 +226,10 @@ function renderBoard(snapshot) {
     });
     boardGrid.appendChild(button);
   });
+  const overlayRenderer = globalThis.AccessibleChessBoardOverlay;
+  if (overlayRenderer && typeof overlayRenderer.project === "function") {
+    overlayRenderer.project(boardGrid, ordered, visual);
+  }
   if (focusedSquare && boardGrid.children[activeIndex]) {
     boardGrid.children[activeIndex].focus({preventScroll:true});
   }

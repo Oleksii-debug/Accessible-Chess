@@ -105,3 +105,18 @@
 #board-grid[role=grid] [role=gridcell][aria-selected=true]{outline:4px solid Highlight}
 #board-grid[role=grid] [role=gridcell][data-last-move=true]{box-shadow:inset 0 0 0 4px #f59e0b}
 #board-grid[role=grid] [role=gridcell][data-legal-target=true]{border:4px dashed #16a34a}
+
+/* Teacher/coach arrows and highlights are inert visual decorations. */
+#board-grid{position:relative}
+#board-grid[role=grid] [role=gridcell][data-ac42-highlight=true]::after{
+  content:"";position:absolute;inset:4px;z-index:1;border:4px solid var(--ac42-highlight-color);
+  border-radius:.2rem;pointer-events:none
+}
+#board-grid .ac42-board-arrows{
+  position:absolute;inset:0;width:100%;height:100%;z-index:2;pointer-events:none
+}
+#board-grid [role=gridcell]:focus-visible{position:relative;z-index:3}
+@media(forced-colors:active){
+  #board-grid .ac42-board-arrows{display:none!important}
+  #board-grid[role=grid] [role=gridcell][data-ac42-highlight=true]::after{border:2px dashed Highlight}
+}
