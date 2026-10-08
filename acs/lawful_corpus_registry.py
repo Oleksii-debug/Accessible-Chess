@@ -102,8 +102,8 @@ def _https_url(url: object, *, source_page: bool = False) -> str:
         or port not in (None, 443)
         or parsed.fragment or parsed.query
         or parsed.hostname not in (
-            {"database.lichess.org", "www.gutenberg.org", "github.com"}
-            if source_page else {"database.lichess.org", "www.gutenberg.org"}
+            {"database.lichess.org", "www.gutenberg.org", "github.com", "shop.chessbase.com"}
+            if source_page else {"database.lichess.org", "www.gutenberg.org", "de.chessbase.com"}
         )
     ):
         raise LawfulCorpusError("source URL must be recognized, credential-free HTTPS")
@@ -212,6 +212,10 @@ def acquire_cc0_source(record: dict, cache_dir: Path, *, opener=None) -> Path:
     ):
         raise LawfulCorpusError("source lacks explicit CC0/format/pinned permission")
     url = _https_url(record.get("download_url"))
+    # Discovery catalog may link to copyrighted CBV examples; automatic CC0
+    # transfer remains restricted to the authoritative Lichess archive host.
+    if urlsplit(url).hostname != "database.lichess.org":
+        raise LawfulCorpusError("automatic CC0 acquisition host not authorized")
     digest = record.get("sha256")
     if type(digest) is not str or not _HASH.fullmatch(digest):
         raise LawfulCorpusError("source lacks pinned SHA256")
