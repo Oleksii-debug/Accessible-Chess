@@ -503,3 +503,32 @@ consensus, independent rollback anchor, authenticated production operator,
 or a safe live cutover deployment. None of those capabilities or user data
 transfers are claimed. This journal is not a second issuer, ledger of
 entitlements or migration cutover decision-maker.
+
+
+## R62 concrete durable incident journal — staged product adapter
+
+`acs/protection_incident_sqlite_journal.py` supplies an ACID single-host SQLite
+R62 `reserve`/`complete` journal for the existing `TrustedIncidentBoundary`
+without changing its neutral `LeakResponseService` or R22 revocation issuer.
+The journal commits an exact case/proof digest in UNKNOWN before ANY R22
+mutation, admits only one literal NEW reservation across SQLite workers, and
+never silently retries after lost responses or restart. `complete` requires a
+separately injected independent readback of the *same active R22 revocation ID*,
+commits the exact ID, reopens persisted state, and verifies its active status
+again. After restoration or replacement, readback returns UNKNOWN_FAIL_CLOSED
+even when the SQL row is still COMMITTED; a second reservation remains denied.
+Canonical neutral R61 watermark verification and independent human/operator
+approval still precede every R22 effect. No second identity, license issuer,
+forensic attribution or active-revocation authority is created.
+
+`tests/test_security_r62_sqlite_incident_journal.py` uses actual canonical
+`LeakResponseService` and `RevocationAuthority` test fixtures with SQLite
+durability, concurrency, replay, corrupt schema, false R22 evidence and
+post-restore invalidation. The existing dual-OS Wave-5 CI compiles and runs
+this suite; registration alone is NOT an executed green run.
+
+External still required: production issuer allocation ledger and private R61
+signer, signed independent forensic corroboration, actual durable R22 server,
+separately anchored anti-rollback backup/HA, authenticated human approval,
+physical Windows protected artifact, native vendor and independent release
+qualification. Do not claim R62 live production, shipping or terminal DONE.
