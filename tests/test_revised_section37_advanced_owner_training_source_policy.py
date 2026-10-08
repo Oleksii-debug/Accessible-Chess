@@ -78,6 +78,23 @@ class OwnerLevelAndProvenanceTests(unittest.TestCase):
         self.assertIn("PGN", thirteen["notes"])
         self.assertIn("128264", thirteen["event_link"])
 
+    def test_genuine_historical_study_sources_have_authorship_but_no_licensed_original_bytes(self):
+        originals = {item["id"]: item for item in load_catalog()}
+        for ident, blob in (
+            ("grigoriev_historical_original_studies_pgn_unlicensed", "17d0dacf901c5c2fdef68f1d8aa39f70f44890cb"),
+            ("kasparian_domination_original_studies_pgn_unlicensed", "f5bf291e576282bfbe1ae85fb6901690267ac4db"),
+        ):
+            with self.subTest(studies=ident):
+                r = originals[ident]
+                self.assertEqual(r["upstream_git_blob"], blob)
+                self.assertEqual(r["acquisition"], "SOURCE_PAGE_ONLY")
+                self.assertEqual(r["redistribution"], "NOT_CLEARED")
+                self.assertEqual(r["public_release"], "EXCLUDED")
+                self.assertEqual(r["test_access"], "EXTERNAL_LINK_ONLY")
+                self.assertIsNone(r["download_url"])
+                self.assertIsNone(r["sha256"])
+                self.assertEqual(r["max_bytes"], 0)
+
     def test_authentic_composed_study_scope_is_distinct_from_practical_endgames(self):
         source = {r["id"]: r for r in load_catalog()}
         source_page = source["chessbase_online_genuine_endgame_studies"]
