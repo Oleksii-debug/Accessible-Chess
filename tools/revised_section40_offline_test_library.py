@@ -37,7 +37,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PROFILES = frozenset({"TEST_BUILD", "PUBLIC_RELEASE"})
 _FIXED_DATE = (1980, 1, 1, 0, 0, 0)
 _MAX_ZIP_BYTES = 80 * 1024 * 1024
-_GAME_SAMPLE_COUNT = 32
+_GAME_SAMPLE_COUNT = 512
 _PGN_SOURCE_ID = "stockfish_2moves_v2_pgn_zip"
 
 
@@ -144,6 +144,7 @@ def _books_and_training():
 
 
 def _real_library_sample(root: Path, catalog: tuple[dict, ...], work: Path):
+    """Three real collection sizes and one durable, searchable canonical ACSDB."""
     record = next((r for r in catalog if r["id"] == _PGN_SOURCE_ID), None)
     if record is None or record.get("acquisition") != "VENDORED_SOURCE_VERIFIED":
         raise OfflineCollectionError("pinned real PGN corpus is absent")
@@ -166,7 +167,11 @@ def _real_library_sample(root: Path, catalog: tuple[dict, ...], work: Path):
                 break
     if len(frames) != _GAME_SAMPLE_COUNT:
         raise OfflineCollectionError("original archive has too few canonical PGN games")
-    source_pgn = ("\n".join(frames)).encode("utf-8")
+    samples = {
+        size: ("\n".join(frames[:size])).encode("utf-8")
+        for size in (32, 128, _GAME_SAMPLE_COUNT)
+    }
+    source_pgn = samples[_GAME_SAMPLE_COUNT]
     games = parse_pgn_text(source_pgn.decode("utf-8"), strict=False)
     if len(games) != _GAME_SAMPLE_COUNT or not all(g.line.moves for g in games):
         raise OfflineCollectionError("real PGN sample cannot be parsed")
@@ -176,7 +181,7 @@ def _real_library_sample(root: Path, catalog: tuple[dict, ...], work: Path):
     source_sha = _digest(source_pgn)
     with AcsDatabase(db_path) as db:
         result = LibraryImportService(db).import_games(
-            games, source_name="Stockfish CC0 2moves_v2 first 32 verified games",
+            games, source_name="Stockfish CC0 2moves_v2 first 512 verified games",
             source_format="pgn", source_sha256=source_sha,
         )
         if result.reused or result.game_count != _GAME_SAMPLE_COUNT:
@@ -186,6 +191,9 @@ def _real_library_sample(root: Path, catalog: tuple[dict, ...], work: Path):
         source = LibrarySourceCatalogService(db).get_source(result.source_id)
         if source is None or source.game_count != _GAME_SAMPLE_COUNT or source.source_sha256 != source_sha:
             raise OfflineCollectionError("canonical Library restart/readback failed")
+        page = LibrarySourceCatalogService(db).source_games(result.source_id, limit=32)
+        if len(page.items) != 32 or any(x.source_index != i for i, x in enumerate(page.items)):
+            raise OfflineCollectionError("source search/index readback failed")
         again = LibraryImportService(db).import_games(
             games, source_name="repeat verified offline QA source",
             source_format="pgn", source_sha256=source_sha,
@@ -194,17 +202,18 @@ def _real_library_sample(root: Path, catalog: tuple[dict, ...], work: Path):
             raise OfflineCollectionError("canonical Library idempotent readback failed")
         db.verify_integrity()
     assets = {
-        "library/real-stockfish-first-32.pgn": source_pgn,
-        "library/real-stockfish-first-32.acsdb": db_path.read_bytes(),
+        f"library/real-stockfish-first-{size}.pgn": blob
+        for size, blob in samples.items()
     }
+    assets["library/real-stockfish-first-512.acsdb"] = db_path.read_bytes()
     return assets, {
-        "source_id": _PGN_SOURCE_ID, "game_count": _GAME_SAMPLE_COUNT,
+        "source_id": _PGN_SOURCE_ID,
+        "game_count": _GAME_SAMPLE_COUNT, "sample_sizes": [32, 128, 512],
         "derivative_pgn_sha256": source_sha, "database_sha256": _digest(assets[
-            "library/real-stockfish-first-32.acsdb"]),
-        "import_status": "CANONICAL_LIBRARY_IMPORTED_RESTART_REUSED",
-        "scope_note": "32 real derivative games, not 12092 imported games",
+            "library/real-stockfish-first-512.acsdb"]),
+        "import_status": "CANONICAL_LIBRARY_IMPORTED_RESTART_REUSED_SEARCHED",
+        "scope_note": "512 verified original mini-games, not 12092 imported games",
     }
-
 
 def build_collection(profile: str, output: Path, *, root: Path = ROOT) -> dict:
     """Create exactly one immutable, rights-separated ZIP with readback.
@@ -241,7 +250,7 @@ def build_collection(profile: str, output: Path, *, root: Path = ROOT) -> dict:
             "Accessible Chess: офлайнова бібліотека для перевірок.\n"
             "Файли books/*.json читає канонічний BookDocument; training/*.json "
             "містить авторські вправи. У TEST_BUILD файл library/*.acsdb "
-            "містить 32 справжні PGN-партії, імпортовані через існуючу Library.\n"
+            "містить 512 справжніх PGN-партій та добірки 32/128/512, імпортовані через існуючу Library.\n"
             "PUBLIC_RELEASE містить лише дозволені джерела й посилання; "
             "заборонено трактувати посилання як дозвіл передруку.\n"
             "Тут немає Windows EXE чи підтвердження NVDA. Не видаляйте "
@@ -250,7 +259,7 @@ def build_collection(profile: str, output: Path, *, root: Path = ROOT) -> dict:
         assets["README_EN.txt"] = (
             "Accessible Chess offline corpus for QA. Canonical BookDocument "
             "course/booklets and authored Training examples are included. "
-            "TEST_BUILD also contains 32 genuine PGN games in canonical ACSDB. "
+            "TEST_BUILD contains real 32/128/512 game collections and 512 genuine games in canonical ACSDB. "
             "PUBLIC_RELEASE is more restrictive and includes links only for "
             "unqualified external sources. This is not a Windows EXE, "
             "an NVDA acceptance report, or a complete Section 40 closure.\n"
