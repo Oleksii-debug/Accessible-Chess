@@ -65,7 +65,7 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _minimal_windows_pe(*, machine: int = 0x8664, managed: bool = False) -> bytes:
+def _minimal_windows_pe(*, machine: int = 0x8664, managed: bool = False, dll: bool = False) -> bytes:
     data = bytearray(1024)
     data[0:2] = b"MZ"
     pe_offset = 0x80
@@ -76,12 +76,14 @@ def _minimal_windows_pe(*, machine: int = 0x8664, managed: bool = False) -> byte
     data[coff + 2:coff + 4] = (1).to_bytes(2, "little")
     optional_size = 0xF0 if machine == 0x8664 else 0xE0
     data[coff + 16:coff + 18] = optional_size.to_bytes(2, "little")
-    data[coff + 18:coff + 20] = (0x0022).to_bytes(2, "little")
+    characteristics = 0x0022 | (0x2000 if dll else 0)
+    data[coff + 18:coff + 20] = characteristics.to_bytes(2, "little")
     optional = coff + 20
     pe32_plus = machine == 0x8664
     data[optional:optional + 2] = (
         (0x20B if pe32_plus else 0x10B).to_bytes(2, "little")
     )
+    data[optional + 68:optional + 70] = (0x0002).to_bytes(2, "little")
     section = optional + optional_size
     data[section:section + 8] = b".text\x00\x00\x00"
     data[section + 8:section + 12] = (0x1000).to_bytes(4, "little")
@@ -130,6 +132,7 @@ class Version2PackageAssemblerTests(unittest.TestCase):
                         else 0x8664
                     ),
                     managed=relative in _REQUIRED_MANAGED_DESKTOP_RUNTIME_FILES,
+                    dll=Path(relative).suffix.lower() in {".dll", ".pyd"},
                 )
             )
         for name in _REQUIRED_WEB:
