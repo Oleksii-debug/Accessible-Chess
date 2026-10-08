@@ -1,0 +1,534 @@
+# Security Wave 5: first product-boundary integration, R51–R73
+
+Status: **DRAFT / STAGED / NOT SHIPPING / NOT PHYSICALLY QUALIFIED**.
+Stacked on the existing canonical Wave 4 PR #2497. The first existing unmerged
+security wave remains a mandatory predecessor. This document does not replace
+the canonical neutral R00–R73 security plan or its terminal ledger.
+
+## R51 independent vendor PoC
+
+The build-only scripts/security_r51_vendor_poc_gate.py binds a vendor trial to
+the *actual* protected product artifact digest and exact build SHA-256.
+Reviewer public keys come only from a separate approved key inventory with
+an independently pinned SHA-256, never from the vendor report. A detached
+Ed25519 signature covers the complete canonical report and reviewer identity.
+
+The evaluator itself remains the existing neutral
+continuum_runtime.vendor_evaluation.assess_vendor. No duplicate vendor
+selection, native protector, license issuer or alternative proof authority.
+Even a QUALIFIED independently signed vendor PoC is **not** a selected vendor
+or approved product release. Synthetic, forged, stale, revoked, incomplete
+NVDA/Windows/performance/cost/support evidence cannot become release PASS.
+
+## R53 vendor-protector candidate byte intake (build-only, not product deployment)
+
+The existing Wave-5 PR now also stages
+`scripts/security_r53_protector_candidate_gate.py` as a **build-only**
+candidate-readback adapter. It reuses the canonical neutral
+`continuum_runtime.commercial_protector.ProtectorProfile`,
+`ProtectedCandidate`, and `check_candidate`, without another protector,
+vendor-selection authority, license issuer, or client runtime. The adapter
+requires externally pinned source, protector-tool, recipe SHA-256 and exact
+build ID; parses bounded strict-schema candidate/profile receipts; verifies
+both the real original-file and protected-file bytes; and rejects malformed
+JSON, duplicate fields, symlinks, substitution, mutated/oversized images,
+forged integer fields, status escalation, tampered protected bytes, and an
+unchanged source image passed off as protected. It deliberately does not
+sign anything, approve releases, or supply an actual vendor SDK.
+
+A passing readback is only `CANDIDATE_BYTE_INTEGRITY_ONLY` and explicitly
+reports `release_approved=false`, `independent_vendor_qualification=REQUIRED`,
+and `protected_windows_nvda_qualification=REQUIRED`. The independent
+R51 vendor evidence authority remains separate, as do R54–R62 actual
+production protector qualification and real Windows/NVDA acceptance.
+`tests/test_security_r53_protector_candidate_gate.py` exercises synthetic,
+tamper, trust-binding and path-substitution cases in the existing dual-OS
+Wave-5 workflow. No real commercial protector is claimed installed.
+Workflow registration is **not an executed CI PASS**; verify exact-SHA
+hosted results independently before advancing this candidate.
+
+## R54 protected-build diversity readback (build-only)
+
+The existing canonical `continuum_runtime.protection_diversity`
+`check_diverse_candidate` is now exposed to the product's **build-time
+qualification** only by
+`scripts/security_r54_diversity_candidate_gate.py`. This requires an
+already-qualified **R53 candidate** against the actual source and protected
+bytes, an externally pinned opaque product SHA-256, the existing exact
+protector profile and a confidential per-build secret injected by the trusted
+build provider. The private variation secret never appears in source,
+command-line arguments, result receipts, logs or release files.
+
+The canonical neutral verifier checks both separated variation commitments,
+protected image hash, product/build context and secret-key identity; missing
+parent, copied/tampered bytes, wrong secret, forged status, schema drift,
+duplicate-key JSON and receipt substitution all deny. This module does not
+invent protector logic or alternate licensing authority. Tests in
+`tests/test_security_r54_diversity_candidate_gate.py` exercise synthetic
+positive/negative fixtures on the existing dual-OS Wave-5 workflow.
+
+The only permitted success label is
+`DIVERSITY_CANDIDATE_READBACK_ONLY` with
+`release_approved=false`. Real independent native vendor diversity,
+actual deployed protector, Windows/NVDA binary qualification and third-party
+release approval are still MISSING. No fixture may promote them to PASS.
+
+## R52 license transport
+
+The existing Version 2 production composition now requires
+acs.protection_license_container_boundary.require_private_license_container
+when the already canonical private runtime reports API v5.
+The request supplies only exact release build/package/state roots; it does NOT
+allow browsers/users to supply account IDs, device IDs, transport modes,
+subscription state or signatures. The private runtime must use the existing
+neutral R52 license-container contract and R08/R45/R29 authorization.
+Missing operation, failed trust, malformed/forged boolean/API/build, transport
+outage and unavailable medium fail closed before premium data construction.
+Previous v1–v4 private runtime behavior remains unchanged.
+
+The private API v5 implementation and a real commercial vendor backend are
+**not** deployed in this public PR. This is a product-side contract candidate,
+not proof of working machine/cloud/hardware/enterprise provider access.
+
+## R65 server-side paid operation dispatch (prepared)
+
+The existing canonical acs.server_application_boundary.ServerApplicationBoundary
+now supports per-operation trusted-server paid authorization, without creating
+a second subscription issuer or reading browser "paid" flags. Paid operations
+are explicitly registered by a trusted server as premium_required=True.
+Missing authoritative premium_guard prevents that server configuration from
+starting. The guard executes after principal/workspace/permission validation
+but before a synchronous handler's side effects; only literal True proceeds.
+Exceptions, truthy impostors, or no guard fail closed. Heavy queued premium
+operations are refused until the worker-time entitlement/UNKNOWN reconciliation
+boundary exists, so an authorized enqueue cannot become an unverified
+post-expiry execution. Existing nonpremium operations retain their behavior.
+
+The trusted callback must be backed by the pre-existing continuum R63/R64/R65
+subscription/billing/quota authorities and durable production stores. The
+public product does **not** synthesize that backend, issue paid receipts,
+implement a billing provider, or declare LIVE server deployment.
+
+## R55 first-party whole-binary readback (prepared)
+
+`scripts/security_r55_whole_binary_gate.py` uses the accepted neutral
+`continuum_runtime.whole_binary.check_whole_binary` and R53/R54 receipt chain
+against real application EXE file bytes. This first product-specific boundary
+allows only `AccessibleChess.exe`. It explicitly excludes GPL Stockfish and
+other third-party Python/WebView2/.NET executables from proprietary wrapping.
+Each candidate binds exact R55 plan, trusted build identity, product digest,
+source and protected file bytes, externally injected build variation secret,
+and whole-binary manifest. Missing/malformed/changed sources or receipts deny.
+The comparison is structural PE and SHA integrity **only**; it cannot prove a
+commercial protector was run. The candidate never issues release authorization
+and never appears in the shipped executable.
+
+The existing dual-OS Wave-5 workflow includes `tests/test_security_r55_whole_binary_gate.py`
+covering synthetic PE candidate, tampering, cross-build/release reuse, receipt
+forgery, symlink, source-copy bypass, and third-party scope rejection.
+
+## R56 function-level candidate manifest (prepared)
+
+`scripts/security_r56_function_candidate_gate.py` calls the already-verified
+R55 AccessibleChess.exe verifier first. Only then can the canonical neutral
+`continuum_runtime.function_protection.check_functions` validate an exact
+build-only protected-function payload manifest and its R55 parent digest.
+Accessible Chess permits only first-party `AccessibleChess.exe` targets;
+neutral R56 explicitly refuses accessibility, screen-reader, input, keyboard,
+UI, audio, startup and realtime function identifiers. No decryption loader,
+plaintext key or separate client-side entitlement authority is introduced.
+Tests cover parent tampering, ciphertext replacement/removal, a forged
+function manifest and attempts to protect NVDA/input or third-party modules.
+This is digest verification of supplied ciphertext only, not proof of real
+native on-demand encryption, runtime key secrecy or approved release.
+
+## R53–R62 and R63–R72
+
+The neutral source components are terminally closed in continuum-runtime
+for repository-controlled scope. They are not automatically integrated into
+Chess by importing their synthetic fixtures. Real protector integration,
+commercial attestation, signed server subscriptions, durable per-operation
+billing/quota storage, production migration, independently run physical
+offline/online red-team and incident response remain NOT CONFIGURED/
+NOT VERIFIED. No unconditional PASS, silent fallback or release override.
+
+## R73 signed release-convergence intake
+
+The build-only scripts/security_r73_product_evidence_gate.py reuses the single
+canonical neutral R73 evaluate_convergence. Its trusted independent Ed25519
+verifier keys are provided via a separately SHA-256-pinned protected inventory.
+It binds each physical/source/simulation attestation to actual shipped
+AccessibleChess artifact bytes, source SHA-256, scope, residual-risk SHA-256,
+build/channel, freshness and sequence. All 13 existing R73 control families
+must have independently signed INTEGRATED/ACCEPTED evidence for a physical
+assessment. Even a valid physical result returns
+PHYSICAL_EVIDENCE_REQUIRES_INDEPENDENT_RELEASE_DECISION and
+release_approved=false. Missing or fake proof fails closed. This verifier
+does not perform release publishing, licensing or generate signatures.
+
+The workflows/security-wave5-r73-product-evidence.yml exact-head workflow
+executes negative contract tests on Windows/Linux and pins the existing
+neutral R73 verifier to continuum-runtime SHA
+95f46b0dbcace6b3139c01afa50830f803c954e8.
+Fixture results remain synthetic. No real Windows/NVDA user acceptance,
+commercial protector PoC, private provider deployment, independent signed
+release decision, shipping merge, or R51–R73 terminal product integration
+is claimed.
+
+## R57–R60 private commercial runtime startup — source candidate only
+
+The existing `acs.protection_hardened_boundary.HardenedReleaseBoundary`
+now enforces four additional **independent private v5** verifier receipts,
+in fixed order: R57 protected native-runtime integrity, R58 independently
+verified instrumentation-clear policy, R59 scoped sensitive-memory admission,
+and R60 ephemeral endpoint key assurance. The check IDs are fixed product
+constants; the public client cannot select tests or supply trust verdicts.
+
+`acs.version2_release_app` invokes this existing private boundary *after*
+R42/R44–R50 and the existing R52 license-container gate, and *before* any
+normal user-data recovery, local database, profile, Stockfish, or other premium
+composition. A missing check, denied check, exception, mismatched build/check,
+forged boolean or API version, or unsupported private runtime fails closed;
+recovery/login/help/update/own-data rights remain under the original
+`ProtectionDecision` rather than any new grant. Previous v1–v4 behavior
+remains exactly on its existing path.
+
+No client-side debugger detection, native page hook, plaintext decryption,
+embedded key, secret exposure, anti-dump process termination, NVDA blocking
+or secondary license issuance is introduced. All native R57–R60 validation,
+independent signatures, replay/clock/proof checks and Windows accessibility
+qualification must be implemented in a real independently verified private
+provider. Its deployed implementation is **NOT AVAILABLE** and these fake
+tests do **NOT** demonstrate actual commercial anti-tamper or white-box
+protection. A mock provider is a contract test only.
+
+`tests/test_security_r57_r60_product_runtime.py` covers check coverage,
+exact-version and exact-boolean rejection, forged/replayed receipts, per-check
+deny/recovery, private error sanitization, and startup short-circuit before
+user-data or engine. The existing dual-OS Wave-5 workflow compiles and runs
+this suite. CI registration is not a PASS; verify exact-head executed results.
+
+R61 signed per-artifact attribution is a trusted build/issuer operation and R62
+leak attribution / revocation is a trusted incident-response service; neither
+may be converted into a public-client license check or a self-issued release
+PASS. R63/R64 require independent provider-backed subscription/billing
+authority and durable reconciliation; R66–R72 require independent physical or
+operational evidence. Those capabilities are not proven deployed here.
+
+## R61 independent post-protection attribution — build-only
+
+`scripts/security_r61_attribution_gate.py` verifies a separately issued,
+detached Ed25519 attribution envelope against the actual first-party protected
+artifact's immutable file bytes and an independently pinned key inventory.
+It reuses **the canonical** `continuum_runtime.watermark_attribution.verify_attribution`
+and the same outside-pinned `verifier_public_keys` trust schema used by R73.
+It reads a bounded regular file and rejects symlinks, race/substitution,
+tampered artifacts, build mismatch, missing/forged signatures, unknown keys,
+inventory swap, malformed and duplicate-key envelopes. Markers are not issued
+inside the public client; customer allocation identifiers, issuer signing
+secrets and tag values are not returned to product logs.
+
+This neutral R61 verifier has a 16 MiB per-artifact ceiling: larger native
+packages MUST be qualified through a separately designed signed component
+manifest, not silently truncated or accepted. The receipt is only
+`INDEPENDENT_SIGNATURE_BYTE_READBACK_ONLY`, always
+`release_approved=false`; real vendor instrumentation, customer allocation
+provenance, Windows/NVDA physical release and trusted R62 service actions
+remain independent unverified requirements.
+
+`tests/test_security_r61_attribution_gate.py` exercises signed synthetic
+contracts and negative byte, signature, build, pinned-trust, malformed JSON,
+symlink and missing-envelope cases in the existing Wave-5 dual-OS workflow.
+No actual provider signature or release qualification is claimed until an
+independent trusted issuer supplies it.
+
+## R62 trusted operator-only incident/revocation boundary — staged contract
+
+`acs/protection_incident_response_boundary.py` stages a server-only
+`TrustedIncidentBoundary` that delegates signed marker verification,
+independent corroboration and specifically approved R22 effects to the existing
+`continuum_runtime.leak_response.LeakResponseService`. Its caller must inject
+an independently authenticated operator-authorizer and an ACID durable case
+journal; the product does NOT provide these production services, incident
+credentials, public browser routes, a second revocation authority or a signing
+key. A journal reserves an exact context digest in UNKNOWN *before* any
+revocation, permitting only literal NEW. On denial/partial commit/exception
+the case remains UNKNOWN and **must** undergo trusted reconciliation; replay
+never repeats the mutation. Successful canonical R22 effect must be durably
+recorded and read back before the bridge acknowledges it. Account-wide
+revocation and client-issued entitlement remain forbidden.
+
+`tests/test_security_r62_incident_response_boundary.py` uses a deliberately
+in-memory test journal and synthetic Ed25519 marker solely to exercise role
+denial, signed proof, independent review, target-only effect, replay, forged
+input and uncertain-write cases. It is wired to the existing Wave-5 dual-OS
+workflow. **Not deployed**: production trusted operator credentials, durable
+journal, real R22 backend, commercial watermark allocation/forensic evidence,
+appeal/recovery, protected Windows release and independent release approval.
+The R62 product state is **STAGED ONLY / NOT SHIPPING / NOT INTEGRATED**.
+
+## R63/R64 shared billing state into existing R65 server admission — staged
+
+`acs/protection_paid_server_binding.py` is a thin server-side composition
+over the EXISTING neutral `BillingAdapter`, `SubscriptionPolicyBackend`,
+`ServerPremiumGuard` and current Chess `ServerApplicationBoundary`.
+One injected R64 atomic store supplies R63 subscription readback; no browser
+payment confirmation, client license issuer or alternative subscription
+database is created. The optional `CanonicalPaidOperationCallback` accepts
+only authenticated SERVER-RESOLVED transport, checks authenticated actor and
+session identity and delegates exact payload bytes/device/build/request to
+canonical R65. Only a literal NEW `OperationAdmission` from the identical
+canonical R65 ledger can start work; UNKNOWN/CONFIRMED/forged/cross-account
+or unconfigured context deny. The existing paid-heavy queue refusal remains.
+
+The product itself does NOT contain the provider-specific webhook verifier,
+a signed API snapshot implementation, durable transactional billing/payment
+store, production session/device resolver, an ACID premium ledger or a
+deployed paid endpoint. Test fixtures explicitly use only an in-memory
+billing store and synthetic verifier; they are not production integration.
+No payments, customer changes, entitlement grants or release authorization
+are executed by these source changes.
+
+`tests/test_security_r63_r65_paid_server_binding.py` covers current-state
+billing replay, revoked/expired grant denial, stale sequence, strict
+trusted-transport binding, NEW-only admission, UNKNOWN/replay denial and
+exception redaction. W5 dual-OS tests are registered but not presumed to PASS.
+**R63–R65: STAGED CONTRACT, NOT DEPLOYED / NOT SHIPPING.**
+
+## R69/R71 adversarial evidence intake against exact protected release — staged
+
+`scripts/security_r69_r71_adversarial_evidence_gate.py` verifies exact
+protected-artifact file SHA-256, separate SHA-256 pinned independent
+verifier-key inventory, strict versioned JSON and replay floors.
+R69 dispatches to canonical `continuum_runtime.offline_crack_qualification`;
+R71 dispatches to canonical `continuum_runtime.protector_release_qualification`
+with fixed Windows x64 / exact build identity. These are the ONLY signed-evidence
+authorities. No vulnerable binary probing, key issuing, commercial protector,
+new neutral verifier, self-issued PASS or automatic release acceptance occurs.
+Synthetic evidence is categorized `FIXTURE_EVIDENCE_ONLY`, missing or mixed
+evidence `INCONCLUSIVE`, forged/stale/replayed/altered bytes DENIED, real
+PHYSICAL attestations still independently require verified execution and
+final human release decision. `release_approved` is always `false`.
+
+The dual-OS Wave-5 workflow includes focused synthetic/negative tests from
+`tests/test_security_r69_r71_adversarial_evidence_gate.py`. Actual
+protected Windows image, physical adversarial campaign, verifier independence,
+Windows/NVDA/AV approval and independent release verdict do not exist in this
+repository. **Candidate tooling only; R69/R71 product physical status
+NOT_VERIFIED; this does NOT unblock PR #2497 or release.**
+
+## R72 independently signed incident-response evidence and update gate — staged
+
+`scripts/security_r72_incident_evidence_gate.py` is a release/operations
+readback adapter over canonical `continuum_runtime.incident_response.assess_incident`
+and the existing R34 update metadata verifier. All reviewer, effect witness and
+update signing public keys come from one independently SHA-256-pinned inventory
+outside untrusted evidence. R72 intake authenticates exact source hash, actual
+incident evidence file bytes, signed incident case, unique effect receipts and
+emergency update metadata. Missing effects remain PENDING, UNKNOWN cannot be
+replayed or turned into CONFIRMED without an independently signed later witness.
+Actual compromised key/build, expiry/sequence/rollback and update floor are
+verified by the neutral R72/R34 authority. There is NO outbound key rotation,
+revocation, installation, account recovery or second mutation authority.
+
+`tests/test_security_r72_incident_evidence_gate.py` supplies isolated fake
+Ed25519 issuers to demonstrate signed receipt format, strict trust-pin binding,
+wrong source/evidence, forged case, replay, unfinished and UNKNOWN outcomes.
+Any complete synthetic signed receipts remain **NOT verified physical operator
+execution**, and `release_approved=false` in every result. No production
+incident, independent verifier, signed physical Windows shipping evidence or
+real emergency update deployment is claimed. **R72 source staged; not shipping
+or terminal product integration.**
+
+## R66 optional high-assurance server operation — source candidate, NOT deployed
+
+`acs/protection_high_assurance_server_binding.py` composes the existing neutral
+`continuum_runtime.high_assurance.OptionalHighAssurance` *before* the single
+already existing R65 `CanonicalPaidOperationCallback`. A trusted server,
+not a browser or an untrusted request payload, binds the candidate, exact
+protected-build SHA-256, fresh independently qualified external evidence,
+baseline service authorization and trusted time. The R66 result is additive:
+it can deny but cannot authorize a capability, create a subscription, reserve
+quota, issue a seat, bypass R65, or approve product release. R65 still
+requires a fresh literal NEW operation admission and keeps UNKNOWN fail-closed.
+
+Deployment selects this optional callback only for explicitly registered
+sensitive paid operations; ordinary R65 operations retain their existing
+callback, and Class-C recovery remains outside premium/hardware restrictions.
+Absent, forged, expired, synthetic, mismatched, unverified, failed NVDA,
+rollback/recovery or provider-outage evidence denies without software
+fallback and without contacting the R65 effect ledger. Exceptions return
+a bounded boolean denial, not private vendor/device details.
+
+`tests/test_security_r66_high_assurance_server_binding.py` exercises the
+server composition, evidence gating, malicious types, expiry/future,
+baseline denial, wrong operations, private verifier exceptions, R65 UNKNOWN
+and no paid-reservation on rejection. The canonical Wave-5 dual-OS workflow
+includes compilation and this focused suite; an unstarted or queued workflow
+is not an executed PASS. No genuine USB/cloud vendor, independently audited
+verifier, native protected artifact, physical Windows/NVDA or external
+release qualification has been supplied. This remains a DRAFT source
+candidate in PR #2498; it does not increment the shipping-integrated count.
+
+## R67 enterprise LAN seats — optional server-only product bridge (NOT DEPLOYED)
+
+`acs/protection_enterprise_seat_server_binding.py` reuses the exact neutral
+`continuum_runtime.enterprise_seats.EnterpriseSeatServer` implementation and
+its R52 → R45 → R29 signed-entitlement gate. The trusted server callback receives
+only a previously authenticated `AuthenticatedPrincipal`, not any browser
+identity or license content; it supplies the canonical fixed ENTERPRISE
+`ContainerRequest`, signer key inventory, trusted clock, service context,
+minimum policy version and R29 enforcer. Checkout accepts no client-selected
+site/account/build/mode/capacity. Checkin accepts only a bounded opaque ticket,
+whose site/account/device/build/boundary ownership is independently enforced
+by R67. Both require the existing server `enterprise.seat.use` permission.
+The bridge does not issue transferable offline licences, capability grants,
+subscriptions, or a new licensing/storage authority.
+
+The external operator must provision a real R52 signed enterprise adapter, a
+single-host SQLite ledger, a separately durable monotonic CAS anchor, verified
+integrity key, site and capacity, a trusted server clock and a recovery plan.
+The bridge never auto-creates a ledger or retries ambiguous admission/release;
+a missing or uncertain effect requires read-only operator reconciliation.
+The R67 canonical repository component already enforces row-set authenticated
+capacity (including deletion), trusted anchor, restart and rollback rules.
+Neither this adapter nor its synthetic tests qualifies HA or real vendor
+borrowing: unsupported vendor offline borrowing remains denied.
+
+`tests/test_security_r67_enterprise_seat_server_binding.py` validates
+authenticated server-only identity, absent permission, forged browser context,
+malformed tickets, bad resolvers, safe denial and no blind unknown replay. The
+same Wave-5 dual-OS workflow includes the exact upstream R67 ledger/anchor
+suite on its frozen upstream SHA. Hosted execution is unverified while jobs
+remain queued; do not claim a live LAN seat server, native protected
+Windows build or product shipping integration from these fixtures.
+
+## R68 production-backend cutover — trusted operator integration (NOT DEPLOYED)
+
+`acs/protection_backend_migration_binding.py` reuses the one canonical
+`continuum_runtime.backend_migration.MigrationCutover`, rather than
+introducing another migration journal, credential issuer, database adapter,
+entitlement authority or active-route registry. The bridge is deliberately
+**operator only**, with NO browser/API route. The operator must have the
+existing trusted `migration.operator` role, `backend.migrate` permission
+and separate independent server-side authorization. A separately approved
+trusted migration job supplies the existing R68 `MigrationProof` and exact
+authenticated backup; public input cannot choose source, target, scope,
+revision, signer, device or route.
+
+R68 itself independently authenticates proof/backup, checks source revisions,
+fences and rechecks source, verifies target SHA readback, journals all
+side effects and uses a durable consensus/CAS routing authority. The product
+bridge does not bypass those checks. Its only successful execution result
+is a canonical `CUTOVER_COMMITTED`; every uncertain result is
+`UNKNOWN_FAIL_CLOSED` without automatic retry. Its separate
+`reconcile` endpoint is read-only and cannot repeat effects or mint a PASS
+based on a route pointer alone. All failures redact provider details.
+
+`tests/test_security_r68_backend_migration_binding.py` covers trusted
+operator authorization, untrusted job/missing proof, malformed attributes,
+stale/failing approvals, ambiguous writes and read-only reconciliation.
+The Wave-5 dual-OS CI also runs the existing upstream R68 component tests
+on the pinned neutral source. This is repository-controlled server
+integration only: no actual production data export, HA target, real
+database/backup restoration, durable external CAS, routed traffic, Windows
+shipping integration or independently approved migration has occurred.
+
+## R70 online/account adversarial regression intake — source CI only
+
+The existing canonical R70 verifier and attack regression suite
+`continuum_runtime/tests/test_r70_online_account_attack_qualification.py`
+are now included in the same exact-head Wave-5 Linux/Windows qualification as
+the existing product Wave-2 online entitlement suite. This reuses, rather
+than duplicates, the existing R08 signed entitlement, R17 account directory,
+R18 session manager, R19 device registry, R20 issuer, R21 renewal, R22
+revocation, R23 audited administration and R48 proof/challenge authorities.
+The synthetic matrix covers forged responses, session abuse, stale or revoked
+device/build, unauthorized capabilities, replay and admin privilege attempts.
+
+The test-fixture class is not a deployed online-identity penetration test.
+Valid stolen token plus valid device, production OIDC/JWKS, HA session/revocation
+persistence, real administrative identities and independent live red-team
+qualification remain unverified. The security Wave-5 PR is still draft,
+not product shipping, and an exact-head queued or pending run is not PASS.
+
+
+## 2026-10-08 security corrections: R68 / R70 / R73
+
+R68: Independent operator approval now receives the EXACT immutable MigrationProof
+plus trusted authenticated principal, not actor/role alone. The operator is rejected
+BEFORE privileged job loading unless required role and permission are present. An
+approved actor with a substituted source, target or scope cannot reuse prior approval.
+Product R68 negative/recovery tests cover substituted proof and fail-closed UNKNOWN.
+CI repaired to EXECUTE R66/R67/R68 product suites, rather than merely compile them.
+
+R70: Run canonical R70 online-account adversarial suite from pinned neutral source
+and enforce direct CanonicalPaidOperationCallback workspace/principal equality before
+the R65 ledger. Negative product regressions exercise a forged client account/device/
+token claim and cross-workspace attempt. No real provider penetration PASS implied.
+
+R73: Independently signed PHYSICAL observations alone NEVER approve release. CLI
+now returns a nonzero process exit even for complete physical evidence, avoiding
+the prior dangerous exit-0 signal that a publishing script might misinterpret
+as permission. Regression test validates this together with release_approved=false
+and the independent_release_decision next gate. No hidden bypass or auto-publish.
+All remain draft, pending actual Windows/Linux CI, native provider evidence, and merge.
+
+
+## R68 SQLite single-host migration journal — source-integrated, not production HA
+
+The existing canonical neutral `MigrationCutover` and previously prepared
+`CanonicalMigrationOperatorBoundary` now have a concrete product-local,
+`SqliteMigrationJournal` DurableJournal protocol adapter in
+`acs/protection_backend_migration_journal.py`. It uses WAL, synchronous FULL,
+BEGIN IMMEDIATE across independent connections, a versioned schema, exact
+proof digest and source snapshot identity. Before any external source fence or
+target stage it durably reserves the exact migration ID in
+`RESERVED_UNKNOWN`. Replaying the exact proof or swapping proof source,
+target, revision or scope never returns a new admission. Monotonic phases
+RESERVED_UNKNOWN → FENCED → STAGED → COMMITTED reject skipped, duplicate,
+bad-digest and forged events. All ambiguous SQL operations fail closed.
+
+`tests/test_security_r68_sqlite_migration_journal.py` exercises concurrent
+reservation, post-restart UNKNOWN, monotonic transitions, corruption, schema
+mismatch, symlinks, and one full in-process canonical MigrationCutover
+(source fence → target readback → journal commit → route CAS) followed by
+a new journal instance's read-only reconciliation and replay denial.
+The existing Wave-5 dual-OS CI runs these tests. Until GitHub actually
+completes that exact-head CI, registration is not a test PASS.
+
+This is a **single-host journal adapter**, not external source fencing,
+independently signed migration proof, backed-up HA transactional target, network
+consensus, independent rollback anchor, authenticated production operator,
+or a safe live cutover deployment. None of those capabilities or user data
+transfers are claimed. This journal is not a second issuer, ledger of
+entitlements or migration cutover decision-maker.
+
+
+## R62 concrete durable incident journal — staged product adapter
+
+`acs/protection_incident_sqlite_journal.py` supplies an ACID single-host SQLite
+R62 `reserve`/`complete` journal for the existing `TrustedIncidentBoundary`
+without changing its neutral `LeakResponseService` or R22 revocation issuer.
+The journal commits an exact case/proof digest in UNKNOWN before ANY R22
+mutation, admits only one literal NEW reservation across SQLite workers, and
+never silently retries after lost responses or restart. `complete` requires a
+separately injected independent readback of the *same active R22 revocation ID*,
+commits the exact ID, reopens persisted state, and verifies its active status
+again. After restoration or replacement, readback returns UNKNOWN_FAIL_CLOSED
+even when the SQL row is still COMMITTED; a second reservation remains denied.
+Canonical neutral R61 watermark verification and independent human/operator
+approval still precede every R22 effect. No second identity, license issuer,
+forensic attribution or active-revocation authority is created.
+
+`tests/test_security_r62_sqlite_incident_journal.py` uses actual canonical
+`LeakResponseService` and `RevocationAuthority` test fixtures with SQLite
+durability, concurrency, replay, corrupt schema, false R22 evidence and
+post-restore invalidation. The existing dual-OS Wave-5 CI compiles and runs
+this suite; registration alone is NOT an executed green run.
+
+External still required: production issuer allocation ledger and private R61
+signer, signed independent forensic corroboration, actual durable R22 server,
+separately anchored anti-rollback backup/HA, authenticated human approval,
+physical Windows protected artifact, native vendor and independent release
+qualification. Do not claim R62 live production, shipping or terminal DONE.

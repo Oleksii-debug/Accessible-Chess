@@ -35,6 +35,7 @@ from .protection_boundary import (
     open_release_protection_session,
 )
 from .protection_hardened_boundary import HardenedReleaseBoundary
+from .protection_license_container_boundary import require_private_license_container
 from .protection_locked_ui import run_locked_security_window
 from .protection_entitlement_lifecycle import ProtectionEntitlementLifecycle
 from .protection_advanced_boundary import (
@@ -569,6 +570,23 @@ def create_version2_release_application(
                 # user data or premium services; v1-v4 remain supported unchanged.
                 if runtime_version >= HARDENED_SECURITY_RUNTIME_API_VERSION:
                     HardenedReleaseBoundary(protection_session.client).require_all(
+                        build_id=protection_session.decision.build_id
+                    )
+                    # R52: the private container (machine/cloud/hardware/enterprise)
+                    # must be verified via existing R08/R45/R29 authorities.
+                    # Never select a container from public UI, or treat its
+                    # transport response alone as premium authorization.
+                    require_private_license_container(
+                        protection_session.client,
+                        build_id=protection_session.decision.build_id,
+                    )
+                    # R57-R60: separately verified commercial native runtime
+                    # checks MUST run before persistent user data and engine.
+                    # Unimplemented v5 provider methods fail closed, with no
+                    # client-side anti-tamper or secret/issuer duplication.
+                    HardenedReleaseBoundary(
+                        protection_session.client
+                    ).require_commercial_runtime(
                         build_id=protection_session.decision.build_id
                     )
                 capability_gate = ProtectionCapabilityGate(protection_session.client)

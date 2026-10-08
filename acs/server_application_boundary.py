@@ -122,11 +122,18 @@ class ServerOperation:
     surface: NetworkSurface = NetworkSurface.SERVER
     data_classes: frozenset[DataClass] = frozenset()
     requested_retention_days: int | None = None
+    # R65: only server-registered operations can require paid authorization.
+    # A browser request never decides whether its operation is premium.
+    premium_required: bool = False
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "operation", _operation(self.operation))
-        if type(self.mutates) is not bool or type(self.heavy) is not bool:
+        if any(type(value) is not bool for value in (self.mutates, self.heavy, self.premium_required)):
             raise ServerBoundaryError("operation flags must be boolean")
+        # Queued jobs execute after the initial request; without a separate
+        # worker-time subscription recheck, premium heavy jobs must not enter.
+        if self.premium_required and self.heavy:
+            raise ServerBoundaryError("premium heavy operation requires execution-time authority")
         if type(self.permission) is not str or _ID_RE.fullmatch(self.permission) is None:
             raise ServerBoundaryError("operation permission is invalid")
         if not callable(self.handler):
@@ -429,6 +436,7 @@ class ServerApplicationBoundary:
         operations: tuple[ServerOperation, ...],
         job_store: SqliteJobStore | None = None,
         product_security_guard: Callable[[str], None] | None = None,
+        premium_guard: Callable[[AuthenticatedPrincipal, ApiRequest], bool] | None = None,
     ) -> None:
         if type(security_policy) is not ProductionSecurityPolicy:
             raise ServerBoundaryError("production security policy is required")
@@ -451,9 +459,14 @@ class ServerApplicationBoundary:
         self._security_gate = security_gate
         if product_security_guard is not None and not callable(product_security_guard):
             raise ServerBoundaryError("product security guard must be callable or None")
+        if premium_guard is not None and not callable(premium_guard):
+            raise ServerBoundaryError("premium guard must be callable or None")
+        if any(op.premium_required for op in mapping.values()) and premium_guard is None:
+            raise ServerBoundaryError("premium server operations require trusted R65 authority")
         self._operations = mapping
         self._job_store = job_store
         self._product_security_guard = product_security_guard
+        self._premium_guard = premium_guard
 
     def _require_product_security(self) -> None:
         if self._product_security_guard is None:
@@ -492,6 +505,17 @@ class ServerApplicationBoundary:
             raise ServerBoundaryError(str(error)) from None
         if operation.permission not in principal.permissions:
             raise ServerBoundaryError("operation permission is not granted")
+        if operation.premium_required:
+            # R65 canonical premium backend must recheck account, entitlement,
+            # server quotas/idempotency, and UNKNOWN effects before work begins.
+            # This bridge has no authority to issue subscriptions or interpret
+            # untrusted paid-state/ACK flags from the browser.
+            try:
+                permitted = self._premium_guard is not None and self._premium_guard(principal, request)
+            except Exception:
+                raise ServerBoundaryError("server premium operation denied") from None
+            if permitted is not True:
+                raise ServerBoundaryError("server premium operation denied")
         if operation.heavy:
             assert self._job_store is not None
             return _response(request, {"job": _job_payload(self._job_store.enqueue(request))})
