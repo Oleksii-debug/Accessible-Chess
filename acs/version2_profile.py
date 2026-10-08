@@ -181,12 +181,18 @@ def build_version2_router(
     delegate: Callable[[str, Mapping[str, object]], Any],
     *,
     registry: ActionRegistry | None = None,
+    security_guard: Callable[[str], None] | None = None,
 ) -> FullProductActionRouter:
     if not isinstance(shell, Version2ShellState):
         raise TypeError("Version 2 router requires Version2ShellState")
     selected_registry = registry or build_version2_action_registry()
     validate_version2_action_registry(selected_registry)
-    return FullProductActionRouter(shell, delegate, registry=selected_registry)
+    return FullProductActionRouter(
+        shell,
+        delegate,
+        registry=selected_registry,
+        security_guard=security_guard,
+    )
 
 
 def build_version2_webview_adapter(
