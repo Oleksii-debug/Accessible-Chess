@@ -33,6 +33,8 @@ on:
       - 'tools/section39_external_position_semantic.py'
       - 'tests/test_section39_ci_evidence_aggregate.py'
       - 'tools/section39_ci_evidence_aggregate.py'
+      - 'tools/section39_real_cbh_oracle_receipt.py'
+      - 'tests/test_section39_real_cbh_oracle_receipt.py'
       - 'tests/test_section39_external_book_semantic.py'
       - 'tools/section39_external_book_semantic.py'
       - 'tests/test_section39_external_position_semantic.py'
@@ -284,6 +286,27 @@ jobs:
           tests.test_chessbase_decoder
           tests.test_chessbase_integrity
           tests.test_chessbase_libcbh_external_fixture
+
+      - name: Repeat genuine CBH annotation/NAG/RAV/ACSDB restart oracles and preserve SHA receipts
+        working-directory: product
+        env:
+          LIBCBH_BRIDGE: ${{ github.workspace }}/product/build/libcbh/libcbh-json-bridge
+          LIBCBH_ANNOTATION_DIR: ${{ github.workspace }}/upstream/libcbh/gtest/Annotation
+          LIBCBH_VARIATION_DIR: ${{ github.workspace }}/upstream/libcbh/gtest/WithVariations
+          LIBCBH_UNUSUAL_DIR: ${{ github.workspace }}/upstream/libcbh/gtest/UnusualStart
+          ACCESSIBLE_CHESS_EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          python -m py_compile tools/section39_real_cbh_oracle_receipt.py tests/test_section39_real_cbh_oracle_receipt.py
+          python -m unittest -v tests.test_section39_real_cbh_oracle_receipt
+          python -m tools.section39_real_cbh_oracle_receipt
+      - name: Preserve Section 39 genuine original eleven-component CBH family hashes
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: section39-genuine-cbh-real-oracle
+          path: product/section39-genuine-cbh-annotation-variation-semantic.json
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Erase GPL decoder binaries and source-only CBH fixtures
         if: always()
@@ -543,6 +566,7 @@ jobs:
       - source-and-presentation
       - original-books-test-only-provenance
       - original-epd-fen-licensed-sources
+      - real-cbh-gpl-upstream-readback
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -570,6 +594,11 @@ jobs:
         with:
           name: revised-section37-original-book-evidence
           path: section39-join-inputs/books
+      - name: Download genuine 33-file CBH annotated/variation evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: section39-genuine-cbh-real-oracle
+          path: section39-join-inputs/cbh
       - name: Deny synthetic or stale cross-job original-file evidence
         run: |
           python -m py_compile tools/section39_ci_evidence_aggregate.py tests/test_section39_ci_evidence_aggregate.py
@@ -582,6 +611,7 @@ jobs:
           --base section39-join-inputs/base/section39-real-format-qualification.json
           --positions section39-join-inputs/positions/section39-original-epd-fen-semantic-evidence.json
           --books section39-join-inputs/books/section39-original-books-semantic-evidence.json
+          --cbh section39-join-inputs/cbh/section39-genuine-cbh-annotation-variation-semantic.json
       - name: Preserve merged source IDs, actual SHA256, format outcomes and remaining gaps
         if: always()
         uses: actions/upload-artifact@v4
