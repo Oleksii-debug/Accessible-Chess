@@ -44,6 +44,11 @@ jobs:
             --corpus-root "$RUNNER_TEMP/section38" \
             --section38-evidence "$RUNNER_TEMP/section38-evidence.json" \
             --output "$RUNNER_TEMP/section39-evidence.json"
+      - name: Run Section 40 collection catalog
+        run: |
+          python tools/section40_test_collection_catalog.py \
+            --corpus-root "$RUNNER_TEMP/section38" \
+            --output "$RUNNER_TEMP/section40-catalog.json"
       - name: Run focused integration tests
         env:
           PYTHONPATH: tests

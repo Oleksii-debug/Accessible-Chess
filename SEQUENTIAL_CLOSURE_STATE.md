@@ -81,3 +81,21 @@ Durable evidence: `docs/corpus/SECTION39_FORMAT_MATRIX.json`.
 The next dependency-safe front is Section 40. No later section is marked
 `DONE` by this record, and no status is inferred from chat history or from a
 single green test.
+
+## Section 40 — current closure front
+
+**Status: `INTERNAL_COMPLETE_EXTERNAL_BLOCKED` (not DONE).**
+
+Durable catalog: `docs/corpus/SECTION40_TEST_COLLECTION_CATALOG.json`.
+
+| Subsection | State | Evidence / exact limitation |
+|---|---|---|
+| 40.1 | `PARTIAL` | Isolated catalog has Ukrainian project-owned starter Books/Training, English Gutenberg TXT/HTML/EPUB3, two real PGN sets and CBV/CBH test material across small/medium/large bands. |
+| 40.2 | `DONE` | Each present entry records title, language, format, source URL, size, SHA-256, rights, import status and reload procedure. |
+| 40.3 | `PARTIAL` | Worker-downloadable Section 38 workflow is present; user-owned full CBH-family import remains dependent on unavailable lawful fixtures/backends. |
+| 40.4 | `PARTIAL` | Library/Books/Training canonical paths are covered by source and unit gates; clean Windows owner acceptance is not claimed here. |
+| 40.5 | `DONE` | TEST_COLLECTION is explicitly isolated/read-only; PUBLIC_RELEASE policy is links/notices only for uncleared external bytes. |
+| 40.6 | `PARTIAL` | TEST_BUILD catalog is reproducible; PUBLIC_RELEASE and clean Windows packaged acceptance remain outside this evidence. |
+
+The next dependency-safe closure front is Section 41. No later section is
+marked `DONE` by this record.
