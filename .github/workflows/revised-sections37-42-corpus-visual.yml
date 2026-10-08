@@ -35,6 +35,8 @@ on:
       - 'tools/section39_ci_evidence_aggregate.py'
       - 'tools/section39_real_cbh_oracle_receipt.py'
       - 'tests/test_section39_real_cbh_oracle_receipt.py'
+      - 'tools/section39_new_section37_annotated_pgn_qualification.py'
+      - 'tests/test_section39_new_section37_annotated_pgn_qualification.py'
       - 'tests/test_section39_external_book_semantic.py'
       - 'tools/section39_external_book_semantic.py'
       - 'tests/test_section39_external_position_semantic.py'
@@ -159,12 +161,22 @@ jobs:
         env:
           ACCESSIBLE_CHESS_EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
         run: python -m tools.section39_real_format_qualification
+      - name: Test newly added Section 37 genuine 2200+ annotated chess games and negative provenance
+        run: |
+          python -m py_compile tools/section39_new_section37_annotated_pgn_qualification.py tests/test_section39_new_section37_annotated_pgn_qualification.py
+          python -m unittest -v tests.test_section39_new_section37_annotated_pgn_qualification
+      - name: Generate exact-source four-game NAG/RAV/ACSDB search and restart proof
+        env:
+          ACCESSIBLE_CHESS_EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: python -m tools.section39_new_section37_annotated_pgn_qualification
       - name: Preserve actual per-format readback and known unsupported coverage
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: section39-real-format-qualification-${{ matrix.os }}
-          path: section39-real-format-qualification.json
+          path: |
+            section39-real-format-qualification.json
+            section39-new-section37-annotated-pgn-qualification.json
           if-no-files-found: ignore
           retention-days: 14
       - name: Exercise canonical chess core
@@ -612,6 +624,7 @@ jobs:
           --positions section39-join-inputs/positions/section39-original-epd-fen-semantic-evidence.json
           --books section39-join-inputs/books/section39-original-books-semantic-evidence.json
           --cbh section39-join-inputs/cbh/section39-genuine-cbh-annotation-variation-semantic.json
+          --advanced section39-join-inputs/base/section39-new-section37-annotated-pgn-qualification.json
       - name: Preserve merged source IDs, actual SHA256, format outcomes and remaining gaps
         if: always()
         uses: actions/upload-artifact@v4
