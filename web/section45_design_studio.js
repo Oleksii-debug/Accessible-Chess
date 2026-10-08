@@ -76,20 +76,28 @@ function nativeApi() {
   return bridge && typeof bridge.get_design_studio_state==="function" &&
     typeof bridge.save_design_studio_state==="function" ? bridge : null;
 }
-let store=blankStore(), revision=null, active={...defaults}, dirty=false, working={...defaults};
+let store=blankStore(), revision=null, localBaseline=null, active={...defaults}, dirty=false, working={...defaults};
 function status(uk,english,error) {
   const n=el("ac45-status");
   if(n){n.textContent=say(uk,english);n.dataset.error=error?"true":"false";}
 }
 function localRead() {
-  try { return safeParse(window.localStorage.getItem(STORE_KEY)); }
-  catch (_) { return null; }
+  try {
+    localBaseline=window.localStorage.getItem(STORE_KEY);
+    return safeParse(localBaseline);
+  } catch (_) { localBaseline=null;return null; }
 }
 function localWrite(value) {
   const data=JSON.stringify(value);
   if (data.length>16384) return false;
-  try { window.localStorage.setItem(STORE_KEY,data);return true; }
-  catch (_) { return false; }
+  try {
+    // Web has no server-side profile authority: refuse a stale local tab
+    // instead of silently overwriting another tab's changed profile.
+    if(window.localStorage.getItem(STORE_KEY)!==localBaseline)return false;
+    window.localStorage.setItem(STORE_KEY,data);
+    localBaseline=data;
+    return true;
+  } catch (_) { return false; }
 }
 function add(tag,parent,id,txt) {
   const n=document.createElement(tag);
@@ -348,6 +356,11 @@ function init(){
   live.setAttribute("role","status");live.setAttribute("aria-live","polite");
   refreshProfileOptions();refreshControls();preview();
   void hydrate();
+  window.addEventListener("storage",event=>{
+    if(event && event.key===STORE_KEY && event.newValue!==localBaseline)
+      status("Профіль змінено в іншій вкладці. Повторно відкрийте сторінку перед збереженням.",
+        "Profiles changed in another tab. Reload before saving.",true);
+  });
   window.addEventListener("pywebviewready",()=>void hydrate());
 }
 if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",init);
