@@ -441,7 +441,7 @@
       "upstream_git_blob": "c9a674d3281ccd8a39de7ca673467b79902a103a",
       "local_source": "tests/real_corpus/books/gitenberg_capablanca_33870.txt",
       "canonical_qa": "Original source SHA256 and Git blob readback; text is readable by existing Book TXT importer in focused tests, not a claim of diagram fidelity/PDF/DOCX support",
-      "notes": "Original full genuine 262824-byte Gutenberg TXT includes Gutenberg license and attribution. Vendored only as a real QA source with exact upstream Git identity and checksum. No automated network dependency, no permission to repackage it into commercial/public releases inferred, and no claim of full Section-37/38 closure."
+      "notes": "Original full genuine 262824-byte Gutenberg TXT includes Gutenberg license and attribution. The actual source contains a later seventeenth-printing notice, a 1934 Capablanca preface and an explicit (c) 1949 Olga Capablanca copyright notice. Do NOT assume every included editorial or edition element became free in the EU by 2013 solely because Capablanca died in 1942; separate legal clearing is required before any shareable TEST_BUILD or PUBLIC_RELEASE reuse. Vendored only as a real QA source with exact upstream Git identity and checksum. No automated network dependency, no permission to repackage it into commercial/public releases inferred, and no claim of full Section-37/38 closure."
     },
     {
       "id": "chessbase_official_free_rossolimo_cbv_sample",
