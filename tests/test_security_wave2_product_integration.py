@@ -690,3 +690,52 @@ def test_shipping_host_returns_live_revocation_to_locked_shell(monkeypatch, tmp_
     assert shell[0][0] is client
     assert shell[0][1].reason == "device_revoked"
     assert shell[0][1].state == "locked"
+
+
+def test_v3_revocation_blocks_before_engine_database_or_user_data_composition(tmp_path):
+    runtime = _runtime_v3(lifecycle={
+        "api_version": 3,
+        "state": "revoked",
+        "reason": "device_revoked",
+        "actions": ["recover"],
+        "live_region": "assertive",
+        "retry_after_seconds": 0,
+        "lease_remaining_seconds": None,
+    })
+    runtime.evaluate_startup = lambda **kwargs: {
+        "api_version": 3,
+        "state": "authorized",
+        "reason": "none",
+        "safe_operations": list(SAFE),
+        "capabilities": ["local-chess"],
+        "build_id": "build-3",
+    }
+    client = _client(tmp_path, runtime)
+    session = ProtectionStartupSession(
+        decision=ProtectionDecision(
+            state="authorized",
+            reason="none",
+            safe_operations=frozenset(SAFE),
+            capabilities=frozenset({"local-chess"}),
+            build_id="build-3",
+        ),
+        client=client,
+    )
+    events = []
+    def engine(_config):
+        events.append("engine")
+        raise AssertionError("engine must not start after revoked lifecycle")
+
+    from acs.version2_release_app import create_version2_release_application
+
+    with pytest.raises(Exception) as caught:
+        create_version2_release_application(
+            application_dir=tmp_path / "app",
+            data_root=tmp_path / "user-data",
+            runtime_factory=engine,
+            protection_authorizer=lambda **kwargs: session,
+            defer_ui=True,
+        )
+    assert "device_revoked" in str(caught.value)
+    assert events == []
+    assert not (tmp_path / "user-data").exists()
