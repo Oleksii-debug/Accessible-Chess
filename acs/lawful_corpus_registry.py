@@ -40,6 +40,21 @@ def _open_no_redirect(request: Request, timeout: int):
     return build_opener(_NoRedirect()).open(request, timeout=timeout)
 
 
+def _catalog_unique_object(pairs: list[tuple[str, object]]) -> dict:
+    """Reject conflicting source, rights, or checksum metadata keys."""
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise LawfulCorpusError("duplicate corpus catalog JSON key")
+        result[key] = value
+    return result
+
+
+def _catalog_reject_nonfinite(value: str):
+    """Python's permissive JSON constants are not valid source metadata."""
+    raise LawfulCorpusError("nonfinite corpus catalog JSON value")
+
+
 def load_catalog(path: Path = CATALOG_FILE) -> tuple[dict, ...]:
     # Refuse oversized untrusted metadata before reading it all into memory.
     try:
@@ -50,7 +65,11 @@ def load_catalog(path: Path = CATALOG_FILE) -> tuple[dict, ...]:
     if len(raw) > 256 * 1024:
         raise LawfulCorpusError("corpus catalog exceeds maximum size")
     try:
-        data = json.loads(raw)
+        data = json.loads(
+            raw,
+            object_pairs_hook=_catalog_unique_object,
+            parse_constant=_catalog_reject_nonfinite,
+        )
     except (ValueError, UnicodeError) as exc:
         raise LawfulCorpusError("corpus catalog JSON is invalid") from exc
     if (
