@@ -17,8 +17,8 @@
     "en": "First category and above: candidate-master, master-track and extreme calculation. Lichess puzzle rating is not FIDE Elo."
   },
   "position_contract": {
-    "uk": "Дана FEN-позиція стоїть ДО попереднього ходу суперника. Застосуй цей хід на канонічній дошці, потім шукай власне рішення. Не відкривай розв'язок до самостійної спроби.",
-    "en": "The FEN is BEFORE the opponent's previous move. Play that move on the canonical chessboard first, then solve. Do not reveal the solution before an independent attempt."
+    "uk": "FEN у цій навчальній книзі вже показує позицію ПІСЛЯ останнього ходу суперника: його хід застосовано на канонічній шаховій дошці. Вихідна позиція ДО ходу збережена в джерельному JSON. Шукай власне рішення, не відкривай розв'язок до спроби.",
+    "en": "The training FEN in this book is already AFTER the opponent's previous move, applied using the canonical chessboard. The original BEFORE-move FEN remains in the source JSON for provenance. Solve without revealing the answer prematurely."
   },
   "rights": "Original new instructional prose for CC0 chess positions; redistribution of this authored bilingual workbook permitted; attribution to Lichess retained; no third-party proprietary books bundled.",
   "level_floor_lichess_puzzle_rating": 2200,
