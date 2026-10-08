@@ -31,6 +31,14 @@ class NorthwestChessSourceOnlyTests(unittest.TestCase):
             "https://www.nwchess.com/articles/games/published/a.cbv?secret=123",
             "https://www.nwchess.com/articles/games/published/../hidden.cbv",
             "https://www.nwchess.com/articles/games/published/test.cbv#frag",
+            "https://www.nwchess.com/articles/games/published/%2e%2e/private.cbv",
+            "https://www.nwchess.com/articles/games/published/%252e%252e/private.cbv",
+            "https://www.nwchess.com/articles/games/published/%25252e%25252e/private.cbv",
+            "https://www.nwchess.com/articles/games/published/evil%2f..%2fprivate.pgn",
+            "https://www.nwchess.com/articles/games/published/a%5cb.pgn",
+            "https://www.nwchess.com/articles/games/published/secret%3Ftoken.cbv",
+            "https://www.nwchess.com/articles/games/published/secret%00zero.cbv",
+            "https://www.nwchess.com/articles/games/published/readme.txt",
             "",
         ):
             with self.subTest(url=url):
