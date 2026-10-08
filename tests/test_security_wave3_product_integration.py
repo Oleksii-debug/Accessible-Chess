@@ -217,15 +217,54 @@ def test_update_signature_failure_is_fail_closed(tmp_path):
 
 
 def test_release_composition_contains_distinct_wave3_service_gates():
+    """The shipping root gates canonical *surfaces*, not obsolete free-text IDs."""
     source = (Path(__file__).resolve().parents[1] / "acs" / "version2_release_app.py").read_text(encoding="utf-8")
-    for boundary in (
-        "engine.analysis",
-        "profile.local",
-        "library.database",
+    from acs.protection_product_boundaries import boundaries_for_surface
+
+    for surface in (
+        "licensing.local",
+        "persistence.local",
+        "integration.local",
+        "engine.local",
+        "chess.local",
+        "library.local",
         "books.training",
         "classroom.local",
-        "formats.local",
+        "formats.core",
     ):
-        assert f'capability_gate.require("{boundary}")' in source
+        assert boundaries_for_surface(surface), surface
+        assert f'capability_gate.require_surface("{surface}")' in source, surface
     assert "release_update_center=release_update_center" in source
     assert '_product_version.split("-", 1)[0]' in source
+
+
+def test_wave3_surface_expansion_uses_canonical_boundaries_and_fails_closed(tmp_path):
+    """Every mapped boundary must be individually authorized; one deny blocks."""
+    from acs.protection_product_boundaries import boundaries_for_surface
+
+    runtime, calls, _ = _runtime_v4(tmp_path)
+    gate = ProtectionCapabilityGate(_client(tmp_path, runtime))
+    surfaces = ("engine.local", "library.local", "books.training")
+    for surface in surfaces:
+        gate.require_surface(surface)
+    assert [value for kind, value in calls if kind == "boundary"] == [
+        boundary for surface in surfaces
+        for boundary in boundaries_for_surface(surface)
+    ]
+
+    denied = boundaries_for_surface("engine.local")[0]
+
+    def deny_engine(**kwargs):
+        boundary = kwargs["boundary_id"]
+        return {
+            "api_version": 4,
+            "boundary_id": boundary,
+            "authorized": boundary != denied,
+            "reason": "entitlement_required" if boundary == denied else "none",
+            "live_region": "assertive" if boundary == denied else "none",
+            "action": "login" if boundary == denied else "none",
+        }
+
+    runtime.authorize_product_boundary = deny_engine
+    with pytest.raises(ProtectionAdvancedError, match="entitlement_required"):
+        gate.require_surface("engine.local")
