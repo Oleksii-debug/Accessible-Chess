@@ -675,5 +675,52 @@ class RevisedCorpusContractTests(unittest.TestCase):
                 read_verified_zip_member(archive_path, record, expected_member="safe.epd", max_unpacked_bytes=True)
 
 
+    def test_verified_zip_snapshot_refuses_valid_archive_swapped_after_hash_check(self):
+        """A source swap between pathname hash verification and ZIP parsing is denied."""
+        import zipfile
+        from acs.lawful_corpus_registry import read_verified_zip_member
+
+        def archive(payload):
+            output = io.BytesIO()
+            with zipfile.ZipFile(output, "w", zipfile.ZIP_STORED) as writer:
+                writer.writestr("sample.epd", payload)
+            return output.getvalue()
+
+        original = archive(b"verified-source")
+        replacement = archive(b"altered!-source")
+        self.assertEqual(len(original), len(replacement))
+        self.assertNotEqual(hashlib.sha256(original).digest(), hashlib.sha256(replacement).digest())
+        record = self._record(original)
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "sample.zip"
+            path.write_bytes(original)
+
+            def replace_after_verification(source_path, source_record):
+                verified = verified_local_source(source_path, source_record)
+                source_path.write_bytes(replacement)
+                return verified
+
+            with patch(
+                "acs.lawful_corpus_registry.verified_local_source",
+                side_effect=replace_after_verification,
+            ):
+                with self.assertRaisesRegex(
+                    LawfulCorpusError, "ZIP source changed after verification"
+                ):
+                    read_verified_zip_member(
+                        path, record, expected_member="sample.epd",
+                        max_unpacked_bytes=1024,
+                    )
+            # A bad attempted read must not poison the original authorized bytes.
+            path.write_bytes(original)
+            self.assertEqual(
+                read_verified_zip_member(
+                    path, record, expected_member="sample.epd",
+                    max_unpacked_bytes=1024,
+                ),
+                b"verified-source",
+            )
+
+
 if __name__ == "__main__":
     unittest.main()
