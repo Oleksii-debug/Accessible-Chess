@@ -1280,6 +1280,48 @@
       "public_release": "EXCLUDED",
       "canonical_qa": "Original PDF from specialist endgame study association explicitly shows >200 scientific problems and diagrams; no original byte SHA256, positions imported or edition reproduction rights attested",
       "notes": "This is genuinely advanced composed endgame study literature, not Philidor beginner rules book or practical Lichess puzzles; preserve original composer and diagram identity. PDF should be read from lawful source first as ephemeral owner test."
+    },
+    {
+      "id": "lichess_cc0_fexd_offline_original_24595_puzzles",
+      "title": "Original Lichess CC0 four-field offline puzzle CSV mirror with 24,595 original rated positions up to 3166",
+      "author": "Lichess original CC0 puzzle authors / FeXd puzzle-chess archival selection",
+      "format": "csv",
+      "source_page": "https://github.com/FeXd/puzzle-chess",
+      "download_url": null,
+      "sha256": null,
+      "max_bytes": 8388608,
+      "upstream_repository": "https://github.com/FeXd/puzzle-chess",
+      "upstream_commit": "cddfa24b1a5a9013b99622d6d5e7093a64b1d55a",
+      "upstream_git_blob": "acb74625e5ebd0ae9b454779a371ac87091c8c0e",
+      "external_checkout_path": "puzzles/offline/puzzles.csv",
+      "external_license_git_blob": "f288702d2fa16d3cdf0035b15a9fcbc552cd88e7",
+      "license": "Original Lichess puzzle data CC0-1.0; FeXd app and source GPL-3.0; no GPL executable bundled",
+      "redistribution": "permitted original CC0 puzzle data only; GPL wrapper excluded",
+      "acquisition": "SOURCE_PAGE_ONLY",
+      "test_access": "PINNED_ORIGINAL_GIT_SOURCE_CI_ONLY",
+      "public_release": "EXCLUDED_PENDING_QUALIFICATION",
+      "canonical_qa": "Actual Git original blob pinned, full-byte SHA256/source readback pending exact checkout CI",
+      "notes": "Source raw file has original indexed 24,595 puzzles with ratings 400 to 3166, 3000+ tail observed from original source. This is not a user beginner pack; advanced 3000+ derived only."
+    },
+    {
+      "id": "lichess_cc0_extreme_4_original_derived_puzzles",
+      "title": "Four authentic original CC0 Lichess extreme puzzles 3000, 3030, 3164 and 3166",
+      "author": "Lichess original CC0 puzzles; FeXd original archival CSV",
+      "format": "json",
+      "source_page": "https://github.com/FeXd/puzzle-chess",
+      "download_url": null,
+      "sha256": "f6b4ce3953806ebd68462296e7579f88462d5f71f1cdb9badeb2220af542332e",
+      "max_bytes": 2741,
+      "indexed_bytes": 2741,
+      "local_source": "tests/real_corpus/advanced_training/lichess_cc0_extreme_3000_3166_original_puzzles.json",
+      "source_original_git_blob": "acb74625e5ebd0ae9b454779a371ac87091c8c0e",
+      "source_original_commit": "cddfa24b1a5a9013b99622d6d5e7093a64b1d55a",
+      "license": "CC0-1.0",
+      "redistribution": "permitted",
+      "acquisition": "VENDORED_SOURCE_VERIFIED",
+      "test_access": "VENDORED_SOURCE_VERIFIED",
+      "canonical_qa": "Actual four original source lines normalized into the manually source-mapped CC0 subset; CI additionally asserts literal equality to exact original historical 24,595-row Git checkout",
+      "notes": "Four genuine extreme 3000-3166 *Lichess puzzle* ratings, not FIDE ELO or GM titles. Original FEN before opponent move, solution after first move, original authored study not asserted."
     }
   ]
 }
