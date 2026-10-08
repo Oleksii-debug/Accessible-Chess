@@ -145,6 +145,31 @@ class OwnerLevelAndProvenanceTests(unittest.TestCase):
                 self.assertIsNone(r["sha256"])
                 self.assertEqual(r["max_bytes"], 0)
 
+    def test_free_publisher_cbv_reference_never_bypasses_original_rights_or_paid_2cbh(self):
+        originals = {item["id"]: item for item in load_catalog()}
+        for ident in (
+            "chessmail_tim_harding_lss_2024_free_bonus_8k_cbv",
+            "chessmail_tim_harding_macdonnell_wisker_1874_cbv",
+        ):
+            with self.subTest(original_cbv=ident):
+                r = originals[ident]
+                self.assertEqual(r["format"], "cbv")
+                self.assertEqual(r["acquisition"], "SOURCE_PAGE_ONLY")
+                self.assertEqual(r["redistribution"], "NOT_CLEARED")
+                self.assertEqual(r["public_release"], "EXCLUDED")
+                self.assertEqual(r["test_access"], "EXTERNAL_LINK_ONLY")
+                self.assertIsNone(r["download_url"])
+                self.assertIsNone(r["sha256"])
+                self.assertEqual(r["max_bytes"], 0)
+                self.assertEqual(r["source_page"], _https_url(r["source_page"], source_page=True))
+                with self.assertRaises(LawfulCorpusError):
+                    _https_url(r["source_page"])  # page is never a binary-acquisition authority
+                self.assertNotIn("2cbh", r["format"].lower())
+        self.assertIn(
+            "FREE BONUS",
+            originals["chessmail_tim_harding_lss_2024_free_bonus_8k_cbv"]["notes"],
+        )
+
     def test_authentic_composed_study_scope_is_distinct_from_practical_endgames(self):
         source = {r["id"]: r for r in load_catalog()}
         source_page = source["chessbase_online_genuine_endgame_studies"]
