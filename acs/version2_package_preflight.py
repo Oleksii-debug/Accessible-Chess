@@ -1749,6 +1749,29 @@ def _validate_required_runtime_resources(
                 root, inventory, relative,
                 label="packaged Section 41 offline MIT design resource",
             )
+        # A rewritten checksum list cannot legitimize a remote CSS fetch in
+        # a product whose core operation promises complete offline access.
+        local_styles = _read_stable_bytes_file(
+            root / "AccessibleChess/web/assets/accessible_chess_design.css",
+            label="packaged Section 41 first-party theme CSS",
+            max_bytes=128 * 1024,
+        )
+        if not local_styles:
+            _fail("packaged Section 41 first-party CSS is empty")
+        lowered_styles = local_styles.lower().replace(b" ", b"")
+        if any(disallowed in lowered_styles for disallowed in (
+            b"@import", b"url(", b"expression(", b"javascript:",
+            b"http://", b"https://",
+        )):
+            _fail("packaged Section 41 offline CSS has an external or executable dependency")
+        for control in (
+            b'--ac41-bg:', b'--ac41-ink:',
+            b'data-ac-ui-theme="dark"', b'data-ac-ui-theme="contrast"',
+            b'@media(prefers-reduced-motion:reduce)',
+            b'@media(forced-colors:active)',
+        ):
+            if control not in lowered_styles:
+                _fail("packaged Section 41 mandatory accessible theme control is absent")
         for file_name, git_blob_sha, size in (
             ("chess-rook.svg", "accb4f7b7ea39eb1a023b6e2ad8589453fcdb305", 575),
             ("adjustments.svg", "ef63f0fb0065937722a5ffd59cc5355b96b38045", 670),
