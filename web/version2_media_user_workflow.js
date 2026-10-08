@@ -126,11 +126,19 @@
       throw new Error("invalid Media workflow state");
     }
     if (typeof value.ok !== "boolean") throw new Error("invalid Media workflow ok flag");
-    if (![null, "youtube", "host"].includes(value.providerKind)) {
+    if (![null, "youtube", "browser_local", "host"].includes(value.providerKind)) {
       throw new Error("invalid Media workflow provider");
     }
     if (typeof value.sourceTitle !== "string" || value.sourceTitle.length > 4096) {
       throw new Error("invalid Media workflow source title");
+    }
+    if (value.providerKind === "browser_local") {
+      if (typeof value.sourceId !== "string" || !value.sourceId.startsWith("local:sha256:")) {
+        throw new Error("invalid local Media source identity");
+      }
+      if (typeof value.browserSourceUrl !== "string" || !value.browserSourceUrl.startsWith("file:///")) {
+        throw new Error("invalid local Media browser source");
+      }
     }
     if (!value.player || typeof value.player !== "object" || Array.isArray(value.player)) {
       throw new Error("invalid Media workflow player state");
@@ -224,6 +232,35 @@
     });
   }
 
+  function localVideoCommand(command) {
+    if (!activeAdapter) {
+      return Promise.reject(new Error("local video adapter unavailable"));
+    }
+    const action = String(command.action || "");
+    if (action === "play") {
+      activeAdapter.play();
+      return Promise.resolve(undefined);
+    }
+    if (action === "pause") {
+      activeAdapter.pause();
+      return Promise.resolve(undefined);
+    }
+    if (action === "seek") {
+      if (!Number.isSafeInteger(command.positionMs) || command.positionMs < 0) {
+        return Promise.reject(new Error("invalid local seek position"));
+      }
+      activeAdapter.seek(command.positionMs);
+      global.setTimeout(function () {
+        try { activeAdapter.refresh(); } catch (_error) {}
+      }, 0);
+      return Promise.resolve(undefined);
+    }
+    const snapshot = activeAdapter.snapshot();
+    return syncYouTubeSnapshot(snapshot).then(function () {
+      return hostCommand(command);
+    });
+  }
+
   function renderEnvelope(value, focusAfterRender) {
     const state = validateEnvelope(value);
     const renderer = playerRenderer();
@@ -247,7 +284,11 @@
       );
       return false;
     }
-    const runner = state.providerKind === "youtube" ? youtubeCommand : hostCommand;
+    const runner = state.providerKind === "youtube"
+      ? youtubeCommand
+      : state.providerKind === "browser_local"
+        ? localVideoCommand
+        : hostCommand;
     renderer.render(playerHost, state.player, runner, focusAfterRender === true);
     return true;
   }
@@ -352,10 +393,50 @@
     });
   }
 
+  function activateLocalVideo(envelope) {
+    renderEnvelope(envelope, false);
+    const namespace = global.AccessibleChessLocalVideoPlayback;
+    if (!namespace || typeof namespace.BrowserLocalVideoPlaybackAdapter !== "function") {
+      setStatus(
+        uiText("Локальний відеопрогравач недоступний.", "The local video player is unavailable."),
+        true
+      );
+      return Promise.resolve(false);
+    }
+    try {
+      destroyProvider();
+      const mount = documentRef.createElement("div");
+      mount.id = "section47-local-video-player";
+      providerHost.appendChild(mount);
+      activeAdapter = new namespace.BrowserLocalVideoPlaybackAdapter({
+        element: mount,
+        sourceUrl: envelope.browserSourceUrl,
+        sourceId: envelope.sourceId,
+        onSnapshot: function (snapshot) {
+          syncYouTubeSnapshot(snapshot);
+        },
+      });
+      activeProviderKind = "browser_local";
+      return Promise.resolve(true);
+    } catch (_error) {
+      setStatus(
+        uiText(
+          "Не вдалося відкрити локальне відео; шахова позиція не змінена.",
+          "The local video could not be opened; the chess position was not changed."
+        ),
+        true
+      );
+      return Promise.resolve(false);
+    }
+  }
+
   function activateOpened(value, sourceText) {
     const envelope = validateEnvelope(value);
     if (envelope.providerKind === "youtube") {
       return activateYouTube(envelope, sourceText);
+    }
+    if (envelope.providerKind === "browser_local") {
+      return activateLocalVideo(envelope);
     }
     destroyProvider();
     renderEnvelope(envelope, false);
