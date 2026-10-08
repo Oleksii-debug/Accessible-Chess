@@ -44,7 +44,12 @@ Accessible Chess retains its existing release-security authorities:
 - SLSA provenance construction and builder binding;
 - strict Windows release/package qualification.
 
-Wave 3 requires the production release path to use the private R38–R40 signing/provenance authority through an isolated managed-signing environment. Public source contains no private signing key. Real managed-provider account/certificate, RFC3161 service and platform reputation qualification are deployment credentials/evidence, not source-code substitutes.
+Wave 3 adds two reusable production boundaries:
+
+- GitHub Artifact Attestations for build provenance and SPDX SBOM, using GitHub OIDC/Sigstore in the `production-signing` environment;
+- Microsoft Artifact Signing for Windows binaries through Azure OIDC, SHA-256 Authenticode and HTTPS RFC3161/SHA-256 timestamping, followed by exact publisher/timestamp verification before the signed artifact can be uploaded.
+
+Public source contains no private signing key or Azure client secret. The Microsoft signing account, federated Azure identity, certificate profile and expected publisher value remain environment configuration and identity-verification prerequisites; they are deliberately not fabricated in source.
 
 ## Compatibility
 
