@@ -133,7 +133,7 @@ function preview() {
     "Preview: chessboard, text and controls.");
   status("Попередній перегляд не змінює позицію або партію.","Preview does not change the position or game.");
 }
-function presentationApply(p) {
+function presentationApply(p, emitBoardActions = true) {
   const root=document.documentElement;
   root.dataset.ac45Font=String(p.font_percent);
   root.style.setProperty("--ac45-font-scale",String(p.font_percent/100));
@@ -149,7 +149,7 @@ function presentationApply(p) {
     ["board-animations",p.animations],["ac43-density",p.density],
     ["ac43-layout",p.layout]
   ];
-  targets.forEach(([id,value])=>{
+  if(emitBoardActions)targets.forEach(([id,value])=>{
     const node=el(id);
     if(!node)return;
     if(node.type==="checkbox")node.checked=value;
@@ -276,7 +276,7 @@ async function hydrate(){
       "Web profiles are local. Sync between devices requires explicit export/import.");
   }
   active=currentPrefs();working={...active};
-  refreshProfileOptions();refreshControls();presentationApply(active);
+  refreshProfileOptions();refreshControls();presentationApply(active,false);
 }
 function init(){
   if(el("ac45-studio"))return;
