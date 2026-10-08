@@ -113,6 +113,20 @@ class RevisedCorpusContractTests(unittest.TestCase):
                 self.assertEqual(candidate["acquisition"], "SOURCE_PAGE_ONLY")
                 self.assertEqual(candidate["redistribution"], "NOT_CLEARED")
                 self.assertIsNone(candidate["sha256"])
+        # Official 2013-04 and 2013-08 pinned source listing; catalog only.
+        for source_id, digest, expected_bytes in (
+            ("lichess_standard_rated_2013_04", "11c795d3c81c49fa97cd958b0984c044410c78ad90f454ed08abb57ab7d00d52", 23299559),
+            ("lichess_standard_rated_2013_08", "6202408d1c1cf11b1a9043b84c6bd2c03a01cb31597863857c26ee6ff82eea1b", 47706246),
+        ):
+            with self.subTest(source=source_id):
+                record = records[source_id]
+                self.assertEqual(record["sha256"], digest)
+                self.assertEqual(record["indexed_bytes"], expected_bytes)
+                self.assertGreaterEqual(record["max_bytes"], expected_bytes)
+                self.assertEqual(record["license"], "CC0")
+                self.assertEqual(record["redistribution"], "permitted")
+                self.assertEqual(record["acquisition"], "PINNED_NOT_DOWNLOADED_IN_THIS_PASS")
+        # The official 2013-04 and 2013-08 pinned source listing does not prove download.
         # Ebook #15201 explicitly says 'Copyrighted' on Project Gutenberg.
         polish = records["gutenberg_szachy_warcaby_polish"]
         self.assertTrue(polish["license"].startswith("COPYRIGHTED"))
