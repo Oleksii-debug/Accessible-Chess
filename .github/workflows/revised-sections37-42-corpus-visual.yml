@@ -12,6 +12,8 @@ on:
       - 'tests/test_revised_sections37_40_corpus.py'
       - 'tools/revised_section37_real_cc0_readback.py'
       - 'tests/test_revised_section37_live_report_safety.py'
+      - 'tests/test_revised_section37_real_book_txt.py'
+      - 'tests/real_corpus/books/gitenberg_capablanca_33870.txt'
       - 'tests/test_revised_sections41_42_design.py'
       - 'tests/test_section15_visual_board_contract.py'
       - '.github/workflows/revised-sections37-42-corpus-visual.yml'
@@ -41,11 +43,13 @@ jobs:
           tests/test_revised_sections37_40_corpus.py
           tools/revised_section37_real_cc0_readback.py
           tests/test_revised_section37_live_report_safety.py
+          tests/test_revised_section37_real_book_txt.py
           tests/test_revised_sections41_42_design.py
       - name: Test real source catalog authorization and existing visual authority
         run: >-
           python -m unittest -v
           tests.test_revised_sections37_40_corpus
+          tests.test_revised_section37_real_book_txt
           tests.test_revised_sections41_42_design
           tests.test_section15_visual_board_contract
       - name: Exercise canonical chess core
