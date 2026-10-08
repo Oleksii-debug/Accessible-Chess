@@ -580,6 +580,15 @@ def create_version2_release_application(
                         protection_session.client,
                         build_id=protection_session.decision.build_id,
                     )
+                    # R57-R60: separately verified commercial native runtime
+                    # checks MUST run before persistent user data and engine.
+                    # Unimplemented v5 provider methods fail closed, with no
+                    # client-side anti-tamper or secret/issuer duplication.
+                    HardenedReleaseBoundary(
+                        protection_session.client
+                    ).require_commercial_runtime(
+                        build_id=protection_session.decision.build_id
+                    )
                 capability_gate = ProtectionCapabilityGate(protection_session.client)
                 capability_gate.require_surface("licensing.local")
                 capability_gate.require_surface("persistence.local")
