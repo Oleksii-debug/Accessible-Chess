@@ -100,7 +100,7 @@ def verify_original_book(record: dict, external_root: Path) -> dict:
         raise LawfulCorpusError("book source id invalid")
     if (
         record.get("acquisition") != "PINNED_NOT_DOWNLOADED_IN_THIS_PASS"
-        or record.get("format") != "txt"
+        or record.get("format") not in ("txt", "md")
         or record.get("redistribution") != "NOT_CLEARED"
         or record.get("test_access") != "EXTERNAL_EPHEMERAL_ONLY"
         or record.get("public_release") != "EXCLUDED"
@@ -137,7 +137,11 @@ def verify_original_book(record: dict, external_root: Path) -> dict:
         len(license_raw) != license_size
         or _git_blob(license_raw) != license_blob
         or hashlib.sha256(license_raw).hexdigest() != record.get("external_license_sha256")
-        or not license_raw.startswith(b"THE FULL PROJECT GUTENBERG LICENSE")
+        or not license_raw.lstrip().startswith(
+            b"THE FULL PROJECT GUTENBERG LICENSE"
+            if record["format"] == "txt"
+            else b"GNU GENERAL PUBLIC LICENSE"
+        )
     ):
         raise LawfulCorpusError("external source license bytes changed")
     # Never include raw text, owner secrets or absolute filesystem paths in reports.
@@ -146,7 +150,7 @@ def verify_original_book(record: dict, external_root: Path) -> dict:
         "title": record.get("title"),
         "author": record.get("author"),
         "source_page": record.get("source_page"),
-        "source_format": "txt",
+        "source_format": record["format"],
         "sha256": actual,
         "git_blob": expected_git,
         "license_git_blob": license_blob,
@@ -256,11 +260,16 @@ def main() -> None:
     if not external:
         raise LawfulCorpusError("dedicated external book checkout root missing")
     verified = verify_external_books(load_catalog(), Path(external))
+    formats = {record["source_format"] for record in verified}
+    if formats != {"txt", "md", "pdf"}:
+        raise LawfulCorpusError("required real original TXT, Markdown and PDF families missing")
+    book_count = sum(1 for record in verified if record["source_format"] in ("txt", "md"))
     result = {
         "kind": "revised-section37-ephemeral-upstream-book-source-provenance",
         "status": "PASS",
         "source_commit_sha": expected,
-        "verified_original_book_count": len(verified),
+        "verified_original_book_count": book_count,
+        "verified_original_pdf_count": sum(1 for item in verified if item["source_format"] == "pdf"),
         "sources": verified,
         "public_release_authorized": False,
         "all_six_section37_requirements_done": False,
@@ -275,7 +284,8 @@ def main() -> None:
         temporary.unlink(missing_ok=True)
     print(json.dumps({
         "source_commit_sha": expected,
-        "verified_original_book_count": len(verified),
+        "verified_original_book_count": book_count,
+        "verified_original_pdf_count": sum(1 for item in verified if item["source_format"] == "pdf"),
         "public_release_authorized": False,
     }, sort_keys=True))
 
