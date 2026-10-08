@@ -107,6 +107,39 @@ class Section41RealDesignTests(unittest.TestCase):
         css=(ROOT/"web/assets/accessible_chess_design.css").read_text(encoding="utf-8")
         self.assertIn('.ac41-skip:focus-visible',css)
 
+    def test_real_live_board_gametree_unchanged_by_persistent_theme(self):
+        from acs.settings import Settings
+        from acs.stage1_release_ui_core import Stage1ReleaseAccessibleChessAPI
+        with tempfile.TemporaryDirectory(prefix="ac41-real-core-") as tmp:
+            settings_path=Path(tmp)/"settings.json"
+            api=Stage1ReleaseAccessibleChessAPI(
+                keymap_path=Path(tmp)/"keymap.json",
+                settings=Settings(settings_path),
+            )
+            try:
+                prior_fen=api.board.fen()
+                prior_game=api.review_history.export_tree()
+                self.assertEqual(api.get_state()["uiTheme"],"system")
+                for mode in ("dark","contrast","light","system"):
+                    with self.subTest(mode=mode):
+                        self.assertEqual(
+                            api.set_ui_theme(mode),{"ok":True,"uiTheme":mode})
+                        state=api.get_state()
+                        self.assertEqual(state["uiTheme"],mode)
+                        self.assertEqual(api.board.fen(),prior_fen)
+                        self.assertEqual(api.review_history.export_tree(),prior_game)
+                        self.assertEqual(len(state["visualBoard"]["cells"]),64)
+            finally:
+                api.close_analysis()
+            reopened=Stage1ReleaseAccessibleChessAPI(
+                keymap_path=Path(tmp)/"next-keymap.json",
+                settings=Settings(settings_path),
+            )
+            try:
+                self.assertEqual(reopened.get_state()["uiTheme"],"system")
+            finally:
+                reopened.close_analysis()
+
     def test_restart_persists_ui_theme_through_one_canonical_settings_owner(self):
         from acs.settings import Settings, SettingsError
         from acs.stage1_release_ui_core import Stage1ReleaseAccessibleChessAPI
