@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "videos": [
+    {
+      "video_id": "byrne-fischer-game-century",
+      "filename": "Byrne_vs_Fischer_Game_of_the_Century.webm",
+      "title": "Byrne vs Fischer - The Game of the Century",
+      "source_page": "https://commons.wikimedia.org/wiki/File:Byrne_vs_Fischer_-_The_Game_of_the_Century.webm",
+      "download_url": "https://upload.wikimedia.org/wikipedia/commons/9/90/Byrne_vs_Fischer_-_The_Game_of_the_Century.webm",
+      "author": "Tamuz Hasan",
+      "license_id": "CC-BY-SA-4.0",
+      "license_url": "https://creativecommons.org/licenses/by-sa/4.0/",
+      "duration_seconds": 108.1080078125,
+      "media_type": "video/webm",
+      "expected_sha256": null,
+      "last_checked": "2026-10-08"
+    },
+    {
+      "video_id": "joaquin-perkins-blitz",
+      "filename": "Joaquin_Perkins_blitz_chess_vs_USCF_expert.webm",
+      "title": "Joaquin Perkins blitz chess vs USCF expert",
+      "source_page": "https://commons.wikimedia.org/wiki/File:Joaquin_Perkins_blitz_chess_vs_USCF_expert.webm",
+      "download_url": "https://upload.wikimedia.org/wikipedia/commons/d/de/Joaquin_Perkins_blitz_chess_vs_USCF_expert.webm",
+      "author": "Keleperkins",
+      "license_id": "CC-BY-SA-3.0",
+      "license_url": "https://creativecommons.org/licenses/by-sa/3.0/",
+      "duration_seconds": 20.449,
+      "media_type": "video/webm",
+      "expected_sha256": null,
+      "last_checked": "2026-10-08"
+    },
+    {
+      "video_id": "youth-chess-tournament",
+      "filename": "Youth_chess_tournament.webm",
+      "title": "Youth chess tournament",
+      "source_page": "https://commons.wikimedia.org/wiki/File:Youth_chess_tournament.webm",
+      "download_url": "https://upload.wikimedia.org/wikipedia/commons/f/f6/Youth_chess_tournament.webm",
+      "author": "Samson Ssemakadde",
+      "license_id": "CC0-1.0",
+      "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "duration_seconds": 26,
+      "media_type": "video/webm",
+      "expected_sha256": null,
+      "last_checked": "2026-10-08"
+    },
+    {
+      "video_id": "youth-chess-championships",
+      "filename": "Youth_chess_championships.webm",
+      "title": "Youth chess championships",
+      "source_page": "https://commons.wikimedia.org/wiki/File:Youth_chess_championships.webm",
+      "download_url": "https://upload.wikimedia.org/wikipedia/commons/b/b2/Youth_chess_championships.webm",
+      "author": "Samson Ssemakadde",
+      "license_id": "CC0-1.0",
+      "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "duration_seconds": 12,
+      "media_type": "video/webm",
+      "expected_sha256": null,
+      "last_checked": "2026-10-08"
+    }
+  ]
+}
