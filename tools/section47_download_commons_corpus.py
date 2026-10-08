@@ -157,10 +157,88 @@ def download_one(entry: dict, directory: Path, decode: bool) -> dict:
     return result
 
 
+
+def make_private_mp4_derivative(
+    directory: Path, original: dict, *, clip_seconds: int = 12
+) -> dict:
+    """Real H.264/AAC QA clip derived from a verified Commons original.
+
+    The derived asset is NOT represented as an original. CC-BY-SA rights and
+    upstream attribution stay attached; never redistribute without review.
+    """
+    if type(clip_seconds) is not int or not 1 <= clip_seconds <= 60:
+        raise OriginalError("invalid derivative clip duration")
+    ffmpeg = shutil.which("ffmpeg")
+    ffprobe = shutil.which("ffprobe")
+    if not ffmpeg or not ffprobe:
+        raise OriginalError("ffmpeg and ffprobe required for derived MP4")
+    original_path = directory / original["filename"]
+    if not original_path.is_file() or original_path.is_symlink():
+        raise OriginalError("verified source original missing")
+    if not original_path.name.endswith(".webm") or original_path.name != original["filename"]:
+        raise OriginalError("invalid derivative source")
+    current = hashlib.sha256(original_path.read_bytes()).hexdigest()
+    if current != original["sha256"]:
+        raise OriginalError("original source changed before MP4 transcode")
+    target = directory / (original_path.stem + ".qa.mp4")
+    if target.exists() or target.is_symlink():
+        raise OriginalError("derivative destination exists")
+    temporary = directory / ("." + original_path.stem + ".qa-temp.part")
+    if temporary.exists() or temporary.is_symlink():
+        raise OriginalError("temporary derivative destination exists")
+    try:
+        subprocess.run(
+            [ffmpeg, "-nostdin", "-v", "error", "-i", str(original_path),
+             "-t", str(clip_seconds), "-vf", "scale=480:-2",
+             "-c:v", "libx264", "-preset", "veryfast", "-crf", "27",
+             "-c:a", "aac", "-movflags", "+faststart", "-f", "mp4",
+             str(temporary)],
+            check=True, timeout=180, stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+        )
+        if not temporary.is_file() or not 0 < temporary.stat().st_size <= MAX_BYTES:
+            raise OriginalError("invalid derived MP4 size")
+        metadata = subprocess.run(
+            [ffprobe, "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=codec_name,width,height",
+             "-of", "json", str(temporary)],
+            check=True, timeout=35, capture_output=True, text=True,
+        )
+        data = json.loads(metadata.stdout)
+        if not data.get("streams") or data["streams"][0].get("codec_name") != "h264":
+            raise OriginalError("derived video is not H264")
+        sha256 = hashlib.sha256()
+        with temporary.open("rb") as stream:
+            for block in iter(lambda: stream.read(262144), b""):
+                sha256.update(block)
+        os.replace(temporary, target)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+    return {
+        "filename": target.name,
+        "evidence_class": "DERIVED_PRIVATE_MP4",
+        "video_codec": "h264",
+        "derived_from_original_sha256": original["sha256"],
+        "source_page": original["source_page"],
+        "creator": original["creator"],
+        "license": original["license"],
+        "license_url": original["license_url"],
+        "modified": True,
+        "modification": "ffmpeg H264/AAC 12-second 480-pixel educational QA clip",
+        "bytes": target.stat().st_size,
+        "sha256": sha256.hexdigest(),
+        "source_original_bytes_verified": True,
+        "chess_position_qualified": False,
+        "windows_player_acceptance": "NOT_RUN",
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", required=True, help="private empty directory")
     parser.add_argument("--decode", action="store_true")
+    parser.add_argument("--derive-mp4", action="store_true", help="private H264 QA clip from checked original")
     args = parser.parse_args()
     manifest = json.loads(SOURCE.read_text(encoding="utf-8"))
     entries = manifest["originals"]
@@ -177,6 +255,12 @@ def main() -> int:
             receipt = download_one(entry, directory, args.decode)
             receipts.append(receipt)
             print("SHA-256: " + receipt["sha256"], flush=True)
+        derivatives = []
+        if args.derive_mp4:
+            source = next((item for item in receipts if item["filename"].startswith("Joaquin Perkins")), None)
+            if source is None:
+                raise OriginalError("verified over-board source unavailable for derived MP4")
+            derivatives.append(make_private_mp4_derivative(directory, source))
     except Exception:
         print("Original qualification FAILED; partial files are not a passing library.", file=sys.stderr)
         raise
@@ -189,6 +273,7 @@ def main() -> int:
         "board_pgn_fen_qualification": "NOT_RUN",
         "windows_player_acceptance": "NOT_RUN",
         "receipts": receipts,
+        "derivatives": derivatives,
     }
     (directory / "RECEIPT.json").write_text(
         json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
