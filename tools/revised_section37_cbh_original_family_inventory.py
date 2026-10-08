@@ -95,12 +95,15 @@ def verify_gpl_cbh_family(record: dict, checkout: Path) -> dict:
         raise LawfulCorpusError("CBH companion manifest does not cover exact family")
     if any(type(v) is not str or not SHA40.fullmatch(v) for v in expected.values()):
         raise LawfulCorpusError("CBH companion file has no pinned Git blob")
-    family = checkout / "gtest" / dirname
+    gtest = checkout / "gtest"
+    if not gtest.is_dir() or gtest.is_symlink():
+        raise LawfulCorpusError("original CBH gtest directory absent or indirect")
+    family = gtest / dirname
     if not family.is_dir() or family.is_symlink():
         raise LawfulCorpusError("original CBH family directory absent or indirect")
     available = {
         path.name for path in family.iterdir()
-        if path.name.startswith(stem + ".") and path.suffix.lower() in SUFFIXES
+        if path.name.startswith(stem + ".") and path.suffix.lower().startswith(".cb")
     }
     if available != set(expected):
         raise LawfulCorpusError("real CBH companion family incomplete or unexpectedly changed")
