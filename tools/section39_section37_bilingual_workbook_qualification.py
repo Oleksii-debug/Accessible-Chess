@@ -80,6 +80,8 @@ def qualify_bilingual_books(*, root: Path = ROOT) -> tuple[dict, dict[str, bytes
         for lang in LANGUAGES for ext in EXTENSIONS
     }:
         raise LawfulCorpusError("bilingual five-format original derived source inventory changed")
+    expected_fens = tuple(lesson["fen_before_opponent_move"]
+                          for lesson in work["lessons"])
     outputs = []
     locations = {}
     with tempfile.TemporaryDirectory(prefix="acs39-37-real-workbook-") as scratch:
@@ -104,10 +106,23 @@ def qualify_bilingual_books(*, root: Path = ROOT) -> tuple[dict, dict[str, bytes
                     if block.kind == "Position"
                 ]
                 if ext in {"md", "html", "epub"}:
-                    if len(chess_positions) != 12:
-                        raise LawfulCorpusError("bilingual FEN position semantics lost in chess-aware format")
+                    if tuple(chess_positions) != expected_fens:
+                        raise LawfulCorpusError("bilingual chess book changed original FEN position identity/order")
                 elif chess_positions:
                     raise LawfulCorpusError("TXT/DOCX invented an unmarked chess position")
+                visible_text = "\n".join(
+                    getattr(block, "text", "") for block in prepared.document.blocks
+                    if isinstance(getattr(block, "text", ""), str)
+                )
+                # Complete genuine advanced instruction must survive five
+                # native book transformations; just keeping its page title
+                # and twelve FEN entries is not semantic source fidelity.
+                if any(
+                    lesson["lesson_id"] not in visible_text
+                    or lesson[lang]["prompt"] not in visible_text
+                    for lesson in work["lessons"]
+                ):
+                    raise LawfulCorpusError("Section37 bilingual full teaching lesson text was lost on original format import")
                 reader = BookReader(prepared.document)
                 before = reader.location()
                 after = reader.next_block()
@@ -130,6 +145,11 @@ def qualify_bilingual_books(*, root: Path = ROOT) -> tuple[dict, dict[str, bytes
                     "derived_bytes": len(body),
                     "semantic_blocks": len(prepared.document.blocks),
                     "explicit_fen_positions": len(chess_positions),
+                    "source_fen_sequence_identical": (
+                        tuple(chess_positions) == expected_fens if ext in {"md", "html", "epub"}
+                        else "NO_EXPLICIT_FEN_METADATA_IN_TEXT_DOCX"
+                    ),
+                    "all_twelve_original_prompts_present": True,
                     "importer": "acs.version2_application.Version2Application.prepare_book_open",
                     "bookdocument_semantic_reimport": "PASS",
                     "book_progress_disk_restart": "PASS",
