@@ -613,6 +613,7 @@ jobs:
       - original-books-test-only-provenance
       - original-epd-fen-licensed-sources
       - real-cbh-gpl-upstream-readback
+      - original-gutenberg-epub-html-source-test-only
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -645,6 +646,11 @@ jobs:
         with:
           name: section39-genuine-cbh-real-oracle
           path: section39-join-inputs/cbh
+      - name: Download actual Project Gutenberg EPUB3 and HTML real-book readback
+        uses: actions/download-artifact@v4
+        with:
+          name: section39-original-gutenberg-epub3-html-license-restricted
+          path: section39-join-inputs/gutenberg
       - name: Deny synthetic or stale cross-job original-file evidence
         run: |
           python -m py_compile tools/section39_ci_evidence_aggregate.py tests/test_section39_ci_evidence_aggregate.py
@@ -660,6 +666,7 @@ jobs:
           --cbh section39-join-inputs/cbh/section39-genuine-cbh-annotation-variation-semantic.json
           --advanced section39-join-inputs/base/section39-new-section37-annotated-pgn-qualification.json
           --training section39-join-inputs/base/section39-new-section37-training-position-semantic-evidence.json
+          --gutenberg section39-join-inputs/gutenberg/section39-official-original-epub-html-observation.json
       - name: Preserve merged source IDs, actual SHA256, format outcomes and remaining gaps
         if: always()
         uses: actions/upload-artifact@v4
