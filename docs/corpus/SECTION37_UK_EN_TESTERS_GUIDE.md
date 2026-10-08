@@ -39,3 +39,13 @@
 - Exact source and distribution license registry: `docs/corpus/revised_sections37_40_sources.json`.
 
 **Terminal status:** Section 37 is **NOT DONE** until exact-head passing test evidence, licensed broad real-format acquisition, full format/provenance/packaging readback and independent accessibility evidence are recorded. **Current-shipping is not advanced by this PR alone.**
+
+
+## Вимога власника: лише те, що реально відкривається у програмі / Native-reader-only policy
+
+- Книги Івана Хабінця та інші придбані сторонні видання, яких немає як правомірно отриманих і реально імпортованих файлів, **не входять до користувацького тестового набору**. Посилання на магазин або видавця не вважається бібліотечною книгою Accessible Chess.
+- Фінальна команда збірки передбачає `python -m tools.revised_section37_bilingual_workbook_pack --output-dir section37-bilingual-shareable-advanced-books --zip-output section37-advanced-uk-en-tested-corpus.zip`. Перед перейменуванням тимчасового ZIP вона перевіряє всі оригінальні SHA-256, заборонені сторонні вихідні файли і повторно читає архів. У ZIP 10 справжніх двомовних файлів книг у підтримуваних форматах, два вихідні PGN, 12-позиційний FEN і маніфест.
+- PDF **НЕ публікується як доступний у Accessible Chess користувацький навчальний файл**; окремий PDF-тест у CI може генерувати PDF тимчасово, однак як артефакт віддає **лише технічний JSON-звіт**, поки канонічний PDF Book importer не зможе відкрити його сам.
+- Розділ 38 має окремий `tests/test_revised_section38_real_advanced_source_crossroute.py` для фактичного readback того самого ZIP через `Version2Application`, `LibraryImportService`, `AcsDatabase` і канонічну модель шахів. Вимога DONE — тільки **успішний незалежний запуск** цих тестів на тому самому Git SHA. Якщо GitHub Actions стоїть `queued`, тест ще не підтверджений.
+
+**English:** No full book is included merely because a retailer link exists. Only actual legally shareable content with a native Accessible Chess reading/import path is published to the owner. PDFs are source QA only until the product can natively read them, and external paid publications are not part of the real corpus. The complete user ZIP is generated only after source SHA checks, an excluded-material leakage audit and complete ZIP readback; a queued CI run is not a PASS.
