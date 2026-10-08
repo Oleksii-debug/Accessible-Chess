@@ -277,6 +277,10 @@ class ProtectionUpdateChannel:
             if root.resolve(strict=True) != root or path.resolve(strict=True) != path:
                 raise ProtectionAdvancedError("private secure-update package is unsafe")
             info = path.lstat()
+        except ProtectionAdvancedError:
+            # Preserve an explicit trust denial; it must not be mistaken for an
+            # unavailable staging file (ProtectionBoundaryError is RuntimeError).
+            raise
         except (OSError, RuntimeError) as exc:
             raise ProtectionAdvancedError("private secure-update package is unavailable") from exc
         reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
