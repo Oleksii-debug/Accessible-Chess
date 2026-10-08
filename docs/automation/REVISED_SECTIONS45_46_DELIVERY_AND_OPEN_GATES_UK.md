@@ -41,3 +41,27 @@ Files: acs/section45_design_profiles.py; acs/settings.py; acs/stage1_release_ui.
 - Only once all valid acceptance conditions hold may the live GitHub ledger and authoritative Google Drive plan be marked terminal DONE.
 
 **HUMAN_TESTED=NO; NVDA_VERIFIED=NO; APPROVED_BASELINES=NO; REAL_PRODUCT_PERFORMANCE_VERIFIED=NO; TERMINAL_DONE=NO.**
+
+
+## Integration hardening added after original delivery note
+
+- Re-converged Section 45/46 branch on live Sections 43–44 source by two-parent history-preserving merge b73b3ac452ade659684a9406a2152e9014cde3e3. Preserved upstream Section 42 renderer, Web ASGI allowlist, corpus and Section 43–44 settings/layout authorities; candidate-to-parent compare was ahead-only with zero behind. Upstream parent may advance again, so refresh exact ancestry at terminal acceptance.
+- Real Web board now consumes the same validated presentation-only profile through its already-shipped renderBoard() function: 64 canonical read-only cells, theme, RhosGFX/letters/Unicode, orientation, coordinates, board size, highlighting and animation. The canonical snapshot/FEN/MoveList never changes. Existing overlay authority retained.
+- Added interactive 64-square first-party decorative preview, marked aria-hidden; no second playable board, no duplicate position state or FEN parser.
+- Windows and Web profile inputs reject duplicate JSON keys, malicious prototype names and unknown fields. Damaged Web settings bytes are preserved until owner explicitly chooses Reset then Apply; stale-tab conflict is rejected. Native settings remain upgrade-locked with exact revision.
+- Actual executable source-bound JavaScript smoke run on the merged branch passed ten design-studio DOM groups and an independent real Web renderBoard() VM integration test: themes/pieces/orientation, accessibility labels, focus, arrow-key navigation, invalid-values fallback and immutable canonical snapshot. These runs are LOCAL CONNECTOR-EXECUTED SCRIPT EVIDENCE, **not GitHub Actions green, physical Windows or full application acceptance**.
+- Section46 browser qualification now includes keyboard Enter/Tab, Ctrl+A native text selection, long translation reflow, actual CSS zoom and device DPI, six preset preview redraw, source-bound screenshot SHA-256, local synthetic Web 64-cell fixture, plus real Stage1 keymap and engine-start dialogs. The planned matrix is 48 primary HTML combinations + 6 modal screenshots; all are unapproved until captured and reviewed.
+- Screenshot diff no longer allocates Python boolean arrays per pixel: bounded Pillow histogram is used. Approval requires reviewer identity, UTC review date, exact baseline source SHA and both baseline/current PNG SHA-256. Missing/falsified evidence fails closed.
+- A bilingual Windows/NVDA/sighted-review protocol is at docs/automation/SECTION46_WINDOWS_NVDA_SIGHTED_VISUAL_REVIEW_PROTOCOL_UK_EN.md. This is a protocol, **not completed human acceptance**.
+- GitHub CI uses one cancel-in-progress group for the current branch to discard stale queued duplicate runs. At this note the hosted CI may still be queued; do not infer pass from the candidate.
+- New actual-web reflow fix removes eight fixed 2.7rem minimum grid columns that otherwise could overflow narrow/high-zoom screens.
+
+### Exact residual blockers, not optional DONE substitutes
+
+1. Exact current-head Ubuntu/Windows jobs must truly finish SUCCESS and their logs/test counts/negative checks be inspected.
+2. Real Windows/WebView2/WinForms UIA, native focus/editing/copy, NVDA, OS DPI and force-color qualification must execute on a user-consumable Windows artifact.
+3. Visually approved screenshots and independent sighted tester evaluation of all real modules are not yet recorded. A captured browser PNG is not sighted approval.
+4. Large real user Library/media/engine performance must be qualified, including restart and access to actual Product-backed routes.
+5. Sections 41–44 ancestor candidates and Sections 45–46 must converge into one shipping Product; post-integration exact-source readback and license verification are mandatory.
+
+**SECTION45_TERMINAL_DONE=NO. SECTION46_TERMINAL_DONE=NO.** These are engineering advancements with verifiable scope, not certified terminal closures.
