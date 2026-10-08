@@ -100,6 +100,35 @@ class ReleasePreflightTests(unittest.TestCase):
         root = self.make_package(); stale = root / "AccessibleChess/build/stale.bin"; stale.parent.mkdir(); stale.write_bytes(b"x"); self.rewrite_checksums(root); self.rejected(root, "stale/build/source")
         root = self.make_package(); nested = root / "AccessibleChess/AccessibleChess/AccessibleChess.exe"; nested.parent.mkdir(); nested.write_bytes(b"x"); self.rewrite_checksums(root); self.rejected(root, "double AccessibleChess")
 
+    def test_r43_native_debug_sidecars_fail_even_with_correct_checksums(self) -> None:
+        # No debug artefact may become trusted merely by entering the inventory.
+        for relative in (
+            "AccessibleChess.pdb", "AccessibleChess.ILK", "build.MAP",
+            "web/app.js.map", "native/module.iobj", "native/module.ipch",
+            "native/profile.profraw", "native/coverage.gcno", ".coverage",
+            "AccessibleChess.dSYM/Contents/Resources/DWARF/AccessibleChess",
+        ):
+            with self.subTest(relative=relative):
+                root = self.make_package()
+                leaked = root / "AccessibleChess" / relative
+                leaked.parent.mkdir(parents=True, exist_ok=True)
+                leaked.write_bytes(b"compiler-debug-material")
+                self.rewrite_checksums(root)
+                self.rejected(root, "native debug symbols")
+
+    def test_r43_loose_native_source_denied_but_lawful_stockfish_zip_retained(self) -> None:
+        for relative in ("native/module.c", "native/module.hpp"):
+            with self.subTest(relative=relative):
+                root = self.make_package()
+                leaked = root / "AccessibleChess" / relative
+                leaked.parent.mkdir(parents=True, exist_ok=True)
+                leaked.write_text("private native source", encoding="utf-8")
+                self.rewrite_checksums(root)
+                self.rejected(root, "raw native source")
+        root = self.make_package()
+        report = inspect_release_package(root)
+        self.assertIn("THIRD_PARTY_NOTICES/Stockfish-18-source.zip", report.inventory)
+
     def test_manifest_nvda_true_is_rejected(self) -> None:
         root = self.make_package(); path = root / "RELEASE_MANIFEST.json"; data = json.loads(path.read_text()); data["nvda_verified"] = True
         path.write_text(json.dumps(data)); self.rewrite_checksums(root); self.rejected(root, "nvda_verified=false")
