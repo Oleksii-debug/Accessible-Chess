@@ -86,6 +86,10 @@ class RealFileFormatQualificationTests(TestCase):
         self.assertEqual(lookup[PGN_ID]["status"], "PASS")
         self.assertEqual(lookup[PGN_ID]["expected_sha256"],
                          lookup[PGN_ID]["actual_sha256"])
+        self.assertNotEqual(lookup["lichess_standard_rated_2013_01"]["status"],
+                            "PASS", "declared but not downloaded Lichess PGN must not be PASS")
+        self.assertIsNone(lookup["lichess_standard_rated_2013_01"]["actual_sha256"])
+        self.assertNotEqual(lookup["original_epd2doc_opening_fen"]["status"], "PASS")
         self.assertEqual(lookup["gitenberg_capablanca_33870_original_txt"]["status"],
                          "PARTIAL")
         self.assertIsNone(lookup["chessbase_family_complete_real_samples"]["actual_sha256"])
