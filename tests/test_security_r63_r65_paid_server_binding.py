@@ -167,3 +167,41 @@ def test_r65_private_auth_exception_redacted_to_boolean_denial():
         trusted_transport=lambda *_: good_transport())
     p, r = principal_request()
     assert callback(p, r) is False
+
+
+def test_r70_cross_workspace_even_matching_server_transport_denied_before_issuer():
+    # A direct caller of the canonical R65 callback MUST NOT bypass the
+    # canonical ServerApplicationBoundary's cross-workspace isolation.
+    called = []
+    guard = guard_with(lambda **kw: called.append(kw) or OperationAdmission(
+        "account.one", "premium.analysis", "request.one", "NEW"))
+    callback = CanonicalPaidOperationCallback(
+        guard=guard, trusted_transport=lambda *_: good_transport())
+    principal, request = principal_request()
+    switched = ApiRequest(
+        schema_version=1, request_id=request.request_id,
+        workspace_id="attacker.workspace", operation=request.operation,
+        payload={"premium": True, "account_id": "account.one"},
+    )
+    assert callback(principal, switched) is False
+    assert called == []
+
+
+def test_r70_forged_request_account_never_reaches_canonical_issuer_as_authority():
+    seen = []
+    guard = guard_with(lambda **kw: seen.append(kw) or OperationAdmission(
+        "account.one", "premium.analysis", "request.one", "NEW"))
+    callback = CanonicalPaidOperationCallback(
+        guard=guard, trusted_transport=lambda *_: good_transport())
+    principal, request = principal_request()
+    hostile = ApiRequest(
+        schema_version=1, request_id=request.request_id,
+        workspace_id=principal.workspace_id, operation=request.operation,
+        payload={"premium": True, "account_id": "admin.account",
+                 "access_token": "attacker-controlled", "device_id": "new.device"},
+    )
+    assert callback(principal, hostile) is True
+    assert len(seen) == 1
+    assert seen[0]["access_token"] == "server-session-token"
+    assert seen[0]["device_id"] == "device.one"
+    assert "admin.account" not in repr(seen[0])
