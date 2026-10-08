@@ -1093,6 +1093,25 @@
       "format": "composed studies (web UI; download license unconfirmed)",
       "source_page": "https://studies.chessbase.com/en/",
       "notes": "First-party ChessBase study service provides compositions from masters, ratings/hints and analysis, but no downloadable rights-cleared corpus or source composition PGN verified; private user access != redistribution permission."
+    },
+    {
+      "id": "lichess_cc0_high_level_4_original_annotated_games",
+      "title": "Four full authentic Lichess annotated games with both online participants 2200+ at time",
+      "author": "Lichess original game player source under CC0",
+      "format": "pgn",
+      "source_page": "https://github.com/mcognetta/lichess-combined-puzzle-game-db",
+      "download_url": null,
+      "sha256": "9fa990a0e332f86d0ea7c5fe5c2fa3bb6d6784ec47a6277c75a58fb903ecf8f3",
+      "max_bytes": 20121,
+      "indexed_bytes": 20121,
+      "local_source": "tests/real_corpus/advanced_training/lichess_cc0_2200_both_players_annotated_original_games.pgn",
+      "source_original_git_blob": "d7b86f83c1a355fa511420a36dbdc656a3cc6fef",
+      "source_manifest": "tests/real_corpus/advanced_training/lichess_cc0_2200_both_players_annotated_original_games_manifest.json",
+      "license": "CC0-1.0 original Lichess game analyses and source credits",
+      "redistribution": "permitted",
+      "acquisition": "VENDORED_SOURCE_VERIFIED",
+      "canonical_qa": "Actual 4 CC0 original RAV/eval PGN games; canonical PGN/Library integration tests separate. 2200+ online player ratings are NOT FIDE Elo/GM titles.",
+      "notes": "Four genuine annotated fully recorded games with both Lichess opponents >=2200; 142 RAV parentheses and 265 eval comments detected in original full derived file. Not a replacement for true GM classical database, separate from IBCA championships."
     }
   ]
 }
