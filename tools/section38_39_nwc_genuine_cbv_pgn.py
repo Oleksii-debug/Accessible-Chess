@@ -208,6 +208,7 @@ def qualify_original_publisher_pair(
     ))
     if not 1 <= len(expected_games) <= MAX_GAME_COUNT:
         raise LawfulCorpusError("original Northwest Chess PGN score count invalid")
+    expected_recovery_warnings = sum(len(game.warnings) for game in expected_games)
     with tempfile.TemporaryDirectory(prefix="acs-external-nwc2013-cbv-") as tmp:
         root = Path(tmp)
         archive = root / "published.cbv"
@@ -229,6 +230,7 @@ def qualify_original_publisher_pair(
         ))
         if not 1 <= len(decoded_games) <= MAX_GAME_COUNT:
             raise LawfulCorpusError("real CBV decoder returned invalid game count")
+        decoded_recovery_warnings = sum(len(game.warnings) for game in decoded_games)
         # Semantic qualification must not end at stdout PGN. Persist genuine
         # CBV-derived games through the *existing* canonical Library importer,
         # restart the actual SQLite database and search by source ID.
@@ -267,8 +269,8 @@ def qualify_original_publisher_pair(
                     if record is None:
                         raise LawfulCorpusError("original CBV stored source game missing")
                     parsed = parse_games(str(record["pgn_text"]))
-                    if len(parsed) != 1:
-                        raise LawfulCorpusError("original CBV stored PGN invalid")
+                    if len(parsed) != 1 or parsed[0].warnings:
+                        raise LawfulCorpusError("original CBV stored PGN invalid or recovered")
                     stored_games.append((result.source_index, parsed[0]))
                 if not search_page.has_more:
                     break
@@ -278,6 +280,7 @@ def qualify_original_publisher_pair(
             stored_games.sort(key=lambda item: item[0])
             storage_matches = (
                 len(stored_games) == len(decoded_games)
+                and decoded_recovery_warnings == 0
                 and _original_games_signature(tuple(x[1] for x in stored_games))
                     == _original_games_signature(decoded_games)
             )
@@ -294,6 +297,8 @@ def qualify_original_publisher_pair(
     same_count = len(expected_games) == len(decoded_games)
     same_tree = (
         same_count
+        and expected_recovery_warnings == 0
+        and decoded_recovery_warnings == 0
         and _original_games_signature(expected_games)
             == _original_games_signature(decoded_games)
     )
@@ -317,6 +322,9 @@ def qualify_original_publisher_pair(
         "cbv_decoder_actual_games": len(decoded_games),
         "actual_decoder_export_sha256": hashlib.sha256(decoded_raw).hexdigest(),
         "same_game_count": same_count,
+        "original_pgn_recovery_warning_count": expected_recovery_warnings,
+        "cbv_decoded_pgn_recovery_warning_count": decoded_recovery_warnings,
+        "complete_original_header_and_annotation_comparison": True,
         "actual_acsdb_imported_games": imported.game_count,
         "actual_acsdb_restart_game_count": len(stored_games),
         "acsdb_restart_full_semantic_match": storage_matches,
