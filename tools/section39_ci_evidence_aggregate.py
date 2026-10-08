@@ -35,7 +35,8 @@ def merge_real_receipts(base: dict, original_positions: dict, original_books: di
                         cbh: dict | None = None,
                         advanced: dict | None = None,
                         training: dict | None = None,
-                        gutenberg: dict | None = None) -> dict:
+                        gutenberg: dict | None = None,
+                        chess960: dict | None = None) -> dict:
     if not _valid_digest(expected_sha, 40):
         raise LawfulCorpusError("Section 39 merge lacks exact source SHA")
     reports = (base, original_positions, original_books)
@@ -70,6 +71,65 @@ def merge_real_receipts(base: dict, original_positions: dict, original_books: di
         raise LawfulCorpusError("original licensed external-file matrices incomplete")
 
     imported_external = []
+    if chess960 is not None:
+        original_ids = {
+            "stockfish_frc_openings_epd_zip",
+            "stockfish_4mvs_90_99_epd_zip",
+        }
+        witnesses = chess960.get("sources", [])
+        if (
+            chess960.get("schema") != "acs-section39-authentic-stockfish-chess960-epd-v1"
+            or chess960.get("source_commit_sha") != expected_sha
+            or chess960.get("source_count") != 2
+            or len(witnesses) != 2
+            or {record.get("source_id") for record in witnesses} != original_ids
+        ):
+            raise LawfulCorpusError("genuine original Stockfish Chess960 evidence absent/stale")
+        chess960_evidence = []
+        for original in witnesses:
+            origin = sources[original["source_id"]]
+            supported = original.get("actual_canonical_position_roundtrip_count")
+            unsupported = original.get("unsupported_original_record_count")
+            total = original.get("original_record_count")
+            quality = original.get("qualification")
+            valid_quality = (
+                "PASS" if unsupported == 0 else
+                "PARTIAL" if supported else "UNSUPPORTED"
+            ) if (type(supported) is int and type(unsupported) is int
+                  and supported >= 0 and unsupported >= 0) else "INVALID"
+            if (
+                original.get("source_zip_sha256") != origin.get("sha256")
+                or not _valid_digest(original.get("original_member_sha256"), 64)
+                or type(total) is not int or total < 2
+                or supported + unsupported != total
+                or original.get("real_source_read") is not True
+                or original.get("mocked") is not False
+                or quality != valid_quality
+                or origin.get("acquisition") != "VENDORED_SOURCE_VERIFIED"
+                or not str(origin.get("license", "")).startswith("CC0")
+            ):
+                raise LawfulCorpusError("authentic Chess960 source identity or per-record coverage falsified")
+            receipt = base_receipts[original["source_id"]]
+            if receipt.get("actual_sha256") != origin["sha256"]:
+                raise LawfulCorpusError("real original Chess960 ZIP was not byte-verified")
+            receipt["semantic_qualification"] = quality
+            receipt["actual_importer"] = original["actual_importer"]
+            receipt["note"] = "actual original FRC and EPD ZIP; canonical per-position supported and unsupported outcomes counted separately"
+            if quality == "PASS":
+                receipt["status"] = "PASS"
+            chess960_evidence.append({
+                "source_id": original["source_id"],
+                "original_zip_sha256": origin["sha256"],
+                "original_member_sha256": original["original_member_sha256"],
+                "supported": supported, "unsupported": unsupported,
+                "qualification": quality,
+            })
+        rows["EPD"]["genuine_chess960_and_epd_source_evidence"] = chess960_evidence
+        if any(row["unsupported"] for row in chess960_evidence):
+            rows["EPD"]["qualification"] = "PARTIAL"
+            rows["EPD"]["roundtrip"] = "PARTIAL"
+        rows["EPD"]["source_ids"] = sorted(set(rows["EPD"]["source_ids"]) | original_ids)
+
     if gutenberg is not None:
         originals = gutenberg.get("sources", [])
         authoritative = {
@@ -428,7 +488,7 @@ def merge_real_receipts(base: dict, original_positions: dict, original_books: di
     return {
         "schema": "accessible-chess-section39-combined-external-genuine-evidence-v1",
         "section": 39, "source_commit_sha": expected_sha,
-        "original_source_count": len(imported_external) + (3 if cbh is not None else 0) + (1 if advanced is not None else 0) + (2 if gutenberg is not None else 0),
+        "original_source_count": len(imported_external) + (3 if cbh is not None else 0) + (1 if advanced is not None else 0) + (2 if gutenberg is not None else 0) + (2 if chess960 is not None else 0),
         "format_count": 16, "format_rows": [rows[r["format"]] for r in original_rows],
         "source_receipts": [base_receipts[r["source_id"]] for r in base["source_receipts"]],
         "full_matrix_completed": False,
@@ -462,12 +522,13 @@ def main() -> None:
     parser.add_argument("--advanced", type=Path, required=True)
     parser.add_argument("--training", type=Path, required=True)
     parser.add_argument("--gutenberg", type=Path, required=True)
+    parser.add_argument("--chess960", type=Path, required=True)
     args = parser.parse_args()
     head = _source_head()
     result = merge_real_receipts(
         _read(args.base), _read(args.positions), _read(args.books),
         load_catalog(), head, _read(args.cbh), _read(args.advanced), _read(args.training),
-        _read(args.gutenberg),
+        _read(args.gutenberg), _read(args.chess960),
     )
     staged = REPORT.with_suffix(".tmp")
     try:
