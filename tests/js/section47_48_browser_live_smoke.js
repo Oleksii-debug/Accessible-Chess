@@ -113,10 +113,10 @@ async function testYouTube(page, id) {
   }, null, { timeout: 35000 });
   const playing = await page.locator("#real-youtube-status").innerText();
   if (!playing.includes("playing")) throw Error("LIVE_PLAYBACK_NOT_CONFIRMED: " + playing);
-  const start = Number(/позиція (\d+(?:\.\d+)?) с/.exec(playing)?.[1]);
+  const start = Number(/Час YouTube: (\d+(?:\.\d+)?) с/.exec(await page.locator("#real-youtube-time").innerText())?.[1]);
   await page.waitForTimeout(2500);
-  const later = await page.locator("#real-youtube-status").innerText();
-  const end = Number(/позиція (\d+(?:\.\d+)?) с/.exec(later)?.[1]);
+  const later = await page.locator("#real-youtube-time").innerText();
+  const end = Number(/Час YouTube: (\d+(?:\.\d+)?) с/.exec(later)?.[1]);
   if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) {
     throw Error("LIVE_TIME_NOT_ADVANCING: " + later);
   }
