@@ -28,6 +28,15 @@ REQUIRED_HARDENED_CHECKS = (
     "device-health-policy",  # R49 (optional only when policy allows)
     "clone-resistance-policy",  # R50
 )
+# R57-R60 require independently verified native/vendor-provider implementation.
+# These checks do not execute the neutral synthetic fixture in the public client.
+# R61 attribution and R62 incident response belong to trusted build/server owners.
+REQUIRED_COMMERCIAL_RUNTIME_CHECKS = (
+    "protected-runtime-integrity",  # R57
+    "instrumentation-clear",  # R58; assistive technology is not a tamper signal
+    "scoped-sensitive-memory",  # R59
+    "ephemeral-endpoint-key",  # R60
+)
 _REASON = re.compile(r"^[a-z0-9][a-z0-9._-]{0,127}$")
 
 
@@ -42,6 +51,19 @@ class HardenedReleaseBoundary:
         self.client = client
 
     def require_all(self, *, build_id: str) -> None:
+        self._require_private_checks(build_id=build_id, checks=REQUIRED_HARDENED_CHECKS)
+
+    def require_commercial_runtime(self, *, build_id: str) -> None:
+        """Require R57-R60 at startup; absent native private checks always deny.
+
+        This is an extension of the SAME private v5 provider boundary, never a
+        second runtime, issuer, on-device verdict source or vendor self-check.
+        """
+        self._require_private_checks(
+            build_id=build_id, checks=REQUIRED_COMMERCIAL_RUNTIME_CHECKS
+        )
+
+    def _require_private_checks(self, *, build_id: str, checks: tuple[str, ...]) -> None:
         if (type(build_id) is not str or not build_id
                 or len(build_id) > 256 or any(c.isspace() for c in build_id)):
             raise ProtectionHardenedError("hardened release build is invalid")
@@ -54,7 +76,7 @@ class HardenedReleaseBoundary:
             raise ProtectionHardenedError("private hardened runtime unavailable") from None
         if not callable(verify):
             raise ProtectionHardenedError("private hardened verifier unavailable")
-        for check_id in REQUIRED_HARDENED_CHECKS:
+        for check_id in checks:
             try:
                 receipt = verify(
                     package_root=self.client.application_dir,
@@ -89,4 +111,5 @@ __all__ = [
     "HardenedReleaseBoundary",
     "ProtectionHardenedError",
     "REQUIRED_HARDENED_CHECKS",
+    "REQUIRED_COMMERCIAL_RUNTIME_CHECKS",
 ]
