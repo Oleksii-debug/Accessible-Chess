@@ -176,11 +176,13 @@ function renderBoard(snapshot) {
       ? override.piece_theme : canonicalPrefs.pieceTheme,
     orientation: ["white","black"].includes(override.orientation)
       ? override.orientation : canonicalPrefs.orientation,
-    coordinateMode: ["off","edges","every_square"].includes(override.coordinates)
+    coordinateMode: currentRoute === "teacher" && canonicalPrefs.coordinateMode === "off"
+      ? "off" : ["off","edges","every_square"].includes(override.coordinates)
       ? override.coordinates : canonicalPrefs.coordinateMode,
     scalePercent: [75,100,125,150,175,200].includes(override.board_scale)
       ? override.board_scale : canonicalPrefs.scalePercent,
-    showLastMove: typeof override.highlight === "boolean"
+    showLastMove: canonicalPrefs.showLastMove === false
+      ? false : typeof override.highlight === "boolean"
       ? override.highlight : canonicalPrefs.showLastMove,
     animateMoves: typeof override.animations === "boolean"
       ? override.animations : canonicalPrefs.animateMoves
