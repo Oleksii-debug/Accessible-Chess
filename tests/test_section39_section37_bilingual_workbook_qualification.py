@@ -34,6 +34,12 @@ class Section37RealBilingualMultiFormatQualification(unittest.TestCase):
             self.assertEqual(row["book_progress_disk_restart"], "PASS")
             self.assertEqual(row["explicit_fen_positions"],
                              12 if row["format"] in {"MD", "HTML", "EPUB"} else 0)
+            self.assertTrue(row["all_twelve_original_prompts_present"])
+            self.assertEqual(
+                row["source_fen_sequence_identical"],
+                True if row["format"] in {"MD", "HTML", "EPUB"}
+                else "NO_EXPLICIT_FEN_METADATA_IN_TEXT_DOCX",
+            )
 
     def test_license_changed_in_original_cc0_catalog_fails_before_derivation(self):
         original = qa.load_catalog
