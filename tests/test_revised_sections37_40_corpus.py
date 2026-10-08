@@ -393,7 +393,7 @@ class RevisedCorpusContractTests(unittest.TestCase):
             item["id"]: item for item in load_catalog()
         }["lichess_openings_original_eco_a_tsv"]
         self.assertEqual(record["license"], "CC0")
-        self.assertEqual(record["acquisition"], "SOURCE_PAGE_ONLY")
+        self.assertEqual(record["acquisition"], "VENDORED_SOURCE_VERIFIED")
         original = (
             Path(__file__).resolve().parents[1]
             / "tests/real_corpus/lichess_openings_a.tsv"
