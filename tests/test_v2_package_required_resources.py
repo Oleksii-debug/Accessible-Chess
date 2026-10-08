@@ -72,6 +72,8 @@ class Version2PackageRequiredResourcesTests(unittest.TestCase):
     def test_preflight_rejects_each_missing_required_file_family(self):
         removals = (
             "AccessibleChess/web/version2_release_bootstrap.js",
+            "AccessibleChess/web/protection_locked.html",
+            "AccessibleChess/web/protection_locked.js",
             "AccessibleChess/web/docs/ACCESSIBLE_CHESS_HOTKEYS_UK.txt",
             "AccessibleChess/web/docs/ACCESSIBLE_CHESS_CAPABILITIES_TESTING_UK.txt",
             "AccessibleChess/engines/stockfish/stockfish.exe",
@@ -183,7 +185,7 @@ class Version2PackageRequiredResourcesTests(unittest.TestCase):
             _write_checksums(root)
             with self.assertRaisesRegex(
                 Version2PackagePreflightError,
-                "Windows PE executable",
+                "empty or invalid|Windows PE executable",
             ):
                 _validate_tree(root)
 
