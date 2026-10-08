@@ -20,6 +20,10 @@ _RESERVED = {"CON", "PRN", "AUX", "NUL"} | {
     prefix + str(n) for prefix in ("COM", "LPT") for n in range(1, 10)
 }
 MAX_FILES = 20000
+MAX_DIRECTORIES = 20000
+_DENIED_CORPUS_SUFFIXES = frozenset({
+    ".env", ".pem", ".pfx", ".p12", ".key", ".crt", ".cer", ".kdbx", ".sqlite",
+})
 MAX_SINGLE_FILE = 1024 * 1024 * 1024
 MAX_TOTAL = 8 * MAX_SINGLE_FILE
 
@@ -162,10 +166,14 @@ def qualify_distribution_corpus(
     folded: set[str] = set()
     folded_dirs: set[str] = set()
     total_bytes = 0
+    directory_count = 0
     for current, dirs, files in os.walk(stage_dir, followlinks=False,
                                         onerror=lambda error: _reject()):
         _node(Path(current), directory=True)
         for name in dirs:
+            directory_count += 1
+            if directory_count > MAX_DIRECTORIES:
+                _reject()
             path = Path(current) / name
             _node(path, directory=True)
             dir_token = _relative(path.relative_to(stage_dir).as_posix())
@@ -175,6 +183,8 @@ def qualify_distribution_corpus(
         for name in files:
             path = Path(current) / name
             relative = _relative(path.relative_to(stage_dir).as_posix())
+            if Path(relative).suffix.casefold() in _DENIED_CORPUS_SUFFIXES:
+                _reject()
             info = _node(path, directory=False)
             if relative.casefold() in folded:
                 _reject()
