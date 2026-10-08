@@ -178,9 +178,19 @@ def main() -> None:
     # bindings for the complete synchronous UI lifetime. Keep that proven lifetime
     # contract while replacing only its create step with the status-aware wrapper.
     with _education_release._final_product_mutation_bindings():
-        api, application, runtime, native_runtime_factory = (
-            create_version2_release_application(defer_ui=True)
-        )
+        try:
+            api, application, runtime, native_runtime_factory = (
+                create_version2_release_application(defer_ui=True)
+            )
+        except _release_app.ProtectedStartupLocked as locked:
+            if not _release_app.run_locked_security_window(
+                locked.client,
+                locked.decision,
+            ):
+                return
+            api, application, runtime, native_runtime_factory = (
+                create_version2_release_application(defer_ui=True)
+            )
         _release_ui.run_version2_release_window(
             api,
             application,
