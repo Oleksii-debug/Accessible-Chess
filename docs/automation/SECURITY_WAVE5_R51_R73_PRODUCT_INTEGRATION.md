@@ -20,6 +20,33 @@ Even a QUALIFIED independently signed vendor PoC is **not** a selected vendor
 or approved product release. Synthetic, forged, stale, revoked, incomplete
 NVDA/Windows/performance/cost/support evidence cannot become release PASS.
 
+## R53 vendor-protector candidate byte intake (build-only, not product deployment)
+
+The existing Wave-5 PR now also stages
+`scripts/security_r53_protector_candidate_gate.py` as a **build-only**
+candidate-readback adapter. It reuses the canonical neutral
+`continuum_runtime.commercial_protector.ProtectorProfile`,
+`ProtectedCandidate`, and `check_candidate`, without another protector,
+vendor-selection authority, license issuer, or client runtime. The adapter
+requires externally pinned source, protector-tool, recipe SHA-256 and exact
+build ID; parses bounded strict-schema candidate/profile receipts; verifies
+both the real original-file and protected-file bytes; and rejects malformed
+JSON, duplicate fields, symlinks, substitution, mutated/oversized images,
+forged integer fields, status escalation, tampered protected bytes, and an
+unchanged source image passed off as protected. It deliberately does not
+sign anything, approve releases, or supply an actual vendor SDK.
+
+A passing readback is only `CANDIDATE_BYTE_INTEGRITY_ONLY` and explicitly
+reports `release_approved=false`, `independent_vendor_qualification=REQUIRED`,
+and `protected_windows_nvda_qualification=REQUIRED`. The independent
+R51 vendor evidence authority remains separate, as do R54–R62 actual
+production protector qualification and real Windows/NVDA acceptance.
+`tests/test_security_r53_protector_candidate_gate.py` exercises synthetic,
+tamper, trust-binding and path-substitution cases in the existing dual-OS
+Wave-5 workflow. No real commercial protector is claimed installed.
+Workflow registration is **not an executed CI PASS**; verify exact-SHA
+hosted results independently before advancing this candidate.
+
 ## R52 license transport
 
 The existing Version 2 production composition now requires
