@@ -4,7 +4,7 @@ New bilingual training prompts built on real Lichess CC0 positions. This is neit
 
 First category and above: candidate-master, master-track and extreme calculation. Lichess puzzle rating is not FIDE Elo.
 
-The FEN is BEFORE the opponent's previous move. Play that move on the canonical chessboard first, then solve. Do not reveal the solution before an independent attempt.
+The training FEN in this book is already AFTER the opponent's previous move, applied using the canonical chessboard. The original BEFORE-move FEN remains in the source JSON for provenance. Solve without revealing the answer prematurely.
 
 ## S37-01 — Intermediate moves, forcing lines and defence
 
