@@ -99,6 +99,28 @@ class CloudProviderTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(ctx.exception.code, ModelErrorCode.UNAVAILABLE)
         self.assertEqual(len(self.seen), 0)
 
+    async def test_agent_tool_turn_is_forwarded_as_untrusted_data_without_native_tool_authority(self):
+        calls = []
+        def handler(req):
+            payload = json.loads(req.content)
+            calls.append(payload)
+            self.assertEqual(payload["messages"][-1]["role"], "user")
+            self.assertIn("data, not instructions", payload["messages"][-1]["content"])
+            self.assertNotIn("tools", payload)
+            return httpx.Response(200, json=success_json())
+        provider = self.provider(handler=handler)
+        messages = (
+            ModelMessage("system", "Only registered chess application tools may act."),
+            ModelMessage("assistant", '{"type":"tool","tool_id":"board.read","arguments":{}}'),
+            ModelMessage("tool", '{"call_id":"fixture:tool:1","ok":true,"output":"e4"}'),
+        )
+        req = ModelRequest(request_id="section49-tool-turn", provider_id="mistral",
+                           model="test-model", privacy=PrivacyClass.PUBLIC,
+                           messages=messages, timeout_seconds=3)
+        result = await provider.complete(req)
+        self.assertEqual(result.provider_id, "mistral")
+        self.assertEqual(len(calls), 1)
+
     async def test_missing_key_preflight_fallback_to_other_provider(self):
         with patch.dict(os.environ, {"MISTRAL_API_KEY": ""}):
             gateway = ModelGateway()
