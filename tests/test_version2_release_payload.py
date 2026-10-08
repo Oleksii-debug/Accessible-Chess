@@ -22,6 +22,9 @@ from acs.version2_package_assembler import assemble_version2_package_tree
 
 _REQUIRED_WEB_FILES = (
     "index.html",
+    "real_media_workbench.html",
+    "real_media_workbench.js",
+    "youtube_iframe_playback_adapter.js",
     "stage1_release_bootstrap.js",
     "stage1_board_actions.js",
     "full_product_pgn.js",
