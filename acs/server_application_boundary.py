@@ -9,6 +9,7 @@ membership logic, account database, or provider-specific authentication.
 """
 
 from collections.abc import Awaitable, Callable, Mapping
+from contextlib import closing
 from dataclasses import dataclass
 from enum import Enum
 import json
@@ -180,7 +181,7 @@ class SqliteJobStore:
         return db
 
     def _initialize(self) -> None:
-        with self._lock, self._connect() as db:
+        with self._lock, closing(self._connect()) as db, db:
             db.execute(
                 """
                 CREATE TABLE IF NOT EXISTS server_job_meta(
@@ -221,7 +222,7 @@ class SqliteJobStore:
 
     def enqueue(self, request: ApiRequest) -> JobRecord:
         payload_json = _json_text(dict(request.payload))
-        with self._lock, self._connect() as db:
+        with self._lock, closing(self._connect()) as db, db:
             existing = db.execute(
                 "SELECT * FROM server_jobs WHERE request_id=?",
                 (request.request_id,),
@@ -258,14 +259,14 @@ class SqliteJobStore:
 
     def get(self, job_id: str) -> JobRecord:
         key = _id(job_id, "job id")
-        with self._lock, self._connect() as db:
+        with self._lock, closing(self._connect()) as db, db:
             row = db.execute("SELECT * FROM server_jobs WHERE job_id=?", (key,)).fetchone()
             if row is None:
                 raise ServerBoundaryError("unknown job")
             return self._row(row)
 
     def claim_next(self) -> JobRecord | None:
-        with self._lock, self._connect() as db:
+        with self._lock, closing(self._connect()) as db, db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute(
                 "SELECT * FROM server_jobs WHERE state=? ORDER BY rowid LIMIT 1",
@@ -292,7 +293,7 @@ class SqliteJobStore:
         key = _id(job_id, "job id")
         if type(percent) is not int or not (0 <= percent <= 100):
             raise ServerBoundaryError("job progress must be 0..100")
-        with self._lock, self._connect() as db:
+        with self._lock, closing(self._connect()) as db, db:
             row = db.execute(
                 "SELECT state,progress,cancel_requested FROM server_jobs WHERE job_id=?",
                 (key,),
@@ -310,7 +311,7 @@ class SqliteJobStore:
 
     def request_cancel(self, job_id: str) -> JobRecord:
         key = _id(job_id, "job id")
-        with self._lock, self._connect() as db:
+        with self._lock, closing(self._connect()) as db, db:
             row = db.execute("SELECT state FROM server_jobs WHERE job_id=?", (key,)).fetchone()
             if row is None:
                 raise ServerBoundaryError("unknown job")
@@ -334,7 +335,7 @@ class SqliteJobStore:
         clean = _validate_json(dict(result))
         if type(clean) is not dict:
             raise ServerBoundaryError("job result must be a mapping")
-        with self._lock, self._connect() as db:
+        with self._lock, closing(self._connect()) as db, db:
             row = db.execute(
                 "SELECT state,cancel_requested FROM server_jobs WHERE job_id=?",
                 (key,),
@@ -358,7 +359,7 @@ class SqliteJobStore:
         code = _id(error_code, "error code")
         if type(retryable) is not bool:
             raise ServerBoundaryError("retryable flag must be boolean")
-        with self._lock, self._connect() as db:
+        with self._lock, closing(self._connect()) as db, db:
             row = db.execute(
                 "SELECT state,cancel_requested FROM server_jobs WHERE job_id=?",
                 (key,),
@@ -376,7 +377,7 @@ class SqliteJobStore:
         return self.get(key)
 
     def recover_after_restart(self) -> int:
-        with self._lock, self._connect() as db:
+        with self._lock, closing(self._connect()) as db, db:
             rows = db.execute(
                 "SELECT job_id,cancel_requested FROM server_jobs WHERE state=?",
                 (JobState.RUNNING.value,),
