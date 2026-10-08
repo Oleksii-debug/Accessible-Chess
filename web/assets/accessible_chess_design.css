@@ -95,7 +95,7 @@
 #board-grid[data-theme=classic]{--light:#f0d9b5;--dark:#b58863;--piece-light:#111;--piece-dark:#111}
 #board-grid[data-theme=high_contrast]{--light:#fff;--dark:#000;--piece-light:#000;--piece-dark:#fff}
 #board-grid[data-theme=blue]{--light:#dbeafe;--dark:#1d4ed8;--piece-light:#111;--piece-dark:#fff}
-#board-grid[data-theme=classic_wood]{--light:#f0dfc3;--dark:#946f50;--piece-light:#1b211c;--piece-dark:#fffdf7}
+#board-grid[data-theme=classic_wood]{--light:#f0dfc3;--dark:#8e684b;--piece-light:#1b211c;--piece-dark:#fffdf7}
 #board-grid[data-theme=modern_graphite]{--light:#e0e4e8;--dark:#384552;--piece-light:#18232e;--piece-dark:#fff}
 #board-grid[data-theme=tournament_blue]{--light:#dceafa;--dark:#205d97;--piece-light:#102439;--piece-dark:#fff}
 #board-grid[data-theme=light_minimal]{--light:#fbfbf8;--dark:#c8d2dc;--piece-light:#1a2028;--piece-dark:#132435}

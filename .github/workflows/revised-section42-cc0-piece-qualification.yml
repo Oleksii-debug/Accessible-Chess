@@ -29,6 +29,7 @@ on:
       - 'tests/test_revised_section42_cc0_pieces.py'
       - 'tests/test_revised_section42_raster_qualification.py'
       - 'tests/test_revised_section42_web_projection.py'
+      - 'tests/test_section42_board_palette_contrast.py'
       - 'tests/test_revised_section42_overlay_contract.py'
       - 'tests/test_revised_section42_overlay_http.py'
       - '.github/workflows/revised-section42-cc0-piece-qualification.yml'
@@ -66,8 +67,8 @@ jobs:
           node tests/js/section42_route_scope_runtime_test.js
       - name: Compile source and exercise exact CC0 / NVDA-safe board acceptance
         run: |
-          python -m py_compile tools/revised_section42_render_piece_pack.py tests/test_revised_section42_cc0_pieces.py tests/test_revised_section42_raster_qualification.py tests/test_revised_section42_web_projection.py tests/test_revised_section42_overlay_contract.py tests/test_revised_section42_overlay_http.py
-          python -m unittest -v tests.test_revised_section42_cc0_pieces tests.test_revised_section42_raster_qualification tests.test_revised_section42_web_projection tests.test_revised_section42_overlay_contract tests.test_revised_section42_overlay_http tests.test_section15_visual_board_contract tests.test_revised_sections41_42_design
+          python -m py_compile tools/revised_section42_render_piece_pack.py tests/test_revised_section42_cc0_pieces.py tests/test_revised_section42_raster_qualification.py tests/test_revised_section42_web_projection.py tests/test_section42_board_palette_contrast.py tests/test_revised_section42_overlay_contract.py tests/test_revised_section42_overlay_http.py
+          python -m unittest -v tests.test_revised_section42_cc0_pieces tests.test_revised_section42_raster_qualification tests.test_revised_section42_web_projection tests.test_section42_board_palette_contrast tests.test_revised_section42_overlay_contract tests.test_revised_section42_overlay_http tests.test_section15_visual_board_contract tests.test_revised_sections41_42_design
   original-art-raster:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
