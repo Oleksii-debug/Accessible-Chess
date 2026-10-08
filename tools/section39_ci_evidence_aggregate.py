@@ -239,6 +239,8 @@ def main() -> None:
         os.replace(staged, REPORT)
     finally:
         staged.unlink(missing_ok=True)
+    if any(r["qualification"] == "FAIL" for r in result["format_rows"]):
+        raise LawfulCorpusError("combined original-format evidence has a semantic failure")
     print(json.dumps({
         "source_commit_sha": head, "genuine_external_originals": result["original_source_count"],
         "format_count": result["format_count"], "section39_done": False,
