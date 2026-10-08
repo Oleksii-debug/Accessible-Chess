@@ -90,7 +90,7 @@ jobs:
         with:
           name: section47-original-chess-videos-private-qualification
           path: ${{ runner.temp }}/section47-videos/
-          retention-days: 1
+          retention-days: 7
           if-no-files-found: error
 
   windows-real-video:
