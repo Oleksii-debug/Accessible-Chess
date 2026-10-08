@@ -16,13 +16,14 @@ import tempfile
 import zipfile
 
 from acs.acsdb import AcsDatabase
+from acs.lawful_corpus_registry import load_catalog, read_verified_source_snapshot
 from acs.gametree import serialize_game
 from acs.pgn_roundtrip import parse_pgn_text
 from acs.user_library_seed import (
     BUNDLE_KIND, MANIFEST_NAME, SCHEMA_VERSION,
     import_user_library_seed, load_user_library_seed,
 )
-from .revised_section40_offline_test_library import OfflineCollectionError
+from .revised_section40_offline_test_library import OfflineCollectionError, ROOT
 
 _MAX_COLLECTION_BYTES = 80 * 1024 * 1024
 _MAX_UNCOMPRESSED_BYTES = 80 * 1024 * 1024
@@ -122,6 +123,25 @@ def _read_qualified_collection(source: Path) -> tuple[bytes, bytes]:
                 annotated = archive.read(_ADVANCED_PGN)
                 if _sha(annotated) != report["real_import_readback"]["advanced_annotated_source_sha256"]:
                     raise OfflineCollectionError("annotated 4-game source checksum mismatch")
+                # ZIP manifests and per-file checksums are self-consistent,
+                # not an independent source authority. Bind the actual game
+                # bytes to Section37's separately SHA-pinned original source.
+                pinned = [row for row in load_catalog(
+                    ROOT / "docs/corpus/revised_sections37_40_sources.json"
+                ) if row["id"] == "lichess_cc0_high_level_4_original_annotated_games"]
+                if len(pinned) != 1:
+                    raise OfflineCollectionError("annotated original source authority missing")
+                origin = pinned[0]
+                if (origin.get("acquisition") != "VENDORED_SOURCE_VERIFIED"
+                    or not str(origin.get("license", "")).startswith("CC0")
+                    or not str(origin.get("redistribution", "")).startswith("permitted")
+                    or origin.get("sha256") != _sha(annotated)
+                    or read_verified_source_snapshot(
+                        ROOT / origin["local_source"], origin
+                    ) != annotated):
+                    raise OfflineCollectionError(
+                        "Section40 owner seed ZIP does not match the independently verified original"
+                    )
             after_open = os.fstat(stream.fileno())
         after = source.lstat()
         if (not os.path.samestat(before, after_open)
