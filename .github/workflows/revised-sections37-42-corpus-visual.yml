@@ -197,7 +197,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           path: product
-          ref: \${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - name: Checkout original Staunton book
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -221,7 +221,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git -C product rev-parse HEAD)" = "\${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(git -C product rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
           test "$(git -C upstream/blue rev-parse HEAD:16377.txt)" = "d946777f0eaee2b5f8f7a73afb9c1dd104eb4142"
           test "$(git -C upstream/bird rev-parse HEAD:4902.txt)" = "fe18ddf36538952c95c62052b5d05464ca64abe7"
           test "$(git -C upstream/checkmates rev-parse HEAD:4542.txt)" = "ab6af427f4de27d8e98c0cc25e025b1984cc60cb"
@@ -246,8 +246,8 @@ jobs:
       - name: Verify true external book and license bytes without redistribution
         working-directory: product
         env:
-          ACS_37_GITENBERG_ROOT: \${{ github.workspace }}/source-originals
-          ACCESSIBLE_CHESS_EXPECTED_HEAD: \${{ github.event.pull_request.head.sha || github.sha }}
+          ACS_37_GITENBERG_ROOT: ${{ github.workspace }}/source-originals
+          ACCESSIBLE_CHESS_EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           python -m unittest -v tests.test_revised_section37_external_book_acquisition
           python -m tools.revised_section37_external_book_acquisition
