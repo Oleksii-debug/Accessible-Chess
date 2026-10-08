@@ -1,0 +1,49 @@
+name: Revised Section 40 Offline Library QA
+
+on:
+  pull_request:
+    branches:
+      - converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
+    paths:
+      - 'tools/revised_section40_offline_test_library.py'
+      - 'tests/test_revised_section40_offline_test_library.py'
+      - '.github/workflows/revised-section40-offline-library.yml'
+      - 'acs/starter_books_training_release.py'
+      - 'acs/starter_books_training_runtime.py'
+      - 'acs/lawful_corpus_registry.py'
+      - 'docs/corpus/revised_sections37_40_sources.json'
+      - 'tests/real_corpus/**'
+  workflow_dispatch: {}
+permissions:
+  contents: read
+
+jobs:
+  qualify-separate-collections:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+      - name: Compile Section 40 builder and regression suite
+        run: python -m py_compile tools/revised_section40_offline_test_library.py tests/test_revised_section40_offline_test_library.py
+      - name: Real source, persistent Library, bilingual book and rights regression
+        run: python -m unittest -v tests.test_revised_section40_offline_test_library tests.test_revised_section37_offline_collection_readback tests.test_revised_section38_stockfish_real_library
+      - name: Build TEST_BUILD archive with real chess games and canonical course
+        run: python -m tools.revised_section40_offline_test_library TEST_BUILD artifacts/section40-test-build.zip
+      - name: Build PUBLIC_RELEASE archive with conservative rights filtering
+        run: python -m tools.revised_section40_offline_test_library PUBLIC_RELEASE artifacts/section40-public-release.zip
+      - name: Upload separate test and public fixture bundles (not EXE / not final release)
+        uses: actions/upload-artifact@v4
+        with:
+          name: section40-offline-corpus-${{ matrix.os }}
+          path: artifacts/*.zip
+          if-no-files-found: error
+          retention-days: 14
