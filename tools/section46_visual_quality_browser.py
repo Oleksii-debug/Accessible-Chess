@@ -130,6 +130,31 @@ def run(folder: Path, *, browser_engine: str = "chromium") -> dict:
                                 if not page.locator("#ac45-preview").is_visible():
                                     raise AssertionError((name,theme,zoom,width,profile,
                                                           "preview unavailable"))
+                            # Measure synchronous production preview redraw of
+                            # six 64-square decorative boards. This is only a
+                            # studio UI performance contract, not a claim about
+                            # real PGN/Media/large-library game performance.
+                            preview_perf=page.evaluate("""() => {
+                              const names=['Classic','Tournament','Coach',
+                                'Classroom Presentation','Low Vision','High Contrast'];
+                              const picker=document.getElementById('ac45-profile');
+                              const button=document.getElementById('ac45-preview-button');
+                              const start=performance.now();
+                              for(const name of names) {
+                                picker.value=name;
+                                picker.dispatchEvent(new Event('change',{bubbles:true}));
+                                button.click();
+                              }
+                              return {
+                                duration_ms:performance.now()-start,
+                                cells:document.querySelectorAll(
+                                  '#ac45-preview-board .ac45-sample-square').length
+                              };
+                            }""")
+                            if (preview_perf["cells"] != 64 or
+                                preview_perf["duration_ms"] > 1500):
+                                raise AssertionError((name,theme,zoom,width,
+                                                      "studio redraw regression",preview_perf))
                             page.locator("#ac45-profile").select_option("Classic")
                             # Native editable text must allow Ctrl+A selection.
                             field=page.locator("#ac45-name")
@@ -206,6 +231,7 @@ def run(folder: Path, *, browser_engine: str = "chromium") -> dict:
                                 "keyboard_focus": keyboard_focus,
                                 "initial_focus": initial_focus,
                                 "profile_preview_count": 6,
+                                "six_board_redraw_performance": preview_perf,
                                 "native_input_select_all": selection,
                                 "long_translation_no_studio_overflow": not reflow,
                                 "classification": "LOCAL_UI_FIXTURE_NOT_LIVE_DEPLOYMENT",
