@@ -158,7 +158,10 @@
       "upstream_repository": "https://github.com/GITenberg/The-Blue-Book-of-Chess--13-Teaching-the-Rudiments-of-the-Game-and-Giving-an-Analysis-of-All-t__16377",
       "external_checkout_path": "blue/16377.txt",
       "test_access": "EXTERNAL_EPHEMERAL_ONLY",
-      "public_release": "EXCLUDED"
+      "public_release": "EXCLUDED",
+      "external_license_checkout_path": "blue/LICENSE",
+      "external_license_git_blob": "8d062dda262bcdc42d45b861bd796117feb6d0fe",
+      "external_license_indexed_bytes": 17504
     },
     {
       "id": "gutenberg_chess_and_checkers_lasker",
@@ -523,7 +526,10 @@
       "test_access": "EXTERNAL_EPHEMERAL_ONLY",
       "public_release": "EXCLUDED",
       "canonical_qa": "Original pinned GITenberg source bytes to be verified in source-only CI; no semantic book import or release PASS claimed",
-      "notes": "Real historical accounts and tournament anecdotes; separate book author, epoch and genre. Test only, no release ownership asserted."
+      "notes": "Real historical accounts and tournament anecdotes; separate book author, epoch and genre. Test only, no release ownership asserted.",
+      "external_license_checkout_path": "bird/LICENSE",
+      "external_license_git_blob": "8d062dda262bcdc42d45b861bd796117feb6d0fe",
+      "external_license_indexed_bytes": 17504
     },
     {
       "id": "gutenberg_checkmates_three_fishburne_original_txt",
@@ -544,7 +550,10 @@
       "test_access": "EXTERNAL_EPHEMERAL_ONLY",
       "public_release": "EXCLUDED",
       "canonical_qa": "Original pinned GITenberg source bytes to be verified in source-only CI; no semantic book import or release PASS claimed",
-      "notes": "Authentic mate-positions FEN source. Some historical positions use nonstandard 0 counters; source acquisition does not silently assume a validated FEN position."
+      "notes": "Authentic mate-positions FEN source. Some historical positions use nonstandard 0 counters; source acquisition does not silently assume a validated FEN position.",
+      "external_license_checkout_path": "checkmates/LICENSE",
+      "external_license_git_blob": "8d062dda262bcdc42d45b861bd796117feb6d0fe",
+      "external_license_indexed_bytes": 17504
     }
   ]
 }
