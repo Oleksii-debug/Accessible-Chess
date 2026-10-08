@@ -1,5 +1,14 @@
 name: Revised Section 42 Licensed Chess Art, Offline Raster and Windows Gate
 on:
+  push:
+    branches:
+      - feature/revised-37-42-corpus-visual-20261008
+    paths:
+      - 'web/assets/pieces/rhosgfx/**'
+      - 'tools/revised_section42_render_piece_pack.py'
+      - 'tests/js/section42_*'
+      - 'tests/test_revised_section42_*'
+      - '.github/workflows/revised-section42-cc0-piece-qualification.yml'
   pull_request:
     branches:
       - converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
@@ -24,6 +33,9 @@ on:
       - 'tests/test_revised_section42_overlay_http.py'
       - '.github/workflows/revised-section42-cc0-piece-qualification.yml'
   workflow_dispatch: {}
+concurrency:
+  group: section42-source-qualified-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
