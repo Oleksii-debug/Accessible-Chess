@@ -38,6 +38,12 @@ jobs:
           python tools/section38_real_corpus_integration.py \
             --corpus-root "$RUNNER_TEMP/section38" \
             --output "$RUNNER_TEMP/section38-evidence.json"
+      - name: Run Section 39 format matrix
+        run: |
+          python tools/section39_format_matrix.py \
+            --corpus-root "$RUNNER_TEMP/section38" \
+            --section38-evidence "$RUNNER_TEMP/section38-evidence.json" \
+            --output "$RUNNER_TEMP/section39-evidence.json"
       - name: Run focused integration tests
         env:
           PYTHONPATH: tests

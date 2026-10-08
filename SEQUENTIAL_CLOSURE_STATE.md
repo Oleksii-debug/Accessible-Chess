@@ -63,3 +63,21 @@ Durable evidence: `docs/corpus/SECTION38_REAL_CORPUS_INTEGRATION.json`.
 The next dependency-safe front is Section 39 after the Section 38 evidence and
 workflow are integrated. No later section is marked `DONE` by this record, and
 no status is inferred from chat history or from a single green test.
+
+## Section 39 — current closure front
+
+**Status: `INTERNAL_COMPLETE_EXTERNAL_BLOCKED` (not DONE).**
+
+Durable evidence: `docs/corpus/SECTION39_FORMAT_MATRIX.json`.
+
+| Area | State | Evidence / exact limitation |
+|---|---|---|
+| Real PGN/SAN/ACSDB | `PASS` | Cotswold 113 and Alekhine 1661 games parse; canonical `serialize_game` roundtrip, atomic Library import, search, backup and integrity verification pass. |
+| Real EPUB/HTML/TXT | `PASS` | The same Gutenberg English sources from Section 38 pass their canonical read paths. |
+| CBV/CBH | `PASS` | Section 37 pinned external `uncbv`/`libcbh` readback is referenced with exact source evidence. |
+| FEN/EPD/Markdown | `BLOCKED` | No real third-party corpus was introduced just to inflate coverage; only canonical/unit coverage exists. |
+| DOCX/PDF/CBF/2CBH/CBONE | `BLOCKED` | No lawful real fixture plus independent oracle/owner is available. |
+
+The next dependency-safe front is Section 40. No later section is marked
+`DONE` by this record, and no status is inferred from chat history or from a
+single green test.
