@@ -20,7 +20,7 @@ import zstandard
 from acs.lawful_corpus_registry import (
     acquire_cc0_source,
     load_catalog,
-    verified_local_source,
+    read_verified_source_snapshot,
     iter_bounded_corpus_lines,
 )
 from acs.import_contract import fingerprint
@@ -74,12 +74,16 @@ def main() -> None:
             # The existing shared registry enforces host, rights, limits,
             # no redirects, no owner-file overwrite and whole-source SHA256.
             compressed = acquire_cc0_source(record, cache)
-            sha256 = verified_local_source(compressed, record)
+            # Consume the exact bounded SHA256-verified bytes, not a later
+            # reopening of the path that an external actor could replace.
+            # This is test-only corpus input, never a public-package asset.
+            compressed_bytes = read_verified_source_snapshot(compressed, record)
+            sha256 = hashlib.sha256(compressed_bytes).hexdigest()
             indexed_bytes = record.get("indexed_bytes")
-            if indexed_bytes is not None and compressed.stat().st_size != indexed_bytes:
+            if indexed_bytes is not None and len(compressed_bytes) != indexed_bytes:
                 raise AssertionError(f"{source_id}: source listing byte count mismatch")
             subset = cache / (source_id + "-128.pgn")
-            with compressed.open("rb") as raw:
+            with io.BytesIO(compressed_bytes) as raw:
                 with zstandard.ZstdDecompressor().stream_reader(raw) as decoded:
                     with io.TextIOWrapper(
                         decoded, encoding="utf-8", errors="strict", newline=""
@@ -106,7 +110,7 @@ def main() -> None:
                 "source_url": record["download_url"],
                 "license": record["license"],
                 "compressed_sha256": sha256,
-                "compressed_bytes": compressed.stat().st_size,
+                "compressed_bytes": len(compressed_bytes),
                 "subset_sha256": subset_source.sha256,
                 "subset_bytes": subset_source.size,
                 "canonical_parsed_games": len(parsed),
