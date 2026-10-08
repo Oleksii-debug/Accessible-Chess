@@ -124,6 +124,54 @@ class MITCbvaultNoFalsePassTests(unittest.TestCase):
                 child.wait.assert_called_once()
                 child.kill.assert_not_called()
 
+    def test_external_decoder_stdout_is_file_bounded_and_exact_bytes(self):
+        import os
+        from unittest.mock import MagicMock
+        with tempfile.TemporaryDirectory() as tmp:
+            binary, source = Path(tmp) / "safe-decoder", Path(tmp) / "original.cbh"
+            binary.write_bytes(b"stub")
+            source.write_bytes(b"original")
+            exact = b'[Event "Original expert"]\n\n1. e4 e5 *\n'
+            observed = []
+
+            def safe_stub(args, **kwargs):
+                self.assertIsNot(kwargs["stdout"], m.subprocess.PIPE)
+                self.assertIsNot(kwargs["stderr"], m.subprocess.PIPE)
+                self.assertIs(kwargs["shell"], False)
+                observed.append(tuple(args))
+                kwargs["stdout"].write(exact)
+                kwargs["stdout"].flush()
+                child = MagicMock()
+                child.poll.return_value = 0
+                child.returncode = 0
+                return child
+
+            with patch.object(m.subprocess, "Popen", side_effect=safe_stub):
+                self.assertEqual(m._run_external_pgn(binary, source), exact)
+            self.assertEqual(observed, [(str(binary), "pgn", str(source))])
+
+            def oversized_stub(args, **kwargs):
+                os.ftruncate(kwargs["stdout"].fileno(), m._MAX_PGN + 1)
+                child = MagicMock()
+                child.poll.return_value = 0
+                child.returncode = 0
+                return child
+
+            with patch.object(m.subprocess, "Popen", side_effect=oversized_stub):
+                with self.assertRaisesRegex(LawfulCorpusError, "bounded complete PGN"):
+                    m._run_external_pgn(binary, source)
+
+            def stderr_bomb(args, **kwargs):
+                os.ftruncate(kwargs["stderr"].fileno(), 1024 * 1024 + 1)
+                child = MagicMock()
+                child.poll.return_value = 0
+                child.returncode = 0
+                return child
+
+            with patch.object(m.subprocess, "Popen", side_effect=stderr_bomb):
+                with self.assertRaisesRegex(LawfulCorpusError, "bounded complete PGN"):
+                    m._run_external_pgn(binary, source)
+
     def test_external_decoder_timeout_kills_child_without_publication(self):
         with tempfile.TemporaryDirectory() as tmp:
             binary = Path(tmp) / "stub"
