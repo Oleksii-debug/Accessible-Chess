@@ -95,57 +95,73 @@ def audit_public_archive(path: Path, records: tuple[dict, ...] | None = None) ->
             or before.st_size <= 0
         ):
             raise LawfulCorpusError("public archive must be an existing direct file")
-        with zipfile.ZipFile(path) as zf:
-            members = zf.infolist()
-            if not members or len(members) > _MAX_FILES:
-                raise LawfulCorpusError("public release ZIP member count invalid")
-            total_expected = 0
-            seen_paths: set[str] = set()
-            for info in members:
-                rawname = info.filename
-                normalized = rawname.replace("\\", "/")
-                path_parts = PurePosixPath(normalized).parts
-                if (
-                    normalized.startswith("/")
-                    or re.match(r"^[A-Za-z]:", normalized)
-                    or not path_parts
-                    or any(part in ("..", ".") for part in path_parts)
-                ):
-                    raise LawfulCorpusError("release archive contains unsafe member path")
-                folded = normalized.casefold().rstrip("/")
-                if folded in seen_paths:
-                    raise LawfulCorpusError("release archive repeats a member path")
-                seen_paths.add(folded)
-                if (info.external_attr >> 16) & 0o170000 == stat.S_IFLNK:
-                    raise LawfulCorpusError("release archive contains symlink")
-                if info.is_dir():
-                    continue
-                if (
-                    info.file_size < 0
-                    or info.file_size > _MAX_SINGLE_UNPACKED
-                    or (info.file_size > 0 and info.compress_size <= 0)
-                    or (info.file_size > 0 and info.file_size > _MAX_COMPRESS_RATIO * info.compress_size)
-                ):
-                    raise LawfulCorpusError("release archive contains oversized/compression-bomb member")
-                total_expected += info.file_size
-                if total_expected > _MAX_TOTAL_UNPACKED:
-                    raise LawfulCorpusError("release archive decompressed size over budget")
-                owner = names.get(PurePosixPath(normalized).name.casefold())
-                if owner:
-                    raise LawfulCorpusError("public release contains excluded original source filename: " + owner)
-                with zf.open(info) as stream:
-                    hasher = hashlib.sha256()
-                    total = 0
-                    while chunk := stream.read(_CHUNK):
-                        total += len(chunk)
-                        if total > info.file_size or total > _MAX_SINGLE_UNPACKED:
-                            raise LawfulCorpusError("release member exceeded stated size")
-                        hasher.update(chunk)
-                if total != info.file_size:
-                    raise LawfulCorpusError("release archive member bytes disagree with ZIP manifest")
-                owner = hashes.get(hasher.hexdigest())
-                if owner:
-                    raise LawfulCorpusError("public release contains byte-identical excluded original source: " + owner)
+        # Pin the opened descriptor to the same regular inode checked by lstat.
+        # A path can be exchanged for a symlink or another ZIP after lstat.
+        with path.open("rb") as source:
+            opened = os.fstat(source.fileno())
+            if (
+                not stat.S_ISREG(opened.st_mode)
+                or not os.path.samestat(before, opened)
+                or before.st_size != opened.st_size
+            ):
+                raise LawfulCorpusError("public release ZIP changed before safe open")
+            with zipfile.ZipFile(source) as zf:
+                members = zf.infolist()
+                if not members or len(members) > _MAX_FILES:
+                    raise LawfulCorpusError("public release ZIP member count invalid")
+                total_expected = 0
+                seen_paths: set[str] = set()
+                for info in members:
+                    rawname = info.filename
+                    normalized = rawname.replace("\\", "/")
+                    path_parts = PurePosixPath(normalized).parts
+                    if (
+                        normalized.startswith("/")
+                        or re.match(r"^[A-Za-z]:", normalized)
+                        or not path_parts
+                        or any(part in ("..", ".") for part in path_parts)
+                    ):
+                        raise LawfulCorpusError("release archive contains unsafe member path")
+                    folded = normalized.casefold().rstrip("/")
+                    if folded in seen_paths:
+                        raise LawfulCorpusError("release archive repeats a member path")
+                    seen_paths.add(folded)
+                    if (info.external_attr >> 16) & 0o170000 == stat.S_IFLNK:
+                        raise LawfulCorpusError("release archive contains symlink")
+                    if info.is_dir():
+                        continue
+                    if (
+                        info.file_size < 0
+                        or info.file_size > _MAX_SINGLE_UNPACKED
+                        or (info.file_size > 0 and info.compress_size <= 0)
+                        or (info.file_size > 0 and info.file_size > _MAX_COMPRESS_RATIO * info.compress_size)
+                    ):
+                        raise LawfulCorpusError("release archive contains oversized/compression-bomb member")
+                    total_expected += info.file_size
+                    if total_expected > _MAX_TOTAL_UNPACKED:
+                        raise LawfulCorpusError("release archive decompressed size over budget")
+                    owner = names.get(PurePosixPath(normalized).name.casefold())
+                    if owner:
+                        raise LawfulCorpusError("public release contains excluded original source filename: " + owner)
+                    with zf.open(info) as stream:
+                        hasher = hashlib.sha256()
+                        total = 0
+                        while chunk := stream.read(_CHUNK):
+                            total += len(chunk)
+                            if total > info.file_size or total > _MAX_SINGLE_UNPACKED:
+                                raise LawfulCorpusError("release member exceeded stated size")
+                            hasher.update(chunk)
+                    if total != info.file_size:
+                        raise LawfulCorpusError("release archive member bytes disagree with ZIP manifest")
+                    owner = hashes.get(hasher.hexdigest())
+                    if owner:
+                        raise LawfulCorpusError("public release contains byte-identical excluded original source: " + owner)
+            after_open = os.fstat(source.fileno())
+            if (
+                not os.path.samestat(opened, after_open)
+                or opened.st_size != after_open.st_size
+            ):
+                raise LawfulCorpusError("public release ZIP changed during audit")
         after = path.lstat()
         if not os.path.samestat(before, after) or before.st_size != after.st_size:
             raise LawfulCorpusError("release archive changed while auditing")
