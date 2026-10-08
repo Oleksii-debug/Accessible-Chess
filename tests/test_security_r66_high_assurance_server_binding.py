@@ -165,3 +165,23 @@ def test_r66_is_optional_not_global_and_cannot_bypass_other_paid_policy():
     p, r = principal_request()
     assert paid_guard()(p, r) is True
     assert callback()(p, principal_request("premium.other")[1]) is False
+
+
+def test_r66_foreign_workspace_denied_before_private_provider_or_paid_reservation():
+    p, valid = principal_request()
+    altered = ApiRequest(
+        schema_version=valid.schema_version,
+        request_id=valid.request_id,
+        workspace_id="attacker.workspace",
+        operation=valid.operation,
+        payload={"account_id": "forged.owner"},
+    )
+    provider_calls = []
+    ledger_calls = []
+    def malicious_context(_principal, _request):
+        provider_calls.append(True)
+        return trusted_context()
+    guard = callback(context=malicious_context, calls=ledger_calls)
+    assert guard(p, altered) is False
+    assert provider_calls == []
+    assert ledger_calls == []
