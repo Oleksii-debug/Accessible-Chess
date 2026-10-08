@@ -91,6 +91,9 @@ class OfflineCorpusInventoryTests(unittest.TestCase):
             {"sha256": "0" * 64},
             {"license_sha256": "0" * 64},
             {"max_bytes": 1},
+            {"indexed_bytes": 1},
+            {"indexed_bytes": True},
+            {"indexed_bytes": None},
         ):
             with self.subTest(modified=modified):
                 with self.assertRaises(LawfulCorpusError):
