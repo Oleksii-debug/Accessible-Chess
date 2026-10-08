@@ -16,6 +16,7 @@ on:
       - 'tests/js/youtube_iframe_playback_adapter_test.js'
       - 'tests/js/section47_canonical_browser_playback.js'
       - 'tests/js/section48_canonical_youtube_live_smoke.js'
+      - 'tests/js/section47_48_workflow_generation_test.js'
       - '.github/workflows/section47-48-canonical-video-qualification.yml'
   workflow_dispatch:
 permissions:
@@ -49,11 +50,14 @@ jobs:
         run: python -m unittest discover -s tests -p test_section47_real_commons_originals.py -v
       - name: Accepted documented YouTube IFrame adapter suite
         run: node tests/js/youtube_iframe_playback_adapter_test.js
+      - name: Canonical WebView Media callback generation / stale-source tests
+        run: node tests/js/section47_48_workflow_generation_test.js
       - name: Existing canonical browser local and media workflow syntax
         run: node --check web/local_video_playback_adapter.js
       - run: node --check web/version2_media_user_workflow.js
       - run: node --check web/youtube_iframe_playback_adapter.js
       - run: node --check tests/js/section47_canonical_browser_playback.js
+      - run: node --check tests/js/section48_canonical_youtube_live_smoke.js
 
   real-originals:
     name: Four genuine Wikimedia originals + H264 derivative
