@@ -413,6 +413,65 @@ class RevisedCorpusContractTests(unittest.TestCase):
                         )
 
 
+    def test_real_lichess_eco_b_source_provenance_and_opening_readback(self):
+        """Genuine upstream CC0 B-family chess data, not invented full games."""
+        import csv
+
+        from acs.pgn_roundtrip import parse_pgn_text
+
+        root = Path(__file__).resolve().parents[1]
+        catalog = {item["id"]: item for item in load_catalog()}
+        record = catalog["lichess_openings_original_eco_b_tsv"]
+        source = root / record["local_source"]
+        license_file = root / record["license_source"]
+        original = source.read_bytes()
+        self.assertEqual(record["acquisition"], "VENDORED_SOURCE_VERIFIED")
+        self.assertEqual(record["license"], "CC0")
+        self.assertEqual(record["redistribution"], "permitted")
+        self.assertEqual(len(original), 78124)
+        self.assertEqual(record["indexed_bytes"], len(original))
+        self.assertEqual(
+            verified_local_source(source, record),
+            "1d5ed134ebbd87915ead5683416e37583bb3e5ae3582b4d8cb5cb4aa7ef4f623",
+        )
+        header = f"blob {len(original)}\\0".encode("ascii")
+        self.assertEqual(
+            hashlib.sha1(header + original).hexdigest(),
+            "41c3727d28fc0b5915f30f3b634c07bd296f4bdb",
+        )
+        self.assertEqual(
+            hashlib.sha256(license_file.read_bytes()).hexdigest(),
+            record["license_sha256"],
+        )
+        rows = list(csv.DictReader(
+            io.StringIO(original.decode("utf-8-sig")), delimiter="\\t"
+        ))
+        self.assertEqual(len(rows), 781)
+        self.assertEqual(tuple(rows[0]), ("eco", "name", "pgn"))
+        for row in rows[:12]:
+            with self.subTest(name=row["name"]):
+                self.assertTrue(row["eco"].startswith("B"))
+                self.assertTrue(row["pgn"].startswith("1. "))
+                parsed = parse_pgn_text(
+                    '[Event "Official Lichess ECO B opening"]\\n[Result "*"]\\n\\n'
+                    + row["pgn"] + " *\\n", strict=False,
+                )
+                self.assertEqual(len(parsed), 1)
+        with tempfile.TemporaryDirectory() as temp:
+            tampered = Path(temp) / "tampered.tsv"
+            damaged = bytearray(original)
+            damaged[-1] ^= 1
+            tampered.write_bytes(damaged)
+            with self.assertRaises(LawfulCorpusError):
+                verified_local_source(tampered, record)
+            with self.assertRaises(LawfulCorpusError):
+                acquire_cc0_source(
+                    record, Path(temp),
+                    opener=lambda *_args, **_kw: self.fail(
+                        "vendored TSV must not trigger implicit network calls"
+                    ),
+                )
+
     def test_real_lichess_eco_a_openings_match_upstream_and_canonical_pgn(self):
         """Read actual vendored CC0 openings, not a generated format fixture.
 
