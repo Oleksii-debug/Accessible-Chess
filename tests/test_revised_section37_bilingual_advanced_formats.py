@@ -158,7 +158,10 @@ class BilingualSourceGroundingTests(unittest.TestCase):
                 docx = render_docx(work, lang)
                 with zipfile.ZipFile(BytesIO(docx)) as z:
                     self.assertIn("word/document.xml", z.namelist())
-                    self.assertIn(work["title"][lang], z.read("word/document.xml").decode("utf-8"))
+                    body = z.read("word/document.xml").decode("utf-8")
+                    self.assertIn(work["title"][lang], body)
+                    self.assertIn('w:lang w:val="' + ("uk-UA" if lang == "uk" else "en-US") + '"', body)
+                    self.assertGreaterEqual(body.count("<w:pStyle"), 12)
                 imported = import_docx_book(
                     docx, source_name="Section37 original advanced DOCX " + lang,
                 )
