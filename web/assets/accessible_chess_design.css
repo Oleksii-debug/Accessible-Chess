@@ -323,3 +323,75 @@ body:has(#routes) > #error:not(:empty){
   #ac43-product-layout{background:Canvas!important;color:CanvasText!important;
     border-color:CanvasText!important}
 }
+
+
+/* Section 44 product surfaces: selectors intentionally match real Book,
+   Library, Training, Teacher and Classes presenters without creating a
+   second service, synthetic diagrams or inaccessible visual-only status. */
+#v2-workspace #book-document-title{
+  font-size:clamp(1.5rem,1.1rem + 1.5vw,2.3rem);
+  line-height:1.25;padding:clamp(.9rem,2vw,1.7rem);
+  margin-bottom:0;border:2px solid var(--ac41-border);
+  border-bottom:0;border-radius:var(--ac41-radius) var(--ac41-radius) 0 0;
+  background:var(--ac41-bg);
+}
+#v2-workspace #book-document-author{
+  margin-top:0;padding:.1rem clamp(.9rem,2vw,1.7rem) var(--ac41-space-4);
+  border:2px solid var(--ac41-border);border-top:0;
+  border-radius:0 0 var(--ac41-radius) var(--ac41-radius);
+}
+#v2-workspace main:has(#book-document-title) > :is(nav,[role="tree"],[role="toolbar"]){
+  margin-block:var(--ac41-space-4)
+}
+#v2-workspace main:has(#book-bookmark-name) label{
+  font-weight:600
+}
+#v2-workspace main:has(#training-answer) > dl{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(9rem,1fr));
+  gap:.25rem var(--ac41-space-3);padding:var(--ac41-space-3);
+  border:1px solid var(--ac41-border);border-radius:var(--ac41-radius);
+}
+#v2-workspace main:has(#training-answer) > dl dt{font-size:.9em;color:var(--ac41-muted)}
+#v2-workspace main:has(#training-answer) > dl dd{
+  margin:0 0 var(--ac41-space-2);
+  font-weight:700;font-variant-numeric:tabular-nums
+}
+#v2-workspace #training-answer{
+  min-width:min(24rem,100%);max-width:100%;font-size:1.1rem
+}
+#v2-workspace #training-solution{
+  border:2px solid var(--ac41-border);border-radius:var(--ac41-radius);
+  padding:var(--ac41-space-4)
+}
+#v2-workspace #library-search-player{min-width:min(25rem,100%)}
+#v2-workspace [role="listbox"] > [role="option"]{
+  border-inline-start:4px solid transparent;
+}
+#v2-workspace [role="listbox"] > [role="option"][aria-selected="true"]{
+  border-inline-start-color:var(--ac41-action);
+  background:var(--ac41-bg);
+}
+#v2-workspace .library-source{color:var(--ac41-muted);font-size:.9em}
+#v2-workspace #education-detail{
+  margin-top:var(--ac41-space-4);
+  padding:var(--ac41-space-3);
+  border:1px solid var(--ac41-border);border-radius:var(--ac41-radius)
+}
+#v2-workspace [data-education-kind]{
+  border:1px solid var(--ac41-border);border-radius:var(--ac41-radius);
+  padding:var(--ac41-space-3)
+}
+#v2-workspace [role="grid"] button[data-square]{
+  min-height:2.6rem;position:relative;
+}
+@media(forced-colors:active){
+  #v2-workspace #book-document-title,#v2-workspace #book-document-author,
+  #v2-workspace #training-solution,#v2-workspace #education-detail,
+  #v2-workspace [data-education-kind]{
+    border-color:CanvasText!important;background:Canvas!important
+  }
+  #v2-workspace [role="listbox"] > [role="option"][aria-selected="true"]{
+    border-inline-start-color:Highlight!important;
+    background:Canvas!important;color:CanvasText!important
+  }
+}
