@@ -19,6 +19,7 @@ from acs.lawful_corpus_registry import (
     acquire_cc0_source,
     load_catalog,
     verified_local_source,
+    iter_bounded_corpus_lines,
 )
 from acs.import_contract import fingerprint
 from tools.v2_library_source_catalog_real_corpus import (
@@ -52,7 +53,7 @@ def main() -> None:
                         decoded, encoding="utf-8", errors="strict", newline=""
                     ) as pgn:
                         count = _write_complete_game_subset(
-                            pgn, subset, SAMPLE_GAMES
+                            iter_bounded_corpus_lines(pgn), subset, SAMPLE_GAMES
                         )
             if count != SAMPLE_GAMES:
                 raise AssertionError(
