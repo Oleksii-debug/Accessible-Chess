@@ -158,22 +158,50 @@ class RevisedCorpusContractTests(unittest.TestCase):
                             ),
                         )
 
-    def test_upstream_discovery_is_not_a_download_authority(self):
+    def test_genuine_upstream_cc0_source_bytes_license_and_tamper_refusal(self):
         from acs.lawful_corpus_registry import _https_url
         records = {record["id"]: record for record in load_catalog()}
-        upstream = records["lichess_openings_original_eco_a_tsv"]
-        self.assertEqual(upstream["upstream_git_blob"], "561099854a15dfb523759aa87993a1fe480a6abc")
-        self.assertEqual(upstream["indexed_bytes"], 67257)
-        self.assertEqual(upstream["acquisition"], "SOURCE_PAGE_ONLY")
-        self.assertIsNone(upstream["sha256"])
-        self.assertIsNone(upstream["download_url"])
-        self.assertIn("/blob/a6189a30dc273ccb21fc2536a9a2fefd5592a67a/a.tsv", upstream["source_page"])
-        self.assertEqual(_https_url(upstream["source_page"], source_page=True), upstream["source_page"])
+        original = records["lichess_openings_original_eco_a_tsv"]
+        root = Path(__file__).resolve().parents[1]
+        source = root / original["local_source"]
+        license_file = root / original["license_source"]
+
+        self.assertEqual(original["upstream_git_blob"], "561099854a15dfb523759aa87993a1fe480a6abc")
+        self.assertEqual(original["indexed_bytes"], 67257)
+        self.assertEqual(original["acquisition"], "VENDORED_SOURCE_VERIFIED")
+        self.assertEqual(original["sha256"], "3282e4c9155289a29224f9a85fba0decb46efa35c2fa5e39662d2ac48fb0f793")
+        self.assertEqual(original["license_sha256"], "a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499")
+        self.assertEqual(source.stat().st_size, original["indexed_bytes"])
+        self.assertEqual(verified_local_source(source, original), original["sha256"])
+        self.assertEqual(hashlib.sha256(license_file.read_bytes()).hexdigest(), original["license_sha256"])
+        self.assertIn(b"CC0 1.0 Universal", license_file.read_bytes())
+        self.assertEqual(_https_url(original["source_page"], source_page=True), original["source_page"])
         with self.assertRaises(LawfulCorpusError):
-            _https_url(upstream["source_page"])
+            _https_url(original["source_page"])
+
+        # These 823 genuine rows are upstream opening-line facts, NOT
+        # full PGN games; never pass them off as native multi-game imports.
+        rows = source.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(len(rows), 824)
+        self.assertEqual(rows[0], "eco\tname\tpgn")
+        for row in rows[1:]:
+            eco, name, sequence = row.split("\t")
+            self.assertTrue(eco.startswith("A") and len(eco) == 3)
+            self.assertTrue(name and sequence)
         with tempfile.TemporaryDirectory() as tmp:
+            tampered = Path(tmp) / "tampered.tsv"
+            damaged = bytearray(source.read_bytes())
+            damaged[0] ^= 1
+            tampered.write_bytes(damaged)
             with self.assertRaises(LawfulCorpusError):
-                acquire_cc0_source(upstream, Path(tmp), opener=lambda *_args, **_kwargs: self.fail("unverified GitHub file must not auto-download"))
+                verified_local_source(tampered, original)
+            with self.assertRaises(LawfulCorpusError):
+                acquire_cc0_source(
+                    original, Path(tmp),
+                    opener=lambda *_args, **_kwargs: self.fail(
+                        "vendored source is not authorized for implicit network"
+                    ),
+                )
 
     def test_decoded_pgn_framer_uses_bounded_lines_and_total_budget(self):
         # Deliberately exercise transport resource checks without inventing
