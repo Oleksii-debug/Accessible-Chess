@@ -106,6 +106,7 @@ class ReleasePreflightTests(unittest.TestCase):
             "AccessibleChess.pdb", "AccessibleChess.ILK", "build.MAP",
             "web/app.js.map", "native/module.iobj", "native/module.ipch",
             "native/profile.profraw", "native/coverage.gcno", ".coverage",
+            "native/hidden.pdb/module.bin", "native/trace.profraw/sample.bin",
             "AccessibleChess.dSYM/Contents/Resources/DWARF/AccessibleChess",
         ):
             with self.subTest(relative=relative):

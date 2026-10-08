@@ -131,7 +131,12 @@ def _inventory(root: Path) -> tuple[str, ...]:
         if any(part.casefold() in _FORBIDDEN_COMPONENTS for part in parts):
             _fail(f"stale/build/source component is forbidden: {relative}")
         suffix = path.suffix.casefold()
-        if suffix == ".dsym":
+        # Reject native-debug sidecar folders, not only sidecar leaf files.
+        if any(
+            component.casefold().endswith(".dsym")
+            or PurePosixPath(component.casefold()).suffix in _NATIVE_DEBUG_SUFFIXES
+            for component in parts
+        ):
             _fail(f"native debug symbols are forbidden in release tree: {relative}")
         if path.is_file():
             if suffix in _SOURCE_SUFFIXES:

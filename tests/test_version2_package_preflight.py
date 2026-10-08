@@ -396,6 +396,7 @@ class Version2PackagePreflightTests(unittest.TestCase):
         for relative in (
             "AccessibleChess.pdb", "AccessibleChess.ILK", "generated.MAP",
             "web/source.js.map", "native/module.iobj", "native/scan.profraw",
+            "native/hidden.pdb/module.bin", "native/trace.profraw/sample.bin",
             ".coverage",
             "AccessibleChess.dSYM/Contents/Resources/DWARF/AccessibleChess",
         ):
@@ -417,6 +418,7 @@ class Version2PackagePreflightTests(unittest.TestCase):
             ("AccessibleChess/AccessibleChess.pdb", False),
             ("AccessibleChess/compilation.ILK", False),
             ("AccessibleChess/web/app.js.map", False),
+            ("AccessibleChess/native/leak.pdb/module.bin", False),
             ("AccessibleChess/native/AccessibleChess.dSYM/", True),
         ):
             with self.subTest(relative=relative), tempfile.TemporaryDirectory() as td:

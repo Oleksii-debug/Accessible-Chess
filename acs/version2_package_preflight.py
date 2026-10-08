@@ -539,11 +539,13 @@ def _backend_payload(relative: str) -> bool:
 
 
 def _validate_native_debug_policy(relative: str) -> None:
-    parts = PurePosixPath(relative).parts
-    name = parts[-1].casefold()
-    if (any(part.casefold().endswith(".dsym") for part in parts)
-            or PurePosixPath(name).suffix in _NATIVE_DEBUG_SUFFIXES
-            or name in _NATIVE_DEBUG_NAMES):
+    parts = tuple(part.casefold() for part in PurePosixPath(relative).parts)
+    # A forbidden native-debug folder must not launder arbitrary child files.
+    # Apply the same check to actual tree folders and implicit ZIP parents.
+    if (any(part.endswith(".dsym")
+            or PurePosixPath(part).suffix in _NATIVE_DEBUG_SUFFIXES
+            for part in parts)
+            or parts[-1] in _NATIVE_DEBUG_NAMES):
         _fail(f"native debug symbols are forbidden in the default package: {relative}")
 
 
