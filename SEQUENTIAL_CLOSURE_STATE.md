@@ -34,15 +34,12 @@ The following source-level checks were run or are directly inspectable without
 claiming physical NVDA acceptance:
 
 ```text
-sha256(ac s/starter_content.py) = 8118eb8f9897e2f13ef029a533ba22dae2e1f66d8c73feba9dccd9bd4ccf623b
+sha256(acs/starter_content.py) = 8118eb8f9897e2f13ef029a533ba22dae2e1f66d8c73feba9dccd9bd4ccf623b
 sha256(acs/starter_books_training_content.py) = b844c4e2cd6ae3394ddf007297a6f8229d6688144c159e39cc47e11963ff575a
 starter release manifest: 24 booklets, 12 chapters each, 144 training exercises
 real-source policy: 240-game deterministic sample from pinned CC0 Lichess source
 CBF/CBI evidence: BLOCKED (no lawful fixture + independent semantic oracle)
 ```
-
-The `ac s` spacing in the first display line is intentional plain-text
-readability only; the canonical path is `acs/starter_content.py`.
 
 ## Ordered frontier
 
