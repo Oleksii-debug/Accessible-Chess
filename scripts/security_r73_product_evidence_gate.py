@@ -35,25 +35,28 @@ def _sha256_file(path: Path, *, maximum: int) -> str:
     if not isinstance(path, Path) or type(maximum) is not int or maximum < 1:
         raise ProductEvidenceError("FILE_CONTEXT_INVALID")
     try:
-        if path.is_symlink() or not path.is_file():
+        before = path.lstat()
+        if not stat.S_ISREG(before.st_mode):
             raise ProductEvidenceError("FILE_MISSING_OR_UNSAFE")
-        before = path.stat()
         if not 0 < before.st_size <= maximum:
             raise ProductEvidenceError("FILE_SIZE_INVALID")
         digest = hashlib.sha256()
         n = 0
         with path.open("rb") as stream:
+            opened = os.fstat(stream.fileno())
+            if not stat.S_ISREG(opened.st_mode) or not os.path.samestat(before, opened):
+                raise ProductEvidenceError("FILE_MUTATED_DURING_REVIEW")
             while block := stream.read(1024 * 1024):
                 n += len(block)
                 if n > maximum:
                     raise ProductEvidenceError("FILE_SIZE_INVALID")
                 digest.update(block)
-            after = stream.fileno()
-            import os
-            open_stat = os.fstat(after)
-        after_path = path.stat()
+            open_stat = os.fstat(stream.fileno())
+        after_path = path.lstat()
         if (n != before.st_size or not os.path.samestat(before, open_stat)
                 or not os.path.samestat(before, after_path)
+                or (before.st_mtime_ns, before.st_ctime_ns)
+                   != (open_stat.st_mtime_ns, open_stat.st_ctime_ns)
                 or (before.st_mtime_ns, before.st_ctime_ns)
                    != (after_path.st_mtime_ns, after_path.st_ctime_ns)):
             raise ProductEvidenceError("FILE_MUTATED_DURING_REVIEW")
