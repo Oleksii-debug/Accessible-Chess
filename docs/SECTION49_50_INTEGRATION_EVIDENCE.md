@@ -40,3 +40,15 @@ Canonical acceptance contract: https://docs.google.com/document/d/1ITsUBFwwETRIC
 ## Qualification rule
 
 Source/mock/real LIVE model/video hashes/browser YouTube/full E2E are different evidence classes. Never make an unauthorized call or assume free-tier quotas. Never publish secrets or the owner-provided private files. Pending/queued/failed CI is not SUCCESS. No terminal DONE until exact integration, executed admissible tests and postmerge readback. Current PR is work in progress, not final integration.
+
+## Further incremental qualification added in this same PR
+
+- `acs/universal_chess_agent.py`: an explicit bounded fallback list flows through the original `ModelGateway`; the Agent does not start a second router. On UNKNOWN-effect errors, the existing `ModelCostBudget` conservatively keeps estimated-unbilled cost instead of releasing an uncertain reservation. NO_EFFECT releases it.
+- `tests/test_section49_agent_fallback.py`: actual existing Universal Agent + Gateway seam using typed fake providers, including NO_EFFECT fallback, UNKNOWN-effect no-duplicate, privacy preflight, budget, invalid routes.
+- `tests/test_section49_agent_cloud_tool_roundtrip.py`: actual existing Agent, registered read-only board FEN tool, two turn HTTP mock loop, and malicious unregistered tool request proving no board mutation.
+- `tests/test_section50_media_agent_integration.py`: mocked HTTP + existing Media Core, explicit chess ref restore, real canonical Board rules and state roundtrip; no arbitrary model request can advance board state.
+- `tests/test_section50_youtube_boundary.py`: simulated YouTube URL -> player status -> seek/pause/unconfirmed restore refusal, source mismatch and malformed URLs. This is explicitly a **mocked browser-player contract**, not a real YouTube playback PASS.
+- `tools/section50_real_video_source.py`, `.github/workflows/section50-real-video-source.yml`: actual Ubuntu runner attempt to download CC0 chess WebM from existing source catalog, bound SHA-256 verify, invoke FFprobe and FFmpeg for a real frame hash, and persist a metadata-only artifact. The result remains `SOURCE_FRAME_DECODED_SHA_NOT_YET_PINNED` until independently reviewed/expected SHA pinned; no semantic/FEN PASS.
+- Dual-OS workflow `.github/workflows/section49-cloud-provider-qualification.yml` executes relevant Section 49/50 offline suites. CI run state must be checked for the latest **exact SHA**, not a prior green attempt.
+
+Both Sections **49/50 remain OPEN** until authenticated provider test receipts, external video and YouTube playback semantic qualification, physical keyboard/NVDA product release, post-integration readback, and all clause 49.1–49.6 / 50.1–50.6 criteria have independently passed.
