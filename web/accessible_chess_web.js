@@ -97,24 +97,31 @@ function flattenText(value, depth = 0) {
 
 // Only project the selected route's canonical visual board. Never reuse a
 // stale Play board for Teacher/Book/Media after switching workspaces.
+function canonicalSquares(cells) {
+  if (!Array.isArray(cells) || cells.length !== 64) return false;
+  const names = cells.map(cell => cell && cell.square);
+  return names.every(x => typeof x === "string" && /^[a-h][1-8]$/.test(x))
+    && new Set(names).size === 64;
+}
 function activeVisualBoard(snapshot) {
   if (!snapshot || typeof snapshot !== "object") return null;
   const route = String(currentRoute || "board");
+  const surfaceForRoute = {board:"ordinary_play",teacher:"teacher",
+    online:"online",spectator:"spectator",books:"book",media:"media"};
+  const top = snapshot.visualBoard;
+  const correctlyScoped = top && top.surface === surfaceForRoute[route] ? top : null;
   const routeObjects = {
-    board:[snapshot.visualBoard,snapshot.board && snapshot.board.visualBoard],
-    teacher:[snapshot.teacher && snapshot.teacher.visualBoard],
-    online:[snapshot.online && snapshot.online.visualBoard],
-    spectator:[snapshot.spectator && snapshot.spectator.visualBoard],
-    books:[snapshot.books && snapshot.books.visualBoard,
+    board:[correctlyScoped,snapshot.board && snapshot.board.visualBoard],
+    teacher:[correctlyScoped,snapshot.teacher && snapshot.teacher.visualBoard],
+    online:[correctlyScoped,snapshot.online && snapshot.online.visualBoard],
+    spectator:[correctlyScoped,snapshot.spectator && snapshot.spectator.visualBoard],
+    books:[correctlyScoped,snapshot.books && snapshot.books.visualBoard,
            snapshot.book && snapshot.book.visualBoard],
-    media:[snapshot.media && snapshot.media.visualBoard]
+    media:[correctlyScoped,snapshot.media && snapshot.media.visualBoard]
   };
   const possible = routeObjects[route] || [];
   for (const candidate of possible) {
-    if (!candidate || !Array.isArray(candidate.cells) || candidate.cells.length !== 64) continue;
-    const squares = candidate.cells.map(cell => cell && cell.square);
-    if (squares.every(x => typeof x === "string" && /^[a-h][1-8]$/.test(x))
-        && new Set(squares).size === 64) return candidate;
+    if (candidate && canonicalSquares(candidate.cells)) return candidate;
   }
   return null;
 }
@@ -127,7 +134,7 @@ function boardCells(snapshot) {
     snapshot && snapshot.screen && snapshot.screen.board,
     snapshot && snapshot.position && snapshot.position.cells];
   for (const value of candidates) {
-    if (Array.isArray(value) && value.length === 64) return value;
+    if (canonicalSquares(value)) return value;
   }
   return [];
 }

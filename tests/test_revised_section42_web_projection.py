@@ -32,7 +32,9 @@ class WebBoardProjectionTests(unittest.TestCase):
         self.assertIn("snapshot.spectator && snapshot.spectator.visualBoard", script)
         self.assertIn("snapshot.book && snapshot.book.visualBoard", script)
         self.assertIn("snapshot.media && snapshot.media.visualBoard", script)
-        self.assertIn("new Set(squares).size === 64", script)
+        self.assertIn("new Set(names).size === 64", script)
+        self.assertIn("function canonicalSquares(cells)",script)
+        self.assertIn('const correctlyScoped = top && top.surface === surfaceForRoute[route]',script)
         self.assertIn("const visual = activeVisualBoard(snapshot) || {};", script)
         self.assertNotIn("const visual = snapshot && snapshot.visualBoard", script)
 
