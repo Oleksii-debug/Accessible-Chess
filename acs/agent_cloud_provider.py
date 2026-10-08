@@ -22,6 +22,8 @@ from .agent_model_contracts import (
 _PROVIDER_CONFIG = MappingProxyType({
     "mistral": ("https://api.mistral.ai/v1", "MISTRAL_API_KEY"),
     "groq": ("https://api.groq.com/openai/v1", "GROQ_API_KEY"),
+    "gemini": ("https://generativelanguage.googleapis.com/v1beta/openai", "GEMINI_API_KEY"),
+    "cohere": ("https://api.cohere.ai/compatibility/v1", "COHERE_API_KEY"),
     "openrouter": ("https://openrouter.ai/api/v1", "OPENROUTER_API_KEY"),
     "deepseek": ("https://api.deepseek.com/v1", "DEEPSEEK_API_KEY"),
     "nvidia_nim": ("https://integrate.api.nvidia.com/v1", "NVIDIA_NIM_API_KEY"),
