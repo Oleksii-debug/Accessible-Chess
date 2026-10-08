@@ -1,0 +1,61 @@
+name: Pre36 Shipping Source Coverage
+on:
+  pull_request:
+    branches:
+      - converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
+    paths:
+      - "acs/**"
+      - "web/**"
+      - "tests/**"
+      - ".github/workflows/pre36-shipping-source-coverage.yml"
+  workflow_dispatch: {}
+permissions:
+  contents: read
+jobs:
+  inherited-product-source:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    steps:
+      - name: Checkout immutable candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12.10"
+      - name: Install test-only dependencies
+        run: python -m pip install "pytest==8.4.2" "httpx==0.28.1"
+      - name: All restored Python source syntax
+        run: python -m compileall -q acs tests
+      - name: Execute accepted foundation, agent, media, tactile, teaching and visual regressions
+        run: >-
+          python -m unittest -v
+          tests.test_fen_edge_corpus
+          tests.test_section1_fen_castling_order
+          tests.test_section8_tactile_graphics_core
+          tests.test_agent_checkpoint_crossrepo
+          tests.test_agent_retry_crossrepo
+          tests.test_agent_model_response_authority
+          tests.test_media_foundation_crossrepo
+          tests.test_media_core
+          tests.test_media_preprocess
+          tests.test_media_accessibility
+          tests.test_recorded_media_application
+          tests.test_structured_broadcast
+          tests.test_section15_visual_board_closure
+          tests.test_teaching_session_store
+          tests.test_teaching_pointer_actions
+      - name: Canonical chess rules self-test
+        run: python -m acs.selftest
+      - name: Embedded accessibility JavaScript validation
+        run: |
+          node --check web/media_accessible_restore.js
+          node --check web/recorded_media_accessible_player.js
+          node --check web/version2_media_restore_bootstrap.js
+          node --check web/version2_media_user_workflow.js
+          node --check web/youtube_iframe_playback_adapter.js
