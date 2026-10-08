@@ -53,10 +53,16 @@ def _sha256_file(path: Path, *, max_bytes: int = 1024**3) -> tuple[str, int]:
     return digest.hexdigest(), size
 
 
-def classify_evidence(item: object) -> str:
-    """Do not promote transport-level replies to semantic/video qualification."""
+def classify_evidence(item: object, *, current_source_sha: str | None = None) -> str:
+    """Reject stale source-bound receipts; never promote a transport reply to semantic PASS."""
     if type(item) is not dict or item.get("schema") != SCHEMA_VERSION:
         return "INVALID"
+    if current_source_sha is not None:
+        if (type(current_source_sha) is not str
+                or len(current_source_sha) != 40
+                or any(c not in "0123456789abcdef" for c in current_source_sha)
+                or item.get("source_sha") != current_source_sha):
+            return "STALE_OR_INVALID_SOURCE"
     if item.get("evidence_class") == "LIVE_MODEL":
         if item.get("status") == "LIVE_RESPONSE_RECEIVED" and item.get("source_sha"):
             return "MODEL_TRANSPORT_ONLY"
@@ -179,7 +185,7 @@ async def _main(args) -> dict:
             })
     report["independent_live_routes"] = len({
         item.get("provider") for item in report["routes"]
-        if classify_evidence(item) == "MODEL_TRANSPORT_ONLY"
+        if classify_evidence(item, current_source_sha=source_sha) == "MODEL_TRANSPORT_ONLY"
     })
     report["integrated_semantic_qualification"] = "NOT_TESTED"
     return report
