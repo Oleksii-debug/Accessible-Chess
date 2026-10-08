@@ -47,7 +47,7 @@ REMOTE = {
 }
 A = BrowserSourceAuthority(
     "local-file:session-1", "trusted-sha256-source-revision", "session-unique-47",
-    MediaSourceKind.LOCAL_FILE,
+    MediaSourceKind.LOCAL_FILE, browser_revision=1,
 )
 B = BrowserSourceAuthority(
     "youtube:k4BS-4O1iI0", "trusted-remote-revision", "session-unique-48",
@@ -89,6 +89,7 @@ class BrowserMediaClockQualificationTest(unittest.TestCase):
             {"sourceId": "local-file:session-999"},
             {"sourceKind": "remote_media"},
             {"sourceRevision": -1},
+            {"sourceRevision": 2},
             {"ok": False},
             {"ready": False},
             {"playbackState": "recorded_superuser"},
@@ -115,7 +116,7 @@ class BrowserMediaClockQualificationTest(unittest.TestCase):
         previous = accept_browser_clock(dict(LOCAL), authority=A)
         foreign = BrowserSourceAuthority(
             "local-file:session-2", "foreign-revision", "session-unique",
-            MediaSourceKind.LOCAL_FILE)
+            MediaSourceKind.LOCAL_FILE, browser_revision=2)
         with self.assertRaises(BrowserMediaClockError):
             accept_browser_clock({**LOCAL, "sourceId": foreign.source_id},
                                  authority=foreign, previous=previous)
