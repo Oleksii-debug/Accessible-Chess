@@ -113,7 +113,7 @@ def build_complete_advanced_training(*, root: Path = ROOT) -> tuple[dict[str, by
     ):
         raise LawfulCorpusError("3000+ advanced source cannot qualify")
     book_wire = json.dumps(book.as_dict(), ensure_ascii=False,
-                           sort_keys=True, separators=(",", ":")).encode("utf-8") + b"\\n"
+                           sort_keys=True, separators=(",", ":")).encode("utf-8") + b"\n"
     if BookDocument.from_dict(json.loads(book_wire)).as_dict() != book.as_dict():
         raise LawfulCorpusError("extreme BookDocument restart/readback invalid")
     training_wire = json.dumps({
@@ -122,7 +122,7 @@ def build_complete_advanced_training(*, root: Path = ROOT) -> tuple[dict[str, by
         "rating_system": "LICHESS_PUZZLE_RATING_NOT_FIDE",
         "composed_studies": False,
         "tasks": tasks,
-    }, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8") + b"\\n"
+    }, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8") + b"\n"
     book_path = "books/extreme-lichess-4-original-puzzles.json"
     train_path = "training/extreme-lichess-4-original-puzzles.json"
     if book_path in assets or train_path in assets:
