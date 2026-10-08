@@ -1260,6 +1260,26 @@
       "public_release": "EXCLUDED",
       "canonical_qa": "Independent Chess-Results documented exact 414 scores across 9 rounds; no actual downloaded PGN SHA or canonical import PASS",
       "notes": "International blind olympiad 2012 official standings include Ukraine 2nd among national teams and Slovakia 20th. Chess-Results has real PGN export form, but no permission established to redistribute source data."
+    },
+    {
+      "id": "original_1851_kling_horwitz_endgame_studies_arves_archive_pdf",
+      "title": "Chess Studies; or, Endings of Games (1851), over 200 historical composed examples, original scanned PDF",
+      "author": "Joseph Kling; Bernhard Horwitz; Henry C. Mott (1851 editor); ARVES archival scan custodian",
+      "format": "pdf (historic authored chess endgame composition diagrams)",
+      "source_page": "https://www.arves.org/arves/images/PDF/Kling%20und%20Horwitz%20-%20Chess%20Studies%20or%20Endings%20of%20Games%201851.pdf",
+      "candidate_download_url": "https://www.arves.org/arves/images/PDF/Kling%20und%20Horwitz%20-%20Chess%20Studies%20or%20Endings%20of%20Games%201851.pdf",
+      "download_url": null,
+      "sha256": null,
+      "max_bytes": 16777216,
+      "original_publication_year": 1851,
+      "described_study_examples_minimum": 200,
+      "license": "Original Kling/Horwitz 1851 authored book is out of copyright in many jurisdictions; verify ARVES source archival reproduction terms, edition rights and local rights before mirroring",
+      "redistribution": "NOT_CLEARED",
+      "acquisition": "DISCOVERED_NOT_HASH_VERIFIED",
+      "test_access": "SOURCE_METADATA_ONLY_PENDING_BYTE_RIGHTS",
+      "public_release": "EXCLUDED",
+      "canonical_qa": "Original PDF from specialist endgame study association explicitly shows >200 scientific problems and diagrams; no original byte SHA256, positions imported or edition reproduction rights attested",
+      "notes": "This is genuinely advanced composed endgame study literature, not Philidor beginner rules book or practical Lichess puzzles; preserve original composer and diagram identity. PDF should be read from lawful source first as ephemeral owner test."
     }
   ]
 }
