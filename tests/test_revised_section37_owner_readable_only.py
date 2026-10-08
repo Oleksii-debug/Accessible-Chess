@@ -37,6 +37,42 @@ class RealBookOnlyAcceptance(unittest.TestCase):
         self.assertNotIn("Хабінець", text)
         self.assertNotIn("Шахова тактика. Від a до h", text)
 
+    def test_repeated_publish_refuses_to_overwrite_preexisting_book_or_zip(self):
+        with tempfile.TemporaryDirectory(prefix="section37-repeat-") as temp:
+            root = Path(temp)
+            folder = root / "books"
+            bundle = root / "bookpack.zip"
+            with patch("sys.argv", ["packer", "--output-dir", str(folder),
+                                    "--zip-output", str(bundle)]):
+                build_main()
+            digest = hashlib.sha256(bundle.read_bytes()).hexdigest()
+            manifest = (folder / "section37-bilingual-manifest.json").read_bytes()
+            with patch("sys.argv", ["packer", "--output-dir", str(folder),
+                                    "--zip-output", str(bundle)]):
+                with self.assertRaises(FileExistsError):
+                    build_main()
+            self.assertEqual(hashlib.sha256(bundle.read_bytes()).hexdigest(), digest)
+            self.assertEqual((folder / "section37-bilingual-manifest.json").read_bytes(), manifest)
+
+    def test_failed_mid_build_cleans_unique_partial_output_instead_of_publishing(self):
+        with tempfile.TemporaryDirectory(prefix="section37-atomic-") as temp:
+            root = Path(temp)
+            folder = root / "books"
+            bundle = root / "never-publish.zip"
+            def abort_after_first_book(args):
+                args.output_dir.mkdir()
+                (args.output_dir / "partial.epub").write_bytes(b"not-qualified")
+                raise ValueError("unit-injected invalid original book content")
+            with patch("sys.argv", ["packer", "--output-dir", str(folder),
+                                    "--zip-output", str(bundle)]), patch(
+                    "tools.revised_section37_bilingual_workbook_pack._build_pack",
+                    side_effect=abort_after_first_book):
+                with self.assertRaisesRegex(ValueError, "invalid original"):
+                    build_main()
+            self.assertFalse(folder.exists())
+            self.assertFalse(bundle.exists())
+            self.assertFalse((root / "never-publish.zip.partial").exists())
+
     def test_shareable_release_zip_is_licensed_hash_checked_and_reopens_in_real_program(self):
         with tempfile.TemporaryDirectory(prefix="section37-final-uk-en-pack-") as root:
             original = Path(root) / "originals"
