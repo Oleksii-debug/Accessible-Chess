@@ -86,8 +86,9 @@ def _qualified_url(url: str) -> str:
     except UnicodeError as exc:
         raise LawfulCorpusError("original source URL has invalid path encoding") from exc
     if (
-        decoded.startswith("//") or "\\\\" in decoded
-        or any(ch in decoded for ch in ("\\x00", "?", "#", "\\\\"))
+        decoded.startswith("//")
+        or any(ord(char) < 32 or ord(char) == 92 or char in ("?", "#")
+               for char in decoded)
         or any(component in (".", "..") for component in decoded.split("/"))
         or not decoded.startswith("/articles/games/published/")
         or not decoded.casefold().endswith((".pgn", ".cbv"))
