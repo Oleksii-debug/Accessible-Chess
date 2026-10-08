@@ -14,7 +14,7 @@
 6. **DOCX**: власне текстове джерело українською позначене `uk-UA`, англійське — `en-US`. Перевірте читання заголовків та описів позицій. На цей момент DOCX підтримує текстову семантику, але не повинен домислювати шахову FEN-позицію із звичайного абзацу.
 7. **PGN**: завантажуйте через відповідний маршрут імпорту партій/бібліотеки, не через Books як нібито книгу. Перевірте оригінальні коментарі, варіанти, історичну FEN та повторне відкриття бібліотеки; етюд Реті не називайте турнірною партією.
 8. **FEN**: збережені позиції є станом **до останнього ходу суперника**. У навчальному режимі цей хід потрібно виконати на єдиній канонічній шаховій дошці до того, як користувач робитиме власне рішення. Не показуйте готовий розв’язок завчасно.
-9. **PDF**: дві пошукові PDF-копії створюються **окремим завданням GitHub Actions** для зовнішніх доступних читачів. Наявність PDF у пакеті не означає, що поточна програма Accessible Chess підтримує його внутрішній імпорт.
+9. **PDF**: окреме завдання GitHub Actions лише тимчасово створює та перевіряє PDF; до користувацького ZIP або публічного набору ці файли **не додаються**, бо поточна програма не має кваліфікованого імпорту PDF. Зберігається тільки технічний JSON-звіт.
 10. **Доступність NVDA**: користуйтеся стандартною клавіатурною навігацією за заголовками й абзацами. Перевірте читання кирилиці, порядок FEN, перехід між розділами, відновлення після закриття. Фактичне ручне тестування NVDA на Windows ще має бути виконане користувачем або незалежним тестувальником — CI не може цього засвідчити.
 
 ## English — how to test
@@ -25,7 +25,7 @@
 4. The 12 EPUB3 chapter links must resolve to the corresponding XHTML headings. DOCX should expose actual headings and English `en-US` or Ukrainian `uk-UA` reading languages for assistive technology.
 5. The source FEN is **before the opponent's preceding UCI move**. Apply that first move using the existing canonical chess engine before presenting the learner with the position to solve.
 6. The advanced materials are **not beginner chess tutorials**. Lichess puzzle ratings 2200–3166 are not FIDE ratings or proof of grandmaster title. The historical composed study is separately attributed to Richard Réti, not mislabeled as a practical game.
-7. PDF is a distinct external-reader artifact. Native Accessible Chess PDF import is presently **NOT_QUALIFIED**; the code includes a negative test so testers do not mistake presence of a PDF file for product format support.
+7. PDF source files are rendered and tested **temporarily only**, never distributed as a reader-ready Accessible Chess user book. Native PDF ingress is **NOT_QUALIFIED**; only a metadata receipt can be uploaded until the app itself opens PDFs.
 8. ChessBase proprietary families, English premium publisher books and third-party tournament PGNs not licensed for redistribution are deliberately excluded. Source/reference links may be included in the bibliography; **references are not imported book content**.
 
 ## Source and integration evidence / Докази
