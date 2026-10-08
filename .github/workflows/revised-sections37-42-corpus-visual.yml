@@ -246,6 +246,12 @@ jobs:
           repository: GITenberg/Checkmates-for-Three-Pieces_4542
           path: upstream/checkmates
           persist-credentials: false
+      - name: Checkout CC0 chess PDF source without publication
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: lordlinks/Chess_Fundamentals
+          path: upstream/pdf
+          persist-credentials: false
       - name: Assert exact product SHA and pinned original Git object identities
         shell: bash
         run: |
@@ -254,6 +260,8 @@ jobs:
           test "$(git -C upstream/blue rev-parse HEAD:16377.txt)" = "d946777f0eaee2b5f8f7a73afb9c1dd104eb4142"
           test "$(git -C upstream/bird rev-parse HEAD:4902.txt)" = "fe18ddf36538952c95c62052b5d05464ca64abe7"
           test "$(git -C upstream/checkmates rev-parse HEAD:4542.txt)" = "ab6af427f4de27d8e98c0cc25e025b1984cc60cb"
+          test "$(git -C upstream/pdf rev-parse HEAD:chess_fundamentals.pdf)" = "eab7c13bdd5a21a33fa2bef863781e4c40794c2c"
+          test "$(git -C upstream/pdf rev-parse HEAD:LICENSE)" = "0e259d42c996742e9e3cba14c677129b2c1b6311"
           for directory in blue bird checkmates; do
             test "$(git -C upstream/$directory rev-parse HEAD:LICENSE)" = "8d062dda262bcdc42d45b861bd796117feb6d0fe"
           done
@@ -261,13 +269,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p source-originals/blue source-originals/bird source-originals/checkmates
+          mkdir -p source-originals/blue source-originals/bird source-originals/checkmates source-originals/capablanca_pdf
           git -C upstream/blue show HEAD:16377.txt > source-originals/blue/16377.txt
           git -C upstream/blue show HEAD:LICENSE > source-originals/blue/LICENSE
           git -C upstream/bird show HEAD:4902.txt > source-originals/bird/4902.txt
           git -C upstream/bird show HEAD:LICENSE > source-originals/bird/LICENSE
           git -C upstream/checkmates show HEAD:4542.txt > source-originals/checkmates/4542.txt
           git -C upstream/checkmates show HEAD:LICENSE > source-originals/checkmates/LICENSE
+          git -C upstream/pdf show HEAD:chess_fundamentals.pdf > source-originals/capablanca_pdf/chess_fundamentals.pdf
+          git -C upstream/pdf show HEAD:LICENSE > source-originals/capablanca_pdf/LICENSE
       - name: Setup Python 3.12
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
