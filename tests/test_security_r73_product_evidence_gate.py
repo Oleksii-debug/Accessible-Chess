@@ -212,5 +212,39 @@ class ProductR73EvidenceTests(unittest.TestCase):
             self._review()
 
 
+    def test_physical_receipts_cli_never_signal_release_success_exit_code(self):
+        import contextlib
+        import io
+        from unittest.mock import patch
+        from scripts.security_r73_product_evidence_gate import main
+
+        report = self._review()
+        self.assertEqual(
+            report["status"],
+            "PHYSICAL_EVIDENCE_REQUIRES_INDEPENDENT_RELEASE_DECISION",
+        )
+        self.assertIs(report["release_approved"], False)
+        args = [
+            "--artifact", str(self.artifact),
+            "--evidence", str(self.evidence),
+            "--trusted-keys", str(self.keys),
+            "--trusted-keys-sha256", _sha(self.keys.read_bytes()),
+            "--source-sha256", H,
+            "--scope-sha256", S,
+            "--residual-risks-sha256", R,
+            "--build-id", "chess-product-build-1",
+            "--channel", "candidate",
+        ]
+        output = io.StringIO()
+        with patch("scripts.security_r73_product_evidence_gate.time.time", return_value=NOW):
+            with contextlib.redirect_stdout(output):
+                result_code = main(args)
+        self.assertNotEqual(result_code, 0)
+        parsed = json.loads(output.getvalue())
+        self.assertIs(parsed["release_approved"], False)
+        self.assertEqual(parsed["required_next_gate"], "independent_release_decision")
+
+
+
 if __name__ == "__main__":
     unittest.main()
