@@ -144,6 +144,11 @@ class BilingualSourceGroundingTests(unittest.TestCase):
                     self.assertEqual(z.namelist()[0], "mimetype")
                     self.assertEqual(z.read("mimetype"), b"application/epub+zip")
                     self.assertIn(lang.encode("utf-8"), z.read("OEBPS/book.opf"))
+                    toc = z.read("OEBPS/nav.xhtml").decode("utf-8")
+                    body = z.read("OEBPS/lesson.xhtml").decode("utf-8")
+                    self.assertEqual(toc.count('href="lesson.xhtml#S37-'), 12)
+                    self.assertEqual(body.count('<h2 id="S37-'), 12)
+                    self.assertIn('lang="' + lang + '"', body)
                 epub_read = import_epub_book(
                     epub, source_name="Section37 original EPUB3 " + lang, language=lang,
                 )
