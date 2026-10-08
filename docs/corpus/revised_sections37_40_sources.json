@@ -1392,6 +1392,40 @@
       "public_release": "EXCLUDED",
       "canonical_qa": "Future exact-original source test: real paired CBV/PGN from publisher, full game count and annotations, per-source SHA and license; do not bundle into product",
       "notes": "NZCF official page confirms historic Peter Stuart collection released for free and paired CBV/PGN; no source binary or checksum obtained in this pass. Large source requires separate quotas. Not automatically advanced GM instruction."
+    },
+    {
+      "download_url": null,
+      "sha256": null,
+      "max_bytes": 0,
+      "license": "Original editor publicly offers download for personal licensed examination; redistribution/derived database rights not cleared",
+      "redistribution": "NOT_CLEARED",
+      "acquisition": "SOURCE_PAGE_ONLY",
+      "test_access": "EXTERNAL_LINK_ONLY",
+      "public_release": "EXCLUDED",
+      "canonical_qa": "Real publisher CBV archive discovered, not actual downloaded, verified or imported source; no authorized bypass of encrypted paid 2CBH data",
+      "id": "chessmail_tim_harding_lss_2024_free_bonus_8k_cbv",
+      "title": "Tim Harding UltraCorr 2025 editorial free bonus — 8,000+ LSS correspondence games July–December 2024 in original ChessBase CBV archive",
+      "author": "Dr Tim Harding (correspondence master database curator); Lechenicher Schachserver (original games)",
+      "format": "cbv",
+      "source_page": "https://www.chessmail.com/UC-2025/Introducing-UC2025.html",
+      "notes": "Publisher explicitly offers an independently downloadable FREE BONUS CBV of 8,000+ edited LSS games, separate from the paid/password encrypted 2CBH UltraCorr database. Exact binary URL, original full download SHA256, reuse/redistribution rights and native Accessible Chess readback have not been verified; temporary legal source testing only."
+    },
+    {
+      "download_url": null,
+      "sha256": null,
+      "max_bytes": 0,
+      "license": "Original editor publicly offers download for personal licensed examination; redistribution/derived database rights not cleared",
+      "redistribution": "NOT_CLEARED",
+      "acquisition": "SOURCE_PAGE_ONLY",
+      "test_access": "EXTERNAL_LINK_ONLY",
+      "public_release": "EXCLUDED",
+      "canonical_qa": "Real publisher CBV archive discovered, not actual downloaded, verified or imported source; no authorized bypass of encrypted paid 2CBH data",
+      "id": "chessmail_tim_harding_macdonnell_wisker_1874_cbv",
+      "title": "Tim Harding MacDonnell–Wisker 1874 original annotated archival historical match CBV",
+      "author": "Dr Tim Harding, ChessMail / chess historical source references",
+      "format": "cbv",
+      "source_page": "https://www.chessmail.com/research/MacDonnell-Wisker1874.html",
+      "notes": "Chess historian offers original CBV download of genuine 1874 match and related games, with historical source discussion and provenance. Original full CBV bytes, actual file SHA256, private test consent and public republishing rights remain unverified. No invented PGN import PASS."
     }
   ]
 }
