@@ -95,7 +95,7 @@ class OriginalFixtureQualificationTest(unittest.TestCase):
                         module.download_one(item, Path(directory), False)
 
     def test_private_mp4_derivative_is_source_bound_and_receipted_separately(self):
-        data = b"\\x1a\\x45\\xdf\\xa3real recorded source"
+        data = bytes.fromhex("1a45dfa3") + b"real recorded source"
         source_sha256 = hashlib.sha256(data).hexdigest()
         original = {
             "filename": "Chess test.webm",
@@ -117,8 +117,10 @@ class OriginalFixtureQualificationTest(unittest.TestCase):
                     cmd, 0, stdout='{"streams":[{"codec_name":"h264"}]}'
                 )
 
-            with mock.patch.object(module.shutil, "which", return_value="/usr/bin/ffmpeg"), \\
-                 mock.patch.object(module.subprocess, "run", side_effect=fake_ffmpeg):
+            with (
+                mock.patch.object(module.shutil, "which", return_value="/usr/bin/ffmpeg"),
+                mock.patch.object(module.subprocess, "run", side_effect=fake_ffmpeg),
+            ):
                 receipt = module.make_private_mp4_derivative(root, original)
                 self.assertEqual(receipt["evidence_class"], "DERIVED_PRIVATE_MP4")
                 self.assertEqual(receipt["derived_from_original_sha256"], source_sha256)
