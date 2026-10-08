@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import ExitStack
 from pathlib import Path
 from types import SimpleNamespace
 import tempfile
@@ -389,7 +390,7 @@ class Version2CompositionStartupCleanupCurrentTests(unittest.TestCase):
             resume = mock.Mock()
             primary = PosterAbort("poster construction abort")
 
-            with (
+            patchers = (
                 mock.patch.object(
                     release_app,
                     "_prepare_version2_user_data",
@@ -472,8 +473,11 @@ class Version2CompositionStartupCleanupCurrentTests(unittest.TestCase):
                 mock.patch.object(
                     release_app,
                     "Version2BookOpenWorker",
-                ) as book_worker_type,
-            ):
+                ),
+            )
+            with ExitStack() as stack:
+                entered_patchers = tuple(stack.enter_context(patcher) for patcher in patchers)
+                book_worker_type = entered_patchers[-1]
                 _api, build_application, _engine, native_runtime_factory = (
                     release_app.create_version2_release_application(
                         runtime_factory=lambda _config: runtime,
@@ -512,7 +516,7 @@ class Version2CompositionStartupCleanupCurrentTests(unittest.TestCase):
             resume = mock.Mock()
             primary = BookWorkerAbort("book worker construction abort")
 
-            with (
+            patchers = (
                 mock.patch.object(
                     release_app,
                     "_prepare_version2_user_data",
@@ -597,7 +601,10 @@ class Version2CompositionStartupCleanupCurrentTests(unittest.TestCase):
                     "Version2BookOpenWorker",
                     side_effect=primary,
                 ),
-            ):
+            )
+            with ExitStack() as stack:
+                for patcher in patchers:
+                    stack.enter_context(patcher)
                 _api, build_application, _engine, native_runtime_factory = (
                     release_app.create_version2_release_application(
                         runtime_factory=lambda _config: runtime,
