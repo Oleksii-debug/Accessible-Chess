@@ -132,7 +132,7 @@ class Version2PackageAssemblerTests(unittest.TestCase):
                         else 0x8664
                     ),
                     managed=relative in _REQUIRED_MANAGED_DESKTOP_RUNTIME_FILES,
-                    dll=relative.lower().endswith(".dll"),
+                    dll=Path(relative).suffix.lower() in {".dll", ".pyd"},
                 )
             )
         for name in _REQUIRED_WEB:
