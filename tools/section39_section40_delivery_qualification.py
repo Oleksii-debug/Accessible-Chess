@@ -192,6 +192,9 @@ def qualify_built_delivery(test_path: Path, public_path: Path,
                 or book.get("original_lesson_count") != 12
                 or book.get("source_kind") != "NEW_ORIGINAL_PROJECT_AUTHORSHIP_DERIVED_FROM_PINNED_CC0_POSITIONS"
                 or book.get("redistribution") != "permitted"
+                or book.get("license_path") != "licenses/SECTION37_ADVANCED_AUTHORED_LICHESS_CC0_UK_EN.txt"
+                or blobs.get(book.get("license_path")) is None
+                or book.get("license_sha256") != _sha(blobs[book["license_path"]])
                 or book.get("import_status") != "ACTUAL_NATIVE_BOOK_IMPORT_RESTART_PASS_DERIVED_SOURCE"
                 or book.get("sha256") != _sha(original_bytes)
             ):
@@ -343,6 +346,7 @@ def qualify_built_delivery(test_path: Path, public_path: Path,
         "book_document_reopen": "PASS",
         "bilingual_advanced_chess_positions": "PASS",
         "section37_bilingual_native_original_derived_book_files": 10,
+        "section37_uk_en_original_licensing_readback": "PASS",
         "section37_bilingual_original_lessons": 12,
         "integrated_product_books_menu_12_lessons_uk_en": "PASS",
         "product_menu_source_git_blob_sha1": ORIGINAL_SOURCE_GIT_BLOB,
