@@ -1324,6 +1324,26 @@
       "test_access": "VENDORED_SOURCE_VERIFIED",
       "canonical_qa": "Actual four original source lines normalized into the manually source-mapped CC0 subset; CI additionally asserts literal equality to exact original historical 24,595-row Git checkout",
       "notes": "The vendored item includes only original Lichess CC0 puzzle data, not GPL-3.0 FeXd application code; FeXd pinned README attributes puzzles to Lichess CC0, while its application is GPL-3.0. Four genuine extreme 3000-3166 *Lichess puzzle* ratings, not FIDE ELO or GM titles. Original FEN before opponent move, solution after first move, original authored study not asserted."
+    },
+    {
+      "id": "historical_reti_1921_original_bilingual_study_pgn",
+      "title": "Richard Réti 1921 historical original composed endgame study, original UK/EN annotation",
+      "author": "Richard Réti (1889–1929), original 1921 composer; Accessible Chess bilingual commentary newly authored in 2026",
+      "format": "pgn",
+      "source_page": "https://www.arves.org/arves/index.php/en/endgamestudies/studies-by-composer/1550-reti-s-study-is-100-years-old",
+      "download_url": null,
+      "sha256": "f0bb51066fde9d103406773666100977d6e2d2fc48ff71887dacbbb3ad0e8c83",
+      "max_bytes": 2077,
+      "indexed_bytes": 2077,
+      "local_source": "tests/real_corpus/advanced_training/reti_1921_historical_study_bilingual.pgn",
+      "original_year": 1921,
+      "license": "Historic 1921 Réti study position/moves public domain in EU based on death 1929; all bilingual editorial text newly authored; do not reproduce external contemporary annotations",
+      "redistribution": "permitted for historic factual position and own bilingual annotations; edition and jurisdiction caveats",
+      "acquisition": "VENDORED_SOURCE_VERIFIED",
+      "test_access": "VENDORED_SOURCE_VERIFIED",
+      "public_release": "INCLUDED_OWN_TEXT_HISTORICAL_COMPOSITION",
+      "canonical_qa": "Canonical parse -> LibraryImportService -> ACSDB restart/idempotence test; hosted CI status separately tracked",
+      "notes": "Real authored endgame study, white to draw, FEN 7K/8/k1P5/7p/8/8/8/8 w - - 0 1. Not confused with Lichess practice puzzle."
     }
   ]
 }
