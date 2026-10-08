@@ -339,3 +339,33 @@ execution**, and `release_approved=false` in every result. No production
 incident, independent verifier, signed physical Windows shipping evidence or
 real emergency update deployment is claimed. **R72 source staged; not shipping
 or terminal product integration.**
+
+## R66 optional high-assurance server operation — source candidate, NOT deployed
+
+`acs/protection_high_assurance_server_binding.py` composes the existing neutral
+`continuum_runtime.high_assurance.OptionalHighAssurance` *before* the single
+already existing R65 `CanonicalPaidOperationCallback`. A trusted server,
+not a browser or an untrusted request payload, binds the candidate, exact
+protected-build SHA-256, fresh independently qualified external evidence,
+baseline service authorization and trusted time. The R66 result is additive:
+it can deny but cannot authorize a capability, create a subscription, reserve
+quota, issue a seat, bypass R65, or approve product release. R65 still
+requires a fresh literal NEW operation admission and keeps UNKNOWN fail-closed.
+
+Deployment selects this optional callback only for explicitly registered
+sensitive paid operations; ordinary R65 operations retain their existing
+callback, and Class-C recovery remains outside premium/hardware restrictions.
+Absent, forged, expired, synthetic, mismatched, unverified, failed NVDA,
+rollback/recovery or provider-outage evidence denies without software
+fallback and without contacting the R65 effect ledger. Exceptions return
+a bounded boolean denial, not private vendor/device details.
+
+`tests/test_security_r66_high_assurance_server_binding.py` exercises the
+server composition, evidence gating, malicious types, expiry/future,
+baseline denial, wrong operations, private verifier exceptions, R65 UNKNOWN
+and no paid-reservation on rejection. The canonical Wave-5 dual-OS workflow
+includes compilation and this focused suite; an unstarted or queued workflow
+is not an executed PASS. No genuine USB/cloud vendor, independently audited
+verifier, native protected artifact, physical Windows/NVDA or external
+release qualification has been supplied. This remains a DRAFT source
+candidate in PR #2498; it does not increment the shipping-integrated count.
