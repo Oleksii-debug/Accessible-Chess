@@ -16,7 +16,7 @@ import subprocess
 from acs.book_text_import import import_text_book
 from acs.lawful_corpus_registry import (
     LawfulCorpusError, _vendored_asset_path, inventory_vendored_corpus,
-    load_catalog, read_verified_zip_member, verified_local_source,
+    load_catalog, read_verified_source_snapshot, read_verified_zip_member,
 )
 from acs.pgn_roundtrip import parse_pgn_text
 from acs.position_editor import PositionState
@@ -73,12 +73,11 @@ def build_manifest(root: Path = ROOT) -> dict:
             source = _vendored_asset_path(root, item["local_source"])
             # For a non-CC0 book, a pinned TEST_ONLY read is permitted by this
             # local QA ledger; it never authorizes public redistribution.
-            verified_local_source(source, item)
-            raw = source.read_bytes()
-            if hashlib.sha256(raw).hexdigest() != item["sha256"]:
-                raise LawfulCorpusError("consumed original source bytes changed after verification")
-            if len(raw) != item["indexed_bytes"]:
-                raise LawfulCorpusError("consumed original source length changed")
+            # Read from one bounded, inode-checked source handle and bind the
+            # exact bytes handed to Book/PGN/FEN adapters to the pinned digest.
+            # A separate verify(path) followed by Path.read_bytes() could open
+            # a swapped/unbounded file between the two operations.
+            raw = read_verified_source_snapshot(source, item)
             row["actual_sha256"] = hashlib.sha256(raw).hexdigest()
             row["actual_bytes"] = len(raw)
             row["semantic_state"] = "VERIFIED_BYTES_ONLY"
