@@ -370,8 +370,17 @@ def merge_real_receipts(base: dict, original_positions: dict, original_books: di
         ):
             raise LawfulCorpusError("new original Section37 annotated source not fully qualified")
         receipt = base_receipts[adv_id]
-        if receipt.get("actual_sha256") is not None:
-            raise LawfulCorpusError("original annotated source already attributed to another candidate")
+        # The source was already vendored by Section37 and authenticated
+        # before these semantic checks. A verified hash is corroboration,
+        # not a duplicate independent claim. A different hash, byte count,
+        # or a pre-existing semantic promotion is an actual conflict.
+        if (
+            receipt.get("actual_sha256") != advanced["original_sha256"]
+            or receipt.get("actual_bytes") != advanced["original_bytes"]
+            or receipt.get("expected_sha256") != entry.get("sha256")
+            or receipt.get("semantic_qualification") is not None
+        ):
+            raise LawfulCorpusError("original Section37 annotated PGN receipt identity conflicted with semantic qualification")
         receipt.update({
             "actual_sha256": advanced["original_sha256"],
             "actual_bytes": advanced["original_bytes"],
