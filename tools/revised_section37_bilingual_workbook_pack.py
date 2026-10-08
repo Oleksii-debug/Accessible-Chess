@@ -289,12 +289,7 @@ def source_receipt(data: dict, outputs: Mapping[str, bytes]) -> dict:
     }
 
 
-def main() -> None:
-    import argparse
-    cli = argparse.ArgumentParser()
-    cli.add_argument("--output-dir", required=True, type=Path)
-    cli.add_argument("--zip-output", type=Path, default=None)
-    args = cli.parse_args()
+def _build_pack(args) -> None:
     data = load_advanced_workbook()
     pack = make_pack(data)
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -391,6 +386,34 @@ def main() -> None:
     print(json.dumps({"books": len(pack), "game_and_position_files": 3,
                       "languages": list(LANGS),
                       "lessons_per_language": len(data["lessons"])}, sort_keys=True))
+
+
+
+def main() -> None:
+    import argparse
+    import shutil
+    cli = argparse.ArgumentParser()
+    cli.add_argument("--output-dir", required=True, type=Path)
+    cli.add_argument("--zip-output", type=Path, default=None)
+    args = cli.parse_args()
+    if args.output_dir.exists() or args.output_dir.is_symlink():
+        raise FileExistsError("destination directory must be new: refuse non-atomic reuse")
+    if args.zip_output is not None:
+        if args.zip_output.exists() or args.zip_output.is_symlink():
+            raise FileExistsError("refusing preexisting package ZIP")
+        if args.output_dir.resolve() == args.zip_output.resolve().parent:
+            raise ValueError("ZIP output must be outside its staged source folder")
+    try:
+        _build_pack(args)
+    except BaseException:
+        # This invocation uniquely owns the previously absent destination.
+        # On failure never leave a folder that could be mistaken for a
+        # published (but partially generated) accessible chess book corpus.
+        if args.output_dir.is_dir() and not args.output_dir.is_symlink():
+            shutil.rmtree(args.output_dir)
+        if args.zip_output is not None and args.zip_output.is_file():
+            args.zip_output.unlink()
+        raise
 
 
 if __name__ == "__main__":
