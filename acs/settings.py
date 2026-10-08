@@ -21,6 +21,7 @@ _MAX_SETTINGS_JSON_NUMBER_CHARS = 128
 
 DEFAULTS: dict[str, Any] = {
     "language": "uk",
+    "ui_theme": "system",
     "notation": "uk_literal",
     "sounds": True,
     "announce_move_errors": False,
@@ -46,6 +47,7 @@ DEFAULTS: dict[str, Any] = {
 }
 
 _ALLOWED_LANGUAGE = {"uk", "en"}
+_ALLOWED_UI_THEME = {"system", "light", "dark", "contrast"}
 _ALLOWED_NOTATION = {"san", "uk_literal", "en_literal"}
 _ALLOWED_TICK_POLICY = {"off", "my_turn", "both"}
 _SOUND_VARIANT_KEYS = frozenset(
@@ -463,6 +465,10 @@ def _validated_value(key: str, value: Any) -> Any:
     if key == "language":
         if type(value) is not str or value not in _ALLOWED_LANGUAGE:
             raise SettingsError("language must be 'uk' or 'en'")
+        return value
+    if key == "ui_theme":
+        if type(value) is not str or value not in _ALLOWED_UI_THEME:
+            raise SettingsError("ui_theme must be system, light, dark, or contrast")
         return value
     if key == "notation":
         if type(value) is not str or value not in _ALLOWED_NOTATION:
