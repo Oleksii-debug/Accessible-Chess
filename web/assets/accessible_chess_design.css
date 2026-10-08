@@ -120,3 +120,12 @@
   #board-grid .ac42-board-arrows{display:none!important}
   #board-grid[role=grid] [role=gridcell][data-ac42-highlight=true]::after{border:2px dashed Highlight}
 }
+
+/* Windows high-contrast exposes canonical Unicode glyph rather than dark raster SVG. */
+.ac42-piece-fallback{display:none;font:700 1.9rem/1 sans-serif;pointer-events:none}
+#board-grid[data-power=low] .board-piece{transition:none!important;animation:none!important}
+#board-grid[data-power=low] [role=gridcell]{box-shadow:none!important}
+@media(forced-colors:active){
+  #board-grid .ac42-piece-art{display:none!important}
+  #board-grid .ac42-piece-fallback{display:inline!important;color:CanvasText!important}
+}

@@ -140,7 +140,8 @@ function renderBoard(snapshot) {
   boardGrid.dataset.theme = theme;
   boardGrid.dataset.pieceTheme = style;
   boardGrid.dataset.presentation = p.presentationMode === true ? "true" : "false";
-  boardGrid.dataset.motion = p.animateMoves === true ? "true" : "false";
+  boardGrid.dataset.motion = p.animateMoves === true && p.lowPowerMode !== true ? "true" : "false";
+  boardGrid.dataset.power = p.lowPowerMode === true ? "low" : "normal";
   boardGrid.style.maxWidth = p.fitToWindow === true
     ? "min(100%,calc(100dvh - 6rem))"
     : p.presentationMode === true ? "min(98vw,85rem)" : String(52*scale/100)+"rem";
@@ -188,6 +189,12 @@ function renderBoard(snapshot) {
         decoration.textContent = glyphs[token] || token;
       });
       decoration.appendChild(image);
+      const backup=document.createElement('span');
+      backup.className='ac42-piece-fallback';
+      backup.textContent=glyphs[token]||token;
+      backup.setAttribute('aria-hidden','true');
+      decoration.appendChild(backup);
+      image.addEventListener('error',()=>{backup.style.display='inline'});
     } else {
       decoration.textContent = !token ? "" : style === "letters" ? token : glyphs[token];
     }

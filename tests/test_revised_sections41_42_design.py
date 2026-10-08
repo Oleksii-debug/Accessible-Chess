@@ -94,6 +94,7 @@ class RevisedBoardDesignTests(unittest.TestCase):
             ("fit_to_window","fitToWindow"),
             ("presentation_mode","presentationMode"),
             ("animate_moves","animateMoves"),
+            ("low_power_mode","lowPowerMode"),
         ):
             with self.subTest(field=field):
                 changed=initial.updated(field, True)
@@ -106,7 +107,7 @@ class RevisedBoardDesignTests(unittest.TestCase):
         try:
             fen=api.board.fen()
             tree=api.review_history.export_tree()
-            for flag in ("fit_to_window","presentation_mode","animate_moves"):
+            for flag in ("fit_to_window","presentation_mode","animate_moves","low_power_mode"):
                 result=api.set_visual_preference(flag,True)
                 self.assertTrue(result["ok"])
                 self.assertEqual(api.board.fen(),fen)
@@ -117,7 +118,7 @@ class RevisedBoardDesignTests(unittest.TestCase):
 
     def test_42_accessible_live_preview_rollback_and_reduced_motion(self):
         html=self.html
-        for key in ("board-fit","board-presentation","board-animations","board-theme-restore"):
+        for key in ("board-fit","board-presentation","board-animations","board-low-power","board-theme-restore"):
             self.assertIn('id="'+key+'"',html)
         self.assertIn("let previousBoardTheme=null;",html)
         self.assertIn("previousBoardTheme=before",html)
@@ -129,6 +130,9 @@ class RevisedBoardDesignTests(unittest.TestCase):
         css=(ROOT/"web/assets/accessible_chess_design.css").read_text(encoding="utf-8")
         self.assertIn("@media(prefers-reduced-motion:reduce),(forced-colors:active)",css)
         self.assertIn("[data-presentation=true]",css)
+        self.assertIn("#board-grid .ac42-piece-art{display:none!important}",css)
+        self.assertIn("#board-grid[data-power=low]",css)
+        self.assertIn("ac42-piece-fallback",self.html)
 
 if __name__ == "__main__":
     unittest.main()
