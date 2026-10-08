@@ -68,7 +68,9 @@ class CanonicalMigrationOperatorBoundary:
 
     def execute(self, actor: AuthenticatedPrincipal) -> str:
         """No automatic retry on any ambiguous fence/stage/commit result."""
-        if type(actor) is not AuthenticatedPrincipal:
+        if (type(actor) is not AuthenticatedPrincipal
+                or "migration.operator" not in actor.roles
+                or "backend.migrate" not in actor.permissions):
             return "DENIED"
         job = self._approved_job()
         if job is None or not self._authorized(actor, job.proof):
@@ -83,7 +85,9 @@ class CanonicalMigrationOperatorBoundary:
 
     def reconcile(self, actor: AuthenticatedPrincipal) -> str:
         """Read-only R68 reconciliation: never repeats a side effect."""
-        if type(actor) is not AuthenticatedPrincipal:
+        if (type(actor) is not AuthenticatedPrincipal
+                or "migration.operator" not in actor.roles
+                or "backend.migrate" not in actor.permissions):
             return "DENIED"
         job = self._approved_job()
         if job is None or not self._authorized(actor, job.proof):
