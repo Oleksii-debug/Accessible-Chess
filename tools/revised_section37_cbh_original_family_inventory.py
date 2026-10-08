@@ -21,7 +21,7 @@ REPORT = ROOT / "revised-section37-original-cbh-companion-evidence.json"
 UPSTREAM_COMMIT = "9641c5c3949d8fb210b17dd9aa54455645843696"
 SHA40 = re.compile(r"^[a-f0-9]{40}$")
 SAFE = re.compile(r"^[A-Za-z0-9_+.-]{1,96}$")
-SUFFIXES = frozenset({".cbh", ".cbg", ".cbp", ".cbt", ".cba", ".cbs"})
+SUFFIXES = frozenset({".cbh", ".cbg", ".cbp", ".cbt", ".cba", ".cbs", ".cbc", ".cbe", ".cbj", ".cbl", ".cbm"})
 MAX_FILE = 32 * 1024 * 1024
 MAX_FAMILY = 64 * 1024 * 1024
 
@@ -89,7 +89,7 @@ def verify_gpl_cbh_family(record: dict, checkout: Path) -> dict:
     if "/" in dirname or "/" in stem or "/" in oracle_name:
         raise LawfulCorpusError("original CBH filename must not contain separators")
     expected = record.get("external_companion_git_blobs")
-    if type(expected) is not dict or len(expected) != 6:
+    if type(expected) is not dict or len(expected) != len(SUFFIXES):
         raise LawfulCorpusError("incomplete original CBH companion registry")
     if set(expected) != {stem + ext for ext in SUFFIXES}:
         raise LawfulCorpusError("CBH companion manifest does not cover exact family")
