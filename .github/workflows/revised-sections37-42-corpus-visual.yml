@@ -94,7 +94,10 @@ on:
 # the same PR; old queued runs cannot certify a newer product revision.
 concurrency:
   group: ${{ github.workflow }}-pr-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  # Many parallel workers update the same PR while a 37-42 source run is queued.
+  # Keep the first executing candidate alive long enough to produce real
+  # exact-SHA evidence; GitHub still limits one running + one pending per group.
+  cancel-in-progress: false
 permissions:
   contents: read
 jobs:
