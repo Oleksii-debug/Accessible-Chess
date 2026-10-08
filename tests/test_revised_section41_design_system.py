@@ -85,6 +85,37 @@ class Section41RealDesignTests(unittest.TestCase):
         self.assertNotIn("@import",css)
         self.assertNotIn("https://",css)
 
+    def test_windows_package_must_include_all_local_design_dependencies(self):
+        from acs.version2_package_preflight import Version2PackagePreflightError
+        from tests.test_version2_package_preflight import (
+            _make_tree, _write_checksums, _validate_tree,
+        )
+        with tempfile.TemporaryDirectory(prefix="acs-section41-package-gate-") as raw:
+            package=Path(raw)/"candidate"
+            package.mkdir()
+            _make_tree(package)
+            html=package/"AccessibleChess/web/index.html"
+            html.write_text(
+                '<!doctype html><html><head><link rel="stylesheet" '
+                'href="assets/accessible_chess_design.css"></head><body>fixture</body></html>',
+                encoding="utf-8",
+            )
+            _write_checksums(package)
+            with self.assertRaises(Version2PackagePreflightError):
+                _validate_tree(package)
+            for relative in (
+                "web/assets/accessible_chess_design.css",
+                "web/assets/tabler/chess-rook.svg",
+                "web/assets/tabler/adjustments.svg",
+                "web/assets/tabler/LICENSE",
+                "web/assets/tabler/SECTION41_PROVENANCE.json",
+            ):
+                dest=package/"AccessibleChess"/relative
+                dest.parent.mkdir(parents=True,exist_ok=True)
+                dest.write_bytes((ROOT/relative).read_bytes())
+            _write_checksums(package)
+            _validate_tree(package)
+
     def test_webview_and_web_use_one_local_stylesheet_and_semantic_controls(self):
         for path in ("web/index.html","web/accessible_chess_web.html"):
             with self.subTest(path=path):
