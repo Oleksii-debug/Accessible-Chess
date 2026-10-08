@@ -89,15 +89,18 @@ class RevisedCorpusContractTests(unittest.TestCase):
         cbh = records["chessbase_family_complete_real_samples"]
         self.assertEqual(cbh["acquisition"], "BLOCKED_NO_LAWFUL_COMPLETE_SAMPLE")
         self.assertEqual(cbh["redistribution"], "NOT_CLEARED")
-        for identifier in (
-            "lichess_standard_rated_2013_02",
-            "lichess_standard_rated_2013_03",
+        # Official checksums: database.lichess.org/standard/sha256sums.txt.
+        # This proves catalog pinning, NOT a download or semantic import.
+        for identifier, digest in (
+            ("lichess_standard_rated_2013_02", "c136acdf343293c45252906fee91e3b561fb26a936979f52dbe04bb649a2fd86"),
+            ("lichess_standard_rated_2013_03", "89da64fc3c1fe3bfd571d7f626232189f3259aa728b46ea81e5cb8f3fdb34b9e"),
         ):
             with self.subTest(source=identifier):
                 candidate = records[identifier]
                 self.assertEqual(candidate["license"], "CC0")
-                self.assertEqual(candidate["acquisition"], "DISCOVERED_NOT_HASH_VERIFIED")
-                self.assertIsNone(candidate["sha256"])
+                self.assertEqual(candidate["redistribution"], "permitted")
+                self.assertEqual(candidate["acquisition"], "PINNED_NOT_DOWNLOADED_IN_THIS_PASS")
+                self.assertEqual(candidate["sha256"], digest)
         for identifier in (
             "gutenberg_chess_strategy_lasker",
             "gutenberg_blue_book_chess_staunton",
@@ -109,6 +112,10 @@ class RevisedCorpusContractTests(unittest.TestCase):
                 self.assertEqual(candidate["acquisition"], "SOURCE_PAGE_ONLY")
                 self.assertEqual(candidate["redistribution"], "NOT_CLEARED")
                 self.assertIsNone(candidate["sha256"])
+        # Ebook #15201 explicitly says 'Copyrighted' on Project Gutenberg.
+        polish = records["gutenberg_szachy_warcaby_polish"]
+        self.assertTrue(polish["license"].startswith("COPYRIGHTED"))
+        self.assertEqual(polish["redistribution"], "NOT_CLEARED")
 
     def _record(self, payload: bytes) -> dict:
         return {
