@@ -6,7 +6,9 @@ on:
       - converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
     paths:
       - 'tools/revised_section40_offline_test_library.py'
+      - 'tools/revised_section40_user_library_seed_bridge.py'
       - 'tests/test_revised_section40_offline_test_library.py'
+      - 'tests/test_revised_section40_user_library_seed_bridge.py'
       - '.github/workflows/revised-section40-offline-library.yml'
       - 'acs/starter_books_training_release.py'
       - 'acs/starter_books_training_runtime.py'
@@ -33,11 +35,13 @@ jobs:
         with:
           python-version: '3.12.10'
       - name: Compile Section 40 builder and regression suite
-        run: python -m py_compile tools/revised_section40_offline_test_library.py tests/test_revised_section40_offline_test_library.py
+        run: python -m py_compile tools/revised_section40_offline_test_library.py tools/revised_section40_user_library_seed_bridge.py tests/test_revised_section40_offline_test_library.py tests/test_revised_section40_user_library_seed_bridge.py
       - name: Real source, persistent Library, bilingual book and rights regression
-        run: python -m unittest -v tests.test_revised_section40_offline_test_library tests.test_revised_section37_offline_collection_readback tests.test_revised_section38_stockfish_real_library
+        run: python -m unittest -v tests.test_revised_section40_offline_test_library tests.test_revised_section40_user_library_seed_bridge tests.test_revised_section37_offline_collection_readback tests.test_revised_section38_stockfish_real_library
       - name: Build TEST_BUILD archive with real chess games and canonical course
         run: python -m tools.revised_section40_offline_test_library TEST_BUILD artifacts/section40-test-build.zip
+      - name: Materialize owner TEST_BUILD runtime Library seed through existing ACSDB ingress
+        run: python -m tools.revised_section40_user_library_seed_bridge artifacts/section40-test-build.zip artifacts/section40-owner-runtime-seed.zip
       - name: Build PUBLIC_RELEASE archive with conservative rights filtering
         run: python -m tools.revised_section40_offline_test_library PUBLIC_RELEASE artifacts/section40-public-release.zip
       - name: Upload separate test and public fixture bundles (not EXE / not final release)
