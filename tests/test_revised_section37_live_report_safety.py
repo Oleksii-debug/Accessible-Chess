@@ -5,12 +5,15 @@ They prove a failed new run cannot leave an obsolete PASS receipt behind.
 """
 from __future__ import annotations
 
+import hashlib
+import io
 import json
 import os
 from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from acs.lawful_corpus_registry import LawfulCorpusError
@@ -86,6 +89,91 @@ class LiveCorpusEvidenceSafetyTests(unittest.TestCase):
         ):
             with self.assertRaisesRegex(RuntimeError, "cannot verify checkout SHA"):
                 probe._exact_source_head()
+
+
+    def test_live_readback_consumes_exact_verified_snapshot_across_path_change(self):
+        """A path replacement after digest verification cannot affect consumed PGN bytes."""
+        with tempfile.TemporaryDirectory() as temp:
+            source = Path(temp) / "genuine.pgn.zst"
+            original = b"exact SHA256-pinned external corpus bytes"
+            source.write_bytes(original)
+            record = {
+                "id": "test_verified_archive",
+                "sha256": hashlib.sha256(original).hexdigest(),
+                "max_bytes": 1024,
+                "indexed_bytes": len(original),
+            }
+            report = Path(temp) / "live-report.json"
+            seen = []
+
+            class InspectingDecompressor:
+                def stream_reader(self, compressed_stream):
+                    # The old unsafe implementation reopened the path, yielding
+                    # a real file handle rather than the verified immutable bytes.
+                    self_type = type(compressed_stream)
+                    seen.append(self_type)
+                    if not isinstance(compressed_stream, io.BytesIO):
+                        raise AssertionError("decompressor consumed mutable path, not verified bytes")
+                    if compressed_stream.read() != original:
+                        raise AssertionError("decompressor did not receive pinned source bytes")
+                    # Simulate attacker mutation after the trusted snapshot.
+                    source.write_bytes(b"untrusted new source")
+                    return io.BytesIO(b"1. e4 e5\\n")
+
+            def write_subset(lines, destination, requested):
+                self.assertEqual(requested, 1)
+                self.assertEqual(list(lines), ["1. e4 e5\\n"])
+                destination.write_text("1. e4 e5\\n", encoding="utf-8")
+                return 1
+
+            with (
+                patch.object(probe, "REPORT_FILE", report),
+                patch.object(probe, "SOURCE_IDS", (record["id"],)),
+                patch.object(probe, "SAMPLE_GAMES", 1),
+                patch.object(probe, "_exact_source_head", return_value="a" * 40),
+                patch.object(probe, "load_catalog", return_value=[record]),
+                patch.object(probe, "acquire_cc0_source", return_value=source),
+                patch.object(probe.zstandard, "ZstdDecompressor", InspectingDecompressor),
+                patch.object(probe, "_write_complete_game_subset", side_effect=write_subset),
+                patch.object(probe, "_parse_complete_game_subset",
+                             return_value=[SimpleNamespace(source_index=0)]),
+                patch.object(probe, "fingerprint",
+                             return_value=SimpleNamespace(sha256="f" * 64, size=9)),
+            ):
+                probe.main()
+
+            result = json.loads(report.read_text(encoding="utf-8"))
+            self.assertEqual(seen, [io.BytesIO])
+            self.assertEqual(result["status"], "PASS")
+            self.assertEqual(result["sources"][0]["compressed_sha256"], record["sha256"])
+            self.assertEqual(result["sources"][0]["compressed_bytes"], len(original))
+            self.assertEqual(source.read_bytes(), b"untrusted new source")
+            self.assertTrue(result["ephemeral_cache_deleted"])
+
+    def test_live_readback_refuses_tamper_before_verified_snapshot(self):
+        with tempfile.TemporaryDirectory() as temp:
+            source = Path(temp) / "genuine.pgn.zst"
+            source.write_bytes(b"tampered source")
+            record = {
+                "id": "test_verified_archive",
+                "sha256": hashlib.sha256(b"original trusted bytes").hexdigest(),
+                "max_bytes": 1024,
+                "indexed_bytes": len(b"original trusted bytes"),
+            }
+            report = Path(temp) / "live-report.json"
+            report.write_text('{"status":"PASS"}', encoding="utf-8")
+            with (
+                patch.object(probe, "REPORT_FILE", report),
+                patch.object(probe, "SOURCE_IDS", (record["id"],)),
+                patch.object(probe, "_exact_source_head", return_value="a" * 40),
+                patch.object(probe, "load_catalog", return_value=[record]),
+                patch.object(probe, "acquire_cc0_source", return_value=source),
+                patch.object(probe.zstandard, "ZstdDecompressor") as decoder,
+            ):
+                with self.assertRaises(LawfulCorpusError):
+                    probe.main()
+                decoder.assert_not_called()
+            self.assertFalse(report.exists(), "tampered source must not leave a PASS receipt")
 
 
 if __name__ == "__main__":
