@@ -252,6 +252,24 @@ class BilingualSourceGroundingTests(unittest.TestCase):
             self.assertTrue(report["generated_files"]["original-advanced-after-opponent-solver-positions.fen"]
                             ["first_opponent_move_already_applied"])
 
+    def test_legal_but_counterfeit_high_rated_book_sources_fail_before_distribution(self):
+        authentic = load_advanced_workbook()
+        original = authentic["lessons"][0]
+        replacements = (
+            ("counterfeit-puzzle-rating", {"rating_lichess_puzzle": original["rating_lichess_puzzle"] + 1}),
+            ("counterfeit-puzzle-identity", {"original_puzzle_id": authentic["lessons"][1]["original_puzzle_id"]}),
+            ("counterfeit-motif-metadata", {"original_lichess_themes": []}),
+        )
+        with tempfile.TemporaryDirectory(prefix="acs-37-licensed-only-") as temp:
+            for label, change in replacements:
+                with self.subTest(counterfeit=label):
+                    counterfeit = json.loads(json.dumps(authentic))
+                    counterfeit["lessons"][0].update(change)
+                    suspect = Path(temp) / (label + ".json")
+                    suspect.write_text(json.dumps(counterfeit), encoding="utf-8")
+                    with self.assertRaisesRegex(ValueError, "original CC0 source"):
+                        load_advanced_workbook(suspect)
+
     def test_corrupted_fen_beginner_rating_lost_language_and_unrelated_study_are_denied(self):
         work = load_advanced_workbook()
         cases = [
