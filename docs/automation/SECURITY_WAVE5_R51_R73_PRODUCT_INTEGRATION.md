@@ -127,6 +127,21 @@ The existing dual-OS Wave-5 workflow includes `tests/test_security_r55_whole_bin
 covering synthetic PE candidate, tampering, cross-build/release reuse, receipt
 forgery, symlink, source-copy bypass, and third-party scope rejection.
 
+## R56 function-level candidate manifest (prepared)
+
+`scripts/security_r56_function_candidate_gate.py` calls the already-verified
+R55 AccessibleChess.exe verifier first. Only then can the canonical neutral
+`continuum_runtime.function_protection.check_functions` validate an exact
+build-only protected-function payload manifest and its R55 parent digest.
+Accessible Chess permits only first-party `AccessibleChess.exe` targets;
+neutral R56 explicitly refuses accessibility, screen-reader, input, keyboard,
+UI, audio, startup and realtime function identifiers. No decryption loader,
+plaintext key or separate client-side entitlement authority is introduced.
+Tests cover parent tampering, ciphertext replacement/removal, a forged
+function manifest and attempts to protect NVDA/input or third-party modules.
+This is digest verification of supplied ciphertext only, not proof of real
+native on-demand encryption, runtime key secrecy or approved release.
+
 ## R53–R62 and R63–R72
 
 The neutral source components are terminally closed in continuum-runtime
