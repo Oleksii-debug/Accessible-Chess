@@ -1317,11 +1317,13 @@
       "source_original_git_blob": "acb74625e5ebd0ae9b454779a371ac87091c8c0e",
       "source_original_commit": "cddfa24b1a5a9013b99622d6d5e7093a64b1d55a",
       "license": "CC0-1.0",
+      "license_source": "tests/real_corpus/lichess_openings_COPYING.txt",
+      "license_sha256": "a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499",
       "redistribution": "permitted",
       "acquisition": "VENDORED_SOURCE_VERIFIED",
       "test_access": "VENDORED_SOURCE_VERIFIED",
       "canonical_qa": "Actual four original source lines normalized into the manually source-mapped CC0 subset; CI additionally asserts literal equality to exact original historical 24,595-row Git checkout",
-      "notes": "Four genuine extreme 3000-3166 *Lichess puzzle* ratings, not FIDE ELO or GM titles. Original FEN before opponent move, solution after first move, original authored study not asserted."
+      "notes": "The vendored item includes only original Lichess CC0 puzzle data, not GPL-3.0 FeXd application code; FeXd pinned README attributes puzzles to Lichess CC0, while its application is GPL-3.0. Four genuine extreme 3000-3166 *Lichess puzzle* ratings, not FIDE ELO or GM titles. Original FEN before opponent move, solution after first move, original authored study not asserted."
     }
   ]
 }
