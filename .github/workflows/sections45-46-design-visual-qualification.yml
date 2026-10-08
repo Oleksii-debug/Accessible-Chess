@@ -10,6 +10,12 @@ on:
 permissions:
   contents: read
 
+# One exact source per branch; a stream of new commits must not retain
+# stale queued duplicate runs that consume the shared repository workers.
+concurrency:
+  group: sections45-46-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   section45-section46-contract:
     strategy:
