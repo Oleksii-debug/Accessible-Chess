@@ -67,3 +67,12 @@ The rook is used as an actual **decorative inline icon** in existing `web/index.
 Dual-OS source tests: `.github/workflows/revised-sections37-42-corpus-visual.yml`. Gate includes negative licensing/redirect/hash/overwrite tests; all canonical existing Section-15 visual board tests; new theme/scale and chess-state purity regression; and canonical `acs.selftest`.
 
 **HUMAN_TESTED=NO. NVDA_VERIFIED=NO. ALL_SIX_TERMINAL_DONE=NO. FULL_CORPUS_DOWNLOADED=NO. FINAL_WINDOWS_ZIP=NO.**
+
+
+## 2026-10-08 — Real second/third CC0 source gate added (incremental, NOT terminal)
+
+- Extended EXISTING canonical current-shipping PR #2494; no parallel downloader or PGN authority.
+- Added `tools/revised_section37_real_cc0_readback.py` with official hash-pinned CC0 Lichess Standard 2013-02 and 2013-03 records already in the lawful source catalog. The job uses `acs.lawful_corpus_registry.acquire_cc0_source` and `verified_local_source`, ephemeral private storage, the retained transport-framing helper and the **existing canonical PGN parser**; each source must yield 128 genuine complete, ordered parsed games.
+- Existing Ubuntu `live-lawful-5000` job still tests 2013-01 with 5,000 full Library-imported games. It now calls the 2013-02/03 live gate after that predecessor and uploads non-private JSON readback alongside existing evidence, only if actually produced. A source failure does not fabricate a PASS report; temp source bytes are deleted. Source acquisition is **not** public corpus redistribution.
+- New two-source gate code blob `3aae90f4e4e15cedc8394ffa0318f80ce2975eb7` and workflow blob `e15605af4921952a96872ffbca24559bbadbcf92` were re-read directly from PR after changes; candidate head at workflow readback `2d0a11d623fbab79919aedac1cf616e3eb196288`. Dedicated Actions run `37785308269` was **QUEUED**, not PASS or FAIL, at verification. Live source bytes and full exact-candidate qualification have NOT been executed by this authoring session.
+- This closes no Section by itself. Revised Section 37 still lacks lawful actual acquisition of varied FEN/EPD/books/authentic ChessBase complete sets, comprehensive rights+source-byte records and usable staged collections. Revised Section 38 still lacks the mandated all-format import/readback and all-application integration. **Both remain OPEN / NOT DONE — TERMINAL** until those substantive acceptance requirements are met.
