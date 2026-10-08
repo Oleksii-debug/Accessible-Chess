@@ -71,7 +71,7 @@ jobs:
           ffmpeg -version | head -1
           ffprobe -version | head -1
       - name: Fetch authentic original WebM files and decode all of them
-        run: python tools/section47_download_commons_corpus.py --output "${{ runner.temp }}/section47-originals" --decode
+        run: python tools/section47_download_commons_corpus.py --output "${{ runner.temp }}/section47-originals" --decode --derive-mp4
       - name: Check receipt is real and complete
         shell: python
         run: |
@@ -85,6 +85,10 @@ jobs:
           assert data['all_original_bytes_verified'] is True
           assert data['all_decoded'] is True
           assert all(len(e['sha256']) == 64 and e['decoded'] and e['original_bytes_verified'] for e in data['receipts'])
+          assert len(data['derivatives']) == 1
+          assert data['derivatives'][0]['evidence_class'] == 'DERIVED_PRIVATE_MP4'
+          assert data['derivatives'][0]['video_codec'] == 'h264'
+          assert data['derivatives'][0]['derived_from_original_sha256'] in [e['sha256'] for e in data['receipts']]
           assert data['windows_player_acceptance'] == 'NOT_RUN'
           assert data['board_pgn_fen_qualification'] == 'NOT_RUN'
           print("External ORIGINAL+DECODE PASS; Windows browser/position qualification NOT_RUN")
@@ -119,6 +123,11 @@ jobs:
         run: |
           $original = Join-Path "${{ runner.temp }}/section47-originals" "Byrne vs Fischer - The Game of the Century.webm"
           node tests/js/section47_48_browser_live_smoke.js local "$original"
+      - name: Play real Commons-derived H264 MP4 in Windows Chromium
+        shell: pwsh
+        run: |
+          $converted = Join-Path "${{ runner.temp }}/section47-originals" "Joaquin Perkins blitz chess vs USCF expert.qa.mp4"
+          node tests/js/section47_48_browser_live_smoke.js local "$converted"
 
   live-youtube-chess:
     name: Actual publisher YouTube IFrame chess smoke (LIVE; never simulated)
