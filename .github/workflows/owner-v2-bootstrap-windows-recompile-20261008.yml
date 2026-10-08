@@ -64,6 +64,17 @@ jobs:
           Get-Content $err
           if ($p.ExitCode -ne 0) { throw "V2 diagnostic failed $($p.ExitCode)" }
           if ((Get-Content $out -Raw) -notmatch 'ACCESSIBLE CHESS V2 FINAL-PRODUCT COMPOSITION DIAGNOSTIC PASS') { throw 'V2 diagnostic success marker missing' }
+      - name: Compile current one-click portable native launcher
+        shell: cmd
+        run: |
+          @echo off
+          setlocal EnableExtensions
+          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\\Microsoft Visual Studio\\Installer\\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSROOT=%%i"
+          if not defined VSROOT exit /b 20
+          call "%VSROOT%\\VC\\Auxiliary\\Build\\vcvars64.bat" || exit /b 21
+          if not exist build mkdir build
+          cl /nologo /utf-8 /W4 /WX /O2 /GS- /DUNICODE /D_UNICODE /c packaging\\portable_launcher.c /Fo:build\\portable_launcher.obj || exit /b 22
+          link /nologo /MACHINE:X64 /SUBSYSTEM:WINDOWS /ENTRY:wWinMainCRTStartup /NODEFAULTLIB build\\portable_launcher.obj kernel32.lib user32.lib /OUT:build\\AccessibleChess.exe || exit /b 23
       - name: Record intermediate build identity and nonrelease status
         if: success()
         shell: pwsh
@@ -77,7 +88,9 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: owner-v2-windows-intermediate-${{ github.sha }}
-          path: run_accessible_chess_v2.dist/
+          path: |
+            run_accessible_chess_v2.dist/
+            build/AccessibleChess.exe
           if-no-files-found: error
           retention-days: 7
           compression-level: 1
