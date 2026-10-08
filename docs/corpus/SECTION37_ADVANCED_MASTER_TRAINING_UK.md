@@ -24,7 +24,7 @@
 Відбирати `veryLong`, `long`, `sacrifice`, `defensiveMove`, `quietMove`, `zugzwang`, `intermezzo`, `attraction`, `clearance`, `promotion`, `fork`, `pin`. Перевіряти навіть неочевидні захисні ресурси й різницю між красивим та найсильнішим ходом. **Не відкривати готове рішення до спроби користувача**; джерельний JSON містить хід-рішення для канонічного імпорту, але це не підтвердження готового UI.
 
 **Фахова література (бібліографія, НЕ завантажені книги):**
-- Jacob Aagaard, *Grandmaster Preparation: Calculation*; офіційний безплатний фрагмент видавця: `https://qualitychess.co.uk/ebooks/CALCULATION-excerpt.pdf`. Лише ліцензійно дозволені фрагменти; не приєднувати повну книгу з піратських архівів.
+- Jacob Aagaard, *Grandmaster Preparation: Calculation*; історична адреса видавничого PDF-фрагмента `https://qualitychess.co.uk/ebooks/CALCULATION-excerpt.pdf`; **поточна адреса перенаправляє на New In Chess, оригінальний PDF не отримано**. Лише ліцензійно дозволені фрагменти; не приєднувати повну книгу з піратських архівів.
 - Jacob Aagaard, *Calculation* (2nd ed.), Quality Chess; видавничий опис: `https://www.simonandschuster.net/books/Calculation/Jacob-Aagaard/9781784831196`.
 - Навчальні рішення з відкритого корпусу Lichess за відповідними тегами складності, а не базові тактичні тренажери.
 
