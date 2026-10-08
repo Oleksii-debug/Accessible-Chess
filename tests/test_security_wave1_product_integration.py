@@ -78,6 +78,32 @@ def test_locked_private_runtime_blocks_product_but_keeps_activation_client(tmp_p
     assert module.imported == [{"schema_version": 1}]
 
 
+
+def test_authorized_decision_without_required_startup_capability_fails_closed(tmp_path):
+    module = _module(capabilities=["analysis"])
+    with pytest.raises(ProtectedStartupLocked) as caught:
+        authorize_release_startup(
+            application_dir=tmp_path / "app",
+            state_root=tmp_path / "state",
+            required=True,
+            module_loader=lambda name: module,
+        )
+    assert caught.value.decision.reason == "runtime_unavailable_or_invalid"
+
+
+def test_entitlement_import_is_bounded_and_requires_object_envelope(tmp_path):
+    module = _module()
+    client = ProtectionRuntimeClient(
+        application_dir=tmp_path / "app",
+        state_root=tmp_path / "state",
+        module_loader=lambda name: module,
+    )
+    with pytest.raises(Exception, match="envelope"):
+        client.import_entitlement_json("[]")
+    with pytest.raises(Exception, match="too large"):
+        client.import_entitlement_json('{"payload":"' + ("x" * (1024 * 1024)) + '"}')
+    assert module.imported == []
+
 def test_missing_or_malformed_private_runtime_fails_closed(tmp_path):
     def missing(_name):
         raise ImportError("not installed")
