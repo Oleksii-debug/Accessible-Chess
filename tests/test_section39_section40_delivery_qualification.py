@@ -25,6 +25,7 @@ class Section39Section40PackagedAcceptanceTests(unittest.TestCase):
             self.assertEqual(evidence["advanced_training_original_tasks"], 16)
             self.assertEqual(evidence["extreme_training_original_tasks"], 4)
             self.assertEqual(evidence["book_document_reopen"], "PASS")
+            self.assertEqual(evidence["bilingual_advanced_chess_positions"], "PASS")
             self.assertEqual(evidence["runtime_user_library_restart"], "PASS")
             self.assertEqual(evidence["public_rights_separation"], "PASS")
             self.assertEqual(len(set(evidence["archive_sha256"].values())), 3)
