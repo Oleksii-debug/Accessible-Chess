@@ -107,6 +107,8 @@ class OriginalGPLCompanionTests(unittest.TestCase):
                 verify_gpl_cbh_family(record, root)
             (family / "Sample.cbt").write_bytes(b"original test-only companion Sample.cbt")
             (family / "Sample.cbn").write_bytes(b"unexpected companion")
+            with self.assertRaises(LawfulCorpusError):
+                verify_gpl_cbh_family(record, root)
             # A genuinely unexpected additional family extension must not be
             # erased or interpreted as a successful complete-source inventory.
             altered = {**record, "external_companion_git_blobs": {"bogus.cbh": "0" * 40}}
