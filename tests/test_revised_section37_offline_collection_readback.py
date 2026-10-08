@@ -52,6 +52,28 @@ class OfflineCorpusInventoryTests(unittest.TestCase):
         self.assertTrue(all(row["distribution"] == "PUBLIC_RELEASE" for row in public))
         self.assertFalse(any(row["format"] in ("cbv", "cbh", "txt") for row in public))
 
+    def test_explicit_public_exclusion_overrides_cc0_bytes_and_license(self):
+        record = next(
+            item for item in load_catalog()
+            if item["id"] == "lichess_openings_original_eco_a_tsv"
+        )
+        for excluded in ("EXCLUDED", "EXCLUDED_PENDING_QUALIFICATION"):
+            with self.subTest(public_release=excluded):
+                restricted = {**record, "public_release": excluded}
+                self.assertEqual(
+                    inventory_vendored_corpus(
+                        (restricted,), ROOT, distribution="PUBLIC_RELEASE"
+                    ),
+                    (),
+                )
+                # A public distribution restriction is not a false claim that
+                # an authenticated source stopped being usable for worker QA.
+                trial = inventory_vendored_corpus(
+                    (restricted,), ROOT, distribution="TEST_BUILD"
+                )
+                self.assertEqual(len(trial), 1)
+                self.assertEqual(trial[0]["source_id"], record["id"])
+
     def test_unqualified_original_book_and_chessbase_are_not_release_content(self):
         records = load_catalog()
         book = next(item for item in records if item["id"] == "gitenberg_capablanca_33870_original_txt")
