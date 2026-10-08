@@ -58,6 +58,8 @@ on:
       - 'tests/real_corpus/advanced_training/**'
       - 'tools/revised_section37_bilingual_workbook_pack.py'
       - 'tests/test_revised_section37_bilingual_advanced_formats.py'
+      - 'tools/revised_section37_bilingual_pdf_pack.py'
+      - 'tests/test_revised_section37_bilingual_pdf_pack.py'
       - 'docs/corpus/SECTION37_UK_EN_HIGH_LEVEL_REFERENCE_MATRIX.json'
       - 'tests/test_revised_section37_release_exclusion.py'
       - 'tools/revised_section37_cbh_original_family_inventory.py'
@@ -744,3 +746,34 @@ jobs:
           path: section37-bilingual-shareable-advanced-books/
           if-no-files-found: error
           retention-days: 21
+
+  bilingual-uk-en-external-pdf-pack:
+    name: Section37 real bilingual Unicode PDFs (external PDF reader, not ACS PDF import)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact candidate and registered CC0 source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Install Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+      - name: Install pinned Unicode PDF author/extractor requirements
+        run: python -m pip install reportlab==4.2.5 pypdf==5.5.0
+      - name: Render English and Ukrainian real PDFs and extract all 12 FEN exercises
+        run: |
+          python -m py_compile tools/revised_section37_bilingual_pdf_pack.py tests/test_revised_section37_bilingual_pdf_pack.py
+          python -m unittest -v tests.test_revised_section37_bilingual_pdf_pack
+      - name: Produce genuine external-PDF-reader testing copies
+        run: python -m tools.revised_section37_bilingual_pdf_pack --output-dir section37-bilingual-advanced-PDF
+      - name: Preserve the two genuine independently readable PDFs
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: section37-uk-en-advanced-unicode-PDF-external-reader
+          path: section37-bilingual-advanced-PDF/
+          retention-days: 21
+          if-no-files-found: error
