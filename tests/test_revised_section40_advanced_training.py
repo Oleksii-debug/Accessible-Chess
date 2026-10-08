@@ -47,6 +47,23 @@ class AdvancedSection40RealContentTests(unittest.TestCase):
                 for move in board.legal_moves()
             ))
 
+    def test_extreme_original_four_are_separate_3000_plus_chess_qualified(self):
+        assets, rows = advance.build_complete_advanced_training()
+        self.assertEqual(len(assets), 4)
+        self.assertEqual(len(rows), 4)
+        expert = json.loads(assets["training/extreme-lichess-4-original-puzzles.json"])
+        self.assertEqual(len(expert["tasks"]), 4)
+        ratings = sorted(row["puzzle_rating_lichess_not_fide"] for row in expert["tasks"])
+        self.assertEqual(ratings, [3000, 3030, 3164, 3166])
+        self.assertEqual(expert["rating_system"], "LICHESS_PUZZLE_RATING_NOT_FIDE")
+        book = BookDocument.from_dict(json.loads(
+            assets["books/extreme-lichess-4-original-puzzles.json"]))
+        self.assertEqual(len([x for x in book.blocks if isinstance(x, Exercise)]), 4)
+        for row in rows:
+            self.assertEqual(row["license"], "CC0-1.0")
+            self.assertEqual(hashlib.sha256(assets[row["source_path"]]).hexdigest(),
+                             row["sha256"])
+
     def test_exact_original_advanced_bytes_and_license_are_required(self):
         original = advance.read_verified_source_snapshot
         with patch.object(advance, "read_verified_source_snapshot", side_effect=
