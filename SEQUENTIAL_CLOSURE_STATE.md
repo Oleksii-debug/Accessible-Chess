@@ -99,3 +99,21 @@ Durable catalog: `docs/corpus/SECTION40_TEST_COLLECTION_CATALOG.json`.
 
 The next dependency-safe closure front is Section 41. No later section is
 marked `DONE` by this record.
+
+## Section 41 — current closure front
+
+**Status: `INTERNAL_COMPLETE_EXTERNAL_BLOCKED` (not DONE).**
+
+Durable evidence: `docs/corpus/SECTION41_DESIGN_SYSTEM_EVIDENCE.json`.
+
+| Subsection | State | Evidence / exact limitation |
+|---|---|---|
+| 41.1–41.2 | `BLOCKED` | Tabler/Tabler Icons/Radix assets were not downloaded or pinned in this run; ApexCharts remains intentionally excluded from scope. |
+| 41.3 | `PASS` | Local offline design-token layer is present at `web/design_system.css` and linked by the existing Web surface. |
+| 41.4 | `PASS` | Light/dark/contrast/system tokens, forced-colors and reduced-motion rules are implemented locally. |
+| 41.5 | `PASS` | Web surface uses a local stylesheet with no CDN dependency; no chess logic was duplicated. |
+| 41.6 | `PARTIAL` | Existing ARIA/keyboard/focus runtime and source test are recorded; physical NVDA speech parity and clean Windows UIA acceptance are not claimed. |
+
+The next dependency-safe closure front is Section 42. The focused Section 41
+test passes; unrelated pre-existing Stage 1 source-contract tests remain
+separately recorded as not this front's regression evidence.

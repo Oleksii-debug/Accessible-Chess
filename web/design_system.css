@@ -1,0 +1,116 @@
+/* Accessible Chess local design tokens. No CDN or duplicate chess authority. */
+:root {
+  color-scheme: light;
+  --ac-bg: #f7f9fc;
+  --ac-surface: #ffffff;
+  --ac-surface-strong: #eaf0f8;
+  --ac-text: #172033;
+  --ac-muted: #4b5870;
+  --ac-border: #60708a;
+  --ac-accent: #155eef;
+  --ac-accent-contrast: #ffffff;
+  --ac-focus: #b42318;
+  --ac-radius: .45rem;
+  --ac-shadow: 0 2px 10px rgb(18 34 64 / 12%);
+  --ac-motion: 140ms;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+  --ac-bg: #111827;
+  --ac-surface: #1f2937;
+  --ac-surface-strong: #334155;
+  --ac-text: #f8fafc;
+  --ac-muted: #cbd5e1;
+  --ac-border: #94a3b8;
+  --ac-accent: #93c5fd;
+  --ac-accent-contrast: #0f172a;
+  --ac-focus: #fca5a5;
+  --ac-shadow: 0 2px 12px rgb(0 0 0 / 35%);
+}
+
+[data-theme="contrast"] {
+  color-scheme: dark;
+  --ac-bg: #000000;
+  --ac-surface: #000000;
+  --ac-surface-strong: #1a1a1a;
+  --ac-text: #ffffff;
+  --ac-muted: #ffffff;
+  --ac-border: #ffffff;
+  --ac-accent: #ffff00;
+  --ac-accent-contrast: #000000;
+  --ac-focus: #00ffff;
+  --ac-shadow: none;
+}
+
+@media (prefers-color-scheme: dark) {
+  [data-theme="system"] {
+    color-scheme: dark;
+    --ac-bg: #111827;
+    --ac-surface: #1f2937;
+    --ac-surface-strong: #334155;
+    --ac-text: #f8fafc;
+    --ac-muted: #cbd5e1;
+    --ac-border: #94a3b8;
+    --ac-accent: #93c5fd;
+    --ac-accent-contrast: #0f172a;
+    --ac-focus: #fca5a5;
+  }
+}
+
+html, body {
+  background: var(--ac-bg);
+  color: var(--ac-text);
+}
+
+body {
+  accent-color: var(--ac-accent);
+}
+
+button, input, select, textarea {
+  border-radius: var(--ac-radius);
+  border-color: var(--ac-border);
+}
+
+button {
+  background: var(--ac-surface);
+  color: var(--ac-text);
+  box-shadow: var(--ac-shadow);
+}
+
+button:hover:not(:disabled), button:focus-visible {
+  background: var(--ac-surface-strong);
+}
+
+button:focus-visible, input:focus-visible, select:focus-visible,
+textarea:focus-visible, [tabindex]:focus-visible {
+  outline: 3px solid var(--ac-focus);
+  outline-offset: 3px;
+}
+
+.block, fieldset, dialog {
+  background: var(--ac-surface);
+  color: var(--ac-text);
+  border-color: var(--ac-border);
+  border-radius: var(--ac-radius);
+}
+
+@media (forced-colors: active) {
+  button, input, select, textarea, .block, fieldset, dialog {
+    forced-color-adjust: auto;
+    border: 2px solid ButtonText;
+  }
+  button:focus-visible, input:focus-visible, select:focus-visible,
+  textarea:focus-visible, [tabindex]:focus-visible {
+    outline: 3px solid Highlight;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 1ms !important;
+  }
+}
