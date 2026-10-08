@@ -115,12 +115,29 @@ class MITCbvaultNoFalsePassTests(unittest.TestCase):
             source = Path(tmp) / "sample.cbh"
             binary.write_bytes(b"placeholder")
             source.write_bytes(b"source")
-            with patch.object(m.subprocess, "run") as runner:
-                runner.return_value.returncode = 0
-                runner.return_value.stdout = b""
-                runner.return_value.stderr = b""
+            with patch.object(m.subprocess, "Popen") as constructor:
+                child = constructor.return_value
+                child.poll.return_value = 0
+                child.returncode = 0
                 with self.assertRaisesRegex(LawfulCorpusError, "no bounded complete PGN"):
                     m._run_external_pgn(binary, source)
+                child.wait.assert_called_once()
+                child.kill.assert_not_called()
+
+    def test_external_decoder_timeout_kills_child_without_publication(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            binary = Path(tmp) / "stub"
+            source = Path(tmp) / "original.cbh"
+            binary.write_bytes(b"stub")
+            source.write_bytes(b"original")
+            with patch.object(m.subprocess, "Popen") as constructor:
+                child = constructor.return_value
+                child.poll.return_value = None
+                with patch.object(m.time, "monotonic", side_effect=[0, 46]):
+                    with self.assertRaisesRegex(LawfulCorpusError, "timed out"):
+                        m._run_external_pgn(binary, source)
+                child.kill.assert_called_once()
+                child.wait.assert_called_once()
 
 
 if __name__ == "__main__":
