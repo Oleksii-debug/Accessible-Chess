@@ -55,7 +55,7 @@ async function testLocal(page, filePath) {
   // Start a genuine media decode/playback path, not an HTML mock.
   await page.locator("#real-media-video").evaluate(video => video.play());
   await page.waitForFunction(() => document.querySelector("#real-media-video").currentTime > 0.2,
-    { timeout: 12000 });
+    null, { timeout: 12000 });
   await page.locator("#real-media-video").evaluate(video => video.pause());
   const initial = await page.locator("#real-media-video").evaluate(video => ({
     time: video.currentTime, duration: video.duration, paused: video.paused,
