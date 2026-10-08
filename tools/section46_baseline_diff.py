@@ -6,7 +6,9 @@ approved baselines exist yet, so the diff state must remain NOT_QUALIFIED.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import re
 from pathlib import Path
 
 
@@ -48,21 +50,70 @@ def qualify(capture_dir: Path, approved_dir: Path) -> dict:
             "visual reference exists; do not call Section 46 screenshot diff PASS"
         )
     manifest = json.loads(approved_manifest_file.read_text(encoding="utf-8"))
-    if manifest.get("approved") is not True or manifest.get("human_reviewed") is not True:
+    if (type(manifest) is not dict
+        or set(manifest) != {
+            "schema_version", "approved", "human_reviewed", "reviewer",
+            "reviewed_at", "baseline_source_sha", "screenshots"
+        }):
+        raise VisualBaselineError("invalid human-approval manifest structure")
+    if (manifest["schema_version"] != 1
+        or manifest["approved"] is not True
+        or manifest["human_reviewed"] is not True):
         raise VisualBaselineError("visual baselines lack explicit human approval")
+    if (type(manifest["reviewer"]) is not str
+        or not 3 <= len(manifest["reviewer"].strip()) <= 128
+        or type(manifest["reviewed_at"]) is not str
+        or re.fullmatch(r"\\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\d:\\d\\dZ",
+                        manifest["reviewed_at"]) is None):
+        raise VisualBaselineError("missing reviewer identity or UTC review date")
+    baseline_sha = manifest["baseline_source_sha"]
+    source_sha = capture.get("exact_source_sha")
+    if (type(source_sha) is not str
+        or re.fullmatch(r"[0-9a-f]{40}", source_sha) is None
+        or type(baseline_sha) is not str
+        or re.fullmatch(r"[0-9a-f]{40}", baseline_sha) is None):
+        raise VisualBaselineError("baseline or current exact source SHA missing")
     records = capture.get("records")
-    approved_names = manifest.get("screenshots")
-    if type(records) is not list or type(approved_names) is not list:
+    approved = manifest["screenshots"]
+    if type(records) is not list or type(approved) is not list:
         raise VisualBaselineError("incomplete screenshot manifest")
-    names = [item["screenshot"] for item in records]
-    if len(names) != len(set(names)) or set(names) != set(approved_names):
+    names = [item.get("screenshot") for item in records if type(item) is dict]
+    if len(names) != len(records) or len(names) != len(set(names)):
+        raise VisualBaselineError("ambiguous captured screenshot inventory")
+    names_approved = [item.get("name") for item in approved if type(item) is dict]
+    if (len(approved) != len(names_approved)
+        or len(approved) != len(set(names_approved))
+        or set(names) != set(names_approved)):
         raise VisualBaselineError("captured screenshot set differs from approved inventory")
+    hashes = {item["name"]: item.get("sha256") for item in approved}
+    capture_hashes = {item["screenshot"]: item.get("sha256") for item in records}
     results = {}
     for name in sorted(names):
-        if Path(name).name != name or not name.endswith(".png"):
+        if type(name) is not str or Path(name).name != name or not name.endswith(".png"):
             raise VisualBaselineError("unsafe screenshot member name")
-        results[name] = compare_images(approved_dir / name, capture_dir / name)
-    return {"status": "PASS_APPROVED_BASELINE_COMPARISON", "images": results}
+        expected_hash = hashes[name]
+        claimed_hash = capture_hashes[name]
+        if any(
+            type(h) is not str or re.fullmatch(r"[0-9a-f]{64}", h) is None
+            for h in (expected_hash, claimed_hash)
+        ):
+            raise VisualBaselineError("missing approved or captured PNG SHA-256")
+        actual = capture_dir / name
+        baseline = approved_dir / name
+        if not actual.is_file() or not baseline.is_file():
+            raise VisualBaselineError("missing captured or approved screenshot")
+        if hashlib.sha256(actual.read_bytes()).hexdigest() != claimed_hash:
+            raise VisualBaselineError("capture PNG SHA-256 differs from source manifest")
+        if hashlib.sha256(baseline.read_bytes()).hexdigest() != expected_hash:
+            raise VisualBaselineError("approved PNG SHA-256 differs from review manifest")
+        results[name] = compare_images(baseline, actual)
+    return {
+        "status": "PASS_APPROVED_BASELINE_COMPARISON",
+        "exact_current_source_sha": source_sha,
+        "approved_baseline_source_sha": baseline_sha,
+        "human_reviewer": manifest["reviewer"],
+        "images": results
+    }
 
 
 if __name__ == "__main__":
