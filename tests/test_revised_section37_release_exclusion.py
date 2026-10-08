@@ -209,6 +209,23 @@ class PublicReleaseExclusionTests(unittest.TestCase):
             ):
                 audit_public_archive(outer, (RECORD,))
 
+    def test_prepended_zip_cannot_launder_an_excluded_original(self):
+        # The ZIP specification permits arbitrary SFX bytes before the first
+        # local file header; a PK-only-at-offset-zero test misses this case.
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp)
+            inner = directory / "source.zip"
+            outer = directory / "public-release.zip"
+            build_zip(inner, {"books/renamed-original.bin": RAW_EXCLUDED})
+            prefixed_archive = b"sfx-executable-prefix" + inner.read_bytes()
+            # First bytes are not a ZIP signature, yet Python can open this.
+            self.assertTrue(zipfile.is_zipfile(__import__("io").BytesIO(prefixed_archive)))
+            build_zip(outer, {"assets/innocent-looking.dat": prefixed_archive})
+            with self.assertRaisesRegex(
+                LawfulCorpusError, "uninspected embedded ZIP preamble"
+            ):
+                audit_public_archive(outer, (RECORD,))
+
     def test_benign_nested_owner_collection_is_inspected_not_banned(self):
         with tempfile.TemporaryDirectory() as temp:
             directory = Path(temp)
