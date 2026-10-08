@@ -12,6 +12,7 @@ import tempfile
 import unittest
 
 from acs.acsdb import AcsDatabase
+from acs.gametree import CanonicalPgnGameFramer
 from acs.lawful_corpus_registry import (
     LawfulCorpusError, load_catalog, read_verified_zip_member, verified_local_source,
 )
@@ -60,23 +61,32 @@ class OriginalStockfishCanonicalIntegrationTests(unittest.TestCase):
             original_text = source.decode("utf-8-sig", errors="strict")
         except UnicodeError as exc:
             self.fail(f"official source is not UTF-8 PGN: {exc}")
-        parsed = parse_pgn_text(original_text, strict=False)
-        self.assertGreater(
-            len(parsed), 0,
-            "a real PGN archive must not silently produce an empty Library source",
-        )
-        # Do not mislabel these opening-book fragments as historical completed games.
-        sample = parsed[: min(len(parsed), 32)]
-        self.assertTrue(any(game.line.moves for game in sample))
+        # This upstream archive contains over 12,000 opening-book records.
+        # Use the one canonical framer to qualify a bounded original subset.
+        framer = CanonicalPgnGameFramer(max_frame_bytes=256 * 1024)
+        original_frames = []
+        for line in original_text.splitlines():
+            complete = framer.feed_line(line)
+            if complete is not None:
+                original_frames.append(complete.text)
+                if len(original_frames) == 32:
+                    break
+        self.assertEqual(len(original_frames), 32)
+        derivative_pgn = "\n".join(original_frames)
+        sample = parse_pgn_text(derivative_pgn, strict=False)
+        self.assertEqual(len(sample), 32)
+        self.assertTrue(all(game.line.moves for game in sample))
         for index, game in enumerate(sample):
             game.source_index = index
-        source_hash = hashlib.sha256(source).hexdigest()
+        # ACSDB only indexes the actual derivative 32-game PGN, not all
+        # 12k upstream records. Source identity must bind consumed bytes.
+        source_hash = hashlib.sha256(derivative_pgn.encode("utf-8")).hexdigest()
         with tempfile.TemporaryDirectory(prefix="accessible-chess-official-pgn-") as temp:
             path = Path(temp) / "real-stockfish-pgn.acsdb"
             with AcsDatabase(path) as db:
                 result = LibraryImportService(db).import_games(
                     sample,
-                    source_name="official-stockfish/books:2moves_v2.pgn",
+                    source_name="official-stockfish/books:2moves_v2.pgn:verified-first-32",
                     source_format="pgn",
                     source_sha256=source_hash,
                 )
