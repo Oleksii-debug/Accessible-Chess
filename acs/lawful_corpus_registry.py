@@ -102,7 +102,7 @@ def _https_url(url: object, *, source_page: bool = False) -> str:
         or port not in (None, 443)
         or parsed.fragment or parsed.query
         or parsed.hostname not in (
-            {"database.lichess.org", "www.gutenberg.org", "github.com", "shop.chessbase.com"}
+            {"database.lichess.org", "www.gutenberg.org", "github.com", "shop.chessbase.com", "help.chessbase.com"}
             if source_page else {"database.lichess.org", "www.gutenberg.org", "de.chessbase.com"}
         )
     ):
