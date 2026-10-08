@@ -1,0 +1,110 @@
+"""Section 37 public release source-material exclusion (offline negative gates)."""
+from __future__ import annotations
+
+import hashlib
+from pathlib import Path
+import tempfile
+import unittest
+import zipfile
+
+from acs.lawful_corpus_registry import LawfulCorpusError, load_catalog
+from tools.revised_section37_release_exclusion import (
+    audit_public_archive, excluded_public_source_index,
+)
+
+RAW_EXCLUDED = b"authentic-original-source-only-in-test-fixture"
+RECORD = {
+    "id": "licensed_test_original",
+    "format": "md",
+    "external_checkout_path": "ephemeral/original-chess-book.md",
+    "sha256": hashlib.sha256(RAW_EXCLUDED).hexdigest(),
+    "public_release": "EXCLUDED",
+    "redistribution": "NOT_CLEARED",
+}
+
+
+def build_zip(path: Path, entries: dict[str, bytes]) -> None:
+    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for name, value in entries.items():
+            zf.writestr(name, value)
+
+
+class PublicReleaseExclusionTests(unittest.TestCase):
+    def test_real_source_registry_has_explicit_excluded_identifiers_and_hashes(self):
+        original = {x["id"]: x for x in load_catalog()}
+        deny = excluded_public_source_index(load_catalog())
+        self.assertIn(
+            original["original_gpl_chastity_chess_chapters_markdown"]["sha256"],
+            deny["sha256"],
+        )
+        self.assertIn(
+            original["original_epd2doc_7men_human_epd"]["sha256"],
+            deny["sha256"],
+        )
+        self.assertEqual(
+            deny["basenames"]["chastitychesschapters-ebook.md"],
+            "original_gpl_chastity_chess_chapters_markdown",
+        )
+        self.assertIn(
+            original["libcbh_gpl_original_nested_variations_cbh_family"][
+                "external_oracle_source_checksum"
+            ]["sha256"],
+            deny["sha256"],
+        )
+        self.assertNotIn(
+            original["stockfish_2moves_v2_pgn_zip"]["sha256"],
+            deny["sha256"],
+        )
+
+    def test_clean_release_passes_and_honestly_disclaims_public_authorization(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "safe-release.zip"
+            build_zip(path, {"product/readme.txt": b"safe", "product/empty.txt": b""})
+            result = audit_public_archive(path, (RECORD,))
+            self.assertEqual(result["result"], "PASS_ONLY_FOR_TESTED_ZIP_BYTES")
+            self.assertFalse(result["public_distribution_rights_granted"])
+            self.assertEqual(result["archive_member_count"], 2)
+
+    def test_same_original_bytes_denied_even_when_renamed_to_unrelated_file(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "renamed.zip"
+            build_zip(path, {"safe-name.bin": RAW_EXCLUDED})
+            with self.assertRaises(LawfulCorpusError):
+                audit_public_archive(path, (RECORD,))
+
+    def test_original_file_name_denied_even_if_bytes_replaced(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "filename.zip"
+            build_zip(path, {"res/Original-Chess-Book.MD": b"something else"})
+            with self.assertRaises(LawfulCorpusError):
+                audit_public_archive(path, (RECORD,))
+
+    def test_traversal_zip_bomb_metadata_and_symlink_denied(self):
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp)
+            for filename in ("../oops.bin", "/absolute.bin", "C:/file.bin", "a/./../evil.bin"):
+                with self.subTest(filename=filename):
+                    zip_path = directory / "bad.zip"
+                    build_zip(zip_path, {filename: b"safe"})
+                    with self.assertRaises(LawfulCorpusError):
+                        audit_public_archive(zip_path, (RECORD,))
+            zip_path = directory / "sym.zip"
+            with zipfile.ZipFile(zip_path, "w") as zf:
+                entry = zipfile.ZipInfo("escape")
+                entry.create_system = 3
+                entry.external_attr = (0o120777 << 16)
+                zf.writestr(entry, "out of tree")
+            with self.assertRaises(LawfulCorpusError):
+                audit_public_archive(zip_path, (RECORD,))
+
+    def test_source_registry_empty_or_bad_hash_is_fail_closed(self):
+        with self.assertRaises(LawfulCorpusError):
+            excluded_public_source_index(())
+        with self.assertRaises(LawfulCorpusError):
+            excluded_public_source_index(({**RECORD, "sha256": "bad"},))
+        with self.assertRaises(LawfulCorpusError):
+            excluded_public_source_index(({**RECORD, "external_checkout_path": "unsafe\\a"},))
+
+
+if __name__ == "__main__":
+    unittest.main()
