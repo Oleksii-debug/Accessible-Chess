@@ -49,6 +49,10 @@ on:
       - 'tests/test_section39_reti_historical_bilingual_study.py'
       - 'tools/section39_real_chess_docx_interoperability.py'
       - 'tests/test_section39_real_chess_docx_interoperability.py'
+      - 'tools/section39_section37_bilingual_workbook_qualification.py'
+      - 'tests/test_section39_section37_bilingual_workbook_qualification.py'
+      - 'tools/revised_section37_bilingual_workbook_pack.py'
+      - 'tests/real_corpus/advanced_training/section37_master_workbook_bilingual.json'
       - 'tests/test_section39_external_book_semantic.py'
       - 'tools/section39_external_book_semantic.py'
       - 'tests/test_section39_external_position_semantic.py'
@@ -238,6 +242,14 @@ jobs:
         env:
           ACCESSIBLE_CHESS_EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
         run: python -m tools.section39_real_chess_docx_interoperability
+      - name: Qualify all Section37 authentic-puzzle-derived bilingual books as actual native files
+        run: |
+          python -m py_compile tools/section39_section37_bilingual_workbook_qualification.py tests/test_section39_section37_bilingual_workbook_qualification.py
+          python -m unittest -v tests.test_section39_section37_bilingual_workbook_qualification
+      - name: Evidence for ten UK/EN source-derived EPUB3 HTML Markdown DOCX TXT Books imports
+        env:
+          ACCESSIBLE_CHESS_EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: python -m tools.section39_section37_bilingual_workbook_qualification
       - name: Preserve actual per-format readback and known unsupported coverage
         if: always()
         uses: actions/upload-artifact@v4
@@ -250,6 +262,7 @@ jobs:
             section39-stockfish-chess960-epd-qualification.json
             section39-historic-reti-study-bilingual-source-readback.json
             section39-original-chess-derived-docx-qualification.json
+            section39-section37-bilingual-ten-native-books-qualification.json
           if-no-files-found: ignore
           retention-days: 14
       - name: Exercise canonical chess core
@@ -709,6 +722,7 @@ jobs:
           --chess960 section39-join-inputs/base/section39-stockfish-chess960-epd-qualification.json
           --reti section39-join-inputs/base/section39-historic-reti-study-bilingual-source-readback.json
           --docx section39-join-inputs/base/section39-original-chess-derived-docx-qualification.json
+          --workbook section39-join-inputs/base/section39-section37-bilingual-ten-native-books-qualification.json
       - name: Preserve merged source IDs, actual SHA256, format outcomes and remaining gaps
         if: always()
         uses: actions/upload-artifact@v4
