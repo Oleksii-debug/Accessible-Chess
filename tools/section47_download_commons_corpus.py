@@ -122,6 +122,7 @@ def download_one(entry: dict, directory: Path, decode: bool) -> dict:
         "filename": name,
         "source_page": entry["page"],
         "license": entry["license"],
+        "license_url": entry["license_url"],
         "creator": entry["creator"],
         "source_timestamp": info.get("timestamp"),
         "bytes": count,
