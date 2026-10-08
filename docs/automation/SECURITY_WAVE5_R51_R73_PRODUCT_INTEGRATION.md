@@ -1,9 +1,14 @@
 # Security Wave 5: first product-boundary integration, R51–R73
 
-Status: **DRAFT / STAGED / NOT SHIPPING / NOT PHYSICALLY QUALIFIED**.
-Stacked on the existing canonical Wave 4 PR #2497. The first existing unmerged
-security wave remains a mandatory predecessor. This document does not replace
-the canonical neutral R00–R73 security plan or its terminal ledger.
+Status (2026-10-08): **SOURCE-INTEGRATED INTO CURRENT SHIPPING BRANCH; NOT A PHYSICAL/COMMERCIAL RELEASE APPROVAL**.
+- Wave 4 R41–R50 predecessor PR #2497 merged at `ddf97acfa2ecf414533e655dd393bfdfefd4a4f1`.
+- This existing Wave 5 PR #2498, exact candidate `90d77f9b9611d3582adf9212ef1a5a459d7a3ac5`, merged into canonical current-shipping integration branch as `f671b1d9c35bf6a08362f2efb32c908744418ea8`.
+- Exact post-merge readback: candidate is ancestor (ahead 2 / behind 0); **zero file delta** from the exact accepted source candidate. Previous shipping integration to this merge contains the existing 40 Wave-5 paths; no duplicate plan, private verifier or entitlement issuer was introduced.
+- Hosted exact-head Wave-5 evidence workflow `37828337693`: **QUEUED / NO EXECUTED PASS** at integration. External runner unavailability is not a green test result. Public repo source-level gates do not establish working native/vendor/TPM/enterprise/premium services or actual Windows/NVDA release acceptance.
+- All external adapters remain opt-in, injection-dependent and fail-closed if not configured. No real-money operations, live revocations, account grants, migration or emergency updates were performed by this merge.
+- Physical protected binary, independent reviewers, commercial service/provider, signed external receipts, executable dual-OS green gates when runners recover, and final owner/NVDA acceptance remain **NOT VERIFIED**. Independently authorized final release remains **BLOCKED**.
+- The sections below describe pre-merge staged design and their external limitations; any historical DRAFT/NOT SHIPPING claim refers to that earlier candidate state, not to this accepted source integration.
+This document does not replace the canonical neutral R00–R73 security plan or its terminal ledger.
 
 ## R51 independent vendor PoC
 
