@@ -67,6 +67,7 @@ on:
       - 'tools/revised_section37_bilingual_workbook_pack.py'
       - 'tests/test_revised_section37_bilingual_advanced_formats.py'
       - 'tests/test_revised_section37_bilingual_in_application.py'
+      - 'tests/test_revised_section37_owner_readable_only.py'
       - 'tests/test_revised_section37_uk_en_reference_matrix.py'
       - 'tests/test_revised_section37_genuine_advanced_study_readback.py'
       - 'tools/revised_section37_bilingual_pdf_pack.py'
@@ -134,6 +135,7 @@ jobs:
           tools/revised_section37_bilingual_workbook_pack.py
           tests/test_revised_section37_bilingual_advanced_formats.py
           tests/test_revised_section37_bilingual_in_application.py
+          tests/test_revised_section37_owner_readable_only.py
           tests/test_revised_section37_uk_en_reference_matrix.py
           tests/test_revised_section37_genuine_advanced_study_readback.py
           tests/test_revised_sections41_42_design.py
@@ -159,6 +161,7 @@ jobs:
           tests.test_revised_section37_advanced_annotated_game_corpus
           tests.test_revised_section37_bilingual_advanced_formats
           tests.test_revised_section37_bilingual_in_application
+          tests.test_revised_section37_owner_readable_only
           tests.test_revised_section37_uk_en_reference_matrix
           tests.test_revised_section37_genuine_advanced_study_readback
           tests.test_revised_section37_cbh_original_family_inventory
@@ -788,6 +791,7 @@ jobs:
           python -m py_compile tools/revised_section37_bilingual_workbook_pack.py tests/test_revised_section37_bilingual_advanced_formats.py tests/test_revised_section37_bilingual_in_application.py tests/test_revised_section37_uk_en_reference_matrix.py tests/test_revised_section37_genuine_advanced_study_readback.py
           python -m unittest -v tests.test_revised_section37_bilingual_advanced_formats
           python -m unittest -v tests.test_revised_section37_bilingual_in_application tests.test_revised_section37_uk_en_reference_matrix tests.test_revised_section37_genuine_advanced_study_readback
+          python -m unittest -v tests.test_revised_section37_owner_readable_only
       - name: Materialize actual five format bilingual user testing books
         shell: bash
         run: python -m tools.revised_section37_bilingual_workbook_pack --output-dir section37-bilingual-shareable-advanced-books
