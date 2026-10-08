@@ -228,4 +228,4 @@ def test_release_composition_contains_distinct_wave3_service_gates():
     ):
         assert f'capability_gate.require("{boundary}")' in source
     assert "release_update_center=release_update_center" in source
-    assert "_product_version.split("-", 1)[0]" in source
+    assert '_product_version.split("-", 1)[0]' in source
