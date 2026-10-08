@@ -16,6 +16,7 @@ import re
 import stat
 import tempfile
 import zipfile
+import zlib
 from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
@@ -422,7 +423,7 @@ def read_verified_zip_member(
             return content
     except LawfulCorpusError:
         raise
-    except (OSError, RuntimeError, EOFError, zipfile.BadZipFile, zipfile.LargeZipFile) as exc:
+    except (OSError, RuntimeError, EOFError, zipfile.BadZipFile, zipfile.LargeZipFile, zlib.error) as exc:
         raise LawfulCorpusError("verified ZIP cannot be read safely") from exc
 
 
