@@ -107,7 +107,7 @@ async function settle(){for(let i=0;i<12;i++)await Promise.resolve();}
  samplePieces.value="rhosgfx";samplePieces.dispatchEvent({type:"change"});
  app.get("ac45-preview-button").click();
  assert.ok(app.get("ac45-preview-board").children.some(cell=>
-   cell.children.some(item=>item.tagName==="IMG" && /\\.svg$/.test(item.src))));
+   cell.children.some(item=>item.tagName==="IMG" && String(item.src).endsWith(".svg"))));
 
  assert.equal(app.events.length,0,"preview must never trigger chess or board mutation");
  app.get("ac45-preview-button").click();
