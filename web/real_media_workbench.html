@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Accessible Chess — шахове відео MP4/WebM і YouTube</title>
+<style>
+:root{font-family:system-ui,"Segoe UI",sans-serif;font-size:18px;color-scheme:light dark}
+body{margin:1rem auto;padding:0 1rem;max-width:70rem;line-height:1.45}
+a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid Highlight;outline-offset:3px}
+fieldset{margin:1rem 0;padding:1rem}
+label,button,input,select{font:inherit}
+button{padding:.3rem .75rem;margin:.25rem}
+input[type="url"]{width:min(95%,42rem);padding:.3rem}
+video{display:block;width:min(100%,55rem);max-height:75vh;background:#111}
+#real-youtube-player{min-height:1rem}
+#real-youtube-player iframe{display:block;max-width:100%;border:0}
+.status{padding:.5rem;border:1px solid GrayText;white-space:pre-wrap}
+small{display:block}
+</style>
+</head>
+<body>
+<a href="#main">Перейти до відео</a>
+<header>
+<h1>Accessible Chess — шахові відео</h1>
+<p>Автономне MP4/WebM не залежить від YouTube. Зовнішнє відео YouTube відтворюється лише через офіційний IFrame Player API.</p>
+</header>
+<main id="main">
+<section aria-labelledby="local-heading">
+<h2 id="local-heading">47. Відкрити відеофайл з комп’ютера</h2>
+<label for="real-media-file">Оберіть наявний MP4 або WebM</label>
+<input id="real-media-file" type="file" accept=".mp4,.webm,video/mp4,video/webm">
+<video id="real-media-video" controls playsinline preload="metadata" aria-label="Відеоплеєр локального файлу"></video>
+<div>
+<button type="button" id="real-media-rewind">Назад 10 секунд</button>
+<button type="button" id="real-media-forward">Вперед 10 секунд</button>
+<label for="real-media-rate">Швидкість</label>
+<select id="real-media-rate">
+<option value="0.5">0,5×</option><option value="0.75">0,75×</option>
+<option selected value="1">1×</option><option value="1.25">1,25×</option>
+<option value="1.5">1,5×</option><option value="2">2×</option>
+</select>
+<label for="real-media-volume">Гучність, від 0 до 100 відсотків</label>
+<input id="real-media-volume" type="range" min="0" max="100" value="100">
+</div>
+<p class="status" id="real-media-status" role="status" aria-live="polite" aria-atomic="true">Виберіть MP4 або WebM. Файл не завантажується до інтернету.</p>
+<p>Час відео не є доказом шахової позиції. Зіставлення FEN/PGN дозволене лише після перевірених спостережень канонічним Media Core.</p>
+<p><a href="../docs/SECTION47_48_REAL_VIDEO_QUALIFICATION.md">Джерела файлів, ліцензії, перевірки та обмеження</a></p>
+</section>
+<section aria-labelledby="youtube-heading">
+<h2 id="youtube-heading">48. Вбудований YouTube IFrame</h2>
+<label for="real-youtube-url">Вставте повне HTTPS-посилання на YouTube або одинадцятисимвольний ID</label>
+<input id="real-youtube-url" type="url" autocomplete="off" spellcheck="false">
+<button type="button" id="real-youtube-open">Відкрити у YouTube IFrame</button>
+<p class="status" role="status" id="real-youtube-status" aria-live="polite" aria-atomic="true">YouTube ще не запущено. Потрібні мережа й дозвіл автора на вбудовування.</p>
+<div id="real-youtube-player"></div>
+<div>
+<button type="button" id="real-youtube-play">YouTube: відтворити</button>
+<button type="button" id="real-youtube-pause">YouTube: пауза</button>
+<button type="button" id="real-youtube-back">YouTube: назад 10 секунд</button>
+<button type="button" id="real-youtube-forward">YouTube: вперед 10 секунд</button>
+</div>
+<p>Плеєр YouTube не приховується й не перекривається. Відео YouTube не завантажується, не кешується і не працює офлайн.</p>
+</section>
+</main>
+<script src="youtube_iframe_playback_adapter.js"></script>
+<script src="real_media_workbench.js"></script>
+<script>
+"use strict";
+window.AccessibleChessRealMediaWorkbench.mount(document);
+</script>
+</body>
+</html>
