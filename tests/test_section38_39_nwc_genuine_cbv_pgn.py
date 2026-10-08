@@ -80,6 +80,24 @@ class NorthwestChessSourceOnlyTests(unittest.TestCase):
                         expected_binary_sha256=digest,
                     )
 
+    def test_real_original_cbv_extraction_timeout_kills_child_and_publishes_nothing(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            fake_binary = root / "stub-binary"
+            fake_source = root / "original-source.cbv"
+            fake_binary.write_bytes(b"read-only dummy")
+            fake_source.write_bytes(b"read-only dummy")
+            target = root / "output"
+            with patch.object(nw.subprocess, "Popen") as constructor:
+                child = constructor.return_value
+                child.poll.return_value = None
+                with patch("time.monotonic", side_effect=[0, 121]):
+                    with self.assertRaisesRegex(LawfulCorpusError, "timed out"):
+                        nw._extract_with_mit(fake_binary, fake_source, target)
+                child.kill.assert_called_once()
+                child.wait.assert_called_once()
+                self.assertFalse(target.exists())
+
     def test_original_pgn_and_original_cbv_are_distinct_source_bytes(self):
         # This is a negative *metadata* test, not a substitute for downloading
         # actual CBV and PGN or their independent oracle.
