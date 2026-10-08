@@ -54,3 +54,9 @@ The main exact-head runner supplies external original source dirs and optional G
 - Current combined multi-format Section39 job depends on real source proof from original external EPD/FEN, CBH, Chess Books, genuine optional Gutenberg, real original RAV PGN, advanced Lichess puzzles, Stockfish Chess960 and historic Réti. Failures are negative evidence, not claims of completion.
 
 **Release and DONE truth still require executed exact integrated CI and eligible original files for every claimed source format. No green run/owner NVDA EXE completion is asserted here.**
+
+## Additional real-chess-text DOCX interoperability (derived-only provenance)
+
+- `tools/section39_real_chess_docx_interoperability.py` runs 32 real original Capablanca book paragraphs (pinned GITenberg original TXT SHA256) through a disposable generated WordprocessingML `.docx` using the already existing Section38 test conversion utility. It then performs actual `Version2Application.prepare_book_open`, `acs.book_docx_import.import_docx_book`, BookReader, reimport and BookProgressStore persisted-restart validation.
+- `tests/test_section39_real_chess_docx_interoperability.py` denies corrupted source bytes and unauthorized rights; new source CI writes `section39-original-chess-derived-docx-qualification.json` with source original hash, generated DOCX hash, importer and explicit `PARTIAL_DERIVED_REAL_PROSE_NOT_INDEPENDENT_UPSTREAM_DOCX`. The aggregator promotes **only the tested DOCX read slice to PARTIAL**. This is not independently authored upstream DOCX, nor a DOCX write/roundtrip claim; the copyrighted source book remains test-only.
+- Genuine independent DOCX-original chess book corpus and semantic diagram recovery remain OPEN, so no terminal Section39 DONE is issued.

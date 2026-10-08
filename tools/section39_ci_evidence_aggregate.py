@@ -37,7 +37,8 @@ def merge_real_receipts(base: dict, original_positions: dict, original_books: di
                         training: dict | None = None,
                         gutenberg: dict | None = None,
                         chess960: dict | None = None,
-                        reti: dict | None = None) -> dict:
+                        reti: dict | None = None,
+                        docx: dict | None = None) -> dict:
     if not _valid_digest(expected_sha, 40):
         raise LawfulCorpusError("Section 39 merge lacks exact source SHA")
     reports = (base, original_positions, original_books)
@@ -72,6 +73,57 @@ def merge_real_receipts(base: dict, original_positions: dict, original_books: di
         raise LawfulCorpusError("original licensed external-file matrices incomplete")
 
     imported_external = []
+    # Actual upstream Capablanca text converted into an OPC DOCX for user
+    # interoperability is not an independent original DOCX. Record that real
+    # Books open/recovery test without granting source-format write/roundtrip.
+    if docx is not None:
+        original_id = "gitenberg_capablanca_33870_original_txt"
+        original = sources.get(original_id)
+        raw_receipt = base_receipts.get(original_id)
+        if (
+            original is None
+            or raw_receipt is None
+            or docx.get("schema") != "accessible-chess-section39-original-prose-derived-docx-v1"
+            or docx.get("source_commit_sha") != expected_sha
+            or docx.get("source_id") != original_id
+            or docx.get("original_txt_sha256") != original.get("sha256")
+            or docx.get("original_txt_bytes") != original.get("indexed_bytes")
+            or raw_receipt.get("actual_sha256") != original.get("sha256")
+            or raw_receipt.get("actual_bytes") != original.get("indexed_bytes")
+            or docx.get("read") != "PASS"
+            or docx.get("write") != "UNSUPPORTED"
+            or docx.get("roundtrip") != "UNSUPPORTED"
+            or docx.get("qualification") != "PARTIAL_DERIVED_REAL_PROSE_NOT_INDEPENDENT_UPSTREAM_DOCX"
+            or docx.get("original_format") != "TXT"
+            or docx.get("derived_format") != "DOCX"
+            or docx.get("genuine_original_text") is not True
+            or docx.get("independent_upstream_docx") is not False
+            or docx.get("mocked") is not False
+            or docx.get("redistribution") != "ORIGINAL_NONCLEARED_BYTES_NOT_PACKAGED"
+            or docx.get("actual_original_chess_paragraphs") != 32
+            or docx.get("actual_semantic_blocks") != 33
+            or not _valid_digest(docx.get("actual_docx_sha256"), 64)
+        ):
+            raise LawfulCorpusError("original Capablanca source-derived DOCX readback was fabricated or overclaimed")
+        docx_row = rows["DOCX"]
+        docx_row.update({
+            "qualification": "PARTIAL",
+            "read": "PASS", "write": "UNSUPPORTED", "roundtrip": "UNSUPPORTED",
+            "coverage": "GENUINE_CHESS_TEXT_IN_DERIVED_DOCX_ONLY",
+            "source_kind": "DERIVED_DOCX_FROM_AUTHENTIC_PINNED_BOOK_TXT",
+            "qualified_source_id": original_id,
+            "actual_importer": docx["actual_importer"],
+            "actual": {
+                "original_upstream_txt_sha256": docx["original_txt_sha256"],
+                "real_generated_docx_sha256": docx["actual_docx_sha256"],
+                "original_chess_paragraphs": 32,
+                "actual_semantic_blocks": 33,
+                "independent_original_docx_unavailable": True,
+                "source_writeback": "UNSUPPORTED",
+            },
+            "source_ids": sorted(set(docx_row["source_ids"]) | {original_id}),
+        })
+
     # A true historic chess composition is distinct from source-rated Lichess
     # training games. It must execute the original position, UK+EN commentary
     # and search/durable reimport before being credited to PGN/GameTree.
@@ -572,12 +624,13 @@ def main() -> None:
     parser.add_argument("--gutenberg", type=Path, required=True)
     parser.add_argument("--chess960", type=Path, required=True)
     parser.add_argument("--reti", type=Path, required=True)
+    parser.add_argument("--docx", type=Path, required=True)
     args = parser.parse_args()
     head = _source_head()
     result = merge_real_receipts(
         _read(args.base), _read(args.positions), _read(args.books),
         load_catalog(), head, _read(args.cbh), _read(args.advanced), _read(args.training),
-        _read(args.gutenberg), _read(args.chess960), _read(args.reti),
+        _read(args.gutenberg), _read(args.chess960), _read(args.reti), _read(args.docx),
     )
     staged = REPORT.with_suffix(".tmp")
     try:

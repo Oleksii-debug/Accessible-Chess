@@ -140,6 +140,18 @@ class Section41RealDesignTests(unittest.TestCase):
                 dest.write_bytes((ROOT/relative).read_bytes())
             _write_checksums(package)
             _validate_tree(package)
+            for part in ("web/assets/tabler/chess-rook.svg",
+                         "web/assets/tabler-core/accessibility.css"):
+                with self.subTest(tampered=part):
+                    target=package/"AccessibleChess"/part
+                    original=target.read_bytes()
+                    target.write_bytes(original+b"tampered")
+                    _write_checksums(package)
+                    with self.assertRaises(Version2PackagePreflightError):
+                        _validate_tree(package)
+                    target.write_bytes(original)
+                    _write_checksums(package)
+                    _validate_tree(package)
 
     def test_webview_and_web_use_one_local_stylesheet_and_semantic_controls(self):
         for path in ("web/index.html","web/accessible_chess_web.html"):

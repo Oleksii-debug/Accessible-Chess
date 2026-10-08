@@ -69,5 +69,40 @@ class CC0ChessPieceTests(unittest.TestCase):
         self.assertIn("Section 42 CC0 pack incomplete",preflight)
         self.assertIn("original_copying_git_blob_sha1",preflight)
 
+    def test_packaged_windows_fixture_blocks_missing_and_rehashed_tamper(self):
+        import tempfile
+        from acs.version2_package_preflight import Version2PackagePreflightError
+        from tests.test_version2_package_preflight import _make_tree, _write_checksums, _validate_tree
+
+        with tempfile.TemporaryDirectory(prefix="acs-section42-packaging-") as tmp:
+            package=Path(tmp)/"candidate"
+            package.mkdir()
+            _make_tree(package)
+            html=package/"AccessibleChess/web/index.html"
+            html.write_text(
+                '<!doctype html><html><body><select>'
+                '<option value="rhosgfx">RhosGFX (CC0)</option>'
+                '</select></body></html>', encoding="utf-8",
+            )
+            _write_checksums(package)
+            with self.assertRaises(Version2PackagePreflightError):
+                _validate_tree(package)
+
+            for name in ("SECTION42_PROVENANCE.json", "SOURCE_COPYING.md", *sorted(EXPECTED)):
+                destination=package/"AccessibleChess/web/assets/pieces/rhosgfx"/name
+                destination.parent.mkdir(parents=True,exist_ok=True)
+                destination.write_bytes((PACK/name).read_bytes())
+            _write_checksums(package)
+            _validate_tree(package)
+
+            altered=package/"AccessibleChess/web/assets/pieces/rhosgfx/wK.svg"
+            altered.write_bytes(altered.read_bytes()+b"<!-- substituted artwork -->")
+            _write_checksums(package)
+            with self.assertRaisesRegex(
+                Version2PackagePreflightError,
+                "Section 42 packaged original CC0 artwork altered",
+            ):
+                _validate_tree(package)
+
 if __name__ == "__main__":
     unittest.main()

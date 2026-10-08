@@ -11,6 +11,8 @@ on:
       - 'tools/revised_section40_advanced_training.py'
       - 'acs/section40_advanced_licensed_dataset.py'
       - 'acs/section40_extreme_licensed_dataset.py'
+      - 'acs/section40_historical_reti_dataset.py'
+      - 'acs/section40_historical_reti_runtime.py'
       - 'acs/section40_advanced_training_runtime.py'
       - 'acs/version2_starter_content_application.py'
       - 'tests/test_revised_section40_offline_test_library.py'
@@ -21,6 +23,7 @@ on:
       - 'tools/section39_new_section37_annotated_pgn_qualification.py'
       - 'tests/test_section39_new_section37_annotated_pgn_qualification.py'
       - 'tests/test_revised_section40_advanced_training.py'
+      - 'tests/test_revised_section40_reti_runtime.py'
       - 'tests/test_revised_section40_product_books_advanced_integration.py'
       - 'tests/test_w3_p0f_starter_books_training_content.py'
       - '.github/workflows/revised-section40-offline-library.yml'
@@ -49,9 +52,9 @@ jobs:
         with:
           python-version: '3.12.10'
       - name: Compile Section 40 builder and regression suite
-        run: python -m py_compile acs/section40_advanced_licensed_dataset.py acs/section40_extreme_licensed_dataset.py acs/section40_advanced_training_runtime.py acs/version2_starter_content_application.py tools/revised_section40_offline_test_library.py tools/revised_section40_user_library_seed_bridge.py tools/revised_section40_windows_qa_assembler.py tools/revised_section40_advanced_training.py tests/test_revised_section40_product_books_advanced_integration.py tests/test_revised_section40_advanced_training.py tests/test_revised_section40_offline_test_library.py tests/test_revised_section40_user_library_seed_bridge.py
+        run: python -m py_compile acs/section40_advanced_licensed_dataset.py acs/section40_extreme_licensed_dataset.py acs/section40_historical_reti_dataset.py acs/section40_historical_reti_runtime.py acs/section40_advanced_training_runtime.py acs/version2_starter_content_application.py tools/revised_section40_offline_test_library.py tools/revised_section40_user_library_seed_bridge.py tools/revised_section40_windows_qa_assembler.py tools/revised_section40_advanced_training.py tests/test_revised_section40_product_books_advanced_integration.py tests/test_revised_section40_advanced_training.py tests/test_revised_section40_offline_test_library.py tests/test_revised_section40_user_library_seed_bridge.py
       - name: Real source, persistent Library, bilingual book and rights regression
-        run: python -m unittest -v tests.test_revised_section40_offline_test_library tests.test_revised_section40_user_library_seed_bridge tests.test_revised_section40_windows_qa_assembler tests.test_revised_section40_advanced_training tests.test_revised_section40_product_books_advanced_integration tests.test_w3_p0f_starter_books_training_content tests.test_revised_section37_offline_collection_readback tests.test_revised_section38_stockfish_real_library
+        run: python -m unittest -v tests.test_revised_section40_offline_test_library tests.test_revised_section40_user_library_seed_bridge tests.test_revised_section40_windows_qa_assembler tests.test_revised_section40_advanced_training tests.test_revised_section40_reti_runtime tests.test_revised_section40_product_books_advanced_integration tests.test_w3_p0f_starter_books_training_content tests.test_revised_section37_offline_collection_readback tests.test_revised_section38_stockfish_real_library
       - name: Build TEST_BUILD archive with real chess games and canonical course
         run: python -m tools.revised_section40_offline_test_library TEST_BUILD artifacts/section40-test-build.zip
       - name: Materialize owner TEST_BUILD runtime Library seed through existing ACSDB ingress

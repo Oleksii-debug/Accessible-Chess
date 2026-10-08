@@ -1734,7 +1734,10 @@ def _validate_required_runtime_resources(
         label="packaged HTML theme entrypoint",
         max_bytes=4 * 1024 * 1024,
     )
+    design_link = b'<link rel="stylesheet" href="assets/accessible_chess_design.css">'
     if b'assets/accessible_chess_design.css' in index_bytes:
+        if index_bytes.count(design_link) != 1:
+            _fail("packaged first-party local CSS is not linked exactly once")
         for relative in (
             "AccessibleChess/web/assets/accessible_chess_design.css",
             "AccessibleChess/web/assets/tabler/chess-rook.svg",
@@ -1746,12 +1749,51 @@ def _validate_required_runtime_resources(
                 root, inventory, relative,
                 label="packaged Section 41 offline MIT design resource",
             )
+        for file_name, git_blob_sha, size in (
+            ("chess-rook.svg", "accb4f7b7ea39eb1a023b6e2ad8589453fcdb305", 575),
+            ("adjustments.svg", "ef63f0fb0065937722a5ffd59cc5355b96b38045", 670),
+            ("LICENSE", "3e82379dab3fe93d9ee22251949604ed63ddea39", 1073),
+        ):
+            raw = _read_stable_bytes_file(
+                root / "AccessibleChess/web/assets/tabler" / file_name,
+                label=f"packaged original MIT Tabler Icons {file_name}",
+                max_bytes=16 * 1024,
+            )
+            if len(raw) != size:
+                _fail("packaged MIT Tabler Icons size differs from original")
+            pinned_blob = hashlib.sha1(
+                b"blob " + str(len(raw)).encode("ascii") + b"\0" + raw
+            ).hexdigest()
+            if pinned_blob != git_blob_sha:
+                _fail("packaged MIT Tabler Icons bytes differ from pinned originals")
+        icons_receipt_raw = _read_stable_bytes_file(
+            root / "AccessibleChess/web/assets/tabler/SECTION41_PROVENANCE.json",
+            label="packaged Tabler Icons MIT source record",
+            max_bytes=16 * 1024,
+        )
+        try:
+            icons_record = json.loads(icons_receipt_raw)
+        except (UnicodeError, json.JSONDecodeError) as exc:
+            _fail(f"packaged Tabler Icons provenance malformed: {type(exc).__name__}")
+        if (type(icons_record) is not dict
+            or type(icons_record.get("release_pinning")) is not dict
+            or type(icons_record["release_pinning"].get("tabler_icons")) is not dict):
+            _fail("packaged Tabler Icons provenance root is invalid")
+        source_identity = icons_record["release_pinning"]["tabler_icons"]
+        if (source_identity.get("release_tag") != "v3.49.0"
+            or source_identity.get("commit_sha") !=
+                "bbed884d15354b5cebf2493371f20dc2d5e83eaf"
+            or source_identity.get("license") != "MIT"):
+            _fail("packaged Tabler Icons source identity changed")
 
     # A reviewed Tabler Core *component* is bundled as dependency-free CSS,
     # rather than loading unknown Tabler/npm/Bootstrap dist files. Its original
     # MIT notice and exact-source receipt must match the pinned upstream even
     # if a malicious package writer also rewrites SHA256SUMS.txt.
+    core_link = b'<link rel="stylesheet" href="assets/tabler-core/accessibility.css">'
     if b'assets/tabler-core/accessibility.css' in index_bytes:
+        if index_bytes.count(core_link) != 1:
+            _fail("packaged MIT Tabler Core local CSS is not linked exactly once")
         core_base = root / "AccessibleChess" / "web" / "assets" / "tabler-core"
         for filename in ("accessibility.css", "LICENSE", "SECTION41_CORE_PROVENANCE.json"):
             _require_package_file(

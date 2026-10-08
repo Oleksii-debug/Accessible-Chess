@@ -35,6 +35,8 @@ from acs.section40_advanced_training_runtime import (
     build_advanced_offline_material, build_extreme_offline_material,
 )
 from tools.revised_section40_advanced_training import build_complete_advanced_training
+from acs.section40_historical_reti_runtime import build_historical_reti_offline_material
+from acs.section40_historical_reti_dataset import original_reti_source_bytes
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -330,6 +332,71 @@ def build_collection(profile: str, output: Path, *, root: Path = ROOT) -> dict:
             "import_status": "CANONICAL_BOOKDOCUMENT_ENGLISH_ROUNDTRIP_PASS",
             "repeat_download": "BUNDLED_OFFLINE",
         })
+    # The one authentic historical 1921 Réti composition is a distinct
+    # BookDocument/Game/Exercise with fresh UK/EN annotations, not an
+    # unlicensed contemporary endgame anthology or a Lichess-rated puzzle.
+    historic_id = "historical_reti_1921_original_bilingual_study_pgn"
+    historic_candidates = [item for item in catalog if item["id"] == historic_id]
+    if len(historic_candidates) != 1:
+        raise OfflineCollectionError("historic original Reti source not qualified")
+    historic = historic_candidates[0]
+    if (historic.get("acquisition") != "VENDORED_SOURCE_VERIFIED"
+        or historic.get("public_release") != "INCLUDED_OWN_TEXT_HISTORICAL_COMPOSITION"
+        or not str(historic.get("redistribution", "")).startswith("permitted")):
+        raise OfflineCollectionError("historic original Reti reuse terms changed")
+    historic_raw = read_verified_source_snapshot(
+        root / historic["local_source"], historic)
+    if historic_raw != original_reti_source_bytes():
+        raise OfflineCollectionError("compiled historical Reti study differs from original")
+    historic_training = None
+    for language in ("uk", "en"):
+        study, truth = build_historical_reti_offline_material(language=language)
+        dest = f"books/original-reti-1921-{language}.json"
+        wire = _json_bytes(study.as_dict())
+        if (BookDocument.from_dict(json.loads(wire)).as_dict() != study.as_dict()
+            or dest in assets):
+            raise OfflineCollectionError("historic study canonical BookDocument reimport failed")
+        assets[dest] = wire
+        rows.append({
+            "id": f"{historic_id}_BookDocument_{language}",
+            "title": study.title, "author": historic["author"],
+            "genre": "authentic composed endgame study with original bilingual notes",
+            "language": language, "format": "BookDocument JSON",
+            "source_url": historic["source_page"], "download_url": None,
+            "source_path": dest, "size_bytes": len(wire), "sha256": _digest(wire),
+            "license": historic["license"],
+            "redistribution": historic["redistribution"],
+            "import_status": "ORIGINAL_RETI_1921_CANONICAL_BOOKDOCUMENT_PASS",
+            "repeat_download": "BUNDLED_OFFLINE",
+        })
+        if historic_training is None:
+            historic_training = truth
+        elif historic_training != truth:
+            raise OfflineCollectionError("Reti bilingual study must retain identical chess truth")
+    truth_path = "training/original-reti-1921-study.json"
+    truth_wire = _json_bytes({
+        "schema": "acs-section40-original-reti-1921-study-v1",
+        "source_id": historic_id,
+        "composed_study": True,
+        "original_study_not_rating": True,
+        "fen": historic_training["fen"],
+        "first_solution_san": historic_training["first_solution_san"],
+        "full_solution_pgn": historic_training["full_solution_pgn"],
+        "language": "uk,en",
+    })
+    assets[truth_path] = truth_wire
+    rows.append({
+        "id": f"{historic_id}_Training",
+        "title": historic["title"], "author": historic["author"],
+        "genre": "original endgame calculation study",
+        "language": "uk,en", "format": "Training JSON",
+        "source_url": historic["source_page"], "download_url": None,
+        "source_path": truth_path, "size_bytes": len(truth_wire),
+        "sha256": _digest(truth_wire), "license": historic["license"],
+        "redistribution": historic["redistribution"],
+        "import_status": "ORIGINAL_RETI_1921_STRICT_PGN_AND_FEN_PASS",
+        "repeat_download": "BUNDLED_OFFLINE",
+    })
     advanced_assets, advanced_rows = build_complete_advanced_training(root=root)
     if set(assets) & set(advanced_assets):
         raise OfflineCollectionError("duplicate advanced training content key")

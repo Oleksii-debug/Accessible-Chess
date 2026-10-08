@@ -104,7 +104,8 @@ def _html_from_original_zip(raw: bytes) -> tuple[bytes, str]:
             name = entry.filename
             if (
                 not name or name.startswith("/") or "\\" in name
-                or any(part in ("", ".", "..") for part in name.split("/"))
+                or any(part in ("", ".", "..") for part in name.rstrip("/").split("/"))
+                or (entry.is_dir() and not name.endswith("/"))
                 or ":" in name or entry.file_size > 8 * 1024 * 1024
                 or (entry.external_attr >> 16) & 0o170000 not in (0, stat.S_IFREG, stat.S_IFDIR)
             ):
