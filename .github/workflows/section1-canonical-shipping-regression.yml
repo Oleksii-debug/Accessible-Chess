@@ -45,9 +45,9 @@ jobs:
       - name: Retained game tree and board regressions
         run: >-
           python -m unittest -v
-          tests.test_chesscore
-          tests.test_chess_core
           tests.test_game_lifecycle
-          tests.test_pgn
+          tests.test_pgn_board_start_authority
+          tests.test_pgn_document
+          tests.test_pgn_service
       - name: Existing canonical selftest
         run: python -m acs.selftest
