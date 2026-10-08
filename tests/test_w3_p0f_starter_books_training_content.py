@@ -138,10 +138,17 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
 
                     catalogue = app.snapshot()["books"]["starter_materials"]
                     self.assertEqual(EXPECTED_BOOKLETS, catalogue["booklet_count"])
-                    self.assertEqual(EXPECTED_BOOKLETS + 4, len(catalogue["items"]))
+                    # Starter course + advanced + extreme + historical study +
+                    # advanced bibliography and the new source37 UK/EN workbook.
+                    self.assertGreaterEqual(EXPECTED_BOOKLETS + 6, len(catalogue["items"]))
                     self.assertEqual(16, catalogue["advanced_puzzle_count"])
                     self.assertEqual(4, catalogue["extreme_puzzle_count"])
                     self.assertEqual(1, catalogue["original_study_count"])
+                    self.assertEqual(12, catalogue["authentic_advanced_bilingual_workbook_lessons"])
+                    self.assertTrue(any(
+                        item["material_id"] == "section37-advanced-twelve-bilingual-source-workbook"
+                        for item in catalogue["items"]
+                    ))
                     self.assertTrue(any(item["material_id"] == "advanced-lichess-16-original"
                                         for item in catalogue["items"]))
                     self.assertEqual("starter-course", catalogue["current_id"])
