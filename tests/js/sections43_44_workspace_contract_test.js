@@ -188,4 +188,56 @@ const key = "accessible-chess.workspace-layout.v1";
   assert.ok(html.includes('role="status"') && html.includes('id="board-grid"'),
     "semantic board and status must remain");
 }
-console.log("Sections 43-44: 6 runtime/static contract groups PASS (not full Windows UIA acceptance)");
+
+// Verify real V2 module chrome preferences (not a synthetic route/router).
+{
+  const start = v2.indexOf('  const layoutStorageKey = "accessible-chess.product-layout.v1";');
+  const end = v2.indexOf("  function emptyStatusId(", start);
+  assert.ok(start > 0 && end > start, "real per-module layout boundary must exist");
+  const authority = v2.slice(start, end);
+  function makeProduct(seed) {
+    const data = seed || {};
+    const options = [
+      {dataset:{uk:"Звичайний",en:"Comfortable"},textContent:""},
+      {dataset:{uk:"Компактний",en:"Compact"},textContent:""},
+      {dataset:{uk:"Читання",en:"Reading"},textContent:""}
+    ];
+    const harness = [
+      "const productRoutes = new Set(['pgn','library','books','training','teacher','classes']);",
+      "let currentRouteId='books';",
+      "const workspace={dataset:{},removeAttribute(k){delete this.dataset.ac43Presentation}};",
+      "const workspaceLayout={hidden:true};",
+      "const workspaceLayoutLabel={textContent:''};",
+      "const workspaceLayoutMode={options:options,value:'',addEventListener(type,fn){this.event=fn}};",
+      "const uiTextFor=(language,uk,en)=>language==='en'?en:uk;",
+      "const global={localStorage:{getItem(k){return data[k] || null},setItem(k,v){data[k]=v}}};",
+      authority,
+      "return {data,workspace,workspaceLayout,workspaceLayoutMode,productLayouts,applyProductLayout};"
+    ].join("\n");
+    return vm.runInNewContext("(function(data,options){" + harness + "\n})", {})(data, options);
+  }
+  const app = makeProduct();
+  app.applyProductLayout("books", "uk");
+  assert.equal(app.workspaceLayout.hidden, false);
+  assert.equal(app.workspace.dataset.ac43Presentation, "comfortable");
+  app.workspaceLayoutMode.value = "reading";
+  app.workspaceLayoutMode.event();
+  assert.equal(app.workspace.dataset.ac43Presentation, "reading");
+  assert.equal(JSON.parse(app.data["accessible-chess.product-layout.v1"]).routes.books, "reading");
+  app.applyProductLayout("teacher", "en");
+  assert.equal(app.workspace.dataset.ac43Presentation, "comfortable");
+  assert.equal(app.workspaceLayoutMode.options[2].textContent, "Reading");
+  const restarted = makeProduct(app.data);
+  restarted.applyProductLayout("books", "en");
+  assert.equal(restarted.workspaceLayoutMode.value, "reading");
+  restarted.applyProductLayout("analysis", "uk");
+  assert.equal(restarted.workspaceLayout.hidden, true);
+  assert.equal(restarted.workspace.dataset.ac43Presentation, undefined);
+  const hostile = makeProduct({"accessible-chess.product-layout.v1":
+    '{"version":1,"routes":{"books":"<script>","teacher":"compact","bad":"reading"}}'});
+  hostile.applyProductLayout("books", "uk");
+  assert.equal(hostile.workspace.dataset.ac43Presentation, "comfortable");
+  hostile.applyProductLayout("teacher", "uk");
+  assert.equal(hostile.workspace.dataset.ac43Presentation, "compact");
+}
+console.log("Sections 43-44: 7 runtime/static contract groups PASS (not full Windows UIA acceptance)");
