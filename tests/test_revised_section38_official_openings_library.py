@@ -94,6 +94,9 @@ class RealECOToLibraryTests(unittest.TestCase):
                 self.assertEqual(source.game_count, 10)
                 page = catalogue.source_games(first.source_id, limit=20)
                 self.assertEqual(len(page.items), 10)
+                self.assertEqual(tuple(item.source_index for item in page.items), tuple(range(10)))
+                self.assertTrue(all(item.source_id == first.source_id for item in page.items))
+                self.assertTrue(all(item.event == "Lichess official ECO opening study" for item in page.items))
                 self.assertFalse(page.has_more)
                 repeated = LibraryImportService(database).import_games(
                     games,
