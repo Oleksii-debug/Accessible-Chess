@@ -1437,7 +1437,7 @@ class Version2PackagePreflightTests(unittest.TestCase):
             )
             dll.parent.mkdir(parents=True, exist_ok=True)
             dll.write_bytes(
-                _minimal_windows_pe()
+                _minimal_windows_pe(managed=True, dll=True)
                 + b"\x00compiler=C:\\Users\\Builder\\source\\clr_loader\\ClrLoader.pdb\x00"
             )
             _write_checksums(root)
