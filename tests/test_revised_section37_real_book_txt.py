@@ -38,7 +38,7 @@ class ActualBookTextSourceTests(unittest.TestCase):
         self.assertEqual(record["upstream_git_blob"], EXPECTED_UPSTREAM_BLOB)
         self.assertEqual(hashlib.sha256(raw).hexdigest(), EXPECTED_SOURCE_SHA256)
         self.assertEqual(
-            hashlib.sha1(f"blob {len(raw)}\\0".encode("ascii") + raw).hexdigest(),
+            hashlib.sha1(f"blob {len(raw)}\0".encode("ascii") + raw).hexdigest(),
             EXPECTED_UPSTREAM_BLOB,
         )
         self.assertEqual(verified_local_source(path, record), EXPECTED_SOURCE_SHA256)
@@ -54,7 +54,7 @@ class ActualBookTextSourceTests(unittest.TestCase):
                 source_name="gitenberg-capablanca-33870.txt",
                 source_format="txt",
                 title="Chess Fundamentals",
-                author="Jos\\u00e9 Ra\\u00fal Capablanca",
+                author="José Raúl Capablanca",
                 language="en",
             )
             for _ in range(2)
