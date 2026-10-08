@@ -181,6 +181,26 @@ class ProductR73EvidenceTests(unittest.TestCase):
         with self.assertRaisesRegex(ProductEvidenceError, "R73_INDEPENDENT_EVIDENCE_DENIED"):
             self._review()
 
+    def test_replaced_artifact_between_stat_and_open_is_rejected(self):
+        from unittest.mock import patch
+        from scripts.security_r73_product_evidence_gate import _sha256_file
+
+        replacement = self.root / "substituted-artifact.zip"
+        replacement.write_bytes(b"replaced-after-check")
+        original_open = Path.open
+        swapped = []
+
+        def swap_at_open(path, *args, **kwargs):
+            if path == self.artifact and not swapped:
+                replacement.replace(self.artifact)
+                swapped.append(True)
+            return original_open(path, *args, **kwargs)
+
+        with patch.object(Path, "open", swap_at_open):
+            with self.assertRaisesRegex(ProductEvidenceError, "FILE_MUTATED_DURING_REVIEW"):
+                _sha256_file(self.artifact, maximum=1024 * 1024)
+        self.assertEqual(swapped, [True])
+
     def test_key_inventory_symlink_rejected(self):
         target = self.root / "actual-keys"
         self.keys.rename(target)
