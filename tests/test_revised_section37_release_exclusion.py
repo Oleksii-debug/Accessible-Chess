@@ -123,6 +123,16 @@ class PublicReleaseExclusionTests(unittest.TestCase):
                     audit_public_archive(archive, (RECORD,))
             self.assertEqual(swaps, 1)
 
+    def test_real_owner_final_zip_upload_requires_exclusion_gate(self):
+        workflow = Path(".github/workflows/owner-oneclick-from-w4.yml").read_text(encoding="utf-8")
+        hook = "python -m tools.revised_section37_release_exclusion"
+        upload = "- name: Upload exact owner one-click candidate and receipt"
+        self.assertEqual(workflow.count(hook), 1)
+        self.assertLess(workflow.index(hook), workflow.index(upload))
+        self.assertIn("$env:ACS_37_PUBLIC_RELEASE_ZIP = $archive", workflow)
+        self.assertIn("OWNER_FINAL_PUBLIC_CORPUS_EXCLUSION_FAILED", workflow)
+        self.assertIn("OWNER_FINAL_ZIP_PRE_UPLOAD_BINDING=PASS", workflow)
+
     def test_source_registry_empty_or_bad_hash_is_fail_closed(self):
         with self.assertRaises(LawfulCorpusError):
             excluded_public_source_index(())
