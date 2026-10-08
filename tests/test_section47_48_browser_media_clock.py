@@ -36,6 +36,7 @@ REMOTE = {
     "positionMs": 5000,
     "durationMs": 24000,
     "errorCode": None,
+    "autoplayBlocked": False,
     "qualification": "unlinked",
     "chessRef": None,
 }
@@ -123,6 +124,7 @@ class BrowserMediaClockQualificationTest(unittest.TestCase):
             {"sourceKind": "local_file"},
             {"providerId": "unofficial_youtube_extractor"},
             {"errorCode": "private"},
+            {"autoplayBlocked": "blocked"},
             {"ready": False},
             {"ok": False},
             {"qualification": "confirmed"},
