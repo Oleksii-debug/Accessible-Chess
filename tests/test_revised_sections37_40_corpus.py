@@ -379,5 +379,56 @@ class RevisedCorpusContractTests(unittest.TestCase):
                         )
 
 
+    def test_real_lichess_eco_a_openings_match_upstream_and_canonical_pgn(self):
+        """Read actual vendored CC0 openings, not a generated format fixture.
+
+        This qualifies one limited read-side source slice. An ECO opening line
+        is not a complete historical game or proof of full Section-37 closure.
+        """
+        import csv
+
+        from acs.pgn_roundtrip import parse_pgn_text
+
+        record = {
+            item["id"]: item for item in load_catalog()
+        }["lichess_openings_original_eco_a_tsv"]
+        self.assertEqual(record["license"], "CC0")
+        self.assertEqual(record["acquisition"], "SOURCE_PAGE_ONLY")
+        original = (
+            Path(__file__).resolve().parents[1]
+            / "tests/real_corpus/lichess_openings_a.tsv"
+        ).read_bytes()
+        # Git's object hash binds the actual test source to the upstream
+        # Lichess revision, rather than to a worker-authored imitation.
+        git_header = f"blob {len(original)}\\0".encode("ascii")
+        self.assertEqual(
+            hashlib.sha1(git_header + original).hexdigest(),
+            record["upstream_git_blob"],
+        )
+        rows = list(csv.DictReader(
+            io.StringIO(original.decode("utf-8-sig")), delimiter="\\t"
+        ))
+        self.assertGreaterEqual(len(rows), 12)
+        self.assertEqual(tuple(rows[0]), ("eco", "name", "pgn"))
+        for row in rows[:12]:
+            with self.subTest(opening=row["name"]):
+                self.assertTrue(row["eco"].startswith("A"))
+                self.assertTrue(row["name"])
+                self.assertTrue(row["pgn"].startswith("1. "))
+                pgn = (
+                    '[Event "Lichess ECO A opening"]\\n'
+                    '[Result "*"]\\n\\n'
+                    + row["pgn"] + ' *\\n'
+                )
+                self.assertEqual(len(parse_pgn_text(pgn, strict=False)), 1)
+        # Byte modification must invalidate provenance independently of PGN.
+        corrupted = bytearray(original)
+        corrupted[-1] ^= 1
+        self.assertNotEqual(
+            hashlib.sha1(git_header + corrupted).hexdigest(),
+            record["upstream_git_blob"],
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
