@@ -82,6 +82,7 @@ def _minimal_windows_pe(*, machine: int = 0x8664, managed: bool = False) -> byte
     data[optional:optional + 2] = (
         (0x20B if pe32_plus else 0x10B).to_bytes(2, "little")
     )
+    data[optional + 68:optional + 70] = (0x0002).to_bytes(2, "little")
     section = optional + optional_size
     data[section:section + 8] = b".text\x00\x00\x00"
     data[section + 8:section + 12] = (0x1000).to_bytes(4, "little")
