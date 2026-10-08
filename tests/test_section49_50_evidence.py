@@ -40,6 +40,18 @@ class EvidenceClassificationTests(unittest.TestCase):
         self.assertEqual(classify_evidence(proof), "MODEL_TRANSPORT_ONLY")
         self.assertNotIn("PASS", classify_evidence(proof))
 
+    def test_prior_source_sha_receipt_is_stale_and_never_current(self):
+        old = "a" * 40
+        new = "b" * 40
+        fixture = {"schema": SCHEMA_VERSION, "evidence_class": "LIVE_MODEL",
+                   "status": "LIVE_RESPONSE_RECEIVED", "source_sha": old}
+        self.assertEqual(classify_evidence(fixture, current_source_sha=old),
+                         "MODEL_TRANSPORT_ONLY")
+        self.assertEqual(classify_evidence(fixture, current_source_sha=new),
+                         "STALE_OR_INVALID_SOURCE")
+        self.assertEqual(classify_evidence(fixture, current_source_sha="not-sha"),
+                         "STALE_OR_INVALID_SOURCE")
+
     def test_offline_video_hash_cannot_be_end_to_end(self):
         proof = {
             "schema": SCHEMA_VERSION, "evidence_class": "OFFLINE_VIDEO",
