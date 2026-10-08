@@ -86,6 +86,8 @@ def _safe_members(archive: zipfile.ZipFile) -> dict[str, zipfile.ZipInfo]:
         result[name] = item
     if "word/document.xml" not in result or result["word/document.xml"].is_dir():
         raise DocxBookImportError("DOCX has no Word document body")
+    if "[Content_Types].xml" not in result or result["[Content_Types].xml"].is_dir():
+        raise DocxBookImportError("DOCX has no OPC content types")
     return result
 
 
@@ -137,6 +139,7 @@ def import_docx_book(
     try:
         with zipfile.ZipFile(io.BytesIO(source)) as archive:
             members = _safe_members(archive)
+            types_xml = _read_part(archive, members, "[Content_Types].xml", 1024 * 1024)
             document_xml = _read_part(archive, members, "word/document.xml",
                                       _MAX_DOCX_XML_BYTES)
             core_xml = None
@@ -146,6 +149,16 @@ def import_docx_book(
         raise DocxBookImportError("DOCX is not a valid bounded package") from exc
 
     _checkpoint(control_checkpoint)
+    content_types = _parse_xml(types_xml, "content types")
+    types_ns = "{http://schemas.openxmlformats.org/package/2006/content-types}"
+    document_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"
+    if content_types.tag != types_ns + "Types" or not any(
+        member.tag == types_ns + "Override"
+        and member.get("PartName") == "/word/document.xml"
+        and member.get("ContentType") == document_type
+        for member in content_types
+    ):
+        raise DocxBookImportError("DOCX package does not declare a genuine Word document")
     root = _parse_xml(document_xml, "body")
     if root.tag != _W + "document":
         raise DocxBookImportError("DOCX has an unexpected document root")
