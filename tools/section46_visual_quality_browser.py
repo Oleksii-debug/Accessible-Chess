@@ -103,11 +103,15 @@ def run(folder: Path, *, browser_engine: str = "chromium") -> dict:
                             page.wait_for_function(
                                 "() => document.querySelector('#ac45-panel')?.hidden === false"
                             )
+                            initial_focus=page.evaluate("document.activeElement?.id")
+                            if initial_focus != "ac45-profile":
+                                raise AssertionError((name,theme,zoom,width,
+                                                      "Enter did not focus profile",initial_focus))
                             page.keyboard.press("Tab")
                             keyboard_focus=page.evaluate("document.activeElement?.id")
-                            if keyboard_focus != "ac45-profile":
+                            if keyboard_focus != "ac45-theme":
                                 raise AssertionError((name,theme,zoom,width,
-                                                      "keyboard Tab did not enter studio",keyboard_focus))
+                                                      "keyboard Tab did not advance to theme",keyboard_focus))
                             # Test all six actual profile choices at this geometry:
                             # Preview must never emit board mutations or alter
                             # stored FEN; candidate remains presentation-only.
@@ -168,6 +172,7 @@ def run(folder: Path, *, browser_engine: str = "chromium") -> dict:
                                 "axe_violations": violations, "page_errors": errors,
                                 "semantics": focus,
                                 "keyboard_focus": keyboard_focus,
+                                "initial_focus": initial_focus,
                                 "profile_preview_count": 6,
                                 "classification": "LOCAL_UI_FIXTURE_NOT_LIVE_DEPLOYMENT",
                             })
