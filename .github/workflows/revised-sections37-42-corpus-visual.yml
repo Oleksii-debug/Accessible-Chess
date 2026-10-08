@@ -16,6 +16,8 @@ on:
       - 'tests/test_revised_section37_offline_collection_readback.py'
       - 'tests/test_revised_section38_official_openings_library.py'
       - 'tests/test_revised_section38_stockfish_real_library.py'
+      - 'tests/test_revised_section37_38_offline_manifest.py'
+      - 'tools/revised_sections37_38_offline_manifest.py'
       - '.gitattributes'
       - 'tests/real_corpus/**'
       - 'tests/test_revised_sections41_42_design.py'
@@ -51,6 +53,8 @@ jobs:
           tests/test_revised_section37_offline_collection_readback.py
           tests/test_revised_section38_official_openings_library.py
           tests/test_revised_section38_stockfish_real_library.py
+          tests/test_revised_section37_38_offline_manifest.py
+          tools/revised_sections37_38_offline_manifest.py
           tests/test_revised_sections41_42_design.py
       - name: Test real source catalog authorization and existing visual authority
         run: >-
@@ -60,8 +64,21 @@ jobs:
           tests.test_revised_section37_offline_collection_readback
           tests.test_revised_section38_official_openings_library
           tests.test_revised_section38_stockfish_real_library
+          tests.test_revised_section37_38_offline_manifest
           tests.test_revised_sections41_42_design
           tests.test_section15_visual_board_contract
+      - name: Build exact-checkout offline corpus manifest with real semantic results
+        env:
+          ACCESSIBLE_CHESS_EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: python -m tools.revised_sections37_38_offline_manifest
+      - name: Preserve Windows and Linux offline source/readback proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: section37-38-offline-manifest-${{ matrix.os }}
+          path: revised-sections37-38-offline-manifest.json
+          if-no-files-found: ignore
+          retention-days: 14
       - name: Exercise canonical chess core
         run: python -m acs.selftest
 
