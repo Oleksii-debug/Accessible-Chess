@@ -27,11 +27,26 @@ class Section37BothLanguageWorktypeMatrix(unittest.TestCase):
                 self.assertEqual(set(part["languages"]), {"uk", "en"})
                 self.assertEqual(part["min_required_level"], "first category or higher")
                 self.assertTrue(all(part["languages"][lang]["language_verified"] for lang in ("uk", "en")))
-                self.assertTrue(all(
-                    part["languages"][lang]["available_advanced_material"] ==
-                    "original_project_authored_bilingual_workbook"
-                    for lang in ("uk", "en")
-                ))
+                exact = part["actual_product_source"]
+                source_path = ROOT / exact["real_source"]
+                self.assertTrue(source_path.is_file(), exact["real_source"])
+                self.assertTrue(exact["actual_shared_formats"])
+                native = exact["native_source_kind"]
+                claimed = (
+                    "authentic_app_readable_pgn_with_bilingual_original_annotations_or_explanatory_workbook"
+                    if native == "Library PGN"
+                    else "original_project_authored_bilingual_workbook"
+                )
+                for lang in ("uk", "en"):
+                    self.assertEqual(part["languages"][lang]["available_advanced_material"], claimed)
+                if "pgn" in exact["actual_shared_formats"]:
+                    self.assertTrue(native.startswith("Library") or "Library" in native)
+                if native == "Library PGN":
+                    from acs.pgn_roundtrip import parse_pgn_text
+                    self.assertGreaterEqual(
+                        len(parse_pgn_text(source_path.read_text(encoding="utf-8"), strict=False)),
+                        1,
+                    )
                 self.assertFalse(part["english_external_advanced_bibliography"]["acquired_full_book"])
                 self.assertEqual(
                     part["english_external_advanced_bibliography"]["public_distribution"],
