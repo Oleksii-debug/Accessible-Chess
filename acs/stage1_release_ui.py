@@ -106,8 +106,10 @@ class Stage1ReleaseAccessibleChessAPI(_core.Stage1ReleaseAccessibleChessAPI):
                     or type(size) is not str or size not in {"auto", "medium", "large"}
                     for name, size in sizes.items()
                 )
-                or value.get("density") not in {"comfortable", "compact"}
-                or value.get("layout") not in {"auto", "single"}
+                or type(value.get("density")) is not str
+                or value["density"] not in {"comfortable", "compact"}
+                or type(value.get("layout")) is not str
+                or value["layout"] not in {"auto", "single"}
             ):
                 return None
             return {
@@ -129,7 +131,7 @@ class Stage1ReleaseAccessibleChessAPI(_core.Stage1ReleaseAccessibleChessAPI):
         return {"version": 1, "routes": dict(routes)}
 
     def get_presentation_layout(self, kind: str) -> dict[str, Any]:
-        if kind not in self._PRESENTATION_LAYOUT_KEYS:
+        if type(kind) is not str or kind not in self._PRESENTATION_LAYOUT_KEYS:
             return {"ok": False}
         settings = getattr(self, "_settings", None)
         if not self._settings_persistence_available(settings):
