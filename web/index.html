@@ -171,7 +171,15 @@ el('ac41-theme').addEventListener('change',async event=>{
   const a=api();if(!a||typeof a.set_ui_theme!=='function'){applyAc41Theme(previous);announceUserAction(localizedUiText('Налаштування теми недоступне.','Theme settings are unavailable.'));return}
   ac41ThemeSaveInFlight=true;control.disabled=true;
   try{const result=await a.set_ui_theme(wanted);if(!result||result.ok!==true||result.uiTheme!==wanted)throw new Error('not saved');applyAc41Theme(wanted)}
-  catch(e){applyAc41Theme(previous);announceUserAction(localizedUiText('Не вдалося зберегти тему.','Could not save theme.'))}
+  catch(e){
+    // A settings fsync error may happen AFTER durable publication.
+    // Display only the value the canonical settings owner can read back;
+    // never pretend the previously selected value is definitely durable.
+    let recovered=previous;
+    try{if(typeof a.get_ui_theme==='function'){const current=await a.get_ui_theme();if(current&&current.ok&&ac41ThemeModes.has(current.uiTheme))recovered=current.uiTheme}}catch(readError){}
+    applyAc41Theme(recovered);
+    announceUserAction(localizedUiText('Не вдалося підтвердити збереження теми.','Could not confirm theme persistence.'));
+  }
   finally{control.disabled=false;ac41ThemeSaveInFlight=false}
 });
 window.addEventListener('pywebviewready',async()=>{await refreshState();await loadAc41Theme();await loadKeymap();setInterval(refreshAnalysis,700)});
