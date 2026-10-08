@@ -1747,6 +1747,50 @@ def _validate_required_runtime_resources(
                 label="packaged Section 41 offline MIT design resource",
             )
 
+    # A reviewed Tabler Core *component* is bundled as dependency-free CSS,
+    # rather than loading unknown Tabler/npm/Bootstrap dist files. Its original
+    # MIT notice and exact-source receipt must match the pinned upstream even
+    # if a malicious package writer also rewrites SHA256SUMS.txt.
+    if b'assets/tabler-core/accessibility.css' in index_bytes:
+        core_base = root / "AccessibleChess" / "web" / "assets" / "tabler-core"
+        for filename in ("accessibility.css", "LICENSE", "SECTION41_CORE_PROVENANCE.json"):
+            _require_package_file(
+                root, inventory,
+                f"AccessibleChess/web/assets/tabler-core/{filename}",
+                label="packaged Section 41 pinned Tabler Core MIT component",
+            )
+        core_manifest_bytes = _read_stable_bytes_file(
+            core_base / "SECTION41_CORE_PROVENANCE.json",
+            label="packaged Tabler Core license and source record",
+            max_bytes=16 * 1024,
+        )
+        try:
+            core_record = json.loads(core_manifest_bytes)
+        except (UnicodeError, json.JSONDecodeError) as exc:
+            _fail(f"packaged Tabler Core provenance malformed: {type(exc).__name__}")
+        if (type(core_record) is not dict
+            or core_record.get("release_tag") != "@tabler/core@1.6.1"
+            or core_record.get("source_commit") != "ec33733290bd0f314ca19f6be58bc69a6ab3e4fa"
+            or core_record.get("source_git_blob") != "047720ee79039e213612cfbadd6af357534a7735"
+            or core_record.get("original_license_git_blob") != "aa69649cde83c2d6517ec2498a9c10f5bb3bf54c"
+            or core_record.get("compiled_css_git_blob") != "0fe8f69f90411731513c9926827fb609bf51b267"
+            or core_record.get("upstream_license") != "MIT"):
+            _fail("packaged Section 41 Tabler Core provenance differs from pinned source")
+        for name, expected_blob, max_size in (
+            ("accessibility.css", "0fe8f69f90411731513c9926827fb609bf51b267", 64 * 1024),
+            ("LICENSE", "aa69649cde83c2d6517ec2498a9c10f5bb3bf54c", 16 * 1024),
+        ):
+            content = _read_stable_bytes_file(
+                core_base / name,
+                label=f"packaged Tabler Core {name}",
+                max_bytes=max_size,
+            )
+            fingerprint = hashlib.sha1(
+                b"blob " + str(len(content)).encode("ascii") + b"\0" + content
+            ).hexdigest()
+            if fingerprint != expected_blob:
+                _fail(f"packaged Section 41 {name} differs from pinned MIT component")
+
     stockfish = _require_package_file(
         root,
         inventory,
