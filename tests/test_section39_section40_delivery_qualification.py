@@ -21,6 +21,7 @@ class Section39Section40PackagedAcceptanceTests(unittest.TestCase):
             build_collection("PUBLIC_RELEASE", release)
             evidence = qualify_built_delivery(trial, release, seed)
             self.assertEqual(evidence["real_library_games"], 516)
+            self.assertEqual(evidence["real_516_game_acsdb_backup_restore"], "PASS")
             self.assertEqual(evidence["original_annotated_games"], 4)
             self.assertEqual(evidence["advanced_training_original_tasks"], 16)
             self.assertEqual(evidence["extreme_training_original_tasks"], 4)
