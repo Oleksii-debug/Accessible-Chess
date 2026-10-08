@@ -101,6 +101,14 @@ $json = $result | ConvertTo-Json -Compress
         # target path remains out of the command line and is supplied only via
         # the environment variable above.
         encoded_script = base64.b64encode(script.encode("utf-16le")).decode("ascii")
+        status_only_script = (
+            "$ErrorActionPreference = 'Stop'; "
+            "$sig = Get-AuthenticodeSignature -LiteralPath $env:ACS_AUTHENTICODE_TARGET; "
+            "[Console]::Out.Write([string]$sig.Status)"
+        )
+        encoded_status_only = base64.b64encode(
+            status_only_script.encode("utf-16le")
+        ).decode("ascii")
         system_root = os.environ.get("SystemRoot") or os.environ.get("WINDIR") or r"C:\\Windows"
         powershell = str(
             Path(system_root)
@@ -109,6 +117,38 @@ $json = $result | ConvertTo-Json -Compress
             / "v1.0"
             / "powershell.exe"
         )
+        def confirm_unsigned() -> AuthenticodeEvidence:
+            """Independently confirm only the fail-closed NotSigned state."""
+            try:
+                status_probe = self._runner(
+                    [
+                        powershell,
+                        "-NoLogo",
+                        "-NoProfile",
+                        "-NonInteractive",
+                        "-EncodedCommand",
+                        encoded_status_only,
+                    ],
+                    input="",
+                    text=True,
+                    capture_output=True,
+                    timeout=20,
+                    check=False,
+                    env=env,
+                )
+            except (OSError, subprocess.SubprocessError):
+                return AuthenticodeEvidence(AuthenticodeStatus.ERROR, False)
+            if status_probe.returncode != 0:
+                return AuthenticodeEvidence(AuthenticodeStatus.ERROR, False)
+            raw_status = (
+                status_probe.stdout.strip()
+                if isinstance(status_probe.stdout, str)
+                else ""
+            )
+            if raw_status.casefold() == "notsigned":
+                return AuthenticodeEvidence(AuthenticodeStatus.UNSIGNED, False)
+            return AuthenticodeEvidence(AuthenticodeStatus.ERROR, False)
+
         try:
             completed = self._runner(
                 [
@@ -130,7 +170,7 @@ $json = $result | ConvertTo-Json -Compress
             return AuthenticodeEvidence(AuthenticodeStatus.ERROR, False)
 
         if completed.returncode != 0:
-            return AuthenticodeEvidence(AuthenticodeStatus.ERROR, False)
+            return confirm_unsigned()
 
         stdout = completed.stdout if isinstance(completed.stdout, str) else ""
         marker = "ACS_AUTHENTICODE_JSON:"
@@ -141,10 +181,10 @@ $json = $result | ConvertTo-Json -Compress
         try:
             payload = json.loads(raw_payload)
         except (json.JSONDecodeError, TypeError):
-            return AuthenticodeEvidence(AuthenticodeStatus.ERROR, False)
+            return confirm_unsigned()
 
         if not isinstance(payload, Mapping):
-            return AuthenticodeEvidence(AuthenticodeStatus.ERROR, False)
+            return confirm_unsigned()
 
         status = _classify_status(payload.get("Status"))
         return AuthenticodeEvidence(
