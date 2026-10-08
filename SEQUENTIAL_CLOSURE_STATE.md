@@ -132,3 +132,16 @@ Durable evidence: `docs/corpus/SECTION42_BOARD_THEME_EVIDENCE.json`.
 | 42.6 | `PARTIAL` | Existing shared board routes and focused source test remain; physical NVDA and clean Windows UIA acceptance are blocked. |
 
 The next dependency-safe closure front is Section 43.
+
+## Section 43 — current closure front
+
+**Status: `INTERNAL_COMPLETE_EXTERNAL_BLOCKED` (not DONE).**
+
+Durable evidence: `docs/corpus/SECTION43_WINDOWS_WORKSPACE_EVIDENCE.json`.
+
+| Subsection | State | Evidence / exact limitation |
+|---|---|---|
+| 43.1–43.5 | `PARTIAL` | Existing WebView2 shells, chess/library/books/training/teacher/classroom/PGN routes, native bridge, keymap, semantic text and focus contracts are mapped and preserved. Full Tabler shell redesign is not claimed. |
+| 43.6 | `BLOCKED` | Source tests are listed, but physical Windows UIA/screenshot/DPI/restart and human NVDA acceptance were not run in this environment. |
+
+The next dependency-safe closure front is Section 44.
