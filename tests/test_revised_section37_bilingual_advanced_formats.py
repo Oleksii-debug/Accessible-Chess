@@ -199,6 +199,15 @@ class BilingualSourceGroundingTests(unittest.TestCase):
                     self.assertIn(work["title"][lang], body)
                     self.assertIn('w:lang w:val="' + ("uk-UA" if lang == "uk" else "en-US") + '"', body)
                     self.assertGreaterEqual(body.count("<w:pStyle"), 12)
+                    styles = z.read("word/styles.xml").decode("utf-8")
+                    self.assertIn('w:styleId="Heading1"', styles)
+                    self.assertIn('w:styleId="Heading2"', styles)
+                    self.assertIn('<w:outlineLvl w:val="0"/>', styles)
+                    self.assertIn('<w:outlineLvl w:val="1"/>', styles)
+                    relationship = z.read("word/_rels/document.xml.rels").decode("utf-8")
+                    self.assertIn('Target="styles.xml"', relationship)
+                    content_types = z.read("[Content_Types].xml").decode("utf-8")
+                    self.assertIn("/word/styles.xml", content_types)
                 imported = import_docx_book(
                     docx, source_name="Section37 original advanced DOCX " + lang,
                 )
