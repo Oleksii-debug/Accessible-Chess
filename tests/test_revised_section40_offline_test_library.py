@@ -61,6 +61,15 @@ class RevisedSection40CollectionTests(unittest.TestCase):
                     if item["id"].startswith("section37_bilingual_original_workbook_")
                 ]
                 self.assertEqual(len(qualified_workbooks), 10)
+                attribution = "licenses/SECTION37_ADVANCED_AUTHORED_LICHESS_CC0_UK_EN.txt"
+                self.assertIn(attribution, trial_names)
+                notice = z.read(attribution)
+                self.assertIn(b"Lichess", notice)
+                self.assertIn(b"CC0-1.0", notice)
+                for source_book in qualified_workbooks:
+                    self.assertEqual(source_book["license_path"], attribution)
+                    self.assertEqual(source_book["license_sha256"],
+                                     hashlib.sha256(notice).hexdigest())
                 self.assertEqual(
                     {(r["language"], r["format"]) for r in qualified_workbooks},
                     {(lang, ext) for lang in ("uk", "en")
@@ -132,6 +141,12 @@ class RevisedSection40CollectionTests(unittest.TestCase):
                     if item["id"].startswith("section37_bilingual_original_workbook_")
                 ]
                 self.assertEqual(len(bilingual), 10)
+                attribution = "licenses/SECTION37_ADVANCED_AUTHORED_LICHESS_CC0_UK_EN.txt"
+                self.assertIn(attribution, names)
+                notice = z.read(attribution)
+                for item in bilingual:
+                    self.assertEqual(item["license_path"], attribution)
+                    self.assertEqual(item["license_sha256"], hashlib.sha256(notice).hexdigest())
                 for row in bilingual:
                     self.assertIn(row["source_path"], names)
                     self.assertEqual(row["sha256"],
