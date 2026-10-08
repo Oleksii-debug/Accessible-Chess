@@ -1,0 +1,417 @@
+{
+  "schema": "accessible-chess-advanced-bilingual-source-v1",
+  "language_codes": [
+    "uk",
+    "en"
+  ],
+  "title": {
+    "uk": "Майстерська шахова лабораторія: 12 складних позицій",
+    "en": "Advanced Chess Laboratory: 12 Critical Positions"
+  },
+  "editorial_statement": {
+    "uk": "Оригінальні двомовні навчальні завдання на реальних позиціях Lichess CC0. Це не переклад захищених шахових книг і не збірник авторських етюдів.",
+    "en": "New bilingual training prompts built on real Lichess CC0 positions. This is neither a translation of copyrighted books nor a collection of composed studies."
+  },
+  "level": {
+    "uk": "Лише після I розряду: КМС, майстерська та дуже складна підготовка. Рейтинг задач Lichess не є Ело ФІДЕ.",
+    "en": "First category and above: candidate-master, master-track and extreme calculation. Lichess puzzle rating is not FIDE Elo."
+  },
+  "position_contract": {
+    "uk": "Дана FEN-позиція стоїть ДО попереднього ходу суперника. Застосуй цей хід на канонічній дошці, потім шукай власне рішення. Не відкривай розв'язок до самостійної спроби.",
+    "en": "The FEN is BEFORE the opponent's previous move. Play that move on the canonical chessboard first, then solve. Do not reveal the solution before an independent attempt."
+  },
+  "rights": "Original new instructional prose for CC0 chess positions; redistribution of this authored bilingual workbook permitted; attribution to Lichess retained; no third-party proprietary books bundled.",
+  "level_floor_lichess_puzzle_rating": 2200,
+  "studies_scope": "Not an authored composition book; true composed studies are separate bibliography pending licensed material",
+  "lessons": [
+    {
+      "lesson_id": "S37-01",
+      "category": "calculation",
+      "original_puzzle_id": "00Ns0",
+      "rating_lichess_puzzle": 2539,
+      "fen_before_opponent_move": "r2qr1k1/pn1p2pp/bp3p2/2p1N3/2P5/1PB3Q1/P1P3PP/R4RK1 w - - 0 18",
+      "opponent_previous_move_uci": "f1f6",
+      "solution_after_opponent_uci": [
+        "d8f6",
+        "a1f1",
+        "f6h6",
+        "e5g4",
+        "h6g6",
+        "c3g7",
+        "e8e4",
+        "g4f6",
+        "g8g7"
+      ],
+      "original_lichess_themes": [
+        "advantage",
+        "hangingPiece",
+        "intermezzo",
+        "middlegame",
+        "veryLong"
+      ],
+      "original_source": "Lichess CC0 puzzle source, see repository registered SHA256",
+      "composer_study": false,
+      "uk": {
+        "title": "Міжходи, форсованість і захист",
+        "prompt": "Визнач три ходи-кандидати. Після відповіді суперника порахуй кожну форсовану гілку до тихої стабілізації. Порівняй проміжний хід із прямою реалізацією."
+      },
+      "en": {
+        "title": "Intermediate moves, forcing lines and defence",
+        "prompt": "Find three candidate moves. Calculate every forcing branch through the defender's strongest reply until a quiet stabilization. Compare intermediate moves with direct conversion."
+      }
+    },
+    {
+      "lesson_id": "S37-02",
+      "category": "calculation",
+      "original_puzzle_id": "00KNB",
+      "rating_lichess_puzzle": 2627,
+      "fen_before_opponent_move": "2rr2k1/5p2/4p2p/4N1pQ/1p3P2/4P3/np3P1P/2q2BRK b - - 1 32",
+      "opponent_previous_move_uci": "c8c7",
+      "solution_after_opponent_uci": [
+        "h5h6",
+        "b2b1q",
+        "h6g5"
+      ],
+      "original_lichess_themes": [
+        "crushing",
+        "kingsideAttack",
+        "master",
+        "middlegame",
+        "pin",
+        "short"
+      ],
+      "original_source": "Lichess CC0 puzzle source, see repository registered SHA256",
+      "composer_study": false,
+      "uk": {
+        "title": "Розрахунок за взаємних загроз",
+        "prompt": "Перевір усі шахи, взяття й загрози; знайди тактичний ресурс захисника. Визнач, чи працює ідея за найкращої відповіді."
+      },
+      "en": {
+        "title": "Calculation under mutual threats",
+        "prompt": "Check every forcing check, capture and threat; identify the defender's tactical resource. Decide whether the idea survives best defence."
+      }
+    },
+    {
+      "lesson_id": "S37-03",
+      "category": "combination",
+      "original_puzzle_id": "00LRq",
+      "rating_lichess_puzzle": 2291,
+      "fen_before_opponent_move": "1k6/1p1q4/P2p3p/1NpPpn1Q/5b2/2P3r1/1P2B1P1/R6K b - - 3 28",
+      "opponent_previous_move_uci": "g3g7",
+      "solution_after_opponent_uci": [
+        "a6a7",
+        "b8a8",
+        "b5c7",
+        "d7c7",
+        "h5e8",
+        "c7b8",
+        "a7b8q"
+      ],
+      "original_lichess_themes": [
+        "advancedPawn",
+        "doubleCheck",
+        "mate",
+        "mateIn4",
+        "middlegame",
+        "promotion",
+        "queensideAttack",
+        "sacrifice",
+        "veryLong"
+      ],
+      "original_source": "Lichess CC0 puzzle source, see repository registered SHA256",
+      "composer_study": false,
+      "uk": {
+        "title": "Комбінація з перетворенням та жертвою",
+        "prompt": "Досліди не лише головну форсовану лінію, а й відхилення короля, зустрічні шахи та альтернативи перетворення пішака."
+      },
+      "en": {
+        "title": "Sacrifice and promotion combination",
+        "prompt": "Explore the forcing line, king deviations, counter-checks and alternative pawn promotions rather than stopping at the first attractive move."
+      }
+    },
+    {
+      "lesson_id": "S37-04",
+      "category": "combination",
+      "original_puzzle_id": "00LZf",
+      "rating_lichess_puzzle": 2205,
+      "fen_before_opponent_move": "r1b1kb1r/pppp1ppp/2n1p3/3nN3/3P2q1/4B3/PPP1BPPP/RN1Q1RK1 b kq - 9 8",
+      "opponent_previous_move_uci": "d5e3",
+      "solution_after_opponent_uci": [
+        "f2e3",
+        "g4g5",
+        "e5f7",
+        "g5e3",
+        "g1h1"
+      ],
+      "original_lichess_themes": [
+        "advantage",
+        "attackingF2F7",
+        "fork",
+        "long",
+        "opening"
+      ],
+      "original_source": "Lichess CC0 puzzle source, see repository registered SHA256",
+      "composer_study": false,
+      "uk": {
+        "title": "Контрудар у дебюті",
+        "prompt": "Після останнього ходу суперника оцінюй його найнебезпечнішу загрозу. Побудуй дерево кандидатів і назви позиційні наслідки тактичного вибору."
+      },
+      "en": {
+        "title": "Counterattack in the opening",
+        "prompt": "After the opponent's last move, identify the most urgent threat. Build a candidate-move tree and explain the positional consequences of the tactical decision."
+      }
+    },
+    {
+      "lesson_id": "S37-05",
+      "category": "opening",
+      "original_puzzle_id": "00M7w",
+      "rating_lichess_puzzle": 2274,
+      "fen_before_opponent_move": "r1b1k2r/ppp2ppp/2n5/2bBp3/2Pq4/3P1QP1/P2B1P1P/1R2K1NR b Kkq - 2 12",
+      "opponent_previous_move_uci": "f7f6",
+      "solution_after_opponent_uci": [
+        "g1e2",
+        "d4f2",
+        "f3f2",
+        "c5f2",
+        "e1f2"
+      ],
+      "original_lichess_themes": [
+        "crushing",
+        "long",
+        "opening"
+      ],
+      "original_source": "Lichess CC0 puzzle source, see repository registered SHA256",
+      "composer_study": false,
+      "uk": {
+        "title": "Дебютний центр і темп розвитку",
+        "prompt": "Перевір, чи тактичне продовження виправдане перевагою в розвитку. Порівняй природний захист із форсованим варіантом."
+      },
+      "en": {
+        "title": "Opening central tension and tempi",
+        "prompt": "Determine whether development justifies the tactical continuation. Compare natural defence with the critical forcing line."
+      }
+    },
+    {
+      "lesson_id": "S37-06",
+      "category": "opening",
+      "original_puzzle_id": "00LZf",
+      "rating_lichess_puzzle": 2205,
+      "fen_before_opponent_move": "r1b1kb1r/pppp1ppp/2n1p3/3nN3/3P2q1/4B3/PPP1BPPP/RN1Q1RK1 b kq - 9 8",
+      "opponent_previous_move_uci": "d5e3",
+      "solution_after_opponent_uci": [
+        "f2e3",
+        "g4g5",
+        "e5f7",
+        "g5e3",
+        "g1h1"
+      ],
+      "original_lichess_themes": [
+        "advantage",
+        "attackingF2F7",
+        "fork",
+        "long",
+        "opening"
+      ],
+      "original_source": "Lichess CC0 puzzle source, see repository registered SHA256",
+      "composer_study": false,
+      "uk": {
+        "title": "Неповнота розвитку та конкретика",
+        "prompt": "Зваж загрози королю й фігурам перед обговоренням дебютної оцінки. Не називай варіант виграним без перевірки ходів."
+      },
+      "en": {
+        "title": "Development deficits and concrete lines",
+        "prompt": "Evaluate king safety and hanging pieces before assigning an opening verdict. Do not call a variation winning without checking the concrete moves."
+      }
+    },
+    {
+      "lesson_id": "S37-07",
+      "category": "middlegame",
+      "original_puzzle_id": "00GWg",
+      "rating_lichess_puzzle": 2243,
+      "fen_before_opponent_move": "1r1r2k1/pp4pp/2nNb3/2R2p2/2P1p3/8/P4PPP/3BR1K1 w - - 1 26",
+      "opponent_previous_move_uci": "d6b7",
+      "solution_after_opponent_uci": [
+        "b8b7",
+        "c5c6",
+        "b7b1",
+        "g1f1",
+        "d8d1",
+        "e1d1",
+        "b1d1",
+        "f1e2",
+        "e6d7"
+      ],
+      "original_lichess_themes": [
+        "crushing",
+        "middlegame",
+        "veryLong"
+      ],
+      "original_source": "Lichess CC0 puzzle source, see repository registered SHA256",
+      "composer_study": false,
+      "uk": {
+        "title": "Ініціатива й активність важких фігур",
+        "prompt": "Склади позиційний план, а потім перевір його тактично. Особливу увагу приділи другій горизонталі, зв'язкам та відкритим лініям."
+      },
+      "en": {
+        "title": "Initiative and heavy-piece activity",
+        "prompt": "Form a positional plan, then test it concretely. Pay attention to rank penetration, pins and open files."
+      }
+    },
+    {
+      "lesson_id": "S37-08",
+      "category": "middlegame",
+      "original_puzzle_id": "004Ys",
+      "rating_lichess_puzzle": 2233,
+      "fen_before_opponent_move": "r4rk1/3q1pbp/p1n1p1p1/2p3NP/1p3B2/3P3Q/PPP3P1/R3R1K1 b - - 2 19",
+      "opponent_previous_move_uci": "d7d4",
+      "solution_after_opponent_uci": [
+        "f4e3",
+        "d4f6",
+        "e1f1",
+        "f6e5",
+        "h5g6",
+        "e5e3",
+        "h3e3"
+      ],
+      "original_lichess_themes": [
+        "advantage",
+        "defensiveMove",
+        "middlegame",
+        "veryLong"
+      ],
+      "original_source": "Lichess CC0 puzzle source, see repository registered SHA256",
+      "composer_study": false,
+      "uk": {
+        "title": "Ресурси захисту під атакою",
+        "prompt": "Побудуй список реальних загроз, знайди кандидатні захисні ходи й оціни, чи зберігається ініціатива після точного захисту."
+      },
+      "en": {
+        "title": "Defensive resources under attack",
+        "prompt": "List concrete threats, find defensive candidate moves and evaluate whether initiative persists against accurate resistance."
+      }
+    },
+    {
+      "lesson_id": "S37-09",
+      "category": "endgame",
+      "original_puzzle_id": "00H2L",
+      "rating_lichess_puzzle": 2351,
+      "fen_before_opponent_move": "8/8/2p2p2/p4P1p/Pk5P/4K1P1/8/8 w - - 1 39",
+      "opponent_previous_move_uci": "e3d3",
+      "solution_after_opponent_uci": [
+        "c6c5",
+        "d3e2",
+        "c5c4",
+        "g3g4",
+        "h5g4"
+      ],
+      "original_lichess_themes": [
+        "crushing",
+        "endgame",
+        "long",
+        "pawnEndgame",
+        "quietMove"
+      ],
+      "original_source": "Lichess CC0 puzzle source, see repository registered SHA256",
+      "composer_study": false,
+      "uk": {
+        "title": "Тихий темп у пішаковому закінченні",
+        "prompt": "Порахуй пішакові прориви й королівські маршрути. Перевір цугцванг після кожної відповіді, не застосовуючи шаблонного правила без розрахунку."
+      },
+      "en": {
+        "title": "Quiet tempo in a pawn ending",
+        "prompt": "Calculate pawn breaks and king routes. Test zugzwang after every defender's reply instead of assuming a textbook rule settles the position."
+      }
+    },
+    {
+      "lesson_id": "S37-10",
+      "category": "endgame",
+      "original_puzzle_id": "00FHO",
+      "rating_lichess_puzzle": 2233,
+      "fen_before_opponent_move": "8/1pp5/p2p3p/3P1Pk1/P3K1P1/1P5R/8/2r5 w - - 1 39",
+      "opponent_previous_move_uci": "e4f3",
+      "solution_after_opponent_uci": [
+        "c1c3",
+        "f3g2",
+        "c3h3",
+        "g2h3",
+        "h6h5",
+        "g4h5",
+        "g5h5"
+      ],
+      "original_lichess_themes": [
+        "crushing",
+        "endgame",
+        "rookEndgame",
+        "veryLong"
+      ],
+      "original_source": "Lichess CC0 puzzle source, see repository registered SHA256",
+      "composer_study": false,
+      "uk": {
+        "title": "Ладейна активність і контргра",
+        "prompt": "Оціни активність короля, відсічні лінії та прохідні пішаки. Шукай ресурси захисту в довгому варіанті."
+      },
+      "en": {
+        "title": "Rook activity and counterplay",
+        "prompt": "Evaluate king activity, cut-off ranks and passed pawns. Search for counterplay in the full long variation."
+      }
+    },
+    {
+      "lesson_id": "S37-11",
+      "category": "extreme",
+      "original_puzzle_id": "NgGRN",
+      "rating_lichess_puzzle": 3164,
+      "fen_before_opponent_move": "7Q/rpk2p1p/p2b4/q1pp4/3P2b1/2P1P3/PP3PPP/R3K2R b KQ - 0 17",
+      "opponent_previous_move_uci": "c5d4",
+      "solution_after_opponent_uci": [
+        "h8d4",
+        "g4h5",
+        "g2g4",
+        "h5g6",
+        "d4a7",
+        "d6c5",
+        "b2b4",
+        "c5b4",
+        "e1g1",
+        "b4c5",
+        "a7a8"
+      ],
+      "original_lichess_themes": [],
+      "original_source": "Lichess CC0 puzzle source, see repository registered SHA256",
+      "composer_study": false,
+      "uk": {
+        "title": "Екстремальна тактика: форсований розрахунок",
+        "prompt": "Сформулюй щонайменше три кандидати та заперечення суперника. Не підглядай відповідь, перевір можливу тактичну пастку."
+      },
+      "en": {
+        "title": "Extreme calculation: forcing tactical play",
+        "prompt": "Write down at least three candidate moves and the opponent's refutations. Work without seeing the answer; test possible tactical traps."
+      }
+    },
+    {
+      "lesson_id": "S37-12",
+      "category": "extreme",
+      "original_puzzle_id": "gWyMk",
+      "rating_lichess_puzzle": 3166,
+      "fen_before_opponent_move": "r1b2r1k/1p5P/1n1pp2B/1Pp2p1B/4P2q/P2P2b1/1P2Q2P/R4R1K b - - 1 20",
+      "opponent_previous_move_uci": "f8f6",
+      "solution_after_opponent_uci": [
+        "h6f4",
+        "g3h2",
+        "e2h2",
+        "h4h2",
+        "h1h2"
+      ],
+      "original_lichess_themes": [],
+      "original_source": "Lichess CC0 puzzle source, see repository registered SHA256",
+      "composer_study": false,
+      "uk": {
+        "title": "Екстремальна тактика: 3166",
+        "prompt": "Розрахуй найжорсткішу лінію до кінця, порівняй із двома спокусливими помилковими варіантами й поясни роль усіх незахищених фігур."
+      },
+      "en": {
+        "title": "Extreme tactic: 3166",
+        "prompt": "Calculate the critical line to completion, compare it with two tempting false lines and account for every loose piece."
+      }
+    }
+  ]
+}
