@@ -88,6 +88,10 @@ _SOURCE_CODE_SUFFIXES = {
 _REQUIRED_WINFORMS_APPCONFIG = Path("AccessibleChess.exe.config")
 _REQUIRED_WEB_FILES = (
     Path("web") / "index.html",
+    Path("web") / "recorded_media_accessible_player.js",
+    Path("web") / "local_video_playback_adapter.js",
+    Path("web") / "youtube_iframe_playback_adapter.js",
+    Path("web") / "version2_media_user_workflow.js",
     Path("web") / "stage1_release_bootstrap.js",
     Path("web") / "stage1_board_actions.js",
     Path("web") / "full_product_pgn.js",
