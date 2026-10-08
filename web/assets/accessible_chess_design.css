@@ -222,3 +222,75 @@
   #main-content{display:block}
   #main-content > section{box-shadow:none;resize:none;break-inside:avoid}
 }
+
+
+/* Section 44 responsive Web/Online/Spectator/Media presentation.
+   Existing #routes and #workspace own commands and data; CSS has no overlays
+   on embedded video/YouTube controls and makes no semantic claims. */
+body:has(#routes){max-width:100%;padding:clamp(.5rem,2vw,1.5rem)}
+body:has(#routes) > header{
+  max-width:92rem;margin:auto;padding:var(--ac41-space-4);
+  background:var(--ac41-surface);border-radius:var(--ac41-radius);
+}
+body:has(#routes) > nav{max-width:92rem;margin:var(--ac41-space-4) auto}
+#routes{display:flex;flex-flow:row wrap;gap:var(--ac41-space-2);padding:0}
+#routes li{margin:0;list-style:none}
+#routes .route-button{
+  padding:.5rem .85rem;min-height:2.8rem;font-weight:600;
+  box-shadow:none;border:1px solid var(--ac41-border);
+  background:var(--ac41-surface);color:var(--ac41-ink);
+}
+#routes .route-button[aria-current="page"]{
+  background:var(--ac41-action);color:var(--ac41-on-action);
+  text-decoration:underline;text-underline-offset:.2em
+}
+#workspace{
+  display:grid;grid-template-columns:repeat(12,minmax(0,1fr));
+  align-items:start;gap:var(--ac41-space-3);
+  max-width:92rem;margin:var(--ac41-space-4) auto;padding:var(--ac41-space-4);
+  border:1px solid var(--ac41-border);border-radius:var(--ac41-radius);
+  background:var(--ac41-surface);box-shadow:var(--ac41-shadow);
+}
+#workspace > h2,#workspace > #route-description{grid-column:1 / -1}
+#workspace > section{
+  grid-column:span 6;min-width:0;overflow-wrap:anywhere;
+  padding:var(--ac41-space-3);border:1px solid var(--ac41-border);
+  border-radius:var(--ac41-radius);
+}
+#workspace > #board-surface{grid-column:span 8}
+#workspace > section:has(#content){grid-column:span 8}
+#workspace > section:has(#progress){grid-column:span 4}
+#workspace > section:has(#commands){grid-column:1 / -1}
+#workspace #board-grid{width:min(100%,42rem);max-width:100%;margin-inline:auto}
+#workspace #board-grid button{aspect-ratio:1 / 1;min-width:0}
+#workspace #content{
+  padding:var(--ac41-space-3);border-radius:var(--ac41-radius);
+  background:var(--ac41-bg);color:var(--ac41-ink);
+  border:1px solid var(--ac41-border);
+  min-height:8rem;white-space:pre-wrap;
+  overflow-wrap:anywhere;user-select:text;-webkit-user-select:text;
+}
+#workspace #commands{display:flex;gap:var(--ac41-space-2);flex-wrap:wrap}
+#workspace #progress{width:100%;max-width:100%}
+body:has(#routes) > #status,body:has(#routes) > #error{
+  max-width:92rem;margin:var(--ac41-space-2) auto;white-space:pre-wrap;
+}
+body:has(#routes) > #error:not(:empty){
+  border:2px solid var(--ac41-focus);border-radius:var(--ac41-radius);
+  padding:var(--ac41-space-2)
+}
+@media(max-width:64rem){
+  #workspace{grid-template-columns:minmax(0,1fr);padding:var(--ac41-space-2)}
+  #workspace > section,#workspace > #board-surface,
+  #workspace > section:has(#content),#workspace > section:has(#progress),
+  #workspace > section:has(#commands){grid-column:1 / -1}
+}
+@media(forced-colors:active){
+  #workspace,#workspace > section,#workspace #content{
+    color:CanvasText!important;background:Canvas!important;
+    border:1px solid CanvasText!important;box-shadow:none!important
+  }
+  #routes .route-button[aria-current="page"]{
+    background:Highlight!important;color:HighlightText!important
+  }
+}
