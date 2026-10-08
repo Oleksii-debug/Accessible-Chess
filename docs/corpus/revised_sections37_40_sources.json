@@ -856,13 +856,15 @@
       "external_license_git_blob": "f288702d2fa16d3cdf0035b15a9fcbc552cd88e7",
       "external_license_sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
       "external_license_indexed_bytes": 35149,
-      "license": "Upstream GPL-3.0 license file; README separately states reuse conditions; redistribution and book rights require manual conflict review",
+      "license": "The repository LICENSE contains GPL-3.0 text, while the book README expressly claims CC BY-NC-SA 4.0 for the book; the two statements are not interchangeable and product redistribution is NOT_CLEARED",
       "redistribution": "NOT_CLEARED",
       "acquisition": "PINNED_NOT_DOWNLOADED_IN_THIS_PASS",
       "test_access": "EXTERNAL_EPHEMERAL_ONLY",
       "public_release": "EXCLUDED",
       "canonical_qa": "External exact-commit source-only markdown+full-license verification; semantic markdown reader qualification separate",
-      "notes": "Genuine contemporary multi-chapter Markdown chess teaching book including table of contents, chess positions/variant descriptions and multilingual links; no public release rights asserted."
+      "notes": "Real chess Markdown book attributed to Chastity White Rose. ORIGINAL README asserts CC BY-NC-SA 4.0 for the chess book even though LICENSE has GPL-3.0; both original documents must be checked; NO public redistribution authorization or ownership implied.",
+      "external_book_rights_notice_path": "chess_markdown/README.md",
+      "external_book_rights_notice_git_blob": "1b729a364e62d58718b0fa5dde9f07c0ffe49242"
     }
   ]
 }
