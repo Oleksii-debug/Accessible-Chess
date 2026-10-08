@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 
 from .protection_boundary import (
+    ADVANCED_SECURITY_RUNTIME_API_VERSION,
     ENTITLEMENT_RUNTIME_API_VERSION,
     ProtectionBoundaryError,
     ProtectionRuntimeClient,
@@ -56,7 +57,14 @@ class ProtectionPrivacyClient:
             raise TypeError("client must be a ProtectionRuntimeClient")
         self.client = client
 
+    def _require_privacy_foundation(self) -> None:
+        if self.client.runtime_api_version() < ADVANCED_SECURITY_RUNTIME_API_VERSION:
+            return
+        from .protection_advanced_boundary import ProtectionCapabilityGate
+        ProtectionCapabilityGate(self.client).require("BND.AC-S29-PRIVACY-FOUNDATION")
+
     def notice(self) -> dict[str, object]:
+        self._require_privacy_foundation()
         try:
             runtime = self.client.runtime_extension(
                 minimum_api_version=ENTITLEMENT_RUNTIME_API_VERSION
@@ -76,6 +84,7 @@ class ProtectionPrivacyClient:
         return _validate_notice(value)
 
     def set_consent(self, *, granted: bool, notice_version: str) -> dict[str, object]:
+        self._require_privacy_foundation()
         if not isinstance(granted, bool):
             raise TypeError("granted must be bool")
         if not isinstance(notice_version, str) or not _NOTICE_VERSION.fullmatch(notice_version):
