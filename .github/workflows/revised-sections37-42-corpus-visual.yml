@@ -15,6 +15,7 @@ on:
       - 'tests/test_revised_section37_real_book_txt.py'
       - 'tests/test_revised_section37_offline_collection_readback.py'
       - 'tests/test_revised_section38_official_openings_library.py'
+      - 'tests/test_revised_section38_stockfish_real_library.py'
       - '.gitattributes'
       - 'tests/real_corpus/**'
       - 'tests/test_revised_sections41_42_design.py'
@@ -49,6 +50,7 @@ jobs:
           tests/test_revised_section37_real_book_txt.py
           tests/test_revised_section37_offline_collection_readback.py
           tests/test_revised_section38_official_openings_library.py
+          tests/test_revised_section38_stockfish_real_library.py
           tests/test_revised_sections41_42_design.py
       - name: Test real source catalog authorization and existing visual authority
         run: >-
@@ -57,6 +59,7 @@ jobs:
           tests.test_revised_section37_real_book_txt
           tests.test_revised_section37_offline_collection_readback
           tests.test_revised_section38_official_openings_library
+          tests.test_revised_section38_stockfish_real_library
           tests.test_revised_sections41_42_design
           tests.test_section15_visual_board_contract
       - name: Exercise canonical chess core
