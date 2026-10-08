@@ -36,6 +36,7 @@ from acs.section40_advanced_training_runtime import (
 )
 from tools.revised_section40_advanced_training import build_complete_advanced_training
 from tools.section39_section37_bilingual_workbook_qualification import qualify_bilingual_books
+from tools.revised_sections37_38_offline_manifest import _source_head
 from acs.section40_historical_reti_runtime import build_historical_reti_offline_material
 from acs.section40_historical_reti_dataset import original_reti_source_bytes
 
@@ -287,6 +288,7 @@ def build_collection(profile: str, output: Path, *, root: Path = ROOT) -> dict:
     if output.exists() or output.is_symlink():
         raise OfflineCollectionError("destination exists; refusing overwrite")
     output.parent.mkdir(parents=True, exist_ok=True)
+    product_source_sha = _source_head()
     catalog = load_catalog(root / "docs/corpus/revised_sections37_40_sources.json")
     assets, rows = _source_assets(root, profile, catalog)
     book_assets, book_rows = _books_and_training()
@@ -578,6 +580,7 @@ def build_collection(profile: str, output: Path, *, root: Path = ROOT) -> dict:
         ).encode("utf-8")
         report = {
             "schema": "acs-revised-section40-offline-collection-v1",
+            "source_commit_sha": product_source_sha,
             "profile": profile, "materials": rows, "material_count": len(rows),
             "real_import_readback": imported,
             "license_policy": "fail-closed; owner/test-only uncleared sources excluded",
