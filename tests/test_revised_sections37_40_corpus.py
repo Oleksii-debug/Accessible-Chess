@@ -244,6 +244,40 @@ class RevisedCorpusContractTests(unittest.TestCase):
                         max_line_chars=limit,
                     ))
 
+    def test_direct_corpus_callers_cannot_disable_source_size_bounds(self):
+        # The catalog is validated, but the transport also accepts record
+        # dictionaries directly. Reject missing/non-integer/oversized budgets
+        # BEFORE any network access or source-byte consumption.
+        content = b"bounded-licensed-source"
+        authorized = self._record(content)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            existing = root / "input.pgn.zst"
+            existing.write_bytes(content)
+            self.assertEqual(verified_local_source(existing, authorized), authorized["sha256"])
+            for bad_limit in (
+                None, True, False, 0, -1, 1.5, float("inf"),
+                "4096", 128 * 1024 * 1024 + 1,
+            ):
+                with self.subTest(budget=repr(bad_limit)):
+                    tampered = {**authorized, "max_bytes": bad_limit}
+                    with self.assertRaisesRegex(LawfulCorpusError, "byte limit"):
+                        verified_local_source(existing, tampered)
+                    with self.assertRaisesRegex(LawfulCorpusError, "byte limit"):
+                        acquire_cc0_source(
+                            tampered, root,
+                            opener=lambda *_a, **_kw: self.fail(
+                                "invalid byte limit must never contact network"
+                            ),
+                        )
+            absent = {k: v for k, v in authorized.items() if k != "max_bytes"}
+            with self.assertRaisesRegex(LawfulCorpusError, "byte limit"):
+                acquire_cc0_source(
+                    absent, root,
+                    opener=lambda *_a, **_kw: self.fail("missing limit contacted network"),
+                )
+            self.assertEqual(sorted(p.name for p in root.iterdir()), ["input.pgn.zst"])
+
     def _record(self, payload: bytes) -> dict:
         return {
             "id": "licensed_small_fixture", "license": "CC0",
