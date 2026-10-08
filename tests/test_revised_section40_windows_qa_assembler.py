@@ -71,6 +71,7 @@ class Section40RealWindowsQAPackageTests(unittest.TestCase):
             self.assertEqual(report["original_seed_files_untouched"], 0)
             self.assertTrue(report["canonical_version2_package_readback"])
             self.assertEqual(report["section37_native_bilingual_books_verified"], 10)
+            self.assertEqual(report["ready_to_open_native_book_files"], 10)
             self.assertEqual(report["section37_authentic_advanced_lessons"], 12)
             self.assertEqual(len(report["section37_workbook_source_sha256"]), 64)
             self.assertFalse(report["compiled_real_exe_attested"])
@@ -177,6 +178,32 @@ class Section40RealWindowsQAPackageTests(unittest.TestCase):
                             12 if record["format"] in ("md", "html", "epub") else 0,
                         )
                         by_language[(record["language"], record["format"])] = tuple(visible_positions)
+                    # The owner-accessible QA package must contain these
+                    # real imported book files individually, not only hidden
+                    # in a nested ZIP that requires manual extraction.
+                    ready_root = "AccessibleChess/release-content/section40/READY_TO_OPEN_BOOKS/"
+                    self.assertIn(ready_root + "READ_FIRST_UK.txt", members)
+                    self.assertIn(ready_root + "READ_FIRST_EN.txt", members)
+                    listing = json.loads(archive.read(ready_root + "CATALOG.json"))
+                    self.assertEqual(listing["schema"], "section40-ready-books-v1")
+                    self.assertEqual(listing["profile"], "TEST_BUILD_ONLY")
+                    self.assertEqual(listing["count"], 10)
+                    self.assertEqual(len(listing["materials"]), 10)
+                    direct_names=set()
+                    for row in listing["materials"]:
+                        basename=row["filename"]
+                        self.assertNotIn(basename.casefold(), direct_names)
+                        direct_names.add(basename.casefold())
+                        direct=archive.read(ready_root + basename)
+                        self.assertEqual(direct, corpus.read("books/" + basename))
+                        self.assertEqual(row["sha256"], hashlib.sha256(direct).hexdigest())
+                        self.assertEqual(row["size_bytes"], len(direct))
+                        self.assertEqual(row["open_with"], "Version2Application.prepare_book_open")
+                        path=extracted_dir / ("direct-" + basename)
+                        path.write_bytes(direct)
+                        loaded=Version2Application.prepare_book_open(path)
+                        self.assertGreater(len(loaded.document.blocks), 1)
+                    self.assertEqual(len(direct_names), 10)
                     self.assertEqual(len(by_language), 10)
                     for extension in ("md", "html", "epub"):
                         self.assertEqual(
