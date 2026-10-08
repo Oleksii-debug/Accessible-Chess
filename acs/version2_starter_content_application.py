@@ -66,6 +66,16 @@ class Version2StarterContentApplication(Version2EducationMutationApplication):
         self._extreme_offline_document, self._extreme_offline_tasks = (
             build_extreme_offline_material()
         )
+        self._advanced_offline_document_en, advanced_en_tasks = (
+            build_advanced_offline_material(language="en")
+        )
+        self._extreme_offline_document_en, extreme_en_tasks = (
+            build_extreme_offline_material(language="en")
+        )
+        # Language is presentation only. Never fork puzzle moves, answer or FEN.
+        if (advanced_en_tasks != self._advanced_offline_tasks
+            or extreme_en_tasks != self._extreme_offline_tasks):
+            raise RuntimeError("advanced UK/EN chess authority diverged")
         self._starter_material_documents: dict[str, BookDocument] = {}
         self._starter_material_entries: tuple[dict[str, str], ...] = ()
         self._starter_current_material_id: str | None = None
@@ -212,11 +222,15 @@ class Version2StarterContentApplication(Version2EducationMutationApplication):
             *self._starter_material_entries,
             {
                 "material_id": ADVANCED_MATERIAL_ID,
-                "title": self._advanced_offline_document.title,
+                "title": (self._advanced_offline_document_en.title
+                          if self.shell.language is UILanguage.EN
+                          else self._advanced_offline_document.title),
             },
             {
                 "material_id": EXTREME_MATERIAL_ID,
-                "title": self._extreme_offline_document.title,
+                "title": (self._extreme_offline_document_en.title
+                          if self.shell.language is UILanguage.EN
+                          else self._extreme_offline_document.title),
             },
         )
         return {
@@ -267,11 +281,19 @@ class Version2StarterContentApplication(Version2EducationMutationApplication):
             document = self._starter_course_document
             book_key = STARTER_COURSE_BOOK_KEY
         elif material_id == ADVANCED_MATERIAL_ID:
-            document = self._advanced_offline_document
-            book_key = ADVANCED_BOOK_KEY
+            is_en = self.shell.language is UILanguage.EN
+            document = (
+                self._advanced_offline_document_en if is_en
+                else self._advanced_offline_document
+            )
+            book_key = ADVANCED_BOOK_KEY + (":en" if is_en else "")
         elif material_id == EXTREME_MATERIAL_ID:
-            document = self._extreme_offline_document
-            book_key = EXTREME_BOOK_KEY
+            is_en = self.shell.language is UILanguage.EN
+            document = (
+                self._extreme_offline_document_en if is_en
+                else self._extreme_offline_document
+            )
+            book_key = EXTREME_BOOK_KEY + (":en" if is_en else "")
         else:
             document = self._starter_material_documents.get(material_id)
             if document is None:
