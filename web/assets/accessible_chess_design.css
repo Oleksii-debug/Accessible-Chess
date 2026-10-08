@@ -193,7 +193,7 @@
   outline:3px solid var(--ac41-focus)!important;outline-offset:3px!important;
 }
 @media(max-width:70rem){
-  #main-content > section{grid-column:span 12!important;resize:none}
+  #main-content > section{grid-column:1 / -1!important;resize:none}
   #main-content{grid-template-columns:minmax(0,1fr)}
   #v2-workspace{padding:var(--ac41-space-2)}
 }
