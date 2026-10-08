@@ -2,11 +2,14 @@
 from __future__ import annotations
 
 from pathlib import Path
+import hashlib
+import os
 import shutil
 import tempfile
 import unittest
+from unittest.mock import patch
 
-from acs.lawful_corpus_registry import LawfulCorpusError
+from acs.lawful_corpus_registry import LawfulCorpusError, read_verified_source_snapshot
 from tools.revised_sections37_38_offline_manifest import build_manifest
 
 
@@ -14,6 +17,63 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class GenuineCorpusReceiptTests(unittest.TestCase):
+    def test_semantic_source_snapshot_uses_bounded_verified_consumed_bytes(self):
+        original = b"Verified original chess test source\\n"
+        with tempfile.TemporaryDirectory() as temp:
+            source = Path(temp) / "real.txt"
+            source.write_bytes(original)
+            record = {
+                "max_bytes": len(original),
+                "indexed_bytes": len(original),
+                "sha256": hashlib.sha256(original).hexdigest(),
+            }
+            with patch.object(
+                Path, "read_bytes", side_effect=AssertionError("unbounded reread forbidden")
+            ):
+                self.assertEqual(read_verified_source_snapshot(source, record), original)
+            source.write_bytes(original[:-1] + b"!")
+            with self.assertRaises(LawfulCorpusError):
+                read_verified_source_snapshot(source, record)
+            source.write_bytes(original + b"too-large")
+            with self.assertRaises(LawfulCorpusError):
+                read_verified_source_snapshot(source, record)
+            source.write_bytes(original)
+            for invalid in (True, 0, len(original) - 1):
+                with self.subTest(budget=invalid):
+                    with self.assertRaises(LawfulCorpusError):
+                        read_verified_source_snapshot(source, {**record, "max_bytes": invalid})
+            with self.assertRaises(LawfulCorpusError):
+                read_verified_source_snapshot(source, {**record, "indexed_bytes": True})
+
+    def test_semantic_source_snapshot_rejects_swap_between_stat_and_open(self):
+        original = b"genuine original source"
+        changed = b"swapped hostile source!"
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            target = root / "real.txt"
+            replacement = root / "replacement.txt"
+            target.write_bytes(original)
+            replacement.write_bytes(changed)
+            record = {
+                "max_bytes": 4096,
+                "indexed_bytes": len(original),
+                "sha256": hashlib.sha256(original).hexdigest(),
+            }
+            underlying_open = Path.open
+            swapped = False
+
+            def swap_once(path, *args, **kwargs):
+                nonlocal swapped
+                if path == target and not swapped:
+                    swapped = True
+                    os.replace(replacement, target)
+                return underlying_open(path, *args, **kwargs)
+
+            with patch.object(Path, "open", new=swap_once):
+                with self.assertRaises(LawfulCorpusError):
+                    read_verified_source_snapshot(target, record)
+            self.assertTrue(swapped)
+
     def test_actual_original_file_bytes_and_semantic_status_are_distinct(self):
         report = build_manifest()
         self.assertGreaterEqual(report["source_count"], 25)
