@@ -25,6 +25,7 @@ from .full_product_ui_shell import UILanguage
 from .local_profile import LocalProfileStore
 from .release_app import _sound_cache_dir, _sound_variant_provider, _user_root
 from .protection_boundary import (
+    ENTITLEMENT_RUNTIME_API_VERSION,
     ProtectedStartupLocked,
     ProtectionDecision,
     ProtectionStartupSession,
