@@ -24,5 +24,6 @@
   ],
   "release_scope": "one existing WebView+Web UI, no new chess engine or visual authority",
   "human_nvda_verified": false,
-  "section41_done": false
+  "section41_done": false,
+  "compiled_css_git_blob": "0fe8f69f90411731513c9926827fb609bf51b267"
 }
