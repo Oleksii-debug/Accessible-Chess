@@ -25,6 +25,59 @@ class Response(io.BytesIO):
 
 
 class RevisedCorpusContractTests(unittest.TestCase):
+    def test_catalog_is_size_bounded_before_parsing(self):
+        # The size guard must bound the read call, not just check its result.
+        source_bytes = (Path(__file__).resolve().parents[1] /
+                        "docs/corpus/revised_sections37_40_sources.json").read_bytes()
+        class GuardedInput(io.BytesIO):
+            def read(self, size=-1):
+                if size != 256 * 1024 + 1:
+                    raise AssertionError("unbounded catalog read")
+                return super().read(size)
+
+        with patch.object(Path, "open", return_value=GuardedInput(source_bytes)):
+            self.assertGreater(len(load_catalog(Path("virtual-catalog.json"))), 0)
+        with tempfile.TemporaryDirectory() as tmp:
+            too_large = Path(tmp) / "oversized.json"
+            too_large.write_bytes(b" " * (256 * 1024 + 1))
+            with self.assertRaisesRegex(LawfulCorpusError, "exceeds maximum"):
+                load_catalog(too_large)
+
+    def test_source_growth_stops_hashing_at_byte_budget(self):
+        payload = b"origin"
+        record = self._record(payload)
+        record["max_bytes"] = len(payload) + 4
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "growing.pgn.zst"
+            path.write_bytes(payload)
+
+            class GrowingStream:
+                def __init__(self, stream):
+                    self.stream = stream
+                    self.reads = 0
+
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *args):
+                    return self.stream.__exit__(*args)
+
+                def fileno(self):
+                    return self.stream.fileno()
+
+                def read(self, size):
+                    self.reads += 1
+                    if self.reads == 1:
+                        with open(path, "ab") as writer:
+                            writer.write(b"x" * 8192)
+                    return self.stream.read(size)
+
+            stream = GrowingStream(path.open("rb"))
+            with patch.object(Path, "open", return_value=stream):
+                with self.assertRaisesRegex(LawfulCorpusError, "grew beyond"):
+                    verified_local_source(path, record)
+            self.assertEqual(stream.reads, 1)
+
     def test_actual_catalog_truth_and_unsupported_families(self):
         records = {entry["id"]: entry for entry in load_catalog()}
         self.assertIn("lichess_standard_rated_2013_01", records)
