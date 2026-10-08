@@ -100,6 +100,20 @@ jobs:
           path: revised-sections37-38-offline-manifest.json
           if-no-files-found: ignore
           retention-days: 14
+      - name: Test current-plan Section 39 actual-format and false-PASS qualification
+        run: python -m unittest -v tests.test_section39_real_format_qualification
+      - name: Produce exact-checkout real-file qualification receipt (NOT Section DONE)
+        env:
+          ACCESSIBLE_CHESS_EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: python -m tools.section39_real_format_qualification
+      - name: Preserve actual per-format readback and known unsupported coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: section39-real-format-qualification-${{ matrix.os }}
+          path: section39-real-format-qualification.json
+          if-no-files-found: ignore
+          retention-days: 14
       - name: Exercise canonical chess core
         run: python -m acs.selftest
 
