@@ -347,6 +347,15 @@ class TeacherWebViewProjection:
                 if pointer_item is not None
                 else None
             ),
+            highlights=tuple(
+                (str(item["square"]), str(item["purpose"]), str(item["color"]))
+                for item in highlight_items
+            ),
+            arrows=tuple(
+                (str(item["start_square"]), str(item["end_square"]),
+                 str(item["purpose"]), str(item["color"]))
+                for item in arrow_items
+            ),
         )
         return {
             "language": lang,

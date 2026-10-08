@@ -40,7 +40,7 @@ class Section15VisualBoardContractTests(unittest.TestCase):
     def test_shared_contract_names_every_required_surface(self):
         self.assertEqual(
             {surface.value for surface in BoardSurface},
-            {"ordinary_play", "teacher", "online", "spectator"},
+            {"ordinary_play", "teacher", "online", "spectator", "book", "media"},
         )
         for surface in BoardSurface:
             snapshot = VisualBoardSnapshot(

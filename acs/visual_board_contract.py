@@ -9,6 +9,7 @@ That makes visual preferences reusable without creating a second chess truth.
 
 from dataclasses import dataclass, replace
 from enum import Enum
+import re
 
 
 _FILES = "abcdefgh"
@@ -22,6 +23,8 @@ class BoardSurface(str, Enum):
     TEACHER = "teacher"
     ONLINE = "online"
     SPECTATOR = "spectator"
+    BOOK = "book"
+    MEDIA = "media"
 
 
 class BoardTheme(str, Enum):
@@ -156,6 +159,8 @@ class VisualBoardSnapshot:
     selected_square: str | None = None
     last_move: tuple[str, str] | None = None
     legal_targets: tuple[str, ...] = ()
+    highlights: tuple[tuple[str, str, str], ...] = ()
+    arrows: tuple[tuple[str, str, str, str], ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "surface", _enum_value(BoardSurface, self.surface, "board surface"))
@@ -188,6 +193,41 @@ class VisualBoardSnapshot:
             raise ValueError("legal_targets must not contain duplicates")
         object.__setattr__(self, "legal_targets", normalized)
 
+        # Visual-only teacher/book/media annotation projection. This model
+        # owns no moves, attacks, board rules, or annotation write authority.
+        if type(self.highlights) is not tuple or len(self.highlights) > 64:
+            raise ValueError("visual highlights must be a bounded tuple")
+        normalized_highlights = []
+        for item in self.highlights:
+            if type(item) is not tuple or len(item) != 3:
+                raise ValueError("visual highlight must contain square/purpose/color")
+            square = _square(item[0], "highlight square")
+            purpose, color = item[1], item[2]
+            if (type(purpose) is not str
+                or re.fullmatch(r"[a-z0-9_-]{1,32}", purpose) is None
+                or type(color) is not str
+                or re.fullmatch(r"#[0-9a-fA-F]{6}", color) is None):
+                raise ValueError("unsafe visual highlight token or color")
+            normalized_highlights.append((square, purpose, color.lower()))
+        object.__setattr__(self, "highlights", tuple(normalized_highlights))
+        if type(self.arrows) is not tuple or len(self.arrows) > 48:
+            raise ValueError("visual arrows must be a bounded tuple")
+        normalized_arrows = []
+        for item in self.arrows:
+            if type(item) is not tuple or len(item) != 4:
+                raise ValueError("visual arrow must contain from/to/purpose/color")
+            source, target = (_square(item[0], "arrow source"),
+                              _square(item[1], "arrow target"))
+            purpose, color = item[2], item[3]
+            if (source == target
+                or type(purpose) is not str
+                or re.fullmatch(r"[a-z0-9_-]{1,32}", purpose) is None
+                or type(color) is not str
+                or re.fullmatch(r"#[0-9a-fA-F]{6}", color) is None):
+                raise ValueError("unsafe visual arrow coordinates/purpose/color")
+            normalized_arrows.append((source, target, purpose, color.lower()))
+        object.__setattr__(self, "arrows", tuple(normalized_arrows))
+
     def as_dict(self) -> dict[str, object]:
         return {
             "surface": self.surface.value,
@@ -203,4 +243,12 @@ class VisualBoardSnapshot:
                 else None
             ),
             "legalTargets": list(self.legal_targets),
+            "highlights": [
+                {"square": sq, "purpose": purpose, "color": color}
+                for sq, purpose, color in self.highlights
+            ],
+            "arrows": [
+                {"from": source, "to": target, "purpose": purpose, "color": color}
+                for source, target, purpose, color in self.arrows
+            ],
         }
