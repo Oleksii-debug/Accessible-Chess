@@ -29,16 +29,24 @@ def _apply_uci(board: Board, uci: str) -> None:
     board.push(candidates[0])
 
 
-def build_advanced_offline_material() -> tuple[BookDocument, tuple[dict, ...]]:
+def build_advanced_offline_material(*, language: str = "uk") -> tuple[BookDocument, tuple[dict, ...]]:
     """Publish ONLY 16 real qualified puzzle positions into existing BookDocument."""
+    if type(language) is not str or language not in ("uk", "en"):
+        raise ValueError("advanced material language must be uk or en")
     blocks = [
         Heading(
-            text="Складна тактика Lichess 2200+",
+            text=("Advanced Lichess tactics 2200+" if language == "en"
+                  else "Складна тактика Lichess 2200+"),
             level=1, block_id="section40-advanced-heading",
             source_anchor="section40:advanced:heading",
         ),
         Paragraph(
             text=(
+                "16 authentic CC0 advanced chess puzzles. The previous opponent "
+                "move has already been applied to the board. A 2200+ Lichess "
+                "PUZZLE rating is not FIDE Elo or a chess title. Try the "
+                "calculation before revealing the correct line."
+                if language == "en" else
                 "16 автентичних задач CC0 для шахістів від першого розряду. "
                 "Показано позицію після попереднього ходу суперника. "
                 "Позначення 2200+ — рейтинг СКЛАДНОСТІ задач на Lichess, "
@@ -86,21 +94,25 @@ def build_advanced_offline_material() -> tuple[BookDocument, tuple[dict, ...]]:
             "source_id": "lichess_cc0_advanced_16_original_derived",
         })
         blocks.append(Heading(
-            text=f"Задача {i:02d}. {', '.join(themes[:3])} — Lichess {rating}",
+            text=f"{'Puzzle' if language == 'en' else 'Задача'} {i:02d}. {', '.join(themes[:3])} — Lichess {rating}",
             level=2, block_id=f"section40-advanced-{pid}-heading",
             source_anchor=f"section40:advanced:{pid}:heading",
         ))
         blocks.append(Exercise(
             fen=solver_fen,
-            prompt=f"Знайдіть найкращий хід і розрахуйте варіант. Теми: {', '.join(themes)}.",
+            prompt=(f"Find the best move and calculate the continuation. Themes: {', '.join(themes)}."
+                    if language == "en" else
+                    f"Знайдіть найкращий хід і розрахуйте варіант. Теми: {', '.join(themes)}."),
             answer_text=answer,
-            difficulty=f"Lichess puzzle {rating} (не FIDE)",
+            difficulty=f"Lichess puzzle {rating} ({'not FIDE' if language == 'en' else 'не FIDE'})",
             block_id=f"section40-advanced-{pid}-exercise",
             source_anchor=f"section40:advanced:{pid}:exercise",
         ))
     document = BookDocument(
-        title="16 справжніх складних тактичних задач Lichess (2200+, не FIDE)",
-        language="uk",
+        title=("16 authentic advanced Lichess chess puzzles (2200+, not FIDE)"
+               if language == "en" else
+               "16 справжніх складних тактичних задач Lichess (2200+, не FIDE)"),
+        language=language,
         author="Lichess original CC0 contributors",
         source_name="https://github.com/mcognetta/lichess-combined-puzzle-game-db",
         source_rights="CC0-1.0; verified original Lichess source and rating qualification",
@@ -115,17 +127,24 @@ EXTREME_MATERIAL_ID = "extreme-lichess-4-3000-plus"
 EXTREME_BOOK_KEY = "section40:extreme-lichess-4-original"
 
 
-def build_extreme_offline_material() -> tuple[BookDocument, tuple[dict, ...]]:
+def build_extreme_offline_material(*, language: str = "uk") -> tuple[BookDocument, tuple[dict, ...]]:
     """Separate advanced expert curriculum from beginner and FIDE categories.
 
     This is exactly 4 historical genuine original CC0 puzzle rows, not GM
     titles, not composer studies, and not substitute for publisher content.
     """
+    if type(language) is not str or language not in ("uk", "en"):
+        raise ValueError("extreme material language must be uk or en")
     blocks = [
-        Heading(text="Екстремальні задачі Lichess 3000–3166",
+        Heading(text=("Extreme Lichess puzzles 3000–3166" if language == "en"
+                      else "Екстремальні задачі Lichess 3000–3166"),
                 level=1, block_id="section40-extreme-heading",
                 source_anchor="section40:extreme:heading"),
         Paragraph(text=(
+            "Four authentic Lichess CC0 puzzles with ratings 3000–3166. "
+            "These are puzzle difficulty ratings, not FIDE Elo, FIDE titles or "
+            "composer studies. Calculate the line after the previous opponent move."
+            if language == "en" else
             "Чотири дійсні шахові позиції з історичного CC0-корпусу Lichess. "
             "3000–3166 — рейтинг складності задач на Lichess, не FIDE Elo. "
             "Знайдіть продовження ПІСЛЯ вказаного в джерелі ходу суперника. "
@@ -169,22 +188,26 @@ def build_extreme_offline_material() -> tuple[BookDocument, tuple[dict, ...]]:
             "historical_original_line": puzzle["original_upstream_zero_based_line"],
         })
         blocks.append(Heading(
-            text=f"Екстремальна задача {index:02d}. Lichess {rating}",
+            text=f"{'Extreme puzzle' if language == 'en' else 'Екстремальна задача'} {index:02d}. Lichess {rating}",
             level=2,
             block_id=f"section40-extreme-{ident}-heading",
             source_anchor=f"section40:extreme:{ident}:heading",
         ))
         blocks.append(Exercise(
             fen=fen,
-            prompt="Знайдіть найкращий хід, повний варіант та захист суперника.",
+            prompt=("Find the best move, full line and opponent's defences."
+                    if language == "en" else
+                    "Знайдіть найкращий хід, повний варіант та захист суперника."),
             answer_text=answer,
-            difficulty=f"Lichess puzzle {rating} (не FIDE)",
+            difficulty=f"Lichess puzzle {rating} ({'not FIDE' if language == 'en' else 'не FIDE'})",
             block_id=f"section40-extreme-{ident}-exercise",
             source_anchor=f"section40:extreme:{ident}:exercise",
         ))
     document = BookDocument(
-        title="Екстремальні шахові задачі: 3000–3166 Lichess (не FIDE)",
-        language="uk",
+        title=("Extreme Lichess chess puzzles: 3000–3166 (not FIDE)"
+               if language == "en" else
+               "Екстремальні шахові задачі: 3000–3166 Lichess (не FIDE)"),
+        language=language,
         author="Lichess original CC0 puzzle contributors",
         source_name="https://github.com/FeXd/puzzle-chess",
         source_rights="CC0-1.0 original chess puzzle data; not FeXd GPL code",
