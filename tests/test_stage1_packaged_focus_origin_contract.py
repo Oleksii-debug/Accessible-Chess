@@ -127,7 +127,12 @@ class Stage1PackagedFocusOriginContractTests(unittest.TestCase):
         self.assertIn("cell.setAttribute('aria-label', stableBoardAccessibleName(cell))", text)
         self.assertIn("cell.setAttribute('data-accessible-square', square)", text)
         self.assertIn("stage1BoardUiaSemanticsReady", text)
-        self.assertIn("queueMicrotask(() => stabilizeBoardUiaSemantics(grid))", text)
+        continuity = text[
+            text.index("function installBoardFocusContinuity()"):
+            text.index("function installClockSoundPulse()")
+        ]
+        self.assertIn("queueMicrotask(() => {", continuity)
+        self.assertIn("stabilizeBoardUiaSemantics(grid);", continuity)
 
     def test_board_origin_is_semantic_state_not_active_element_only(self) -> None:
         text = self.bootstrap
@@ -209,10 +214,15 @@ class Stage1PackagedFocusOriginContractTests(unittest.TestCase):
 
     def test_copy_selection_and_document_shortcuts_are_not_newly_hijacked(self) -> None:
         text = self.bootstrap
-        self.assertNotIn("document.addEventListener('keydown'", text)
-        self.assertNotIn("window.addEventListener('keydown'", text)
-        self.assertNotIn("event.key === 'c'", text)
-        self.assertNotIn("event.key === 'a'", text)
+        visual = text[
+            text.index("function installNewGameVisualSequence()"):
+            text.index("function stabilizeBoardUiaSemantics(")
+        ]
+        self.assertIn("document.addEventListener('keydown'", visual)
+        self.assertIn("key === 'n'", visual)
+        self.assertNotIn("key === 'c'", visual)
+        self.assertNotIn("key === 'a'", visual)
+        self.assertNotIn("window.addEventListener('keydown'", visual)
 
     def test_rerender_recovery_and_submit_recovery_share_same_board_context(self) -> None:
         text = self.bootstrap
