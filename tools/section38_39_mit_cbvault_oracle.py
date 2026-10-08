@@ -59,25 +59,39 @@ def _bounded_file_digest(path: Path, *, max_bytes: int) -> tuple[str, int]:
 
 
 def _original_games_signature(games: tuple[PgnGame, ...]) -> tuple:
-    """Structural canonical comparison; no new SAN engine or PGN grammar."""
+    """Entire canonical semantic tree, not merely SAN and party count.
+
+    Independent CLI output may reorder PGN headers. That is not a chess change;
+    dropping *any* actual header value, source comment (including line-level
+    prefaces/trailers), NAG, variation, or move numbering is a loss. This QA
+    backend must report PARTIAL rather than a fake complete-format PASS.
+    """
+
+    def comments(value):
+        return tuple((comment.text, comment.style.value) for comment in value)
+
     def line_value(line):
         return (
+            comments(line.leading_comments),
             tuple(
-                (move.san, tuple(move.nags),
-                 tuple((" ".join(c.text.split()), c.style.value)
-                       for c in move.comments_before),
-                 tuple((" ".join(c.text.split()), c.style.value)
-                       for c in move.comments_after),
-                 tuple(line_value(variation) for variation in move.variations))
+                (
+                    move.san,
+                    move.move_number,
+                    tuple(move.nags),
+                    comments(move.comments_before),
+                    comments(move.comments_after),
+                    tuple(line_value(variation) for variation in move.variations),
+                )
                 for move in line.moves
             ),
+            comments(line.trailing_comments),
             line.result,
         )
+
     return tuple((
-        g.tags.get("White", ""), g.tags.get("Black", ""),
-        g.tags.get("Result", "*"),
-        line_value(g.line),
-    ) for g in games)
+        tuple(sorted(game.tags.items())),
+        line_value(game.line),
+    ) for game in games)
 
 
 def _run_external_pgn(binary: Path, source: Path) -> bytes:
@@ -137,9 +151,15 @@ def qualify_mit_cbvault(
             exported_bytes.decode("utf-8-sig", errors="strict"), strict=False))
         if not original_expected or not actual_games:
             raise LawfulCorpusError("genuine CBH external import yielded zero games")
+        # A forgiving parser recovering a damaged ChessBase export is not an
+        # exact original-source readback. Count only warning-free games.
+        original_recovery_warnings = sum(len(g.warnings) for g in original_expected)
+        decoded_recovery_warnings = sum(len(g.warnings) for g in actual_games)
         same_games = len(original_expected) == len(actual_games)
         same_structure = (
             same_games
+            and original_recovery_warnings == 0
+            and decoded_recovery_warnings == 0
             and _original_games_signature(original_expected)
                 == _original_games_signature(actual_games)
         )
@@ -150,6 +170,9 @@ def qualify_mit_cbvault(
             "expected_games": len(original_expected),
             "observed_games": len(actual_games),
             "full_source_game_tree_match": same_structure,
+            "expected_recovery_warning_count": original_recovery_warnings,
+            "decoded_recovery_warning_count": decoded_recovery_warnings,
+            "all_original_header_comment_nag_variation_metadata_preserved": same_structure,
             "actual_pgn_sha256": hashlib.sha256(exported_bytes).hexdigest(),
             "actual_pgn_bytes": len(exported_bytes),
             "format": "cbh",
