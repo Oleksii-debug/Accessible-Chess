@@ -118,6 +118,7 @@ class Version2Application:
     training_workspace = None
     training = None
     _files = None
+    _user_data_portability = None
     _book_open_worker = None
     _pending_shell_publication = None
     _pending_shell_publication_restore = None
@@ -195,6 +196,7 @@ class Version2Application:
         self._observation_lock = threading.Lock()
         self._progress = self._result = None
         self._files = None
+        self._user_data_portability = None
         self._book_open_worker: Version2BookOpenWorker | None = None
         self._focus = ""
         self._shell_publication_sequence = 0
@@ -497,6 +499,15 @@ class Version2Application:
             raise _BookBrowserLeaseRejected(
                 "Book presentation owner changed before dispatch"
             )
+
+    def bind_user_data_portability(self, handler) -> None:
+        """Bind a trusted owner-hosted Section 37 user-data operation."""
+        self._assert_thread()
+        if not callable(handler):
+            raise TypeError("user-data handler must be callable")
+        if self._user_data_portability is not None and self._user_data_portability is not handler:
+            raise RuntimeError("user-data handler is already bound")
+        self._user_data_portability = handler
 
     def bind_files(self, runtime):
         self._assert_thread()
@@ -1539,6 +1550,17 @@ class Version2Application:
         return canonical
 
     def _delegate(self, action, payload):
+        if action in {"data.backup", "data.restore", "data.export", "data.import"}:
+            self._assert_thread()
+            if self.shell.active_dialog_id is not None:
+                raise ValueError("close the active dialog before a user-data operation")
+            if self._user_data_portability is None:
+                raise ValueError("user-data portability service is unavailable")
+            if payload is None:
+                payload = {}
+            if type(payload) is not dict or payload:
+                raise ValueError("user-data portability does not accept browser paths or payloads")
+            return self._user_data_portability(action, {})
         if action in {"release.status", "release.check_update", "release.apply_update"}:
             if payload:
                 raise ValueError("Release update actions accept no payload")

@@ -1,0 +1,117 @@
+name: Section 37 Persistence Portability
+
+on:
+  push:
+    branches:
+      - 'section37/persistence-portability-20261007-sol56'
+    paths:
+      - 'acs/user_data_portability.py'
+      - 'acs/full_product_actions.py'
+      - 'acs/version2_application.py'
+      - 'tests/test_section37_user_data_portability.py'
+      - 'docs/automation/SECTION37_PERSISTENCE_PORTABILITY.md'
+      - '.github/workflows/section37-persistence-portability.yml'
+  pull_request:
+    paths:
+      - 'acs/user_data_portability.py'
+      - 'acs/full_product_actions.py'
+      - 'acs/version2_application.py'
+      - 'tests/test_section37_user_data_portability.py'
+      - 'docs/automation/SECTION37_PERSISTENCE_PORTABILITY.md'
+      - '.github/workflows/section37-persistence-portability.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: section37-persistence-${{ github.event.pull_request.number || github.ref }}-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  persistence:
+    name: persistence-${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prove exact head and orchestration boundary
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          git diff --check
+          python - <<'PY'
+          from pathlib import Path
+          text = Path("acs/user_data_portability.py").read_text(encoding="utf-8")
+          forbidden = ("sqlite3", "CREATE TABLE", "Board(", "MediaPositionTimeline(", "EducationWorkspace(")
+          for token in forbidden:
+              if token in text:
+                  raise SystemExit(f"duplicate domain authority token present: {token}")
+          required = (
+              "DomainAdapter",
+              "DomainSnapshot",
+              "create_backup",
+              "restore_backup",
+              "export_user_data",
+              "import_user_data",
+              "prepare_import",
+              "prior state was restored",
+          )
+          for token in required:
+              if token not in text:
+                  raise SystemExit(f"missing Section 37 orchestration token: {token}")
+          actions = Path("acs/full_product_actions.py").read_text(encoding="utf-8")
+          app = Path("acs/version2_application.py").read_text(encoding="utf-8")
+          for action in ("data.backup", "data.restore", "data.export", "data.import"):
+              if action not in actions or action not in app:
+                  raise SystemExit(f"missing accessible action wiring: {action}")
+          PY
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile Section 37 boundary
+        run: >-
+          python -m py_compile
+          acs/user_data_portability.py
+          acs/full_product_actions.py
+          acs/version2_application.py
+          tests/test_section37_user_data_portability.py
+
+      - name: Execute Section 37 portability contract
+        run: python -m unittest -v tests.test_section37_user_data_portability
+
+      - name: Execute inherited crash-safe persistence contracts
+        run: >-
+          python -m unittest -v
+          tests.test_settings
+          tests.test_settings_corruption_security
+          tests.test_v2_book_progress_store
+          tests.test_w2_training_progress_crash_recovery
+          tests.test_education_workspace
+          tests.test_media_timeline_store
+          tests.test_local_profile
+          tests.test_agent_checkpoint_crossrepo
+
+      - name: Execute backup restore and migration contracts
+        run: >-
+          python -m unittest -v
+          tests.test_d07_acsdb_migration_atomicity
+          tests.test_version2_upgrade
+          tests.test_version2_upgrade_recovery_integrity
+          tests.test_version2_upgrade_stale_writer
+          tests.test_v2_upgrade_v6_successor
