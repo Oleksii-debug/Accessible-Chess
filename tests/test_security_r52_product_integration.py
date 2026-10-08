@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
+from types import SimpleNamespace
 import pytest
 
 from acs.protection_boundary import ProtectionRuntimeClient
@@ -94,3 +95,57 @@ def test_r52_provider_exception_is_redacted(tmp_path):
     assert "PRIVATE-NATIVE" not in str(err.value)
     assert err.value.__cause__ is None
     assert calls == []
+
+
+def test_r52_real_release_startup_stops_before_user_data_or_engine(tmp_path, monkeypatch):
+    from acs.protection_boundary import (
+        ProtectionDecision, ProtectionStartupSession, ProtectedStartupLocked,
+    )
+    from acs import version2_release_app as release_app
+
+    client, calls, _ = client_for(
+        tmp_path,
+        mutate=lambda r: {**r, "authorized": False, "reason": "device_not_authorized"},
+    )
+    session = ProtectionStartupSession(
+        decision=ProtectionDecision(
+            state="authorized", reason="none",
+            safe_operations=frozenset({
+                "recovery", "login", "update", "help",
+                "own-data-read", "own-data-export",
+            }),
+            capabilities=frozenset({"local-chess"}),
+            build_id="build-r52-test",
+        ),
+        client=client,
+    )
+    monkeypatch.setattr(
+        release_app, "ProtectionEntitlementLifecycle",
+        lambda _client: SimpleNamespace(
+            synchronize=lambda: SimpleNamespace(premium_allowed=True)
+        ),
+    )
+    monkeypatch.setattr(
+        release_app, "ProtectionTrustBoundary",
+        lambda _client: SimpleNamespace(
+            synchronize=lambda: SimpleNamespace(state="trusted")
+        ),
+    )
+    monkeypatch.setattr(
+        release_app, "HardenedReleaseBoundary",
+        lambda _client: SimpleNamespace(require_all=lambda **_: None),
+    )
+    engine_started = []
+    user_root = tmp_path / "user-data"
+    with pytest.raises(ProtectedStartupLocked) as blocked:
+        release_app.create_version2_release_application(
+            application_dir=tmp_path / "app",
+            data_root=user_root,
+            runtime_factory=lambda _cfg: engine_started.append(True),
+            protection_authorizer=lambda **_kwargs: session,
+            defer_ui=True,
+        )
+    assert blocked.value.decision.reason == "advanced_security_unavailable"
+    assert calls and calls[0]["build_id"] == "build-r52-test"
+    assert engine_started == []
+    assert not user_root.exists()
