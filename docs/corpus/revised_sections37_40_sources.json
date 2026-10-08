@@ -429,6 +429,21 @@
       "local_source": "tests/real_corpus/books/gitenberg_capablanca_33870.txt",
       "canonical_qa": "Original source SHA256 and Git blob readback; text is readable by existing Book TXT importer in focused tests, not a claim of diagram fidelity/PDF/DOCX support",
       "notes": "Original full genuine 262824-byte Gutenberg TXT includes Gutenberg license and attribution. Vendored only as a real QA source with exact upstream Git identity and checksum. No automated network dependency, no permission to repackage it into commercial/public releases inferred, and no claim of full Section-37/38 closure."
+    },
+    {
+      "id": "chessbase_official_free_rossolimo_cbv_sample",
+      "title": "Official ChessBase Magazine 155 Rossolimo free opening survey CBV",
+      "author": "Leonid Kritz / ChessBase",
+      "format": "cbv",
+      "source_page": "https://shop.chessbase.com/en/products/chessbase_17_starter_package",
+      "download_url": "https://de.chessbase.com/Portals/3/files/2013/CBM155Leseprobe/B30SicilianRossolimo155.cbv",
+      "sha256": null,
+      "max_bytes": 0,
+      "license": "Official ChessBase free sample for download; copyright retained; test and redistribution terms require verification",
+      "redistribution": "NOT_CLEARED",
+      "acquisition": "DISCOVERED_NOT_HASH_VERIFIED",
+      "canonical_qa": "On lawfully acquired exact bytes: verify SHA-256 and size; use existing ChessBase CBV capability contract with honest PARTIAL/UNSUPPORTED readback; never treat source discovery as import PASS",
+      "notes": "Official ChessBase 17 Starter Package page explicitly links a free Leonid Kritz CBV opening survey. This pass located the advertised direct URL but DID NOT download bytes, compute SHA256, verify CBV semantic import, establish redistribution license or qualify a complete CBH/2CBH/CBONE family. Excluded from public release and automatic CC0 acquisition."
     }
   ]
 }
