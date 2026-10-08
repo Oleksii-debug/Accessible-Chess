@@ -4,6 +4,15 @@
 
 Цей файл містить датовані технічні докази, тести й залишки роботи, а не альтернативну систему нумерації або окремий план DONE. Чинний статус розділів 37–42 визначається **тільки** цим планом, `SEQUENTIAL_CLOSURE_STATE.md` та точним CI/integration readback. Перші реальні тестові зрізи форматів не означають завершення повної матриці.
 
+## 2026-10-08 — Section 37 lawful catalog ambiguity guard (incremental, NOT closure)
+
+- Reused canonical current-shipping PR #2494; no competing catalog, parser or PR.
+- Found an acceptance-relevant ambiguity in `acs.lawful_corpus_registry.load_catalog`: default Python `json.loads` silently accepts duplicate object keys and nonstandard `NaN`/`Infinity` constants, allowing legal provenance/redistribution metadata to be interpreted inconsistently. Now parse using a duplicate-key rejecting object hook and nonfinite-constant refusal, including nested records.
+- Source commit `1fd0c4104df1e3b18a72a15bc670e62233c5004e`; regression test commit `6df39346130cddd7c472b154d58ffeb2c31051fe` on the SAME existing PR. Source and test were read back from the PR branch with exact Git blob SHAs `0806dfb17f0a7a99149dcb17d7b815fd3ea055fe` and `ee6ec461e560ea097dbd925a8c33b1ab90b83e05`.
+- Isolated local smoke for the exact JSON rejection logic: 6/6 PASS (valid catalog fragment; duplicate nested source digest; duplicate rights field; NaN; +Infinity; -Infinity). These smoke tests are **not** the full repository test suite or exact PR-head CI. Static catalog check: 59 records, no duplicate keys in checked current catalog text.
+- PR #2494 remained OPEN and had an advancing concurrent head; most recent observed head `a7aa66ccf332dde51fdb8acdd6e9ba678741c645` had revised corpus workflow `37842366250` QUEUED, not PASS. Refresh live head before any subsequent candidate qualification.
+- **Section 37 stays OPEN. Section 38 stays OPEN**: actual lawful corpus acquisitions, authentic unqualified format families, canonical import/readback, Windows and Web integration, negative/recovery and accepted post-integration exact-source qualification remain incomplete. Do not mark Drive plan or `SEQUENTIAL_CLOSURE_STATE.md` DONE.
+
 ## 2026-10-08 — Section 37 official corpus hashes and copyright correction
 
 - Continued the EXISTING canonical finisher PR #2494, rather than making a competing implementation.
