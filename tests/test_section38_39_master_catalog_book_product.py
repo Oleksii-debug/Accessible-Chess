@@ -67,6 +67,22 @@ class ProfessionalCatalogProductTests(unittest.TestCase):
                 self.assertEqual(restored.location(), first)
                 self.assertEqual(restored.restore_return_point(
                     "after-first-master-genre"), first)
+                # Navigate ALL 25 genre headings with the same keyboard-next
+                # semantic navigation method used by accessible Books, not
+                # just check one index in a static catalogue.
+                traversed = [first.source_anchor]
+                for _ in range(24):
+                    item = restored.next_heading()
+                    traversed.append(item.source_anchor)
+                    self.assertEqual(item.kind, "Heading")
+                self.assertEqual(
+                    traversed,
+                    ["section38:master:genre:" + ident for ident in ids],
+                )
+                with self.assertRaises(LookupError):
+                    restored.next_heading()
+                restored.restore_return_point("after-first-master-genre")
+                self.assertEqual(restored.location(), first)
                 self.assertEqual(
                     len([x for x in doc.blocks if isinstance(x, Paragraph)
                          and "NOT VERIFIED" in x.text]), 25 if language == "en" else 0
