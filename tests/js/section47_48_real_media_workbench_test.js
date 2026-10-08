@@ -28,7 +28,8 @@ class FakeVideo extends FakeNode {
     this.currentTime = 0; this.duration = Number.NaN;
     this.volume = 1; this.playbackRate = 1; this.error = null;
   }
-  pause() { this.paused = true; }
+  play() { this.paused = false; this.emit("play"); return Promise.resolve(); }
+  pause() { this.paused = true; this.emit("pause"); }
   load() {}
 }
 class FakeYTPlayer {
@@ -60,7 +61,7 @@ async function main() {
   const ids = [
     "real-media-video", "real-media-file", "real-media-status",
     "real-media-time", "real-media-read-position",
-    "real-media-rate", "real-media-volume", "real-media-rewind", "real-media-forward",
+    "real-media-rate", "real-media-volume", "real-media-play", "real-media-pause", "real-media-rewind", "real-media-forward",
     "real-youtube-status", "real-youtube-time", "real-youtube-read-position", "real-youtube-url", "real-youtube-open",
     "real-youtube-player", "real-youtube-play", "real-youtube-pause",
     "real-youtube-back", "real-youtube-forward",
@@ -110,6 +111,10 @@ async function main() {
   assert(nodes["#real-media-status"].textContent.includes("7.0"), "local position announce button failed");
   assert.equal(snapshots.at(-1).positionMs,7000);
   assert.equal(snapshots.at(-1).durationMs,26000);
+  nodes["#real-media-pause"].emit("click");
+  assert.equal(video.paused, true, "explicit local pause must work");
+  nodes["#real-media-play"].emit("click");
+  assert.equal(video.paused, false, "explicit local play must work");
   assert.equal(snapshots.at(-1).playbackState,"playing");
   nodes["#real-media-rewind"].emit("click"); assert.equal(video.currentTime,0);
   nodes["#real-media-forward"].emit("click"); assert.equal(video.currentTime,10);
