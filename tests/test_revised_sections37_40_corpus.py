@@ -6,11 +6,13 @@ import io
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from acs.lawful_corpus_registry import (
-    LawfulCorpusError, acquire_cc0_source, load_catalog, verified_local_source, qualify_offline_collection,
+    LawfulCorpusError, _NoRedirect, acquire_cc0_source, load_catalog,
+    verified_local_source, qualify_offline_collection,
 )
+from urllib.request import Request
 
 
 class Response(io.BytesIO):
@@ -136,6 +138,38 @@ class RevisedCorpusContractTests(unittest.TestCase):
                 return
             with self.assertRaises(LawfulCorpusError):
                 verified_local_source(path, record)
+
+    def test_default_transport_disables_redirects_before_second_request(self):
+        data = b"approved-source-bytes"
+        record = self._record(data)
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_opener = Mock()
+            fake_opener.open.return_value = Response(data, record["download_url"])
+            with patch("acs.lawful_corpus_registry.build_opener", return_value=fake_opener) as factory:
+                source = acquire_cc0_source(record, Path(tmp))
+            self.assertEqual(source.read_bytes(), data)
+            self.assertEqual(factory.call_count, 1)
+            self.assertIsInstance(factory.call_args.args[0], _NoRedirect)
+            fake_opener.open.assert_called_once()
+            self.assertIsNone(_NoRedirect().redirect_request(
+                Request(record["download_url"]), None, 302, "Redirect", {},
+                "https://example.com/disallowed.pgn.zst",
+            ))
+
+    def test_malformed_url_ports_and_brackets_fail_as_corpus_errors(self):
+        base = self._record(b"safe")
+        for url in (
+            "https://database.lichess.org:wrong/standard/data.pgn.zst",
+            "https://[malformed/standard/data.pgn.zst",
+            "https://database.lichess.org:444/standard/data.pgn.zst",
+        ):
+            with self.subTest(url=url):
+                with tempfile.TemporaryDirectory() as tmp:
+                    with self.assertRaises(LawfulCorpusError):
+                        acquire_cc0_source(
+                            {**base, "download_url": url}, Path(tmp),
+                            opener=lambda *_a, **_kw: self.fail("must not use network"),
+                        )
 
 
 if __name__ == "__main__":
