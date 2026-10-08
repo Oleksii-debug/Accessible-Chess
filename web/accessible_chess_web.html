@@ -11,8 +11,8 @@ nav ul{display:flex;flex-wrap:wrap;gap:.4rem;list-style:none;padding:0}
 button,input,select,textarea{font:inherit;padding:.45rem}.route-button[aria-current="page"]{font-weight:700}
 #workspace{border-top:1px solid GrayText;margin-top:1rem;padding-top:1rem}
 .readable{white-space:pre-wrap;overflow-wrap:anywhere}
-.grid{display:grid;grid-template-columns:repeat(8,minmax(2.7rem,1fr));gap:.15rem;max-width:42rem}
-.grid button{min-height:2.7rem}.status{min-height:1.5rem}
+.grid{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:.15rem;max-width:42rem;min-width:0}
+.grid button{min-width:0;min-height:0;aspect-ratio:1;overflow:hidden}.status{min-height:1.5rem}
 progress{width:min(32rem,100%)}
 </style>
 <link rel="stylesheet" href="assets/tabler-core/accessibility.css">
