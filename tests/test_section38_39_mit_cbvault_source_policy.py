@@ -60,6 +60,55 @@ class MITCbvaultNoFalsePassTests(unittest.TestCase):
         self.assertNotEqual(m._original_games_signature(prior),
                             m._original_games_signature(different))
 
+    def test_external_cbvault_cannot_false_pass_lost_annotations_or_headers(self):
+        # Same moves and result do not prove that publisher commentary,
+        # event/source identity, or study variations survived a decoder.
+        origin = (
+            '[Event "Advanced master training"]\n'
+            '[White "Master A"]\n'
+            '[Black "Master B"]\n'
+            '[Annotator "Author of notes"]\n'
+            '[Result "*"]\n\n'
+            '1. d4 {Critical plan} d5 $1 2. c4 (2. Nf3 {Quiet alternative}) e6 *'
+        )
+        original = tuple(parse_games(origin))
+        self.assertEqual(len(original), 1)
+        mutations = (
+            origin.replace('Advanced master training', 'Unrelated event'),
+            origin.replace('[Annotator "Author of notes"]\n', ''),
+            origin.replace('{Critical plan}', ''),
+            origin.replace(' $1', ''),
+            origin.replace(' (2. Nf3 {Quiet alternative})', ''),
+        )
+        for damaged in mutations:
+            with self.subTest(damaged=damaged[:55]):
+                parsed = tuple(parse_games(damaged))
+                self.assertEqual(len(parsed), 1)
+                self.assertNotEqual(
+                    m._original_games_signature(original),
+                    m._original_games_signature(parsed),
+                    "independent CBH importer lost original publisher semantics",
+                )
+
+    def test_line_level_comments_are_part_of_complete_original_semantics(self):
+        from acs.gametree import Comment, MoveNode, PgnGame, VariationLine
+        initial = PgnGame(
+            tags={"White": "Master A", "Black": "Master B", "Result": "*"},
+            line=VariationLine(moves=[MoveNode(san="e4")], result="*"),
+        )
+        with_comment = PgnGame(
+            tags=dict(initial.tags),
+            line=VariationLine(
+                moves=[MoveNode(san="e4")],
+                leading_comments=[Comment(text="Deep original study context")],
+                result="*",
+            ),
+        )
+        self.assertNotEqual(
+            m._original_games_signature((initial,)),
+            m._original_games_signature((with_comment,)),
+        )
+
     def test_real_source_mode_does_not_succeed_when_cli_returns_empty(self):
         with tempfile.TemporaryDirectory() as tmp:
             binary = Path(tmp) / "stub"
