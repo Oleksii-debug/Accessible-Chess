@@ -32,7 +32,11 @@ class OfflineCorpusInventoryTests(unittest.TestCase):
         self.assertEqual(
             len([name for name in ids if name.startswith("stockfish_")]), 4
         )
-        self.assertEqual(\n            len([name for name in ids if name.startswith("lichess_cc0_")]), 3\n        )\n        self.assertTrue(any("advanced" in name for name in ids))\n        self.assertTrue(all(row["bytes"] > 0 for row in inventory))
+        self.assertEqual(
+            len([name for name in ids if name.startswith("lichess_cc0_")]), 3
+        )
+        self.assertTrue(any("advanced" in name for name in ids))
+        self.assertTrue(all(row["bytes"] > 0 for row in inventory))
         self.assertTrue(
             all(row["semantic_state"] == "VERIFIED_BYTES_NOT_IMPORTED" for row in inventory)
         )
