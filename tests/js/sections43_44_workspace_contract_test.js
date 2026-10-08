@@ -242,4 +242,43 @@ const key = "accessible-chess.workspace-layout.v1";
   hostile.applyProductLayout("teacher", "uk");
   assert.equal(hostile.workspace.dataset.ac43Presentation, "compact");
 }
-console.log("Sections 43-44: 7 runtime/static contract groups PASS (not full Windows UIA acceptance)");
+
+// Component palette contrast is sourced from the actual CSS tokens, not an
+// invented screenshot/pixel claim. All normal text-action pairs >= WCAG AA 4.5.
+{
+  function palette(selector) {
+    const index = css.indexOf(selector);
+    assert.ok(index >= 0, "Missing CSS theme " + selector);
+    const start = css.indexOf("{", index);
+    const end = css.indexOf("}", start);
+    assert.ok(start >= index && end > start);
+    const declaration = css.slice(start + 1, end);
+    const tokens = {};
+    for (const match of declaration.matchAll(/--ac41-([a-z-]+):\s*(#[0-9a-f]{6})/gi)) {
+      tokens[match[1]] = match[2];
+    }
+    return tokens;
+  }
+  function luminance(hex) {
+    const components = hex.slice(1).match(/../g).map(function (value) {
+      const s = parseInt(value, 16) / 255;
+      return s <= .04045 ? s / 12.92 : Math.pow((s + .055) / 1.055, 2.4);
+    });
+    return components[0] * .2126 + components[1] * .7152 + components[2] * .0722;
+  }
+  function contrast(a, b) {
+    const x = luminance(a), y = luminance(b);
+    return (Math.max(x, y) + .05) / (Math.min(x, y) + .05);
+  }
+  for (const selector of [
+    ":root{", ':root[data-ac-ui-theme="dark"]{',
+    ':root[data-ac-ui-theme="contrast"]{'
+  ]) {
+    const p = palette(selector);
+    assert.ok(contrast(p.ink, p.surface) >= 4.5,
+      selector + " text/surface low contrast");
+    assert.ok(contrast(p["on-action"], p.action) >= 4.5,
+      selector + " action label low contrast");
+  }
+}
+console.log("Sections 43-44: 8 runtime/static contract groups PASS (not full Windows UIA acceptance)");
