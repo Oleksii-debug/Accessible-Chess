@@ -22,7 +22,14 @@ class ProtectionLockedAPI:
         self.decision = decision
         self.authorized = False
         self._window: Any | None = None
-        self._online = online_client or ProtectionOnlineClient(client)
+        if online_client is not None:
+            self._online = online_client
+        elif isinstance(client, ProtectionRuntimeClient):
+            self._online = ProtectionOnlineClient(client)
+        else:
+            # Preserve Wave-1 test/adaptor compatibility. Online operations are
+            # unavailable for duck-typed legacy clients unless explicitly injected.
+            self._online = None
         self._online_flow_id: str | None = None
         self._online_mode: str | None = None
 
@@ -31,7 +38,10 @@ class ProtectionLockedAPI:
 
     def status(self) -> dict[str, object]:
         try:
-            online_available = self.client.runtime_api_version() >= ONLINE_RUNTIME_API_VERSION
+            online_available = (
+                self._online is not None
+                and self.client.runtime_api_version() >= ONLINE_RUNTIME_API_VERSION
+            )
         except Exception:
             online_available = False
         return {
@@ -43,6 +53,8 @@ class ProtectionLockedAPI:
         }
 
     def _begin_online(self, mode: str) -> dict[str, object]:
+        if self._online is None:
+            return {"ok": False, "error": "online access is unavailable"}
         try:
             flow = self._online.begin(mode=mode)
         except Exception as exc:
@@ -64,6 +76,8 @@ class ProtectionLockedAPI:
     def poll_online_access(self) -> dict[str, object]:
         if self._online_flow_id is None:
             return {"ok": False, "error": "online access flow has not been started"}
+        if self._online is None:
+            return {"ok": False, "error": "online access is unavailable"}
         try:
             poll = self._online.poll(flow_id=self._online_flow_id)
         except Exception as exc:
