@@ -49,6 +49,7 @@ class FakeYTPlayer {
   ready() { this.options.events.onReady({ target: this }); }
   change(state) { this.state = state; this.options.events.onStateChange({ data: state, target: this }); }
   error(code) { this.options.events.onError({ data: code, target: this }); }
+  autoplayBlocked() { this.options.events.onAutoplayBlocked({ target: this }); }
 }
 async function main() {
   let seq = 0;
@@ -138,6 +139,11 @@ async function main() {
   nodes["#real-youtube-forward"].emit("click");
   assert.equal(yt.actions[0],"play"); assert.equal(yt.actions[1],"pause");
   assert.deepEqual(yt.actions[2],["seek",15.25]);
+  yt.autoplayBlocked();
+  assert.equal(snapshots.at(-1).autoplayBlocked,true);
+  assert(nodes["#real-youtube-status"].textContent.includes("заблоковано"));
+  yt.change(1);
+  assert.equal(snapshots.at(-1).autoplayBlocked,false);
   yt.error(101);
   assert.equal(snapshots.at(-1).ok,false);
   assert(nodes["#real-youtube-status"].textContent.includes("101"));
