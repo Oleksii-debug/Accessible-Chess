@@ -68,6 +68,8 @@ jobs:
       - name: Actually fetch SHA256-verified CC0 Lichess file and import 5000 real games
         run: python -m tools.v2_library_source_catalog_real_corpus
       - name: Acquire four official SHA-pinned CC0 corpora and parse real samples
+        env:
+          ACCESSIBLE_CHESS_EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
         run: python -m tools.revised_section37_real_cc0_readback
       - name: Preserve non-private exact corpus qualification facts
         if: always()
