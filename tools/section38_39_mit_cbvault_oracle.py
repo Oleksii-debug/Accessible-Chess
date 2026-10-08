@@ -8,7 +8,6 @@ packaged or published. 2CBH/CBONE/CBF are NOT promoted to supported.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
 import hashlib
 import json
 import os
