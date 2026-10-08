@@ -155,5 +155,34 @@ class Section52CorpusQualificationTests(unittest.TestCase):
             self.deny()
 
 
+    def test_empty_owner_test_build_is_not_a_test_package(self):
+        self.doc["assets"] = []
+        (self.stage / "books" / "sample.pgn").unlink()
+        self.deny()
+
+    def test_malformed_permission_type_fails_with_policy_error(self):
+        for poison in ([], {}, None, 42):
+            self.doc["assets"][0]["permission"] = poison
+            self.deny()
+
+    def test_hardlinked_external_content_is_not_qualified(self):
+        own = self.stage / "books" / "sample.pgn"
+        alternate = self.root / "same-inode.pgn"
+        try:
+            import os
+            os.link(own, alternate)
+        except (OSError, NotImplementedError):
+            self.skipTest("hardlink creation unavailable")
+        self.deny()
+
+    def test_oversized_and_mutated_manifest_is_rejected(self):
+        self.manifest.write_bytes(b" " * (1048576 + 1))
+        with self.assertRaises(DistributionQualificationError):
+            qualify_distribution_corpus(
+                stage_dir=self.stage, manifest_path=self.manifest,
+                expected_source_sha=SHA,
+            )
+
+
 if __name__ == "__main__":
     unittest.main()
