@@ -285,6 +285,61 @@ def main() -> int:
     }
     (directory / "RECEIPT.json").write_text(
         json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+    # Populate the EXISTING canonical catalog schema with measured real bytes,
+    # but only in this private test corpus. Do not rewrite repository data.
+    receipt_by_name = {item["filename"]: item for item in receipts}
+    qualified_catalog = {
+        "schema_version": manifest["schema_version"],
+        "videos": [
+            {**item, "expected_sha256": receipt_by_name[item["filename"]]["sha256"]}
+            for item in entries
+        ],
+    }
+    (directory / "QUALIFIED_TEST_VIDEO_CATALOG.json").write_text(
+        json.dumps(qualified_catalog, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    attribution = [
+        "ACCESSIBLE CHESS — PRIVATE REAL CHESS VIDEO TEST CORPUS",
+        "Every original retains independent source, license and author.",
+        "The H264 MP4 is a MODIFIED QA clip, not an original.",
+        "",
+    ]
+    for item in entries:
+        attribution.extend([
+            item["filename"],
+            "Author: " + item["author"],
+            "Original: " + item["source_page"],
+            "License: " + item["license_id"] + " — " + item["license_url"],
+            "Original SHA-256: " + receipt_by_name[item["filename"]]["sha256"],
+            "",
+        ])
+    for item in derivatives:
+        attribution.extend([
+            item["filename"] + " (MODIFIED private QA derivative)",
+            "Source: " + item["source_page"],
+            "Author: " + item["creator"],
+            "Source license: " + item["license"] + " — " + item["license_url"],
+            "Source SHA-256: " + item["derived_from_original_sha256"],
+            "Derivative SHA-256: " + item["sha256"],
+            "Modification: " + item["modification"],
+            "",
+        ])
+    (directory / "VIDEO_SOURCE_ATTRIBUTION.txt").write_text(
+        "\n".join(attribution), encoding="utf-8",
+    )
+    (directory / "README_UA.txt").write_text(
+        "Accessible Chess — реальні тестові відео.\n"
+        "1. Знайдіть у програмі дію «Відкрити локальне медіа».\n"
+        "2. Виберіть один із чотирьох відеофайлів WebM.\n"
+        "3. Для перевірки MP4 відкрийте файл .qa.mp4, якщо його створено.\n"
+        "4. Виконайте відтворення, паузу, перемотування і перевірте озвучення NVDA.\n"
+        "5. Файл QUALIFIED_TEST_VIDEO_CATALOG.json містить перевірені SHA-256.\n"
+        "6. Не трактуйте відео як автоматично підтверджену позицію FEN/PGN.\n"
+        "7. Ліцензії та атрибуція — VIDEO_SOURCE_ATTRIBUTION.txt.\n",
+        encoding="utf-8",
+    )
     print("Receipt: " + str(directory / "RECEIPT.json"))
     return 0
 
