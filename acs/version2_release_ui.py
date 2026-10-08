@@ -852,6 +852,10 @@ def _resource_sources() -> tuple[tuple[str, str], ...]:
         ("V2 Library surface", root / "full_product_library.js"),
         ("V2 Books surface", root / "full_product_books_training.js"),
         ("V2 release bootstrap", root / "version2_release_bootstrap.js"),
+        ("Media accessible player", root / "recorded_media_accessible_player.js"),
+        ("Media local playback", root / "local_video_playback_adapter.js"),
+        ("Media YouTube IFrame", root / "youtube_iframe_playback_adapter.js"),
+        ("Media workflow", root / "version2_media_user_workflow.js"),
     )
     output: list[tuple[str, str]] = []
     for label, path in resources:
