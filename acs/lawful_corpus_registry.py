@@ -540,7 +540,11 @@ def inventory_vendored_corpus(
             or type(rights) is not str or not rights.startswith("permitted")
         ):
             continue
-        if distribution == "PUBLIC_RELEASE" and (license_name != "CC0" or rights != "permitted"):
+        if distribution == "PUBLIC_RELEASE" and (
+            license_name != "CC0"
+            or rights != "permitted"
+            or entry.get("public_release") in ("EXCLUDED", "EXCLUDED_PENDING_QUALIFICATION")
+        ):
             continue
         source_id = entry.get("id")
         if type(source_id) is not str or not _ID.fullmatch(source_id) or source_id in seen:
