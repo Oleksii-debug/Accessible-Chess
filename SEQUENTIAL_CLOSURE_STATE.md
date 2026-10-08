@@ -3,7 +3,7 @@
 Canonical plan: `ACCESSIBLE CHESS — SECTION PLAN ДО ПОВНІСТЮ ЗАВЕРШЕНОГО ПРОДУКТУ`  
 Canonical Drive document: `https://docs.google.com/document/d/1ITsUBFwwETRICctcOWLd6atuMcCFZg6v5-wVFumIyxE/edit`  
 Closure run date: 2026-10-09  
-Current exact source: `work/owner-gameplay-section37-20261009` at `0da5b0dbc07766910f6271d81a339d94f96271bd`
+Current source lineage: branch `work/owner-gameplay-section37-20261009`, based on integrated source `82b1ec638`; read the branch ref for the latest closure commit.
 
 ## Rule
 
