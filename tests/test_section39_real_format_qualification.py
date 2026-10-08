@@ -92,6 +92,20 @@ class RealFileFormatQualificationTests(TestCase):
         self.assertNotEqual(lookup["original_epd2doc_opening_fen"]["status"], "PASS")
         self.assertEqual(lookup["gitenberg_capablanca_33870_original_txt"]["status"],
                          "PARTIAL")
+        for unpinned_external in (
+            "northwest_chess_2013_01_annotated_cbv_original_external",
+            "northwest_chess_2013_01_annotated_pgn_independent_oracle_external",
+        ):
+            self.assertIsNone(lookup[unpinned_external]["actual_sha256"])
+            self.assertEqual(lookup[unpinned_external]["status"], "BLOCKED")
+        self.assertIn(
+            "northwest_chess_2013_01_annotated_cbv_original_external",
+            SOURCE_IDS["CBV"],
+        )
+        self.assertIn(
+            "northwest_chess_2013_01_annotated_pgn_independent_oracle_external",
+            SOURCE_IDS["PGN"],
+        )
         self.assertIsNone(lookup["chessbase_family_complete_real_samples"]["actual_sha256"])
         self.assertEqual(lookup["chessbase_family_complete_real_samples"]["status"],
                          "BLOCKED")
