@@ -31,6 +31,9 @@ from acs.starter_books_training_release import (
     build_training_task_catalogue,
 )
 from acs.starter_books_training_runtime import build_training_ready_starter_course
+from acs.section40_advanced_training_runtime import (
+    build_advanced_offline_material, build_extreme_offline_material,
+)
 from tools.revised_section40_advanced_training import build_complete_advanced_training
 
 
@@ -286,6 +289,47 @@ def build_collection(profile: str, output: Path, *, root: Path = ROOT) -> dict:
     book_assets, book_rows = _books_and_training()
     assets.update(book_assets)
     rows.extend(book_rows)
+    # The same original CC0 advanced/chessboard content is already validated
+    # by the canonical advanced builder. Export its native English BookDocument
+    # variant for external expert testers, not an approximate translation or
+    # another Training engine. Bilingual access does not change puzzle FEN.
+    for original_id, name, build_en, task_count in (
+        ("lichess_cc0_advanced_16_original_derived",
+         "advanced-lichess-16-en.json", build_advanced_offline_material, 16),
+        ("lichess_cc0_extreme_4_original_derived_puzzles",
+         "extreme-lichess-4-en.json", build_extreme_offline_material, 4),
+    ):
+        original_entry = next((e for e in catalog if e["id"] == original_id), None)
+        if (
+            original_entry is None
+            or original_entry.get("acquisition") != "VENDORED_SOURCE_VERIFIED"
+            or original_entry.get("redistribution") != "permitted"
+        ):
+            raise OfflineCollectionError("genuine English advanced source provenance missing")
+        english, tasks = build_en(language="en")
+        if len(tasks) != task_count or len(english.exercises()) != task_count:
+            raise OfflineCollectionError("authentic English advanced exercise count changed")
+        encoded = _json_bytes(english.as_dict())
+        if BookDocument.from_dict(json.loads(encoded)).as_dict() != english.as_dict():
+            raise OfflineCollectionError("English advanced Books serialization/reopen changed")
+        dest = "books/" + name
+        if dest in assets:
+            raise OfflineCollectionError("duplicate English advanced book path")
+        assets[dest] = encoded
+        rows.append({
+            "id": original_id + "_english_book",
+            "title": english.title,
+            "author": english.author or "Lichess original CC0 contributors",
+            "genre": "advanced calculation and expert chess training",
+            "language": "en", "format": "BookDocument JSON",
+            "source_url": original_entry.get("source_page"),
+            "download_url": None, "source_path": dest,
+            "size_bytes": len(encoded), "sha256": _digest(encoded),
+            "license": original_entry["license"],
+            "redistribution": "permitted",
+            "import_status": "CANONICAL_BOOKDOCUMENT_ENGLISH_ROUNDTRIP_PASS",
+            "repeat_download": "BUNDLED_OFFLINE",
+        })
     advanced_assets, advanced_rows = build_complete_advanced_training(root=root)
     if set(assets) & set(advanced_assets):
         raise OfflineCollectionError("duplicate advanced training content key")
