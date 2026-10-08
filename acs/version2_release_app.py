@@ -12,6 +12,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Callable
 
+from . import __version__ as _product_version
 from .acsdb import AcsDatabase
 from .analysis_service import AnalysisService
 from .book_progress_store import BookProgressStore
@@ -25,6 +26,7 @@ from .full_product_ui_shell import UILanguage
 from .local_profile import LocalProfileStore
 from .release_app import _sound_cache_dir, _sound_variant_provider, _user_root
 from .protection_boundary import (
+    ADVANCED_SECURITY_RUNTIME_API_VERSION,
     ENTITLEMENT_RUNTIME_API_VERSION,
     ProtectedStartupLocked,
     ProtectionDecision,
@@ -33,6 +35,16 @@ from .protection_boundary import (
 )
 from .protection_locked_ui import run_locked_security_window
 from .protection_entitlement_lifecycle import ProtectionEntitlementLifecycle
+from .protection_advanced_boundary import (
+    ProtectionAdvancedError,
+    ProtectionCapabilityGate,
+    ProtectionTrustBoundary,
+    ProtectionTrustedTimeSource,
+    ProtectionUpdateChannel,
+    ProtectionUpdateInstaller,
+    ProtectionUpdateSignatureVerifier,
+)
+from .release_update_center import ReleaseUpdateCenter
 from .settings import Settings
 from .sound_runtime import GameSoundRuntime, SoundRuntime, SoundRuntimeSettings
 from .sound_windows import PackagedSoundAssetResolver, WindowsSoundPlaybackAdapter
@@ -515,15 +527,15 @@ def create_version2_release_application(
         # unexpected authority object is rejected instead of silently ignored.
         raise TypeError("protection authorizer returned an unsupported result")
 
+    capability_gate: ProtectionCapabilityGate | None = None
+    release_update_center: ReleaseUpdateCenter | None = None
     if (
         protection_session is not None
         and protection_session.decision.build_id != "source-development"
     ):
         try:
-            if (
-                protection_session.client.runtime_api_version()
-                >= ENTITLEMENT_RUNTIME_API_VERSION
-            ):
+            runtime_version = protection_session.client.runtime_api_version()
+            if runtime_version >= ENTITLEMENT_RUNTIME_API_VERSION:
                 lifecycle = ProtectionEntitlementLifecycle(
                     protection_session.client
                 ).synchronize()
@@ -538,13 +550,34 @@ def create_version2_release_application(
                         ),
                         protection_session.client,
                     )
+            if runtime_version >= ADVANCED_SECURITY_RUNTIME_API_VERSION:
+                trust = ProtectionTrustBoundary(protection_session.client).synchronize()
+                if trust.state != "trusted":
+                    raise ProtectedStartupLocked(
+                        ProtectionDecision(
+                            state="locked",
+                            reason=trust.reason,
+                            safe_operations=protection_session.decision.safe_operations,
+                            capabilities=frozenset(),
+                            build_id=protection_session.decision.build_id,
+                        ),
+                        protection_session.client,
+                    )
+                capability_gate = ProtectionCapabilityGate(protection_session.client)
+                release_update_center = ReleaseUpdateCenter(
+                    current_version=_product_version,
+                    channel=ProtectionUpdateChannel(protection_session.client),
+                    verifier=ProtectionUpdateSignatureVerifier(protection_session.client),
+                    time_source=ProtectionTrustedTimeSource(protection_session.client),
+                    installer=ProtectionUpdateInstaller(protection_session.client),
+                )
         except ProtectedStartupLocked:
             raise
         except Exception:
             raise ProtectedStartupLocked(
                 ProtectionDecision(
                     state="locked",
-                    reason="online_lifecycle_unavailable",
+                    reason="advanced_security_unavailable",
                     safe_operations=protection_session.decision.safe_operations,
                     capabilities=frozenset(),
                     build_id=protection_session.decision.build_id,
@@ -565,6 +598,8 @@ def create_version2_release_application(
     analysis: Any | None = None
     continuous: Any | None = None
     try:
+        if capability_gate is not None:
+            capability_gate.require("engine.analysis")
         engine_runtime = runtime_factory(StockfishRuntimeConfig(application_dir=app_dir))
         analysis = AnalysisService(engine_runtime.provider, owns_engine=False)
         continuous = ContinuousAnalysisService(analysis)
@@ -592,6 +627,8 @@ def create_version2_release_application(
         )
         game_sounds = GameSoundRuntime(sound_runtime)
 
+        if capability_gate is not None:
+            capability_gate.require("profile.local")
         api = Version2ProfileAccessibleChessAPI(
             continuous_analysis=continuous,
             profile_store=LocalProfileStore(layout.root / "profile.json"),
@@ -605,6 +642,7 @@ def create_version2_release_application(
         # Host-only security state. It is never returned through the pywebview
         # public method surface; the release host consumes it for periodic R26 checks.
         api._protection_session = protection_session
+        api._protection_capability_gate = capability_gate
     except BaseException:
         _close_partial_version2_composition(continuous, analysis, engine_runtime)
         raise
@@ -621,6 +659,9 @@ def create_version2_release_application(
             raise RuntimeError("Version 2 application construction previously failed")
         database: Any | None = None
         try:
+            if capability_gate is not None:
+                capability_gate.require("library.database")
+                capability_gate.require("books.training")
             database = AcsDatabase(database_path)
             candidate = Version2Application(
                 database,
@@ -630,9 +671,12 @@ def create_version2_release_application(
                 board_position_projector=api.project_review_fen,
                 copy_text=copy_text,
                 language=language,
+                release_update_center=release_update_center,
             )
             progress_binder = getattr(candidate, "bind_student_progress_store", None)
             if callable(progress_binder):
+                if capability_gate is not None:
+                    capability_gate.require("classroom.local")
                 progress_binder(
                     StudentProgressStore(layout.root / "student-progress.json")
                 )
@@ -679,6 +723,8 @@ def create_version2_release_application(
         build_application()
 
     def native_runtime_factory(owner_control: object) -> Version2WindowsFileWorkflowRuntime:
+        if capability_gate is not None:
+            capability_gate.require("formats.local")
         if owner_control is None:
             raise RuntimeError("Version 2 Windows owner control is unavailable")
         if application is None:
