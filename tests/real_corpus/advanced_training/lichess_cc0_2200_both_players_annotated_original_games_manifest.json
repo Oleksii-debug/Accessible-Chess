@@ -1,0 +1,48 @@
+{
+  "schema": "accessible-chess-original-cc0-advanced-real-annotated-games-v1",
+  "source": "https://github.com/mcognetta/lichess-combined-puzzle-game-db",
+  "source_original_path": "combined_puzzle_db_first_100.ndjson",
+  "source_git_blob": "d7b86f83c1a355fa511420a36dbdc656a3cc6fef",
+  "license": "CC0-1.0 original Lichess games",
+  "game_count": 4,
+  "min_lichess_online_player_rating": 2200,
+  "player_rating_is_not_FIDE_ELO": true,
+  "selected_from_original_100": true,
+  "original_game_pgn_source_sha256": "9fa990a0e332f86d0ea7c5fe5c2fa3bb6d6784ec47a6277c75a58fb903ecf8f3",
+  "original_game_pgn_utf8_bytes": 20121,
+  "game_source_ids": [
+    {
+      "puzzle_id": "00Mei",
+      "source_game_url": "https://lichess.org/xvCSyLc3/black#72",
+      "original_online_white_rating": 2395,
+      "original_online_black_rating": 2381,
+      "puzzle_difficulty": 2567,
+      "contains_original_engine_annotations": true
+    },
+    {
+      "puzzle_id": "00KNB",
+      "source_game_url": "https://lichess.org/Ri0duT8T/black#64",
+      "original_online_white_rating": 2405,
+      "original_online_black_rating": 2412,
+      "puzzle_difficulty": 2627,
+      "contains_original_engine_annotations": true
+    },
+    {
+      "puzzle_id": "00KYC",
+      "source_game_url": "https://lichess.org/wxhreSsZ#53",
+      "original_online_white_rating": 2329,
+      "original_online_black_rating": 2493,
+      "puzzle_difficulty": 2243,
+      "contains_original_engine_annotations": true
+    },
+    {
+      "puzzle_id": "004Ys",
+      "source_game_url": "https://lichess.org/LcIJdugn/black#38",
+      "original_online_white_rating": 2217,
+      "original_online_black_rating": 2223,
+      "puzzle_difficulty": 2233,
+      "contains_original_engine_annotations": true
+    }
+  ],
+  "not_gm_title_claim": true
+}
