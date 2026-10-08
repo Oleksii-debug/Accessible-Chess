@@ -1244,8 +1244,20 @@
     }
   }, true);
 
-  refresh(true).catch(function () {
-    announce(uiText("Не вдалося завантажити розділи Version 2.", "Could not load Version 2 sections."));
-  });
+  // A pywebview "loaded" event can precede the JavaScript bridge.  In that
+  // order a one-shot refresh silently resolves without rendering navigation,
+  // leaving only the raw Stage 1 HTML visible.  Bootstrap only when the bridge
+  // is actually present, including the case where injection happens after ready.
+  let initialV2RefreshStarted = false;
+  function initializeV2WhenBridgeReady() {
+    const bridge = api();
+    if (initialV2RefreshStarted || !bridge || typeof bridge.v2_snapshot !== "function") return;
+    initialV2RefreshStarted = true;
+    refresh(true).catch(function () {
+      announce(uiText("Не вдалося завантажити розділи Version 2.", "Could not load Version 2 sections."));
+    });
+  }
+  global.addEventListener("pywebviewready", initializeV2WhenBridgeReady);
+  initializeV2WhenBridgeReady();
   global.setInterval(drainEvents, 300);
 })(window);
