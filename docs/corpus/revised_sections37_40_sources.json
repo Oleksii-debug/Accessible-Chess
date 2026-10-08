@@ -770,6 +770,28 @@
       "external_license_git_blob": "8d062dda262bcdc42d45b861bd796117feb6d0fe",
       "external_license_indexed_bytes": 17504,
       "external_license_sha256": "1e301e03fb28addf6ad03d42b1429e87679013d1ee7e141c7c968fbef0ad961d"
+    },
+    {
+      "id": "cc0_capablanca_open_pdf_original_source",
+      "title": "Chess Fundamentals — openly licensed original PDF edition",
+      "author": "José Raúl Capablanca; lordlinks/Chess_Fundamentals edition maintainers",
+      "format": "pdf",
+      "source_page": "https://github.com/lordlinks/Chess_Fundamentals",
+      "download_url": null,
+      "sha256": null,
+      "max_bytes": 67108864,
+      "upstream_repository": "https://github.com/lordlinks/Chess_Fundamentals",
+      "upstream_git_blob": "eab7c13bdd5a21a33fa2bef863781e4c40794c2c",
+      "external_checkout_path": "capablanca_pdf/chess_fundamentals.pdf",
+      "external_license_git_blob": "0e259d42c996742e9e3cba14c677129b2c1b6311",
+      "external_license_checkout_path": "capablanca_pdf/LICENSE",
+      "license": "CC0-1.0 claimed by original edition repository LICENSE; original Capablanca work public domain in US",
+      "redistribution": "permitted under source CC0; only after binary and provenance qualification",
+      "acquisition": "DISCOVERED_NOT_HASH_VERIFIED",
+      "test_access": "EXTERNAL_CC0_PDF_SOURCE_ONLY",
+      "public_release": "EXCLUDED_PENDING_QUALIFICATION",
+      "canonical_qa": "original Git blob/source-license verification and runtime SHA256 receipt scheduled; no PDF importer capability or public packaging PASS claimed",
+      "notes": "Real unmodified third-party CC0 chess PDF, source-only qualification and security bounds; binary SHA256 and size are unknown until real source checkout/receipt."
     }
   ]
 }
