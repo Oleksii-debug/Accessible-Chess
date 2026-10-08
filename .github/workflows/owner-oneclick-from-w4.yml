@@ -700,6 +700,12 @@ jobs:
           if(-not (Test-Path -LiteralPath 'owner-oneclick-from-zip\launch-report.txt' -PathType Leaf)){throw 'OWNER_FINAL_EXTRACTED_LAUNCH_REPORT_MISSING_BEFORE_UPLOAD'}
           Write-Host "OWNER_FINAL_UPLOAD_ZIP_SHA256=$actual"
           Write-Host 'OWNER_FINAL_ZIP_PRE_UPLOAD_BINDING=PASS'
+          # Audit the exact receipt-bound finished archive before any release upload.
+          # The corpus catalog explicitly denies test-only/uncleared originals.
+          $env:ACS_37_PUBLIC_RELEASE_ZIP = $archive
+          python -m tools.revised_section37_release_exclusion
+          if($LASTEXITCODE -ne 0){throw 'OWNER_FINAL_PUBLIC_CORPUS_EXCLUSION_FAILED'}
+          Write-Host 'OWNER_FINAL_PUBLIC_CORPUS_EXCLUSION=PASS'
 
       - name: Upload exact owner one-click candidate and receipt
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
