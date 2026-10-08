@@ -19,6 +19,10 @@ from typing import Callable
 
 PRIVATE_RUNTIME_MODULE = "accessible_chess_protection_runtime"
 EXPECTED_RUNTIME_API_VERSION = 1
+REQUIRED_STARTUP_CAPABILITY = "local-chess"
+_MAX_DECISION_ITEMS = 64
+_MAX_DECISION_TEXT = 256
+_MAX_ENTITLEMENT_JSON_BYTES = 1024 * 1024
 _SAFE_OPERATIONS = frozenset({
     "recovery", "login", "update", "help", "own-data-read", "own-data-export"
 })
@@ -80,7 +84,17 @@ def _locked(reason: str) -> ProtectionDecision:
 
 
 def _validate_string_list(value: object, *, name: str) -> frozenset[str]:
-    if not isinstance(value, list) or any(not isinstance(item, str) or not item for item in value):
+    if (
+        not isinstance(value, list)
+        or len(value) > _MAX_DECISION_ITEMS
+        or any(
+            not isinstance(item, str)
+            or not item
+            or len(item) > _MAX_DECISION_TEXT
+            or any(char.isspace() for char in item)
+            for item in value
+        )
+    ):
         raise ProtectionBoundaryError(f"private protection {name} is invalid")
     if len(value) != len(set(value)):
         raise ProtectionBoundaryError(f"private protection {name} contains duplicates")
@@ -99,16 +113,25 @@ def _validate_decision(value: object) -> ProtectionDecision:
     build_id = value.get("build_id")
     if state not in {"authorized", "locked"}:
         raise ProtectionBoundaryError("private protection state is invalid")
-    if not isinstance(reason, str) or not reason:
+    if not isinstance(reason, str) or not reason or len(reason) > _MAX_DECISION_TEXT:
         raise ProtectionBoundaryError("private protection reason is invalid")
-    if build_id is not None and (not isinstance(build_id, str) or not build_id):
+    if build_id is not None and (
+        not isinstance(build_id, str)
+        or not build_id
+        or len(build_id) > _MAX_DECISION_TEXT
+        or any(char.isspace() for char in build_id)
+    ):
         raise ProtectionBoundaryError("private protection build identity is invalid")
     safe = _validate_string_list(value.get("safe_operations"), name="safe operations")
     capabilities = _validate_string_list(value.get("capabilities"), name="capabilities")
     if safe != _SAFE_OPERATIONS:
         raise ProtectionBoundaryError("private protection safe-operation contract drifted")
     if state == "authorized":
-        if reason != "none" or build_id is None:
+        if (
+            reason != "none"
+            or build_id is None
+            or REQUIRED_STARTUP_CAPABILITY not in capabilities
+        ):
             raise ProtectionBoundaryError("authorized protection decision is inconsistent")
     else:
         if reason == "none" or capabilities:
@@ -180,9 +203,17 @@ class ProtectionRuntimeClient:
         if not isinstance(raw_json, str) or not raw_json.strip():
             raise ProtectionBoundaryError("entitlement JSON is required")
         try:
+            encoded = raw_json.encode("utf-8", errors="strict")
+        except UnicodeEncodeError as exc:
+            raise ProtectionBoundaryError("entitlement JSON is invalid") from exc
+        if len(encoded) > _MAX_ENTITLEMENT_JSON_BYTES:
+            raise ProtectionBoundaryError("entitlement JSON is too large")
+        try:
             envelope = json.loads(raw_json)
         except json.JSONDecodeError as exc:
             raise ProtectionBoundaryError("entitlement JSON is invalid") from exc
+        if not isinstance(envelope, dict):
+            raise ProtectionBoundaryError("entitlement JSON envelope is invalid")
         runtime = self._runtime()
         importer = getattr(runtime, "import_entitlement", None)
         if not callable(importer):
@@ -230,6 +261,7 @@ def authorize_release_startup(
 __all__ = [
     "EXPECTED_RUNTIME_API_VERSION",
     "PRIVATE_RUNTIME_MODULE",
+    "REQUIRED_STARTUP_CAPABILITY",
     "ProtectionBoundaryError",
     "ProtectionDecision",
     "ProtectedStartupLocked",
