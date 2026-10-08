@@ -117,6 +117,32 @@ class RevisedCorpusContractTests(unittest.TestCase):
         self.assertTrue(polish["license"].startswith("COPYRIGHTED"))
         self.assertEqual(polish["redistribution"], "NOT_CLEARED")
 
+    def test_catalog_only_official_positions_and_broadcasts_never_auto_download(self):
+        records = {entry["id"]: entry for entry in load_catalog()}
+        candidates = (
+            ("lichess_official_puzzles_fen_csv", "csv.zst (FEN/UCI puzzles)", "CC0"),
+            ("lichess_official_broadcast_pgn", "pgn.zst (annotated broadcasts)", "CC BY-SA 4.0"),
+        )
+        for identifier, expected_format, license_marker in candidates:
+            with self.subTest(source=identifier):
+                entry = records[identifier]
+                self.assertEqual(entry["format"], expected_format)
+                self.assertIn(license_marker, entry["license"])
+                self.assertEqual(entry["source_page"], "https://database.lichess.org/")
+                self.assertIsNone(entry["sha256"])
+                self.assertIsNone(entry["download_url"])
+                self.assertEqual(entry["max_bytes"], 0)
+                self.assertEqual(entry["acquisition"], "SOURCE_PAGE_ONLY")
+                self.assertEqual(entry["redistribution"], "NOT_CLEARED")
+                with tempfile.TemporaryDirectory() as tmp:
+                    with self.assertRaises(LawfulCorpusError):
+                        acquire_cc0_source(
+                            entry, Path(tmp),
+                            opener=lambda *_args, **_kwargs: self.fail(
+                                "discovered source must never use network implicitly"
+                            ),
+                        )
+
     def _record(self, payload: bytes) -> dict:
         return {
             "id": "licensed_small_fixture", "license": "CC0",
