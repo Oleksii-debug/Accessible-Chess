@@ -5,6 +5,12 @@ on:
     paths:
       - 'acs/protection_boundary.py'
       - 'acs/protection_online_boundary.py'
+      - 'acs/protection_entitlement_lifecycle.py'
+      - 'acs/protection_privacy_boundary.py'
+      - 'acs/protection_runtime_monitor.py'
+      - 'acs/version2_release_app.py'
+      - 'acs/version2_release_ui.py'
+      - 'acs/version2_upgrade_status_release.py'
       - 'acs/protection_locked_ui.py'
       - 'web/protection_locked.html'
       - 'web/protection_locked.js'
@@ -51,7 +57,13 @@ jobs:
           python -m py_compile
           acs/protection_boundary.py
           acs/protection_online_boundary.py
+          acs/protection_entitlement_lifecycle.py
+          acs/protection_privacy_boundary.py
+          acs/protection_runtime_monitor.py
           acs/protection_locked_ui.py
+          acs/version2_release_app.py
+          acs/version2_release_ui.py
+          acs/version2_upgrade_status_release.py
           tests/test_security_wave1_product_integration.py
           tests/test_security_wave2_product_integration.py
 
