@@ -125,6 +125,7 @@ class GenuineAdvancedMaterialProductTests(unittest.TestCase):
                     self.assertEqual(before["booklet_count"], 24)
                     self.assertEqual(before["advanced_puzzle_count"], 16)
                     self.assertEqual(before["extreme_puzzle_count"], 4)
+                    self.assertEqual(before["original_study_count"], 1)
                     self.assertIn(ADVANCED_MATERIAL_ID,
                                   [x["material_id"] for x in before["items"]])
                     result = app.browser_command(
