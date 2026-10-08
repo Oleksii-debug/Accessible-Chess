@@ -4,7 +4,9 @@ on:
   pull_request:
     paths:
       - 'acs/server_application_boundary.py'
+      - 'acs/version2_profile.py'
       - 'tests/test_section30_server_application_boundary.py'
+      - 'tests/test_sections28_30_executed_red_repairs.py'
       - 'docs/automation/SECTION30_SERVER_APPLICATION_CLOSURE.md'
       - '.github/workflows/section30-server-application.yml'
   workflow_dispatch:
@@ -17,7 +19,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, windows-2025]
+        os: [ubuntu-24.04, windows-2025]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 35
     steps:
@@ -43,19 +45,24 @@ jobs:
           acs/server_application_boundary.py
           tests/test_section29_network_security.py
           tests/test_section30_server_application_boundary.py
+          tests/test_sections28_30_executed_red_repairs.py
       - name: Run focused Section 29 and 30 contracts
         run: >-
           python -m unittest -v
           tests.test_section29_network_security
           tests.test_section30_server_application_boundary
+          tests.test_sections28_30_executed_red_repairs
       - name: Requalify canonical application/server adjacency
         run: >-
           python -m unittest -v
-          tests.test_version2_application
+          tests.test_sections28_30_executed_red_repairs
           tests.test_version2_classroom_orchestration_binding
           tests.test_classroom_join_credentials
           tests.test_classroom_chat_rpc
           tests.test_classroom_file_rpc
+
+      - name: Core selftest
+        run: python -m acs.selftest
       - name: Prove server layer has no chess/domain authority
         shell: bash
         run: |

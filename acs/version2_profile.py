@@ -77,6 +77,7 @@ VERSION2_FULL_PRODUCT_ACTIONS = tuple(
     definition
     for definition in FULL_PRODUCT_ACTIONS
     if definition.action_id in _VERSION2_SCREEN_ACTION_IDS
+    or definition.action_id == "position.copy_fen"
     or definition.action_id.startswith(_VERSION2_DOMAIN_PREFIXES)
 )
 VERSION2_FULL_PRODUCT_ACTION_IDS = frozenset(
