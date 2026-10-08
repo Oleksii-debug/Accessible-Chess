@@ -587,5 +587,32 @@ class RevisedCorpusContractTests(unittest.TestCase):
                             ),
                         )
 
+    def test_official_stockfish_epd_and_pgn_zip_discovery_stays_non_executable(self):
+        """Authentic upstream archive metadata is not downloaded format qualification."""
+        records = {entry["id"]: entry for entry in load_catalog()}
+        sources = (
+            ("stockfish_startpos_epd_zip", "epd.zip", 216, "1cab3bc1cfbfe2291591d454004269b3bcda5ab3"),
+            ("stockfish_frc_openings_epd_zip", "epd.zip", 6426, "05710b911d050ba511c382f735034ae90ba35151"),
+            ("stockfish_4mvs_90_99_epd_zip", "epd.zip", 7399, "4ef91a4563e3bb310026f04b731a9ea517117d58"),
+            ("stockfish_2moves_v2_pgn_zip", "pgn.zip", 57325, "ba7bb324fa5763d961bb50d7a28d03c9462a5e51"),
+        )
+        for identifier, expected_format, expected_size, upstream_blob in sources:
+            with self.subTest(source=identifier):
+                record = records[identifier]
+                self.assertEqual(record["format"], expected_format)
+                self.assertEqual(record["indexed_bytes"], expected_size)
+                self.assertEqual(record["upstream_git_blob"], upstream_blob)
+                self.assertEqual(record["upstream_commit"], "65815ccdbc7727cd4f6aee252ba8f67fb740e92f")
+                self.assertEqual(record["acquisition"], "SOURCE_PAGE_ONLY")
+                self.assertEqual(record["redistribution"], "NOT_CLEARED")
+                self.assertIsNone(record["sha256"])
+                self.assertIsNone(record["download_url"])
+                self.assertEqual(record["max_bytes"], 0)
+                with tempfile.TemporaryDirectory() as tmp:
+                    with self.assertRaises(LawfulCorpusError):
+                        acquire_cc0_source(record, Path(tmp), opener=lambda *_a, **_kw: self.fail(
+                            "source-only discovery must not start network acquisition"
+                        ))
+
 if __name__ == "__main__":
     unittest.main()
