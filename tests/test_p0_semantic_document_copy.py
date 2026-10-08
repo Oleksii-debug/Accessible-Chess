@@ -44,18 +44,17 @@ class SemanticDocumentCopyContractTests(unittest.TestCase):
             "if(e.ctrlKey&&!e.altKey&&selection&&selection.toString())return;"
         )
         binding_resolution = "const chord=eventChord(e);"
+        binding_prevent_default = "if(a){e.preventDefault();e.stopPropagation();executeAction(a.actionId)}"
 
         ctrl_c_index = handler.index(ctrl_c_guard)
         selection_index = handler.index(selection_guard)
         binding_index = handler.index(binding_resolution)
-        prevent_default_index = handler.index("e.preventDefault();", binding_index)
-        execute_index = handler.index("executeAction(a.actionId)", prevent_default_index)
+        prevent_default_index = handler.index(binding_prevent_default)
 
         self.assertNotIn("preventDefault", handler[:ctrl_c_index])
         self.assertLess(ctrl_c_index, selection_index)
         self.assertLess(selection_index, binding_index)
         self.assertLess(binding_index, prevent_default_index)
-        self.assertLess(prevent_default_index, execute_index)
 
     def test_v2_semantic_text_is_explicitly_selectable(self) -> None:
         self.assertIn('selectionStyle.id = "v2-semantic-selection-style"', self.v2_bootstrap)
@@ -84,10 +83,11 @@ class SemanticDocumentCopyContractTests(unittest.TestCase):
 
     def test_v2_navigation_selection_is_inside_the_same_retention_authority(self) -> None:
         self.assertIn('const navigation = documentRef.getElementById("v2-navigation");', self.p0_runtime)
-        self.assertIn('const activeNavigation = documentRef.getElementById("v2-navigation");', self.p0_runtime)
-        self.assertIn("activeNavigation && activeNavigation.contains(node)", self.p0_runtime)
-        self.assertIn('attributeFilter: ["hidden", "aria-current"]', self.p0_runtime)
-        self.assertIn("if (navigation) observer.observe(navigation, observerOptions);", self.p0_runtime)
+        self.assertIn("navigation && navigation.contains(node)", self.p0_runtime)
+        self.assertIn(
+            "observer.observe(navigation, { subtree: true, childList: true, characterData: true });",
+            self.p0_runtime,
+        )
 
     def test_v2_refresh_preserves_meaningful_workspace_selection(self) -> None:
         self.assertIn("function captureWorkspaceSelection()", self.v2_bootstrap)
