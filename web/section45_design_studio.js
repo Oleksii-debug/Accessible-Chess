@@ -169,11 +169,51 @@ function preview() {
   panel.dataset.theme=working.theme;
   panel.dataset.board=working.board_theme;
   panel.dataset.pieces=working.piece_theme;
+  panel.dataset.orientation=working.orientation;
+  panel.dataset.highlight=working.highlight?"true":"false";
   panel.style.fontSize=String(working.font_percent)+"%";
   panel.style.lineHeight=working.density==="compact"?"1.2":"1.65";
-  panel.textContent=say("Попередній перегляд: шахова дошка, текст і елементи керування.",
-    "Preview: chessboard, text and controls.");
-  status("Попередній перегляд не змінює позицію або партію.","Preview does not change the position or game.");
+  panel.textContent="";
+  // This is fixed, deliberately non-interactive *decorative* sample data.
+  // No FEN, move legality, GameTree or second chess position authority.
+  // The authentic 64-cell board and its NVDA labels remain untouched.
+  add("p",panel,null,say("Приклад оформлення (без зміни партії)",
+    "Appearance sample (game unchanged)"));
+  const sample=add("div",panel,"ac45-preview-board");
+  sample.className="ac45-preview-board";
+  sample.setAttribute("aria-hidden","true");
+  sample.dataset.theme=working.board_theme;
+  sample.dataset.pieces=working.piece_theme;
+  const unicode={K:"♔",Q:"♕",R:"♖",B:"♗",N:"♘",P:"♙",
+                 k:"♚",q:"♛",r:"♜",b:"♝",n:"♞",p:"♟"};
+  const fixed={a8:"r",b8:"n",c8:"b",d8:"q",e8:"k",f8:"b",g8:"n",h8:"r",
+               a7:"p",b7:"p",c7:"p",d7:"p",e7:"p",f7:"p",g7:"p",h7:"p",
+               a2:"P",b2:"P",c2:"P",d2:"P",e2:"P",f2:"P",g2:"P",h2:"P",
+               a1:"R",b1:"N",c1:"B",d1:"Q",e1:"K",f1:"B",g1:"N",h1:"R"};
+  const ranks=working.orientation==="black"?[1,2,3,4,5,6,7,8]:[8,7,6,5,4,3,2,1];
+  const files=working.orientation==="black"?"hgfedcba":"abcdefgh";
+  for(const rank of ranks)for(const file of files){
+    const square=file+String(rank);
+    const cell=add("span",sample,null);
+    cell.className="ac45-sample-square";
+    cell.dataset.light=(("abcdefgh".indexOf(file)+rank)%2===0)?"true":"false";
+    const piece=fixed[square];
+    if(!piece)continue;
+    if(working.piece_theme==="rhosgfx"){
+      const img=add("img",cell,null);
+      const code=(piece===piece.toUpperCase()?"w":"b")+piece.toUpperCase()+".svg";
+      img.src="assets/pieces/rhosgfx/"+code;
+      img.alt="";
+      img.setAttribute("aria-hidden","true");
+      img.addEventListener("error",()=>{img.remove();cell.textContent=unicode[piece]||piece;});
+    }else cell.textContent=working.piece_theme==="letters"?piece:unicode[piece];
+  }
+  const note=add("p",panel,null,say(
+    "Поля та фігури тут лише для перегляду; шахові ходи недоступні.",
+    "These sample squares and pieces are decorative; no moves can be made."));
+  note.className="ac45-preview-note";
+  status("Попередній перегляд не змінює позицію або партію.",
+    "Preview does not change the position or game.");
 }
 function presentationApply(p, emitBoardActions = true) {
   const root=document.documentElement;
