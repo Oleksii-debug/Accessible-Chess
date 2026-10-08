@@ -53,6 +53,7 @@ def build_master_qa_matrix() -> dict:
     genre_rows, format_rows = genres.get("genres"), formats.get("format_qa")
     if (
         type(genre_rows) is not list or len(genre_rows) != 25
+        or type(genres.get("genre_count")) is not int or genres["genre_count"] != 25
         or type(format_rows) is not list or len(format_rows) != 16
         or {f.get("format") for f in format_rows} != _ALLOWED
     ):
