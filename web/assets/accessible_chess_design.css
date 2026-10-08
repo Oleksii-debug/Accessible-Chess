@@ -1,0 +1,75 @@
+/* Accessible Chess Section 41: first-party local design tokens over ONE existing UI.
+   No CDN, no framework JavaScript, no new chess/domain state owner.
+   The installed MIT Tabler icons have independently pinned source blobs in
+   tabler/SECTION41_PROVENANCE.json, but no Tabler Core bundle is falsely claimed. */
+:root{
+  --ac41-bg:#f8fafc;--ac41-surface:#ffffff;--ac41-ink:#142238;
+  --ac41-muted:#334155;--ac41-border:#64748b;--ac41-action:#123e73;
+  --ac41-on-action:#ffffff;--ac41-link:#0645ad;--ac41-focus:#9a3412;
+  --ac41-space-1:.25rem;--ac41-space-2:.5rem;--ac41-space-3:.75rem;
+  --ac41-space-4:1rem;--ac41-space-6:1.5rem;--ac41-radius:.6rem;
+  --ac41-shadow:0 3px 16px rgba(15,23,42,.12);--ac41-motion:140ms;
+  color-scheme:light;
+}
+:root[data-ac-ui-theme="light"]{color-scheme:light}
+:root[data-ac-ui-theme="dark"]{
+  --ac41-bg:#0b1424;--ac41-surface:#16253a;--ac41-ink:#f1f5f9;
+  --ac41-muted:#d2e1ef;--ac41-border:#a8bdd2;--ac41-action:#d4e8ff;
+  --ac41-on-action:#10213d;--ac41-link:#c4e1ff;--ac41-focus:#ffe08a;
+  --ac41-shadow:0 3px 17px rgba(0,0,0,.3);color-scheme:dark;
+}
+:root[data-ac-ui-theme="contrast"]{
+  --ac41-bg:#000000;--ac41-surface:#000000;--ac41-ink:#ffffff;
+  --ac41-muted:#ffffff;--ac41-border:#ffffff;--ac41-action:#ffff00;
+  --ac41-on-action:#000000;--ac41-link:#00ffff;--ac41-focus:#ffff00;
+  --ac41-shadow:none;color-scheme:dark;
+}
+@media(prefers-color-scheme:dark){
+  :root:not([data-ac-ui-theme]),:root[data-ac-ui-theme="system"]{
+    --ac41-bg:#0b1424;--ac41-surface:#16253a;--ac41-ink:#f1f5f9;
+    --ac41-muted:#d2e1ef;--ac41-border:#a8bdd2;--ac41-action:#d4e8ff;
+    --ac41-on-action:#10213d;--ac41-link:#c4e1ff;--ac41-focus:#ffe08a;
+    --ac41-shadow:0 3px 17px rgba(0,0,0,.3);color-scheme:dark;
+  }
+}
+:where(body){background:var(--ac41-bg);color:var(--ac41-ink);font-family:"Segoe UI",system-ui,sans-serif}
+:where(main,section,article,fieldset,dialog){max-width:100%}
+:where(fieldset,dialog,.block){background:var(--ac41-surface);color:var(--ac41-ink);
+ border-color:var(--ac41-border);border-radius:var(--ac41-radius)}
+:where(button,input,textarea,select){font:inherit;max-width:100%}
+:where(button,select,input,textarea){min-height:2.5rem;border:2px solid var(--ac41-border);
+ border-radius:var(--ac41-radius);background:var(--ac41-surface);color:var(--ac41-ink)}
+:where(button:not(:disabled)){cursor:pointer}
+:where(button:hover:not(:disabled)){box-shadow:var(--ac41-shadow)}
+:where(button:disabled){cursor:not-allowed;opacity:.75}
+:where(a){color:var(--ac41-link);text-underline-offset:.16em}
+:where(:focus-visible){outline:3px solid var(--ac41-focus)!important;
+ outline-offset:3px!important}
+:where(input,textarea,select,button){accent-color:var(--ac41-action)}
+:where(th,td){border-bottom:1px solid var(--ac41-border);padding:.55rem;vertical-align:top}
+:where(table){border-collapse:collapse;max-width:100%;overflow-wrap:anywhere}
+:where(dialog){max-height:min(90vh,46rem);overflow:auto}
+:where(.ac41-theme-control){display:flex;flex-wrap:wrap;align-items:center;
+ gap:var(--ac41-space-2);margin-block:var(--ac41-space-3)}
+:where(.ac41-theme-control label){font-weight:600}
+::selection{background:Highlight;color:HighlightText}
+@media(max-width:48rem){
+  :where(body){padding-inline:.75rem}
+  :where(.row){flex-wrap:wrap}
+  :where(input[type=text],input[type=search],textarea){min-width:0;width:100%}
+}
+@media(prefers-reduced-motion:reduce){
+  :root{--ac41-motion:0ms}
+  *,*::before,*::after{scroll-behavior:auto!important;
+    animation-duration:0.01ms!important;transition-duration:0.01ms!important}
+}
+@media(forced-colors:active){
+  :root{--ac41-shadow:none}
+  :where(body,fieldset,dialog,.block){background:Canvas!important;color:CanvasText!important;
+    border-color:CanvasText!important}
+  :where(button,input,textarea,select){background:Field!important;color:FieldText!important;
+    border:2px solid ButtonText!important}
+  :where(:focus-visible){outline:3px solid Highlight!important}
+  :where(a){color:LinkText!important}
+  :where(button:disabled){opacity:1}
+}
