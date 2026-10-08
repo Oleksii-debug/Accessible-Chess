@@ -25,8 +25,8 @@ class RevisedSection40RuntimeSeedTests(unittest.TestCase):
             corpus.build_collection("TEST_BUILD", src)
             report = bridge.build_owner_test_seed(src, output)
             self.assertTrue(output.exists())
-            self.assertEqual(report["source_count"], 1)
-            self.assertEqual(report["game_count"], 512)
+            self.assertEqual(report["source_count"], 2)
+            self.assertEqual(report["game_count"], 516)
             self.assertFalse(report["section40_done"])
             self.assertEqual(report["archive_sha256"],
                              hashlib.sha256(output.read_bytes()).hexdigest())
@@ -34,6 +34,7 @@ class RevisedSection40RuntimeSeedTests(unittest.TestCase):
             with zipfile.ZipFile(output) as z:
                 self.assertEqual(sorted(z.namelist()), [
                     "release-content/user-library-seed/manifest.json",
+                    "release-content/user-library-seed/section40-lichess-4-annotated-games.pgn",
                     "release-content/user-library-seed/section40-stockfish-512-real-games.pgn",
                 ])
                 for name in z.namelist():
@@ -43,12 +44,13 @@ class RevisedSection40RuntimeSeedTests(unittest.TestCase):
             seed = load_user_library_seed(package / "release-content" / "user-library-seed")
             with AcsDatabase(base / "persisted-library.acsdb") as db:
                 initial = import_user_library_seed(db, seed)
-                self.assertEqual(initial.game_count, 512)
+                self.assertEqual(initial.game_count, 516)
+                self.assertEqual(initial.source_count, 2)
                 self.assertEqual(initial.reused_source_count, 0)
             with AcsDatabase(base / "persisted-library.acsdb") as reopened:
                 again = import_user_library_seed(reopened, seed)
-                self.assertEqual(again.source_count, 1)
-                self.assertEqual(again.reused_source_count, 1)
+                self.assertEqual(again.source_count, 2)
+                self.assertEqual(again.reused_source_count, 2)
                 reopened.verify_integrity()
 
     def test_public_release_is_not_disguised_as_owner_test_ingress(self):
