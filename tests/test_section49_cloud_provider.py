@@ -138,6 +138,18 @@ class CloudProviderTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(context.exception.code, ModelErrorCode.INVALID_REQUEST)
         self.assertFalse(self.seen)
 
+    async def test_sensitive_chess_data_is_never_sent_to_cloud(self):
+        gateway = ModelGateway()
+        gateway.register(self.provider(approved=True))
+        req = ModelRequest(request_id="sensitive-fixture", provider_id="mistral",
+                           provider_kind=ProviderKind.CLOUD, model="test-model",
+                           messages=(ModelMessage("user", "sensitive fixture"),),
+                           privacy=PrivacyClass.SENSITIVE, timeout_seconds=3.0)
+        with self.assertRaises(ModelGatewayError) as ctx:
+            await gateway.complete(req)
+        self.assertEqual(ctx.exception.code, ModelErrorCode.INVALID_REQUEST)
+        self.assertFalse(self.seen)
+
     async def test_private_content_allowed_only_by_explicit_configuration(self):
         gateway = ModelGateway()
         gateway.register(self.provider(approved=True))
