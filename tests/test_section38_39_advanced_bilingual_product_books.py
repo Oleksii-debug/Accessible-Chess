@@ -73,9 +73,11 @@ class BilingualAdvancedProducts(unittest.TestCase):
                 finally:
                     uk_app.shutdown()
 
-                # Restart in English, not just constructing a second serializer.
+                # shutdown closes the owned ACSDB connection. Reopen actual
+                # disk state, never reuse the closed handle as a fake restart.
+                en_database = AcsDatabase(root / "library.acsdb")
                 en_app = Version2StarterContentApplication(
-                    database, language=UILanguage.EN,
+                    en_database, language=UILanguage.EN,
                     progress_store=BookProgressStore(root / "book-progress.json"),
                     engine_assistance=EngineAssistedWorkflowService(analysis),
                     board_dispatch=lambda *_: None,
