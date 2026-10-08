@@ -8,11 +8,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import tempfile
 from pathlib import Path
 
 from acs.chesscore import Board, parse_sq
 from acs.gametree import MoveNode, PgnGame, VariationLine, serialize_game
 from acs.pgn_roundtrip import parse_pgn_text
+from acs.version2_package_assembler import _publish_directory_no_replace
 from acs.section40_advanced_licensed_dataset import SOURCE_SHA256 as ADVANCED_SHA
 from acs.section40_extreme_licensed_dataset import SOURCE_SHA256 as EXTREME_SHA
 from acs.section40_advanced_training_runtime import (
@@ -131,21 +133,50 @@ def build_advanced_pgn() -> tuple[bytes, dict[str, object]]:
     return pgn, manifest
 
 
+def publish_advanced_pgn(destination: Path) -> dict[str, object]:
+    """Atomically publish a SHA-verified practice bundle, never replacing a user folder.
+
+    Exact same no-clobber publisher as the canonical shipping package assembler.
+    A competing writer, crash, or invalid source cannot expose partial files.
+    """
+    if type(destination) is not Path:
+        raise TypeError("advanced output destination must be a Path")
+    if destination.exists() or destination.is_symlink():
+        raise FileExistsError("advanced owner QA destination exists")
+    if not destination.parent.is_dir() or destination.parent.is_symlink():
+        raise AdvancedPuzzlePgnError("advanced output parent must already exist")
+
+    pgn, manifest = build_advanced_pgn()
+    receipt = (
+        json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    ).encode("utf-8")
+    with tempfile.TemporaryDirectory(
+        prefix=".acs-advanced-qa-", dir=destination.parent
+    ) as temporary:
+        staged = Path(temporary) / "advanced"
+        staged.mkdir(mode=0o700)
+        (staged / OUTPUT_NAME).write_bytes(pgn)
+        (staged / MANIFEST_NAME).write_bytes(receipt)
+        if (
+            (staged / OUTPUT_NAME).stat().st_size != manifest["pgn_bytes"]
+            or hashlib.sha256((staged / OUTPUT_NAME).read_bytes()).hexdigest()
+               != manifest["pgn_sha256"]
+            or json.loads((staged / MANIFEST_NAME).read_bytes())
+               != manifest
+        ):
+            raise AdvancedPuzzlePgnError("advanced QA publication integrity failed")
+        _publish_directory_no_replace(staged, destination)
+    return manifest
+
+
 def main() -> None:
     """Materialize reproducible, offline, cross-language Windows-importable PGN."""
     destination = Path("_section38_39_advanced_pgn_qa")
-    if destination.exists() or destination.is_symlink():
-        raise FileExistsError("cannot overwrite an existing owner/source QA output")
-    pgn, manifest = build_advanced_pgn()
-    destination.mkdir(mode=0o700)
-    (destination / OUTPUT_NAME).write_bytes(pgn)
-    (destination / MANIFEST_NAME).write_text(
-        json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-    print(json.dumps({"source_ids": manifest["source_ids"], "games": manifest["puzzles"],
-                      "pgn_sha256": manifest["pgn_sha256"],
-                      "terminal_done": False}, sort_keys=True))
+    manifest = publish_advanced_pgn(destination)
+    print(json.dumps({
+        "source_ids": manifest["source_ids"], "games": manifest["puzzles"],
+        "pgn_sha256": manifest["pgn_sha256"], "terminal_done": False,
+    }, sort_keys=True))
 
 
 if __name__ == "__main__":
