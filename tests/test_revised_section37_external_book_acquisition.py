@@ -76,6 +76,75 @@ class ExternalOriginalBookTests(unittest.TestCase):
                 self.assertEqual(source["external_license_indexed_bytes"], 17504)
                 self.assertEqual(source["external_license_sha256"], "1e301e03fb28addf6ad03d42b1429e87679013d1ee7e141c7c968fbef0ad961d")
 
+    def test_section38_three_genuine_external_chess_books_semantic_readback(self):
+        """Original checked-out books -> canonical semantic reader and restart.
+
+        This runs in the existing source-only GitHub Actions job, which checks
+        out the exact independent upstream Git object. Test-only source bytes
+        and licenses are never copied into a distribution artifact.
+        """
+        import os
+
+        from acs.book_text_import import import_text_book
+        from acs.bookreader import BookReader
+        from acs.lawful_corpus_registry import read_verified_source_snapshot
+
+        source_root = os.environ.get("ACS_37_GITENBERG_ROOT")
+        if not source_root:
+            self.skipTest("genuine upstream books are not checked out on this host")
+        root = Path(source_root)
+        catalog = {entry["id"]: entry for entry in load_catalog()}
+
+        for source_id in (
+            "gutenberg_blue_book_chess_staunton",
+            "gutenberg_chess_history_bird_original_txt",
+            "gutenberg_checkmates_three_fishburne_original_txt",
+        ):
+            with self.subTest(source_id=source_id):
+                record = catalog[source_id]
+                self.assertEqual(record["format"], "txt")
+                self.assertEqual(record["redistribution"], "NOT_CLEARED")
+                verified = verify_original_book(record, root)
+                self.assertEqual(verified["sha256"], record["sha256"])
+                self.assertFalse(verified["original_bytes_packaged"])
+                original = read_verified_source_snapshot(
+                    root / record["external_checkout_path"], record
+                )
+                self.assertEqual(hashlib.sha256(original).hexdigest(), record["sha256"])
+                book = import_text_book(
+                    original,
+                    source_name=Path(record["external_checkout_path"]).name,
+                    source_format="txt",
+                    title=record["title"],
+                    author=record.get("author") or None,
+                    language="en",
+                )
+                self.assertEqual(book.source_sha256, record["sha256"])
+                self.assertGreater(len(book.document.blocks), 10)
+                reader = BookReader(book.document)
+                original_location = reader.location()
+                destination = reader.next_block()
+                self.assertEqual(destination.index, original_location.index + 1)
+                reader.save_return_point("original-book-checkpoint")
+                checkpoint = reader.snapshot()
+
+                reopened = import_text_book(
+                    original,
+                    source_name=Path(record["external_checkout_path"]).name,
+                    source_format="txt",
+                    title=record["title"],
+                    author=record.get("author") or None,
+                    language="en",
+                )
+                self.assertEqual(reopened.book_key, book.book_key)
+                restarted = BookReader.restore_snapshot(reopened.document, checkpoint)
+                self.assertEqual(restarted.location(), destination)
+                restarted.next_block()
+                self.assertEqual(
+                    restarted.restore_return_point("original-book-checkpoint"),
+                    destination,
+                )
+
     def test_original_source_readback_never_copies_or_promotes_rights(self):
         data = b"an authentic source of bounded bytes for negative test only"
         record = fake_record(data)
