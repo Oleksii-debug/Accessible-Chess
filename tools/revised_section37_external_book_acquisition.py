@@ -57,7 +57,7 @@ def _direct_path(root: Path, relative: object) -> Path:
 
 
 def _git_blob(raw: bytes) -> str:
-    return hashlib.sha1(b"blob " + str(len(raw)).encode("ascii") + b"\\x00" + raw).hexdigest()
+    return hashlib.sha1(b"blob " + str(len(raw)).encode("ascii") + b"\x00" + raw).hexdigest()
 
 
 def verify_original_book(record: dict, external_root: Path) -> dict:
