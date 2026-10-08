@@ -92,26 +92,31 @@ def _safe_read(path: Path) -> bytes:
 
 
 def _write_new_verified(path: Path, raw: bytes) -> None:
-    """Fail closed on existing files; no overwrite of user-selected documents."""
+    """Create and read back a new archive, removing partial failed creations."""
     if not path.is_absolute() or not path.parent.is_dir():
         raise UserDataPortabilityError("archive destination is invalid")
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
-    fd = os.open(path, flags, 0o600)
+    try:
+        fd = os.open(path, flags, 0o600)
+    except FileExistsError:
+        raise UserDataPortabilityError("destination already exists; choose another name") from None
+    except OSError:
+        raise UserDataPortabilityError("archive destination is unavailable") from None
     owned: tuple[int, int] | None = None
     try:
-        info = os.fstat(fd)
-        owned = (info.st_dev, info.st_ino)
-        with os.fdopen(fd, "wb", closefd=False) as stream:
-            stream.write(raw)
-            stream.flush()
-            os.fsync(stream.fileno())
-    finally:
-        os.close(fd)
-    try:
+        try:
+            info = os.fstat(fd)
+            owned = (info.st_dev, info.st_ino)
+            with os.fdopen(fd, "wb", closefd=False) as stream:
+                stream.write(raw)
+                stream.flush()
+                os.fsync(stream.fileno())
+        finally:
+            os.close(fd)
         if hashlib.sha256(_safe_read(path)).digest() != hashlib.sha256(raw).digest():
             raise UserDataPortabilityError("archive publication verification failed")
     except BaseException:
-        # Unlink only a file still owned by this exact exclusive creation.
+        # Never delete a replaced user file or a different filesystem identity.
         try:
             now = path.lstat()
             if owned is not None and (now.st_dev, now.st_ino) == owned:
