@@ -15,6 +15,8 @@ on:
       - 'tests/test_section38_39_advanced_puzzle_pgn.py'
       - 'tests/test_section38_bilingual_advanced_windows_books_open.py'
       - 'tests/test_section38_39_master_genres_source_matrix.py'
+      - 'tools/section38_39_master_matrix_report.py'
+      - 'tests/test_section38_39_master_matrix_report.py'
       - 'docs/corpus/SECTION38_39_MASTER_GENRES_UA_EN_SOURCE_MATRIX.json'
       - 'tools/revised_section37_bilingual_workbook_pack.py'
       - '.github/workflows/revised-sections38-39-bilingual-advanced-qa.yml'
@@ -50,6 +52,8 @@ jobs:
           tests/test_section38_39_advanced_puzzle_pgn.py
           tests/test_section38_bilingual_advanced_windows_books_open.py
           tests/test_section38_39_master_genres_source_matrix.py
+          tools/section38_39_master_matrix_report.py
+          tests/test_section38_39_master_matrix_report.py
       - name: Verify 16 format boundaries, UK/EN bibliographic truth and 20 real puzzles through Books and Board
         run: >-
           python -m unittest -v
@@ -58,8 +62,17 @@ jobs:
           tests.test_section38_39_advanced_puzzle_pgn
           tests.test_section38_bilingual_advanced_windows_books_open
           tests.test_section38_39_master_genres_source_matrix
+          tests.test_section38_39_master_matrix_report
           tests.test_revised_section40_product_books_advanced_integration
           tests.test_revised_section40_advanced_training
+      - name: Materialize 800 non-PASS requirements for 25 expert genres and 16 formats
+        run: python -m tools.section38_39_master_matrix_report
+      - name: Preserve professional QA coverage gaps with exact source and rights metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: section38-39-800-cell-master-qa-matrix-${{ matrix.os }}
+          path: _section38_39_master_matrix_qa/
+          retention-days: 14
       - name: Materialize ten expert bilingual Books files (EPUB3 HTML TXT MD DOCX)
         run: >-
           python -m tools.revised_section37_bilingual_workbook_pack
