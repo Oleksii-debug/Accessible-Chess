@@ -177,9 +177,7 @@ window.addEventListener('pywebviewready',async()=>{await refreshState();await lo
   };
   const SIZES=["auto","medium","large"];
   const labels=(uk,en)=>document.documentElement.lang==="en"?en:uk;
-  function read(){
-    let data=null;
-    try{const value=localStorage.getItem(KEY);if(value&&value.length<=2048)data=JSON.parse(value)}catch(_){}
+  function normalize(data){
     if(!data||data.version!==1||typeof data!=="object"||Array.isArray(data))data={};
     const collapsed=Array.isArray(data.collapsed)?
       data.collapsed.filter(id=>Object.prototype.hasOwnProperty.call(headings,id)).slice(0,12):[];
@@ -191,10 +189,30 @@ window.addEventListener('pywebviewready',async()=>{await refreshState();await lo
       layout:data.layout==="single"?"single":"auto"
     };
   }
+  function read(){
+    let data=null;
+    try{const value=localStorage.getItem(KEY);if(value&&value.length<=2048)data=JSON.parse(value)}catch(_){}
+    return normalize(data);
+  }
   const state=read();
   const entries=[];
+  const nativeBridge=()=>{
+    if(typeof window==="undefined")return null;
+    return window.pywebview&&window.pywebview.api||null;
+  };
+  let nativeHydrationStarted=false;
+  let changedSinceHydrate=false;
+  let nativeWrites=Promise.resolve();
+  function queueNativeWrite(){
+    const api=nativeBridge();
+    if(!api||typeof api.save_presentation_layout!=="function")return;
+    const payload=JSON.parse(JSON.stringify(state));
+    nativeWrites=nativeWrites.then(()=>api.save_presentation_layout("workspace",payload)).catch(()=>{});
+  }
   function persist(){
+    changedSinceHydrate=true;
     try{localStorage.setItem(KEY,JSON.stringify(state))}catch(_){}
+    queueNativeWrite();
   }
   function collapsed(panel,yes){
     const section=panel.section;
@@ -299,6 +317,32 @@ window.addEventListener('pywebviewready',async()=>{await refreshState();await lo
   toolbar.appendChild(reset);
   root.insertBefore(toolbar,root.firstChild);
   apply();
+  function hydrateNative(){
+    if(nativeHydrationStarted)return;
+    const api=nativeBridge();
+    if(!api||typeof api.get_presentation_layout!=="function")return;
+    nativeHydrationStarted=true;
+    if(changedSinceHydrate){queueNativeWrite();return;}
+    Promise.resolve(api.get_presentation_layout("workspace")).then(result=>{
+      if(changedSinceHydrate||!result||result.ok!==true||!result.layout)return;
+      const next=normalize(result.layout);
+      state.collapsed=next.collapsed;
+      state.sizes=next.sizes;
+      state.density=next.density;
+      state.layout=next.layout;
+      for(const panel of entries){
+        collapsed(panel,state.collapsed.includes(panel.heading.id));
+        setSize(panel,state.sizes[panel.heading.id]);
+      }
+      document.getElementById("ac43-density").value=state.density;
+      document.getElementById("ac43-layout").value=state.layout;
+      apply();
+    }).catch(()=>{});
+  }
+  if(typeof window!=="undefined"&&typeof window.addEventListener==="function"){
+    window.addEventListener("pywebviewready",hydrateNative);
+    if(nativeBridge())hydrateNative();
+  }
 })();
 </script>
 </body>
