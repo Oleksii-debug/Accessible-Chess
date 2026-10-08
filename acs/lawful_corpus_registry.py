@@ -310,6 +310,8 @@ def acquire_cc0_source(record: dict, cache_dir: Path, *, opener=None) -> Path:
         verified_local_source(destination, record)
         return destination
     temp: Path | None = None
+    published = False
+    verified_publication = False
     try:
         with tempfile.NamedTemporaryFile(prefix=".corpus-", suffix=".tmp", dir=cache_dir, delete=False) as output:
             temp = Path(output.name)
@@ -335,13 +337,23 @@ def acquire_cc0_source(record: dict, cache_dir: Path, *, opener=None) -> Path:
         verified_local_source(temp, record)
         # Exclusive atomic name creation, no overwrite of existing owner data.
         os.link(temp, destination)
+        published = True
         verified_local_source(destination, record)
+        verified_publication = True
         return destination
     except (OSError, ValueError) as exc:
         if isinstance(exc, LawfulCorpusError):
             raise
         raise LawfulCorpusError("verified corpus acquisition failed closed") from exc
     finally:
+        # A failed post-link readback must never leave an unverified source
+        # in the worker cache, or delete a different writer's replacement.
+        if published and not verified_publication and temp is not None:
+            try:
+                if os.path.samestat(temp.lstat(), destination.lstat()):
+                    destination.unlink()
+            except OSError:
+                pass
         if temp is not None:
             try:
                 temp.unlink(missing_ok=True)
