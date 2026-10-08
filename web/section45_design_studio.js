@@ -199,6 +199,21 @@ async function apply() {
     await persist(next);
     active={...working};presentationApply(active);
     refreshControls();
+    const bridge=nativeApi();
+    if(bridge&&typeof bridge.set_sound_enabled==="function"){
+      try{
+        const sound=await bridge.set_sound_enabled(active.sound);
+        if(!sound||sound.ok!==true){
+          status("Оформлення збережено, але звук не змінився. Перевірте його окремо.",
+            "Design saved, but sound was not changed. Check sound separately.",true);
+          return;
+        }
+      }catch(_){
+        status("Оформлення збережено, але звук недоступний.",
+          "Design saved, but sound is unavailable.",true);
+        return;
+      }
+    }
     status("Профіль застосовано та збережено.","Profile applied and saved.");
   }catch(err){status("Не збережено: конфлікт або недоступне сховище. Відкрийте налаштування знову.",
     "Not saved: conflict or storage unavailable. Reopen preferences.",true);}
