@@ -104,6 +104,64 @@ class AdvancedPuzzlePgnWindowsLibraryTests(unittest.TestCase):
         self.assertGreaterEqual(evidence["max_puzzle_rating"], 3000)
         self.assertEqual(len(evidence["pgn_sha256"]), 64)
 
+    def test_real_advanced_pgn_is_published_atomically_and_cannot_clobber(self):
+        import json
+        from unittest.mock import patch
+        from tools import revised_section38_39_advanced_puzzle_pgn as exporter
+        with tempfile.TemporaryDirectory(prefix="acs-advanced-atomic-") as raw:
+            root = Path(raw)
+            destination = root / "owner-books-and-pgn"
+            manifest = exporter.publish_advanced_pgn(destination)
+            self.assertEqual(manifest["puzzles"], 20)
+            self.assertEqual(
+                hashlib.sha256((destination / exporter.OUTPUT_NAME).read_bytes()).hexdigest(),
+                manifest["pgn_sha256"],
+            )
+            self.assertEqual(
+                json.loads((destination / exporter.MANIFEST_NAME).read_text(encoding="utf-8")),
+                manifest,
+            )
+            with self.assertRaises(FileExistsError):
+                exporter.publish_advanced_pgn(destination)
+            self.assertEqual(
+                hashlib.sha256((destination / exporter.OUTPUT_NAME).read_bytes()).hexdigest(),
+                manifest["pgn_sha256"],
+            )
+            original = exporter._publish_directory_no_replace
+            concurrent = root / "raced-owner-folder"
+
+            def competitor(staged, output):
+                output.mkdir()
+                (output / "important-personal-book.txt").write_text("owner data", encoding="utf-8")
+                return original(staged, output)
+
+            with patch.object(exporter, "_publish_directory_no_replace",
+                              side_effect=competitor):
+                with self.assertRaises(Exception):
+                    exporter.publish_advanced_pgn(concurrent)
+            self.assertEqual(
+                (concurrent / "important-personal-book.txt").read_text(encoding="utf-8"),
+                "owner data",
+            )
+            self.assertFalse((concurrent / exporter.OUTPUT_NAME).exists())
+            self.assertEqual(
+                list(root.glob(".acs-advanced-qa-*")), [],
+                "staging garbage must be removed after race failure",
+            )
+
+    def test_malformed_source_does_not_publish_any_partial_bundle(self):
+        from unittest.mock import patch
+        from tools import revised_section38_39_advanced_puzzle_pgn as exporter
+        with tempfile.TemporaryDirectory(prefix="acs-advanced-negative-") as raw:
+            root = Path(raw)
+            path = root / "not-published"
+            with patch.object(exporter, "build_advanced_pgn",
+                              side_effect=AdvancedPuzzlePgnError("bad source")):
+                with self.assertRaises(AdvancedPuzzlePgnError):
+                    exporter.publish_advanced_pgn(path)
+            self.assertFalse(path.exists())
+            self.assertEqual(list(root.glob(".acs-advanced-qa-*")), [])
+
     def test_invalid_chess_moves_and_fake_rating_claims_fail_closed(self):
         from unittest.mock import patch
         from tools import revised_section38_39_advanced_puzzle_pgn as exporter
