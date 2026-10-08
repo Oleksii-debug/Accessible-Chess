@@ -62,6 +62,31 @@ class NorthwestChessSourceOnlyTests(unittest.TestCase):
         self.assertIsNone(nzcf["download_url"])
         self.assertIsNone(nzcf["sha256"])
 
+    def test_source_registry_is_the_only_url_and_license_authority(self):
+        cbv, pgn = nw._catalog_source_pair()
+        self.assertEqual(cbv["id"], nw.CBV_SOURCE_ID)
+        self.assertEqual(pgn["id"], nw.PGN_SOURCE_ID)
+        self.assertEqual(cbv["download_url"], nw.CBV_URL)
+        self.assertEqual(pgn["download_url"], nw.PGN_URL)
+        good = nw.load_catalog()
+        for mutated_field, value in (
+            ("acquisition", "VENDORED_SOURCE_VERIFIED"),
+            ("redistribution", "permitted"),
+            ("public_release", "INCLUDED"),
+            ("sha256", "0" * 64),
+            ("download_url", "https://evil.invalid/not-original.cbv"),
+            ("max_bytes", 0),
+        ):
+            with self.subTest(field=mutated_field):
+                bogus = tuple(
+                    {**record, mutated_field: value}
+                    if record["id"] == nw.CBV_SOURCE_ID else record
+                    for record in good
+                )
+                with patch.object(nw, "load_catalog", return_value=bogus):
+                    with self.assertRaises(LawfulCorpusError):
+                        nw._catalog_source_pair()
+
     def test_absent_external_mit_binary_refuses_before_network(self):
         with tempfile.TemporaryDirectory() as temp:
             no_file = Path(temp) / "not-cbvault.exe"
