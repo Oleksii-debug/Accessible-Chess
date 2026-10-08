@@ -209,6 +209,50 @@ def test_update_staging_rejects_path_outside_private_update_root(tmp_path):
         ProtectionUpdateChannel(_client(tmp_path, runtime)).stage(current_version="0.3.2")
 
 
+
+@pytest.mark.parametrize("alias_level", ["package", "staging_directory"])
+def test_secure_update_staging_rejects_internal_symlink_alias(tmp_path, alias_level):
+    """An in-root symlink formerly vanished under resolve() and was accepted."""
+    runtime, _calls, _package_bytes = _runtime_v4(tmp_path)
+    staging_root = tmp_path / "state" / "security-updates"
+    package = staging_root / "candidate.package"
+    if alias_level == "package":
+        actual = staging_root / "real.package"
+        actual.write_bytes(package.read_bytes())
+        package.unlink()
+        alias = package
+        target = actual
+    else:
+        actual = tmp_path / "state" / "real-staging-directory"
+        staging_root.rename(actual)
+        alias = staging_root
+        target = actual
+
+    try:
+        alias.symlink_to(target, target_is_directory=(alias_level == "staging_directory"))
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"symlink creation not permitted by this Windows/user environment: {type(exc).__name__}")
+
+    # The private runtime's exact package_path remains unchanged.  Only its
+    # on-disk lexical identity was substituted; no file may be released.
+    with pytest.raises(ProtectionAdvancedError, match="package is unsafe"):
+        ProtectionUpdateChannel(_client(tmp_path, runtime)).stage(current_version="0.3.2")
+
+
+def test_secure_update_staging_rejects_relative_candidate_path(tmp_path):
+    runtime, _calls, _package_bytes = _runtime_v4(tmp_path)
+    original = runtime.stage_secure_update
+
+    def relative_stage(**kwargs):
+        staged = original(**kwargs)
+        staged["package_path"] = "candidate.package"
+        return staged
+
+    runtime.stage_secure_update = relative_stage
+    with pytest.raises(ProtectionAdvancedError, match="package path is invalid"):
+        ProtectionUpdateChannel(_client(tmp_path, runtime)).stage(current_version="0.3.2")
+
+
 def test_update_signature_failure_is_fail_closed(tmp_path):
     runtime, calls, _ = _runtime_v4(tmp_path)
     runtime.verify_update_signature = lambda **kwargs: False
