@@ -7,6 +7,7 @@ on:
       - 'acs/lawful_corpus_registry.py'
       - 'acs/visual_board_contract.py'
       - 'docs/corpus/revised_sections37_40_sources.json'
+      - 'docs/automation/REVISED_SECTIONS37_42_PROGRESS_AND_ASSET_PROVENANCE.md'
       - 'web/index.html'
       - 'tests/test_revised_sections37_40_corpus.py'
       - 'tests/test_revised_sections41_42_design.py'
