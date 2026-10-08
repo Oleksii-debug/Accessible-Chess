@@ -13,6 +13,10 @@ on:
       - 'tools/section47_download_commons_corpus.py'
       - 'tests/test_section47_real_commons_originals.py'
       - 'tests/js/section47_48_real_media_workbench_test.js'
+      - 'tests/js/section47_48_browser_live_smoke.js'
+      - 'acs/version2_release_payload.py'
+      - 'acs/version2_package_preflight.py'
+      - 'web/index.html'
   workflow_dispatch:
 
 permissions:
@@ -84,3 +88,43 @@ jobs:
           path: ${{ runner.temp }}/section47-originals/
           retention-days: 3
           if-no-files-found: error
+
+  real-windows-file-playback:
+    name: Actual Windows Chromium WebM browser playback (EXTERNAL)
+    needs: actual-commons-originals
+    runs-on: windows-2025
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/download-artifact@v4
+        with:
+          name: section47-lawful-originals-private-test-corpus
+          path: ${{ runner.temp }}/section47-originals
+      - name: Install isolated real browser test driver
+        run: npm install --no-save --no-package-lock playwright@1.56.1
+      - name: Install real Chromium browser
+        run: npx playwright install chromium
+      - name: Play actual Commons original in Windows Chromium
+        shell: pwsh
+        run: |
+          $original = Join-Path "${{ runner.temp }}/section47-originals" "Byrne vs Fischer - The Game of the Century.webm"
+          node tests/js/section47_48_browser_live_smoke.js local "$original"
+
+  live-youtube-chess:
+    name: Actual publisher YouTube IFrame chess smoke (LIVE; never simulated)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install isolated real browser test driver
+        run: npm install --no-save --no-package-lock playwright@1.56.1
+      - name: Install real Chromium browser
+        run: npx playwright install chromium --with-deps
+      - name: Live chess IFrame playback (do not hide provider failure)
+        run: node tests/js/section47_48_browser_live_smoke.js youtube k4BS-4O1iI0
