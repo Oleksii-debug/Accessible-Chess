@@ -45,7 +45,8 @@ const plain = v => v !== null && typeof v === "object" && !Array.isArray(v) && O
 const identicalKeys = (value,keys) => Object.keys(value).length === keys.length && keys.every(k=>own(value,k));
 const validName = name => typeof name === "string" && name.length > 0 && name.length <= 48
   && name.trim() === name && !/[\\/\u0000-\u001f\u007f<>:"|?*]/.test(name)
-  && name !== "." && name !== ".." && !Object.keys(presets).some(n=>n.toLowerCase()===name.toLowerCase());
+  && ![".","..","__proto__","constructor","prototype"].includes(name)
+  && !Object.keys(presets).some(n=>n.toLowerCase()===name.toLowerCase());
 function validPrefs(p) {
   if (!plain(p) || !identicalKeys(p,Object.keys(defaults))) return false;
   return Object.keys(choices).every(k =>
