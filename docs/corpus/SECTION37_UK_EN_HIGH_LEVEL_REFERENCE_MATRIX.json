@@ -49,21 +49,16 @@
         "verified_primary_source_page": "https://qualitychess.co.uk/pdf-excerpts/",
         "acquired_full_book": false,
         "public_distribution": "NOT_AUTHORIZED",
-        "notes": "Publisher catalogue/excerpt directory, not full ebook"
+        "notes": "Publisher catalogue/excerpt directory, not full ebook",
+        "catalog_purpose": "REFERENCE_ONLY_NOT_DELIVERED_AND_NEVER_COUNTED_AS_PRODUCT_WORKBOOK"
       },
       "separately_imported_real_chess_material": "20 real rated CC0 Lichess puzzle records, 2200–3166; not a proof of GM playing title",
-      "ukrainian_external_verified_references": [
-        {
-          "author": "Микола Боднар",
-          "title": "Тактика для всіх — лише секція КМС/МС/ММ",
-          "language": "UNVERIFIED_CONTENT_LANGUAGE",
-          "format": "10 page vendor demonstration PDF, full book commercial",
-          "verified_public_source": "https://bodnarchess.com.ua/tactics.html",
-          "evidence": "Author publisher says 200 problems classified 2200–2500, cover printed in Russian and English, actual complete internal Ukrainian language NOT independently confirmed.",
-          "distribution": "SAMPLE_ONLY_WHEN_RIGHTS_ALLOW",
-          "free_full_book": false
-        }
-      ]
+      "ukrainian_external_verified_references": [],
+      "usable_in_accessible_chess": {
+        "uk": "Only actual original source-driven workbook in canonical five Book formats, plus the verified CC0 PGN/FEN as separate product source types",
+        "en": "Only actual original source-driven workbook in canonical five Book formats, plus verified CC0 PGN/FEN as separate product source types",
+        "paid_external_book": "NOT_IMPORTED_NOT_INCLUDED"
+      }
     },
     {
       "work_type": "tactics",
@@ -96,10 +91,16 @@
         "verified_primary_source_page": "https://qualitychess.co.uk/pdf-excerpts/",
         "acquired_full_book": false,
         "public_distribution": "NOT_AUTHORIZED",
-        "notes": "Publisher catalogue/excerpt directory, not full ebook"
+        "notes": "Publisher catalogue/excerpt directory, not full ebook",
+        "catalog_purpose": "REFERENCE_ONLY_NOT_DELIVERED_AND_NEVER_COUNTED_AS_PRODUCT_WORKBOOK"
       },
       "separately_imported_real_chess_material": "20 real rated CC0 Lichess puzzle records, 2200–3166; not a proof of GM playing title",
-      "ukrainian_external_verified_references": []
+      "ukrainian_external_verified_references": [],
+      "usable_in_accessible_chess": {
+        "uk": "Only actual original source-driven workbook in canonical five Book formats, plus the verified CC0 PGN/FEN as separate product source types",
+        "en": "Only actual original source-driven workbook in canonical five Book formats, plus verified CC0 PGN/FEN as separate product source types",
+        "paid_external_book": "NOT_IMPORTED_NOT_INCLUDED"
+      }
     },
     {
       "work_type": "composed_studies",
@@ -132,10 +133,16 @@
         "verified_primary_source_page": "https://www.newinchess.com/100-endgame-studies-you-must-know",
         "acquired_full_book": false,
         "public_distribution": "NOT_AUTHORIZED",
-        "notes": "Direct official New In Chess publisher page with a sample; historic Reti PGN is separately shareable, this commercial book is not downloaded"
+        "notes": "Direct official New In Chess publisher page with a sample; historic Reti PGN is separately shareable, this commercial book is not downloaded",
+        "catalog_purpose": "REFERENCE_ONLY_NOT_DELIVERED_AND_NEVER_COUNTED_AS_PRODUCT_WORKBOOK"
       },
       "separately_imported_real_chess_material": "Historic ARVES Kling-Horwitz source and original Grigoriev/Kasparian references: NOT rights-cleared downloads",
-      "ukrainian_external_verified_references": []
+      "ukrainian_external_verified_references": [],
+      "usable_in_accessible_chess": {
+        "uk": "Only actual original source-driven workbook in canonical five Book formats, plus the verified CC0 PGN/FEN as separate product source types",
+        "en": "Only actual original source-driven workbook in canonical five Book formats, plus verified CC0 PGN/FEN as separate product source types",
+        "paid_external_book": "NOT_IMPORTED_NOT_INCLUDED"
+      }
     },
     {
       "work_type": "openings",
@@ -168,10 +175,16 @@
         "verified_primary_source_page": "https://qualitychess.co.uk/products/opening/263/grandmaster_repertoire_-_1e4_vs_the_sicilian_ii_by_parimarjan_negi/",
         "acquired_full_book": false,
         "public_distribution": "NOT_AUTHORIZED",
-        "notes": "Official deep repertoire book with an authorized sample page and publisher-controlled PDF excerpt; full copyrighted book not downloaded"
+        "notes": "Official deep repertoire book with an authorized sample page and publisher-controlled PDF excerpt; full copyrighted book not downloaded",
+        "catalog_purpose": "REFERENCE_ONLY_NOT_DELIVERED_AND_NEVER_COUNTED_AS_PRODUCT_WORKBOOK"
       },
       "separately_imported_real_chess_material": "Official genuine Lichess ECO A–E TSV",
-      "ukrainian_external_verified_references": []
+      "ukrainian_external_verified_references": [],
+      "usable_in_accessible_chess": {
+        "uk": "Only actual original source-driven workbook in canonical five Book formats, plus the verified CC0 PGN/FEN as separate product source types",
+        "en": "Only actual original source-driven workbook in canonical five Book formats, plus verified CC0 PGN/FEN as separate product source types",
+        "paid_external_book": "NOT_IMPORTED_NOT_INCLUDED"
+      }
     },
     {
       "work_type": "middlegame",
@@ -204,10 +217,16 @@
         "verified_primary_source_page": "https://www.simonandschuster.com/books/Chess-Structures/Mauricio-Flores-Rios/9781784830007",
         "acquired_full_book": false,
         "public_distribution": "NOT_AUTHORIZED",
-        "notes": "Official publisher product/reference, not redistributed book"
+        "notes": "Official publisher product/reference, not redistributed book",
+        "catalog_purpose": "REFERENCE_ONLY_NOT_DELIVERED_AND_NEVER_COUNTED_AS_PRODUCT_WORKBOOK"
       },
       "separately_imported_real_chess_material": "20 real rated CC0 Lichess puzzle records, 2200–3166; not a proof of GM playing title",
-      "ukrainian_external_verified_references": []
+      "ukrainian_external_verified_references": [],
+      "usable_in_accessible_chess": {
+        "uk": "Only actual original source-driven workbook in canonical five Book formats, plus the verified CC0 PGN/FEN as separate product source types",
+        "en": "Only actual original source-driven workbook in canonical five Book formats, plus verified CC0 PGN/FEN as separate product source types",
+        "paid_external_book": "NOT_IMPORTED_NOT_INCLUDED"
+      }
     },
     {
       "work_type": "endgame",
@@ -240,22 +259,16 @@
         "verified_primary_source_page": "https://www.newinchess.com/dvoretsky-s-endgame-manual-6th-edition",
         "acquired_full_book": false,
         "public_distribution": "NOT_AUTHORIZED",
-        "notes": "Direct official edition page; publisher sample only, no full book copy"
+        "notes": "Direct official edition page; publisher sample only, no full book copy",
+        "catalog_purpose": "REFERENCE_ONLY_NOT_DELIVERED_AND_NEVER_COUNTED_AS_PRODUCT_WORKBOOK"
       },
       "separately_imported_real_chess_material": "20 real rated CC0 Lichess puzzle records, 2200–3166; not a proof of GM playing title",
-      "ukrainian_external_verified_references": [
-        {
-          "author": "Леонід Ніколаєв",
-          "title": "Турові закінчення",
-          "language": "uk",
-          "year": 2025,
-          "format": "physical book",
-          "verified_public_source": "https://chess-stock.com/knigi/taktika/",
-          "evidence": "Chess-Stock source labels the edition Ukrainian, 2025. Precise difficulty and free digital format NOT verified.",
-          "distribution": "BUY_ONLY_OR_SOURCE_PAGE",
-          "free_full_book": false
-        }
-      ]
+      "ukrainian_external_verified_references": [],
+      "usable_in_accessible_chess": {
+        "uk": "Only actual original source-driven workbook in canonical five Book formats, plus the verified CC0 PGN/FEN as separate product source types",
+        "en": "Only actual original source-driven workbook in canonical five Book formats, plus verified CC0 PGN/FEN as separate product source types",
+        "paid_external_book": "NOT_IMPORTED_NOT_INCLUDED"
+      }
     },
     {
       "work_type": "annotated_games",
@@ -288,10 +301,16 @@
         "verified_primary_source_page": "https://qualitychess.co.uk/pdf-excerpts/",
         "acquired_full_book": false,
         "public_distribution": "NOT_AUTHORIZED",
-        "notes": "Official publisher excerpt directory only"
+        "notes": "Official publisher excerpt directory only",
+        "catalog_purpose": "REFERENCE_ONLY_NOT_DELIVERED_AND_NEVER_COUNTED_AS_PRODUCT_WORKBOOK"
       },
       "separately_imported_real_chess_material": "4 true original annotated CC0 PGN games",
-      "ukrainian_external_verified_references": []
+      "ukrainian_external_verified_references": [],
+      "usable_in_accessible_chess": {
+        "uk": "Only actual original source-driven workbook in canonical five Book formats, plus the verified CC0 PGN/FEN as separate product source types",
+        "en": "Only actual original source-driven workbook in canonical five Book formats, plus verified CC0 PGN/FEN as separate product source types",
+        "paid_external_book": "NOT_IMPORTED_NOT_INCLUDED"
+      }
     },
     {
       "work_type": "databases",
@@ -324,27 +343,37 @@
         "verified_primary_source_page": "https://database.lichess.org/",
         "acquired_full_book": false,
         "public_distribution": "NOT_AUTHORIZED",
-        "notes": "Lichess games CC0; IBCA PGN rights not cleared"
+        "notes": "Lichess games CC0; IBCA PGN rights not cleared",
+        "catalog_purpose": "REFERENCE_ONLY_NOT_DELIVERED_AND_NEVER_COUNTED_AS_PRODUCT_WORKBOOK"
       },
       "separately_imported_real_chess_material": "4 genuine annotated CC0 PGN games, official Lichess ECO, original IBCA page records only",
-      "ukrainian_external_verified_references": []
+      "ukrainian_external_verified_references": [],
+      "usable_in_accessible_chess": {
+        "uk": "Only actual original source-driven workbook in canonical five Book formats, plus the verified CC0 PGN/FEN as separate product source types",
+        "en": "Only actual original source-driven workbook in canonical five Book formats, plus verified CC0 PGN/FEN as separate product source types",
+        "paid_external_book": "NOT_IMPORTED_NOT_INCLUDED"
+      }
     }
   ],
   "ukrainian_external_book_status": {
-    "publisher_or_author": "Микола Боднар",
-    "title": "Тактика для всіх — секція КМС/МС/ММ",
-    "primary_source": "https://bodnarchess.com.ua/tactics.html",
-    "hard_section_claim": "200 examples 2200–2500 ELO in the publisher's proposed classification",
-    "text_language_not_confirmed": "Publisher says cover title in Russian and English; DO NOT assume full body is Ukrainian",
-    "downloaded": false,
-    "redistribution": "NOT_AUTHORIZED",
-    "low_level_sections_excluded": true
+    "imported_into_accessible_chess": false,
+    "listed_as_owner_test_file": false,
+    "full_original_rights_to_redistribute": false,
+    "owner_reading_policy": "NO_PAID_LINKS_AS_TEST_FILES"
   },
   "original_workbook_is_authored_and_reusable": true,
   "full_foreign_paid_books_included": false,
   "translations_of_protected_books_included": false,
   "high_level_uK_external_policy": "No claim that any ISBN is exclusively first-category/GM unless actual publisher contents prove it; only include high-level sections and verified Ukrainian language editions.",
   "high_level_en_external_policy": "English commercial books stay referrals/excerpts, NOT uploaded as full redistributed books.",
-  "owner_library_rule": "In the shareable library list only list files actually importable/readable by the canonical application. Paid unacquired publications such as Ivan Khabinets are NOT included as source content or user test fixtures. Third-party bibliography, if retained, is strictly reference-only and not product content.",
-  "external_publication_is_program_content": false
+  "owner_library_rule": "Include only actual verified original/source-derived complete files that native Accessible Chess can open and navigate. ISBN, retailer page, publisher excerpt and unverified commercial PDF never count as an imported book.",
+  "external_publication_is_program_content": false,
+  "owner_readable_book_filters": {
+    "file_exists": true,
+    "source_hash_verified": true,
+    "real_native_import": true,
+    "bookreader_heading_navigation": true,
+    "restart_readback": true,
+    "independent_github_action_success": "PENDING_NOT_CLAIMED"
+  }
 }
