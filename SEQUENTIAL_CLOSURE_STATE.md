@@ -188,3 +188,17 @@ Durable evidence: `docs/corpus/SECTION45_DESIGN_PROFILE_EVIDENCE.json`.
 | 45.5–45.6 | `BLOCKED` | Cross-platform visual sync/conflict policy and complete combination matrix are not implemented. |
 
 The next dependency-safe closure front is Section 46.
+
+## Section 47 — current closure front
+
+**Status: `INTERNAL_COMPLETE_EXTERNAL_BLOCKED` (not DONE).**
+
+Durable catalog: `docs/corpus/SECTION47_VIDEO_SOURCE_CATALOG.json`.
+
+| Subsection | State | Evidence / exact limitation |
+|---|---|---|
+| 47.1 | `PARTIAL` | Existing product has WebView/media surfaces, but this run did not execute a Windows MP4/WebM file-open/playback gate. |
+| 47.2–47.3 | `PARTIAL` | Three Wikimedia Commons chess-video source pages and durations/licenses are cataloged; binaries were deliberately not copied into the repository. |
+| 47.4–47.6 | `BLOCKED` | No checksum, seek/playback, frame-to-board, MediaSession restart, GitHub binary artifact or owner packaged acceptance was run in this environment. |
+
+The next dependency-safe closure front is Section 48.

@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "section": 47,
+  "status": "INTERNAL_COMPLETE_EXTERNAL_BLOCKED",
+  "source_policy": "source pages and licenses are recorded; binaries remain outside repository until a permitted test run and checksum are completed",
+  "candidates": [
+    {"title": "Byrne vs Fischer - The Game of the Century.webm", "source_page": "https://commons.wikimedia.org/wiki/File:Byrne_vs_Fischer_-_The_Game_of_the_Century.webm", "license": "CC BY-SA 4.0", "format": "WebM", "duration": "1:48", "status": "SOURCE_VERIFIED_NOT_DOWNLOADED"},
+    {"title": "Joaquin Perkins blitz chess vs USCF expert.webm", "source_page": "https://commons.wikimedia.org/wiki/File:Joaquin_Perkins_blitz_chess_vs_USCF_expert.webm", "license": "source-page license to be checked before copy", "format": "WebM", "duration": "0:20", "status": "SOURCE_FOUND_NOT_DOWNLOADED"},
+    {"title": "Youth chess tournament.webm", "source_page": "https://commons.wikimedia.org/wiki/File:Youth_chess_tournament.webm", "license": "CC0 1.0", "format": "WebM", "duration": "0:26", "status": "SOURCE_VERIFIED_NOT_DOWNLOADED"}
+  ],
+  "not_run": ["binary download/checksum", "Windows MP4/WebM playback", "seek/rewind/speed/volume", "frame-to-board analysis", "MediaSession restart", "owner packaged acceptance"],
+  "blocked": ["real binary playback evidence in current environment", "several source-license details still require page-level verification before copying"]
+}
