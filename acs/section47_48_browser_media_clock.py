@@ -28,7 +28,7 @@ _LOCAL_KEYS = frozenset({
 _REMOTE_KEYS = frozenset({
     "providerId", "sourceId", "sourceKind", "videoId", "ok", "ready",
     "playbackState", "positionMs", "durationMs", "errorCode",
-    "qualification", "chessRef",
+    "autoplayBlocked", "qualification", "chessRef",
 })
 
 
@@ -112,6 +112,8 @@ def accept_browser_clock(
             raise BrowserMediaClockError("provider ID does not match trusted source")
         if type(snapshot["errorCode"]) not in (int, type(None)):
             raise BrowserMediaClockError("invalid provider error code")
+        if type(snapshot["autoplayBlocked"]) is not bool:
+            raise BrowserMediaClockError("invalid provider autoplay-blocked flag")
     if snapshot["qualification"] != "unlinked" or snapshot["chessRef"] is not None:
         raise BrowserMediaClockError("browser attempted to publish chess authority")
     if snapshot["ok"] is not True or snapshot["ready"] is not True:
