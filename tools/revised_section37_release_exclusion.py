@@ -38,7 +38,7 @@ def excluded_public_source_index(records: tuple[dict, ...]) -> dict:
         exclusion = entry.get("public_release", "")
         if exclusion not in ("EXCLUDED", "EXCLUDED_PENDING_QUALIFICATION"):
             continue
-        direct = entry.get("external_checkout_path") or entry.get("local_source")
+        direct = (entry.get("external_checkout_path") or entry.get("local_source") or entry.get("upstream_path"))
         if type(direct) is str:
             if (
                 not direct or direct.startswith("/")
