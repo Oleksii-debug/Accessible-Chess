@@ -203,6 +203,7 @@ class AccountCloudService:
         clock: Callable[[], float] = time.time,
         identity_verifier: Callable[[str], VerifiedIdentity],
         token_factory: Callable[[], str] | None = None,
+        product_security_guard: Callable[[str], None] | None = None,
     ) -> None:
         if type(database_path) is not str or not database_path:
             raise AccountCloudError("database path is required")
@@ -210,7 +211,10 @@ class AccountCloudService:
             raise AccountCloudError("identity verifier is required")
         self._clock = clock
         self._identity_verifier = identity_verifier
+        if product_security_guard is not None and not callable(product_security_guard):
+            raise AccountCloudError("product security guard must be callable or None")
         self._token_factory = token_factory or (lambda: secrets.token_urlsafe(32))
+        self._product_security_guard = product_security_guard
         self._lock = threading.RLock()
         self._db = sqlite3.connect(database_path, isolation_level=None, check_same_thread=False)
         self._db.row_factory = sqlite3.Row
@@ -218,6 +222,10 @@ class AccountCloudService:
             self._db.execute("PRAGMA foreign_keys=ON")
             self._db.execute("PRAGMA journal_mode=WAL")
             self._create_schema()
+
+    def _require_product_security(self, boundary_id: str) -> None:
+        if self._product_security_guard is not None:
+            self._product_security_guard(boundary_id)
 
     def close(self) -> None:
         with self._lock:
@@ -290,6 +298,7 @@ class AccountCloudService:
         )
 
     def login(self, authentication_proof: str, *, ttl_seconds: int = 3600) -> IssuedSession:
+        self._require_product_security("BND.AC-S31-LOGIN")
         proof = _bounded_text(authentication_proof, "authentication_proof", 16384)
         try:
             identity = self._identity_verifier(proof)
@@ -331,6 +340,7 @@ class AccountCloudService:
         return IssuedSession(user_id, session_id, token, expires_at)
 
     def authenticate(self, token: str) -> SessionPrincipal:
+        self._require_product_security("BND.AC-S31-LOGIN")
         if type(token) is not str or len(token) < 32 or len(token) > 512:
             raise AuthenticationError("invalid session")
         digest = _token_hash(token)
@@ -356,6 +366,7 @@ class AccountCloudService:
             )
 
     def create_workspace(self, token: str) -> str:
+        self._require_product_security("BND.AC-S31-CLOUD-SYNC")
         principal = self.authenticate(token)
         workspace_id = _new_id("wsp")
         with self._transaction():
@@ -367,6 +378,7 @@ class AccountCloudService:
         return workspace_id
 
     def role(self, token: str, workspace_id: str) -> WorkspaceRole:
+        self._require_product_security("BND.AC-S31-CLOUD-SYNC")
         principal = self.authenticate(token)
         workspace_id = _bounded_text(workspace_id, "workspace_id", 128)
         with self._lock:
@@ -731,6 +743,7 @@ class AccountCloudService:
     def _authorize(
         self, token: str, workspace_id: str, allowed: set[WorkspaceRole]
     ) -> SessionPrincipal:
+        self._require_product_security("BND.AC-S31-CLOUD-SYNC")
         principal = self.authenticate(token)
         workspace_id = _bounded_text(workspace_id, "workspace_id", 128)
         with self._lock:

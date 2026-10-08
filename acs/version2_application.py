@@ -171,7 +171,8 @@ class Version2Application:
     def __init__(self, database: AcsDatabase, *, progress_store: BookProgressStore,
                  engine_assistance: EngineAssistedWorkflowService, board_dispatch,
                  board_position_projector=None, copy_text=lambda _: None,
-                 language=UILanguage.UA, release_update_center=None):
+                 language=UILanguage.UA, release_update_center=None,
+                 security_action_guard=None):
         self._thread = threading.get_ident()
         self.database = database
         self.progress_store = progress_store
@@ -183,7 +184,10 @@ class Version2Application:
         self._copy_text = copy_text
         if release_update_center is not None and not isinstance(release_update_center, ReleaseUpdateCenter):
             raise TypeError("release_update_center must be ReleaseUpdateCenter or None")
+        if security_action_guard is not None and not callable(security_action_guard):
+            raise TypeError("security_action_guard must be callable or None")
         self.release_update_center = release_update_center
+        self._security_action_guard = security_action_guard
         if board_position_projector is not None and not callable(board_position_projector):
             raise TypeError("board_position_projector must be callable or None")
         self._board_position_projector = board_position_projector
@@ -212,7 +216,11 @@ class Version2Application:
         self.reader = self.book_key = self.book_workflow = self.book_delegate = self.books = None
         self.training_workspace = self.training = None
         self.shell = build_version2_shell(language=language)
-        self.router = build_version2_router(self.shell, self._delegate)
+        self.router = build_version2_router(
+            self.shell,
+            self._delegate,
+            security_guard=security_action_guard,
+        )
         self.adapter = build_version2_webview_adapter(self.shell, self.router)
         self.pgn_commands = Version2PgnCommands(lambda: self.session, copy_text=copy_text)
         self.library_export = LibraryExportService(database)

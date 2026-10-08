@@ -9,9 +9,10 @@ import wave
 import zipfile
 
 from acs.release_preflight import ReleasePreflightError, inspect_release_package
+from acs.sound_events import SoundEvent
 
 
-EVENTS = ("move", "capture", "check", "castle", "promotion", "illegal", "start", "end", "tick")
+EVENTS = tuple(event.value for event in SoundEvent)
 
 
 class ReleasePreflightTests(unittest.TestCase):
@@ -92,7 +93,7 @@ class ReleasePreflightTests(unittest.TestCase):
         root = self.make_package(); path = root / "AccessibleChess/assets/sounds/manifest.json"; data = json.loads(path.read_text())
         data["files"]["move"] = "../move.wav"; path.write_text(json.dumps(data)); self.rewrite_checksums(root); self.rejected(root, "sound package is invalid")
         root = self.make_package(); path = root / "AccessibleChess/assets/sounds/manifest.json"; data = json.loads(path.read_text())
-        data["files"]["debug"] = "move.wav"; path.write_text(json.dumps(data)); self.rewrite_checksums(root); self.rejected(root, "exactly the nine")
+        data["files"]["debug"] = "move.wav"; path.write_text(json.dumps(data)); self.rewrite_checksums(root); self.rejected(root, "sound manifest must declare exactly")
 
     def test_source_stale_tree_and_double_nesting_are_rejected(self) -> None:
         root = self.make_package(); leak = root / "AccessibleChess/acs/secret.py"; leak.parent.mkdir(); leak.write_text("TOKEN='x'"); self.rewrite_checksums(root); self.rejected(root, "raw product source")

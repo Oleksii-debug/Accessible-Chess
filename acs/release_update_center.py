@@ -39,7 +39,7 @@ class StagedUpdate:
     def __post_init__(self) -> None:
         if type(self.metadata) is not bytes or not self.metadata:
             raise ValueError("staged update metadata must be non-empty bytes")
-        if type(self.package_path) is not Path:
+        if not isinstance(self.package_path, Path):
             raise TypeError("staged update package_path must be Path")
         if type(self.source_url) is not str or not self.source_url:
             raise ValueError("staged update source_url must be non-empty text")

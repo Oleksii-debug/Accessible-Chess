@@ -11,6 +11,7 @@ behind TactileDisplayPort.
 from dataclasses import dataclass
 from enum import Enum
 from threading import RLock
+from typing import Callable
 
 from .book_board_workflow import BookBoardView, BookBoardWorkflow
 from .pgn_workspace import PgnWorkspace
@@ -74,10 +75,18 @@ class TactileSyncSnapshot:
 class TactileSyncController:
     """Bind PGN, Books, Training and Position state to the Section-8 controller."""
 
-    def __init__(self, graphics: TactileGraphicsController) -> None:
+    def __init__(
+        self,
+        graphics: TactileGraphicsController,
+        *,
+        product_security_guard: Callable[[str], None] | None = None,
+    ) -> None:
         if not isinstance(graphics, TactileGraphicsController):
             raise TypeError("graphics must be TactileGraphicsController")
+        if product_security_guard is not None and not callable(product_security_guard):
+            raise TypeError("product_security_guard must be callable or None")
         self._graphics = graphics
+        self._product_security_guard = product_security_guard
         self._lock = RLock()
         self._snapshot = TactileSyncSnapshot(
             state=TactileSyncState.IDLE,
@@ -108,6 +117,10 @@ class TactileSyncController:
         if type(value) is not int or value < 0:
             raise TactileSyncError("tactile source revision is invalid")
         return value
+
+    def _require_product_security(self) -> None:
+        if self._product_security_guard is not None:
+            self._product_security_guard("BND.AC-S10-TACTILE-SYNC")
 
     def snapshot(self) -> TactileSyncSnapshot:
         with self._lock:
@@ -183,6 +196,7 @@ class TactileSyncController:
         *,
         source_revision: object = None,
     ) -> TactileSyncSnapshot:
+        self._require_product_security()
         return self._publish_position(
             fen,
             source=TactileSyncSource.POSITION,
@@ -190,6 +204,7 @@ class TactileSyncController:
         )
 
     def sync_pgn(self, workspace: PgnWorkspace) -> TactileSyncSnapshot:
+        self._require_product_security()
         """Use Section-8 GameTree projection; never replay PGN inside Section 10."""
 
         if not isinstance(workspace, PgnWorkspace):
@@ -213,6 +228,7 @@ class TactileSyncController:
         )
 
     def sync_book_view(self, view: BookBoardView) -> TactileSyncSnapshot:
+        self._require_product_security()
         if not isinstance(view, BookBoardView):
             raise TypeError("view must be BookBoardView")
         return self._publish_position(
@@ -222,11 +238,13 @@ class TactileSyncController:
         )
 
     def sync_book(self, workflow: BookBoardWorkflow) -> TactileSyncSnapshot:
+        self._require_product_security()
         if not isinstance(workflow, BookBoardWorkflow):
             raise TypeError("workflow must be BookBoardWorkflow")
         return self.sync_book_view(workflow.view())
 
     def sync_training(self, session: ExerciseSession) -> TactileSyncSnapshot:
+        self._require_product_security()
         if not isinstance(session, ExerciseSession):
             raise TypeError("session must be ExerciseSession")
         return self._publish_position(
@@ -240,6 +258,7 @@ class TactileSyncController:
         command: TactileSyncCommand | str,
         payload: object = None,
     ) -> TactileSyncSnapshot:
+        self._require_product_security()
         try:
             selected = (
                 command

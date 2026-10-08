@@ -21,7 +21,8 @@ PRIVATE_RUNTIME_MODULE = "accessible_chess_protection_runtime"
 EXPECTED_RUNTIME_API_VERSION = 1
 ONLINE_RUNTIME_API_VERSION = 2
 ENTITLEMENT_RUNTIME_API_VERSION = 3
-SUPPORTED_RUNTIME_API_VERSIONS = frozenset({EXPECTED_RUNTIME_API_VERSION, ONLINE_RUNTIME_API_VERSION, ENTITLEMENT_RUNTIME_API_VERSION})
+ADVANCED_SECURITY_RUNTIME_API_VERSION = 4
+SUPPORTED_RUNTIME_API_VERSIONS = frozenset({EXPECTED_RUNTIME_API_VERSION, ONLINE_RUNTIME_API_VERSION, ENTITLEMENT_RUNTIME_API_VERSION, ADVANCED_SECURITY_RUNTIME_API_VERSION})
 REQUIRED_STARTUP_CAPABILITY = "local-chess"
 _MAX_DECISION_ITEMS = 64
 _MAX_DECISION_TEXT = 256
@@ -115,7 +116,8 @@ def _validate_decision(value: object, *, runtime_api_version: int) -> Protection
         "api_version", "state", "reason", "safe_operations", "capabilities", "build_id"
     }:
         raise ProtectionBoundaryError("private protection decision schema is invalid")
-    if value.get("api_version") != runtime_api_version:
+    if (type(value.get("api_version")) is not int
+            or value["api_version"] != runtime_api_version):
         raise ProtectionBoundaryError("private protection decision API version does not match runtime")
     state = value.get("state")
     reason = value.get("reason")
@@ -178,10 +180,10 @@ class ProtectionRuntimeClient:
         except Exception as exc:
             raise ProtectionBoundaryError("private protection runtime is unavailable") from exc
         version = getattr(module, "RUNTIME_API_VERSION", None)
-        if version not in SUPPORTED_RUNTIME_API_VERSIONS:
+        if type(version) is not int or version not in SUPPORTED_RUNTIME_API_VERSIONS:
             raise ProtectionBoundaryError("private protection runtime API version is unsupported")
         self._module = module
-        self._runtime_api_version = int(version)
+        self._runtime_api_version = version
         return module
 
     def evaluate(self) -> ProtectionDecision:
@@ -205,9 +207,9 @@ class ProtectionRuntimeClient:
         version = self._runtime_api_version
         if version is None:
             version = getattr(runtime, "RUNTIME_API_VERSION", None)
-        if version not in SUPPORTED_RUNTIME_API_VERSIONS:
+        if type(version) is not int or version not in SUPPORTED_RUNTIME_API_VERSIONS:
             raise ProtectionBoundaryError("private protection runtime API version is unsupported")
-        return int(version)
+        return version
 
     def runtime_extension(self, *, minimum_api_version: int) -> ModuleType:
         if not isinstance(minimum_api_version, int) or isinstance(minimum_api_version, bool):
@@ -313,6 +315,7 @@ __all__ = [
     "EXPECTED_RUNTIME_API_VERSION",
     "ONLINE_RUNTIME_API_VERSION",
     "ENTITLEMENT_RUNTIME_API_VERSION",
+    "ADVANCED_SECURITY_RUNTIME_API_VERSION",
     "SUPPORTED_RUNTIME_API_VERSIONS",
     "PRIVATE_RUNTIME_MODULE",
     "REQUIRED_STARTUP_CAPABILITY",

@@ -71,6 +71,7 @@ class MediaApplicationService:
         timeline: MediaPositionTimeline,
         session: MediaChessSession,
         restore_chess_ref: Callable[[str], object],
+        product_security_guard: Callable[[str], None] | None = None,
     ) -> None:
         if type(source) is not MediaSource:
             raise TypeError("source must be MediaSource")
@@ -96,12 +97,22 @@ class MediaApplicationService:
                 "media cursor exceeds source duration",
                 code=MediaApplicationCode.INVALID_STATE,
             )
+        if product_security_guard is not None and not callable(product_security_guard):
+            raise TypeError("product_security_guard must be callable or None")
+        self._product_security_guard = product_security_guard
         self._source = source
         self._timeline = timeline
         self._session = session
         self._restore_chess_ref = restore_chess_ref
         self._revision = 0
         self._restore_in_progress = False
+
+    def _require_local_media_security(self) -> None:
+        if self._product_security_guard is None:
+            return
+        self._product_security_guard("BND.AC-S16-MEDIA-CORE")
+        self._product_security_guard("BND.AC-S17-RECORDED-MEDIA")
+        self._product_security_guard("BND.AC-S20-MEDIA-LOCAL-WF")
 
     @property
     def source(self) -> MediaSource:
@@ -201,6 +212,7 @@ class MediaApplicationService:
             )
 
     def seek_media(self, position_ms: int) -> MediaApplicationSnapshot:
+        self._require_local_media_security()
         self._require_mutation_available()
         candidate = self._session.seek_media(
             position_ms,
@@ -214,6 +226,7 @@ class MediaApplicationService:
     def select_analysis_chess_ref(
         self, chess_ref: str | None
     ) -> MediaApplicationSnapshot:
+        self._require_local_media_security()
         self._require_mutation_available()
         candidate = self._session.select_chess(chess_ref)
         if candidate != self._session:
@@ -222,6 +235,7 @@ class MediaApplicationService:
         return self.snapshot()
 
     def align_media_to_analysis(self) -> MediaApplicationSnapshot:
+        self._require_local_media_security()
         self._require_mutation_available()
         candidate = self._session.sync_media_from_chess(self._timeline)
         if candidate != self._session:
@@ -240,6 +254,7 @@ class MediaApplicationService:
     def restore_media_position(
         self, position_ms: int | None = None
     ) -> RestoreMediaPositionResult:
+        self._require_local_media_security()
         self._require_mutation_available()
         working_session = self._session
         if position_ms is not None:

@@ -13,7 +13,7 @@ legality service.
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Protocol, runtime_checkable
+from typing import Callable, Protocol, runtime_checkable
 
 from .gametree import PgnGame
 from .gametree_legality import validate_game_legality
@@ -311,13 +311,25 @@ def position_for_gametree_cursor(
 class TactileGraphicsController:
     """Refresh coordinator with fail-closed, non-mutating exploration."""
 
-    def __init__(self, display: TactileDisplayPort) -> None:
+    def __init__(
+        self,
+        display: TactileDisplayPort,
+        *,
+        product_security_guard: Callable[[str], None] | None = None,
+    ) -> None:
         presenter = getattr(display, "present", None)
         if not callable(presenter):
             raise TypeError("display must implement TactileDisplayPort.present")
+        if product_security_guard is not None and not callable(product_security_guard):
+            raise TypeError("product_security_guard must be callable or None")
         self._display = display
+        self._product_security_guard = product_security_guard
         self._sequence = 0
         self._scene: TactileScene | None = None
+
+    def _require_product_security(self) -> None:
+        if self._product_security_guard is not None:
+            self._product_security_guard("BND.AC-S08-TACTILE-CORE")
 
     @property
     def current_scene(self) -> TactileScene | None:
@@ -329,6 +341,7 @@ class TactileGraphicsController:
         *,
         focus_square: str | None = None,
     ) -> TactileScene:
+        self._require_product_security()
         return self._publish(
             position,
             focus_square=focus_square,
@@ -354,6 +367,7 @@ class TactileGraphicsController:
     ) -> TactileScene:
         """Refresh after every canonical GameTree cursor navigation event."""
 
+        self._require_product_security()
         position = position_for_gametree_cursor(game, cursor)
         return self._publish(
             position,
@@ -363,6 +377,8 @@ class TactileGraphicsController:
 
     def explore(self, focus_square: str) -> TactileScene:
         """Move tactile focus only; never mutate the originating chess Position."""
+
+        self._require_product_security()
 
         if self._scene is None:
             raise TactileGraphicsError(

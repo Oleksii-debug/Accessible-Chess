@@ -1,0 +1,128 @@
+name: Security Wave 3 Windows Managed Signing
+
+on:
+  workflow_call:
+    inputs:
+      unsigned-artifact-name:
+        required: true
+        type: string
+      signed-artifact-name:
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  sign-windows-release:
+    runs-on: windows-2025
+    environment: production-signing
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    steps:
+      - name: Require immutable version-tag release context
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if ($env:GITHUB_REF -notmatch '^refs/tags/v[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?$') {
+            throw 'Windows production signing requires an immutable version tag.'
+          }
+
+      - name: Checkout exact release source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Download unsigned Windows release
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ inputs.unsigned-artifact-name }}
+          path: unsigned-release
+
+      - name: Require production signing configuration
+        shell: pwsh
+        env:
+          ACS_EXPECTED_PUBLISHER: ${{ vars.EXPECTED_AUTHENTICODE_PUBLISHER }}
+          ACS_SIGNING_ENDPOINT: ${{ vars.AZURE_ARTIFACT_SIGNING_ENDPOINT }}
+          ACS_SIGNING_ACCOUNT: ${{ vars.AZURE_ARTIFACT_SIGNING_ACCOUNT }}
+          ACS_CERT_PROFILE: ${{ vars.AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE }}
+          ACS_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ACS_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          ACS_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        run: |
+          $ErrorActionPreference='Stop'
+          foreach($name in @(
+            'ACS_EXPECTED_PUBLISHER','ACS_SIGNING_ENDPOINT','ACS_SIGNING_ACCOUNT',
+            'ACS_CERT_PROFILE','ACS_CLIENT_ID','ACS_TENANT_ID','ACS_SUBSCRIPTION_ID'
+          )) {
+            if ([string]::IsNullOrWhiteSpace((Get-Item "Env:$name").Value)) {
+              throw "Missing production signing configuration: $name"
+            }
+          }
+          if (-not $env:ACS_SIGNING_ENDPOINT.StartsWith('https://')) {
+            throw 'Artifact Signing endpoint must use HTTPS.'
+          }
+
+      - name: Azure login through GitHub OIDC
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Sign Windows binaries through Microsoft Artifact Signing
+        uses: Azure/artifact-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82
+        with:
+          endpoint: ${{ vars.AZURE_ARTIFACT_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ vars.AZURE_ARTIFACT_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE }}
+          files-folder: ${{ github.workspace }}\unsigned-release
+          files-folder-filter: exe,dll,msix
+          files-folder-recurse: true
+          file-digest: SHA256
+          timestamp-rfc3161: https://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+          exclude-environment-credential: true
+          exclude-workload-identity-credential: true
+          exclude-managed-identity-credential: true
+          exclude-shared-token-cache-credential: true
+          exclude-visual-studio-credential: true
+          exclude-visual-studio-code-credential: true
+          exclude-azure-cli-credential: false
+          exclude-azure-powershell-credential: true
+          exclude-azure-developer-cli-credential: true
+          exclude-interactive-browser-credential: true
+          cache-dependencies: false
+
+      - name: Verify every signed Windows executable
+        shell: pwsh
+        env:
+          ACS_EXPECTED_PUBLISHER: ${{ vars.EXPECTED_AUTHENTICODE_PUBLISHER }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $files=Get-ChildItem -LiteralPath 'unsigned-release' -Recurse -File |
+            Where-Object { $_.Extension -in @('.exe','.dll','.msix') }
+          if ($files.Count -eq 0) { throw 'No Windows release binaries were found after signing.' }
+          foreach($file in $files) {
+            $sig=Get-AuthenticodeSignature -LiteralPath $file.FullName
+            if ($sig.Status -ne [System.Management.Automation.SignatureStatus]::Valid) {
+              throw "Invalid Authenticode signature: $($file.Name) / $($sig.Status)"
+            }
+            if ($null -eq $sig.SignerCertificate -or $sig.SignerCertificate.Subject -ne $env:ACS_EXPECTED_PUBLISHER) {
+              throw "Publisher mismatch: $($file.Name)"
+            }
+            if ($null -eq $sig.TimeStamperCertificate) {
+              throw "RFC3161 timestamp certificate missing: $($file.Name)"
+            }
+          }
+
+      - name: Upload verified signed release
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ inputs.signed-artifact-name }}
+          path: unsigned-release
+          if-no-files-found: error
+          retention-days: 7

@@ -243,12 +243,16 @@ class FullProductActionRouter:
         delegate: Callable[[str, Mapping[str, object]], Any],
         *,
         registry: ActionRegistry | None = None,
+        security_guard: Callable[[str], None] | None = None,
     ) -> None:
         if not callable(delegate):
             raise TypeError("full-product action delegate must be callable")
+        if security_guard is not None and not callable(security_guard):
+            raise TypeError("security_guard must be callable or None")
         self._shell = shell
         self._delegate = delegate
         self._registry = registry or build_full_product_action_registry()
+        self._security_guard = security_guard
 
     @property
     def registry(self) -> ActionRegistry:
@@ -261,6 +265,8 @@ class FullProductActionRouter:
         *,
         current_focus_id: str = "",
     ) -> ActionDispatchResult:
+        if self._security_guard is not None:
+            self._security_guard(action_id)
         self._registry.definition(action_id)
         self._shell._assert_action_dispatch_ready()
         route_id = _ROUTE_BY_ACTION.get(action_id)

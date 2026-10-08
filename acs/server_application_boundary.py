@@ -428,6 +428,7 @@ class ServerApplicationBoundary:
         security_gate: SecurityGate,
         operations: tuple[ServerOperation, ...],
         job_store: SqliteJobStore | None = None,
+        product_security_guard: Callable[[str], None] | None = None,
     ) -> None:
         if type(security_policy) is not ProductionSecurityPolicy:
             raise ServerBoundaryError("production security policy is required")
@@ -448,10 +449,20 @@ class ServerApplicationBoundary:
             mapping[operation.operation] = operation
         self._security_policy = security_policy
         self._security_gate = security_gate
+        if product_security_guard is not None and not callable(product_security_guard):
+            raise ServerBoundaryError("product security guard must be callable or None")
         self._operations = mapping
         self._job_store = job_store
+        self._product_security_guard = product_security_guard
+
+    def _require_product_security(self) -> None:
+        if self._product_security_guard is None:
+            return
+        self._product_security_guard("BND.AC-S30-SERVER-API")
+        self._product_security_guard("BND.AC-S36-SERVER-INTEGRATION")
 
     def handle(self, principal: AuthenticatedPrincipal, request: ApiRequest) -> dict[str, object]:
+        self._require_product_security()
         if type(principal) is not AuthenticatedPrincipal:
             raise ServerBoundaryError("authenticated principal is required")
         if type(request) is not ApiRequest:
@@ -498,6 +509,7 @@ class ServerApplicationBoundary:
         return _response(request, {"result": clean})
 
     def job_status(self, principal: AuthenticatedPrincipal, *, job_id: str) -> dict[str, object]:
+        self._require_product_security()
         if self._job_store is None:
             raise ServerBoundaryError("durable jobs are unavailable")
         job = self._job_store.get(job_id)
@@ -506,6 +518,7 @@ class ServerApplicationBoundary:
         return {"schema_version": API_SCHEMA_VERSION, "job": _job_payload(job)}
 
     def cancel_job(self, principal: AuthenticatedPrincipal, *, job_id: str) -> dict[str, object]:
+        self._require_product_security()
         if "jobs.cancel" not in principal.permissions:
             raise ServerBoundaryError("job cancellation permission is not granted")
         if self._job_store is None:
