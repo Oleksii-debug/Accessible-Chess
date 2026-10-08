@@ -45,10 +45,88 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
         self.assertIn("CHILD_EXIT_REASON", self.source)
         self.assertIn("USER_NVDA_PROVEN: NO", self.source)
 
+    def test_native_startup_failure_popups_are_bilingual(self) -> None:
+        detail_start = self.source.index("static const WCHAR *ac_child_exit_user_detail")
+        detail_end = self.source.index("static void ac_close_child_process_handle", detail_start)
+        details = self.source[detail_start:detail_end]
+        for token in (
+            "Could not initialize the accessible WebView2/WinForms interface.",
+            "Не вдалося ініціалізувати доступний WebView2/WinForms інтерфейс.",
+            "Could not initialize the secure local WebView2 server.",
+            "Не вдалося ініціалізувати безпечний локальний сервер WebView2.",
+            "Could not start the main accessible interface for Accessible Chess.",
+            "Не вдалося запустити основний доступний інтерфейс Accessible Chess.",
+            "Unknown early failure in the main application.",
+            "Невідома рання помилка основної програми.",
+        ):
+            with self.subTest(surface="early-exit-detail", token=token):
+                self.assertIn(token, details)
+
+        generic_start = self.source.index("static void ac_fail(")
+        generic_end = self.source.index("static BOOL ac_direct_directory", generic_start)
+        generic = self.source[generic_start:generic_end]
+        for token in (
+            "Accessible Chess could not start.",
+            "Accessible Chess не запустився.",
+            "Stage / Етап: ",
+            "Windows error / Код Windows: ",
+            "Windows detail / Опис Windows: ",
+            "Report / Звіт: ",
+            "Accessible Chess — startup error / помилка запуску",
+            "Launch report was not created.",
+            "Звіт запуску не створено.",
+            "The main Accessible Chess process may still be running.",
+            "Основний процес може ще працювати.",
+        ):
+            with self.subTest(surface="generic-failure", token=token):
+                self.assertIn(token, generic)
+
+        timeout_start = self.source.index("static void ac_fail_startup_timeout(HANDLE report)")
+        timeout_end = self.source.index("void WINAPI wWinMainCRTStartup(void)", timeout_start)
+        timeout = self.source[timeout_start:timeout_end]
+        for token in (
+            "Accessible Chess did not confirm a ready window within 30 seconds.",
+            "Accessible Chess не підтвердив готовність вікна протягом 30 секунд.",
+            "The unresponsive process was stopped automatically.",
+            "Завислий процес автоматично завершено.",
+            "The unresponsive process could not be stopped automatically.",
+            "Автоматично завершити завислий процес не вдалося.",
+            "Keep the launch report / Збережіть звіт:",
+            "Accessible Chess — startup window not ready / вікно не готове",
+        ):
+            with self.subTest(surface="startup-timeout", token=token):
+                self.assertIn(token, timeout)
+
+        main_start = self.source.index("void WINAPI wWinMainCRTStartup(void)")
+        early_start = self.source.index(
+            'ac_write_line(report, L"STATUS: FAILED_EARLY_EXIT")',
+            main_start,
+        )
+        early_end = self.source.index("ExitProcess(exit_code == 0 ? 1 : exit_code)", early_start)
+        early = self.source[early_start:early_end]
+        for token in (
+            "Accessible Chess exited before a usable window appeared.",
+            "Accessible Chess завершився до появи робочого вікна.",
+            "Exit code / Код: ",
+            "Reason / Причина: ",
+            "Report / Звіт: ",
+            "Accessible Chess — startup error / помилка запуску",
+        ):
+            with self.subTest(surface="early-exit-popup", token=token):
+                self.assertIn(token, early)
+
+    def test_launch_report_failure_titles_are_bilingual(self) -> None:
+        for token in (
+            "Accessible Chess — launch report write error / помилка запису звіту",
+            "Accessible Chess — launch report error / помилка звіту запуску",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, self.source)
+
     def test_all_reported_startup_failures_mark_window_and_nvda_unproven(self) -> None:
         generic_start = self.source.index("static void ac_fail(")
         generic_end = self.source.index(
-            "static void ac_report_write_fail(",
+            "static BOOL ac_direct_directory",
             generic_start,
         )
         generic = self.source[generic_start:generic_end]
@@ -156,7 +234,11 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
         )
         generic_failure = self.source[fail_generic_start:fail_generic_end]
         self.assertIn(
-            "BOOL child_stopped = ac_retire_owned_child(code == 0 ? ERROR_GEN_FAILURE : code);",
+            "DWORD stable_code = code == ERROR_SUCCESS ? ERROR_GEN_FAILURE : code;",
+            generic_failure,
+        )
+        self.assertIn(
+            "BOOL child_stopped = ac_retire_owned_child(stable_code);",
             generic_failure,
         )
         self.assertLess(
@@ -386,6 +468,67 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
         report_open = self.source.index("report = ac_open_report();")
         self.assertLess(root_check, report_open)
 
+    def test_report_open_failure_popup_includes_actual_win32_error(self):
+        main = self.source[self.source.index("void WINAPI wWinMainCRTStartup(void)") :]
+        start = main.index("report = ac_open_report();")
+        end = main.index('ac_write_line(report, L"ACCESSIBLE CHESS PORTABLE LAUNCH REPORT")', start)
+        failure = main[start:end]
+
+        for token in (
+            "error = GetLastError();",
+            "if (error == ERROR_SUCCESS) error = ERROR_WRITE_FAULT;",
+            'L"Windows error / Код Windows: "',
+            "ac_append_u32(g_message, AC_PATH_CAP + 2048, error);",
+            'L"Accessible Chess — launch report error"',
+            "ExitProcess(error);",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, failure)
+
+        self.assertNotIn(
+            "ExitProcess(error == 0 ? 1 : error);",
+            failure,
+        )
+
+    def test_path_preparation_failures_use_accessible_no_report_diagnostics(self):
+        start = self.source.index("static void ac_prepare_paths(void)")
+        end = self.source.index("static void ac_fail_startup_timeout", start)
+        prepare = self.source[start:end]
+
+        self.assertNotIn("ExitProcess(", prepare)
+        for token in (
+            "DWORD error;",
+            "error = GetLastError();",
+            'L"launcher executable path discovery"',
+            "error == ERROR_SUCCESS ? ERROR_PATH_NOT_FOUND : error",
+            'L"package-root path derivation"',
+            'L"App path construction"',
+            'L"core executable path construction"',
+            'L"package-local data path construction"',
+            'L"launch report path construction"',
+            'L"single-instance lock path construction"',
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, prepare)
+        self.assertGreaterEqual(prepare.count("ac_fail(INVALID_HANDLE_VALUE"), 7)
+
+    def test_generic_failure_normalizes_zero_error_before_diagnostics(self):
+        start = self.source.index("static void ac_fail(HANDLE report")
+        end = self.source.index("static BOOL ac_direct_directory", start)
+        failure = self.source[start:end]
+
+        for token in (
+            "DWORD stable_code = code == ERROR_SUCCESS ? ERROR_GEN_FAILURE : code;",
+            "ac_retire_owned_child(stable_code)",
+            "ac_error_detail(stable_code);",
+            "ac_append_u32(g_message, AC_PATH_CAP + 2048, stable_code);",
+            "ExitProcess(stable_code);",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, failure)
+        self.assertNotIn("ac_error_detail(code);", failure)
+        self.assertNotIn("ExitProcess(code == 0 ? 1 : code);", failure)
+
     def test_report_open_retries_only_bounded_sharing_violation(self):
         for token in (
             "#define AC_REPORT_RETRY_MS 100",
@@ -527,6 +670,32 @@ class PortableLauncherSourceContractTests(unittest.TestCase):
         self.assertIn("ac_direct_directory(g_app_dir)", self.source)
         self.assertIn("ac_direct_directory(g_data)", self.source)
         self.assertIn("ac_open_direct_private_file(g_core)", self.source)
+
+    def test_direct_directory_validation_preserves_actionable_win32_errors(self):
+        start = self.source.index("static BOOL ac_direct_directory(const WCHAR *path)")
+        end = self.source.index("static HANDLE ac_open_direct_directory_guard", start)
+        helper = self.source[start:end]
+        for token in (
+            "GetFileAttributesW(path)",
+            "attrs == INVALID_FILE_ATTRIBUTES",
+            "SetLastError(ERROR_DIRECTORY);",
+            "SetLastError(ERROR_CANT_ACCESS_FILE);",
+            "SetLastError(ERROR_SUCCESS);",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, helper)
+
+        main = self.source[self.source.index("void WINAPI wWinMainCRTStartup(void)") :]
+        for stage, fallback in (
+            ("package-root validation", "ERROR_DIRECTORY"),
+            ("App directory validation", "ERROR_PATH_NOT_FOUND"),
+            ("package-local data directory validation", "ERROR_DIRECTORY"),
+        ):
+            with self.subTest(stage=stage):
+                stage_pos = main.index(f'L"{stage}"')
+                block = main[max(0, stage_pos - 220) : stage_pos + 220]
+                self.assertIn("error = GetLastError();", block)
+                self.assertIn(f"error == ERROR_SUCCESS ? {fallback} : error", block)
 
     def test_data_directory_guard_is_direct_and_blocks_replacement(self):
         start = self.source.index(

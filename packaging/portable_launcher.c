@@ -148,15 +148,15 @@ static const WCHAR *ac_child_exit_reason(DWORD code) {
 
 static const WCHAR *ac_child_exit_user_detail(DWORD code) {
     if (code == ACCESSIBILITY_HOST_INIT_EXIT_CODE) {
-        return L"Не вдалося ініціалізувати доступний WebView2/WinForms інтерфейс.";
+        return L"Could not initialize the accessible WebView2/WinForms interface. / Не вдалося ініціалізувати доступний WebView2/WinForms інтерфейс.";
     }
     if (code == SAFE_LOCAL_SERVER_INIT_EXIT_CODE) {
-        return L"Не вдалося ініціалізувати безпечний локальний сервер WebView2.";
+        return L"Could not initialize the secure local WebView2 server. / Не вдалося ініціалізувати безпечний локальний сервер WebView2.";
     }
     if (code == RELEASE_UI_STARTUP_EXIT_CODE) {
-        return L"Не вдалося запустити основний доступний інтерфейс Accessible Chess.";
+        return L"Could not start the main accessible interface for Accessible Chess. / Не вдалося запустити основний доступний інтерфейс Accessible Chess.";
     }
-    return L"Невідома рання помилка основної програми.";
+    return L"Unknown early failure in the main application. / Невідома рання помилка основної програми.";
 }
 
 static void ac_close_child_process_handle(void) {
@@ -210,7 +210,7 @@ static void ac_report_write_fail(HANDLE report, DWORD code) {
     MessageBoxW(
         NULL,
         g_message,
-        L"Accessible Chess — launch report write error",
+        L"Accessible Chess — launch report write error / помилка запису звіту",
         MB_OK | MB_ICONERROR | MB_SETFOREGROUND
     );
     ExitProcess(stable_code);
@@ -279,9 +279,10 @@ static void ac_error_detail(DWORD code) {
 }
 
 static void ac_fail(HANDLE report, const WCHAR *stage, DWORD code) {
-    BOOL child_stopped = ac_retire_owned_child(code == 0 ? ERROR_GEN_FAILURE : code);
+    DWORD stable_code = code == ERROR_SUCCESS ? ERROR_GEN_FAILURE : code;
+    BOOL child_stopped = ac_retire_owned_child(stable_code);
     BOOL has_report = report != NULL && report != INVALID_HANDLE_VALUE;
-    ac_error_detail(code);
+    ac_error_detail(stable_code);
     if (has_report) {
         ac_write_line(report, L"STATUS: FAILED");
         ac_write_line(report, L"USER_WINDOW_PROVEN: NO");
@@ -291,7 +292,7 @@ static void ac_fail(HANDLE report, const WCHAR *stage, DWORD code) {
         ac_write_line(report, stage);
         ac_write_utf8(report, L"WIN32_ERROR: ");
         g_message[0] = L'\0';
-        ac_append_u32(g_message, AC_PATH_CAP + 2048, code);
+        ac_append_u32(g_message, AC_PATH_CAP + 2048, stable_code);
         ac_write_line(report, g_message);
         ac_write_utf8(report, L"DETAIL: ");
         ac_write_line(report, g_error_text);
@@ -300,34 +301,55 @@ static void ac_fail(HANDLE report, const WCHAR *stage, DWORD code) {
         ac_flush_report(report);
     }
 
-    ac_copy(g_message, AC_PATH_CAP + 2048, L"Accessible Chess не запустився.\r\n\r\nЕтап: ");
+    ac_copy(
+        g_message,
+        AC_PATH_CAP + 2048,
+        L"Accessible Chess could not start.\r\n"
+        L"Accessible Chess не запустився.\r\n\r\n"
+        L"Stage / Етап: "
+    );
     ac_append(g_message, AC_PATH_CAP + 2048, stage);
-    ac_append(g_message, AC_PATH_CAP + 2048, L"\r\nКод Windows: ");
-    ac_append_u32(g_message, AC_PATH_CAP + 2048, code);
+    ac_append(g_message, AC_PATH_CAP + 2048, L"\r\nWindows error / Код Windows: ");
+    ac_append_u32(g_message, AC_PATH_CAP + 2048, stable_code);
+    ac_append(g_message, AC_PATH_CAP + 2048, L"\r\nWindows detail / Опис Windows: ");
+    ac_append(g_message, AC_PATH_CAP + 2048, g_error_text);
     if (has_report) {
-        ac_append(g_message, AC_PATH_CAP + 2048, L"\r\n\r\nЗвіт: ");
+        ac_append(g_message, AC_PATH_CAP + 2048, L"\r\n\r\nReport / Звіт: ");
         ac_append(g_message, AC_PATH_CAP + 2048, g_report_path);
     } else {
-        ac_append(g_message, AC_PATH_CAP + 2048, L"\r\n\r\nЗвіт запуску не створено.");
+        ac_append(
+            g_message,
+            AC_PATH_CAP + 2048,
+            L"\r\n\r\nLaunch report was not created.\r\n"
+            L"Звіт запуску не створено."
+        );
     }
     if (!child_stopped) {
         ac_append(
             g_message,
             AC_PATH_CAP + 2048,
-            L"\r\n\r\nОсновний процес може ще працювати. Не запускайте другу копію, доки його не буде завершено."
+            L"\r\n\r\nThe main Accessible Chess process may still be running. Do not start another copy until it is closed.\r\n"
+            L"Основний процес може ще працювати. Не запускайте другу копію, доки його не буде завершено."
         );
     }
     ac_close_child_process_handle();
-    MessageBoxW(NULL, g_message, L"Accessible Chess — помилка запуску", MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
+    MessageBoxW(NULL, g_message, L"Accessible Chess — startup error / помилка запуску", MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
     if (has_report) CloseHandle(report);
-    ExitProcess(code == 0 ? 1 : code);
+    ExitProcess(stable_code);
 }
 
 static BOOL ac_direct_directory(const WCHAR *path) {
     DWORD attrs = GetFileAttributesW(path);
     if (attrs == INVALID_FILE_ATTRIBUTES) return FALSE;
-    if ((attrs & FILE_ATTRIBUTE_DIRECTORY) == 0) return FALSE;
-    if ((attrs & FILE_ATTRIBUTE_REPARSE_POINT) != 0) return FALSE;
+    if ((attrs & FILE_ATTRIBUTE_DIRECTORY) == 0) {
+        SetLastError(ERROR_DIRECTORY);
+        return FALSE;
+    }
+    if ((attrs & FILE_ATTRIBUTE_REPARSE_POINT) != 0) {
+        SetLastError(ERROR_CANT_ACCESS_FILE);
+        return FALSE;
+    }
+    SetLastError(ERROR_SUCCESS);
     return TRUE;
 }
 
@@ -574,13 +596,37 @@ static HANDLE ac_open_report(void) {
 
 static void ac_prepare_paths(void) {
     DWORD size = GetModuleFileNameW(NULL, g_module, AC_PATH_CAP);
-    if (size == 0 || size >= AC_PATH_CAP) ExitProcess(ERROR_BUFFER_OVERFLOW);
-    if (!ac_parent_dir(g_root, AC_PATH_CAP, g_module)) ExitProcess(ERROR_BAD_PATHNAME);
-    if (!ac_path_join(g_app_dir, AC_PATH_CAP, g_root, L"App")) ExitProcess(ERROR_BUFFER_OVERFLOW);
-    if (!ac_path_join(g_core, AC_PATH_CAP, g_app_dir, L"AccessibleChess.exe")) ExitProcess(ERROR_BUFFER_OVERFLOW);
-    if (!ac_path_join(g_data, AC_PATH_CAP, g_root, L"data")) ExitProcess(ERROR_BUFFER_OVERFLOW);
-    if (!ac_path_join(g_report_path, AC_PATH_CAP, g_root, L"launch-report.txt")) ExitProcess(ERROR_BUFFER_OVERFLOW);
-    if (!ac_path_join(g_instance_lock_path, AC_PATH_CAP, g_root, L".accessible-chess-instance.lock")) ExitProcess(ERROR_BUFFER_OVERFLOW);
+    DWORD error;
+
+    if (size == 0) {
+        error = GetLastError();
+        ac_fail(
+            INVALID_HANDLE_VALUE,
+            L"launcher executable path discovery",
+            error == ERROR_SUCCESS ? ERROR_PATH_NOT_FOUND : error
+        );
+    }
+    if (size >= AC_PATH_CAP) {
+        ac_fail(INVALID_HANDLE_VALUE, L"launcher executable path discovery", ERROR_BUFFER_OVERFLOW);
+    }
+    if (!ac_parent_dir(g_root, AC_PATH_CAP, g_module)) {
+        ac_fail(INVALID_HANDLE_VALUE, L"package-root path derivation", ERROR_BAD_PATHNAME);
+    }
+    if (!ac_path_join(g_app_dir, AC_PATH_CAP, g_root, L"App")) {
+        ac_fail(INVALID_HANDLE_VALUE, L"App path construction", ERROR_BUFFER_OVERFLOW);
+    }
+    if (!ac_path_join(g_core, AC_PATH_CAP, g_app_dir, L"AccessibleChess.exe")) {
+        ac_fail(INVALID_HANDLE_VALUE, L"core executable path construction", ERROR_BUFFER_OVERFLOW);
+    }
+    if (!ac_path_join(g_data, AC_PATH_CAP, g_root, L"data")) {
+        ac_fail(INVALID_HANDLE_VALUE, L"package-local data path construction", ERROR_BUFFER_OVERFLOW);
+    }
+    if (!ac_path_join(g_report_path, AC_PATH_CAP, g_root, L"launch-report.txt")) {
+        ac_fail(INVALID_HANDLE_VALUE, L"launch report path construction", ERROR_BUFFER_OVERFLOW);
+    }
+    if (!ac_path_join(g_instance_lock_path, AC_PATH_CAP, g_root, L".accessible-chess-instance.lock")) {
+        ac_fail(INVALID_HANDLE_VALUE, L"single-instance lock path construction", ERROR_BUFFER_OVERFLOW);
+    }
 }
 
 static void ac_fail_startup_timeout(HANDLE report) {
@@ -638,21 +684,25 @@ static void ac_fail_startup_timeout(HANDLE report) {
         ac_copy(
             g_message,
             AC_PATH_CAP + 2048,
+            L"Accessible Chess did not confirm a ready window within 30 seconds.\r\n"
             L"Accessible Chess не підтвердив готовність вікна протягом 30 секунд.\r\n\r\n"
+            L"The unresponsive process was stopped automatically. You can retry from this folder.\r\n"
             L"Завислий процес автоматично завершено. Можна повторити запуск з цієї папки.\r\n"
-            L"Збережіть звіт:\r\n"
+            L"Keep the launch report / Збережіть звіт:\r\n"
         );
     } else {
         ac_copy(
             g_message,
             AC_PATH_CAP + 2048,
+            L"Accessible Chess did not confirm a ready window within 30 seconds.\r\n"
             L"Accessible Chess не підтвердив готовність вікна протягом 30 секунд.\r\n\r\n"
+            L"The unresponsive process could not be stopped automatically. Do not start another copy until it is closed.\r\n"
             L"Автоматично завершити завислий процес не вдалося. Не запускайте другу копію, доки процес не буде завершено.\r\n"
-            L"Збережіть звіт:\r\n"
+            L"Keep the launch report / Збережіть звіт:\r\n"
         );
     }
     ac_append(g_message, AC_PATH_CAP + 2048, g_report_path);
-    MessageBoxW(NULL, g_message, L"Accessible Chess — вікно не готове", MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
+    MessageBoxW(NULL, g_message, L"Accessible Chess — startup window not ready / вікно не готове", MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
     ac_close_child_process_handle();
     CloseHandle(report);
     ExitProcess(ERROR_TIMEOUT);
@@ -680,7 +730,12 @@ void WINAPI wWinMainCRTStartup(void) {
 
     ac_prepare_paths();
     if (!ac_direct_directory(g_root)) {
-        ac_fail(INVALID_HANDLE_VALUE, L"package-root validation", ERROR_DIRECTORY);
+        error = GetLastError();
+        ac_fail(
+            INVALID_HANDLE_VALUE,
+            L"package-root validation",
+            error == ERROR_SUCCESS ? ERROR_DIRECTORY : error
+        );
     }
     root_guard = ac_open_direct_directory_guard(g_root);
     if (root_guard == INVALID_HANDLE_VALUE) {
@@ -704,8 +759,24 @@ void WINAPI wWinMainCRTStartup(void) {
     report = ac_open_report();
     if (report == INVALID_HANDLE_VALUE) {
         error = GetLastError();
-        MessageBoxW(NULL, L"Accessible Chess cannot create launch-report.txt beside the program. Extract the ZIP to a writable folder and try again.", L"Accessible Chess — launch report error", MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
-        ExitProcess(error == 0 ? 1 : error);
+        if (error == ERROR_SUCCESS) error = ERROR_WRITE_FAULT;
+        ac_copy(
+            g_message,
+            AC_PATH_CAP + 2048,
+            L"Accessible Chess cannot create launch-report.txt beside the program.\r\n"
+            L"Extract the ZIP to a writable folder and try again.\r\n\r\n"
+            L"Не вдалося створити launch-report.txt поруч із програмою.\r\n"
+            L"Розпакуйте ZIP у папку з правом запису та повторіть запуск.\r\n\r\n"
+            L"Windows error / Код Windows: "
+        );
+        ac_append_u32(g_message, AC_PATH_CAP + 2048, error);
+        MessageBoxW(
+            NULL,
+            g_message,
+            L"Accessible Chess — launch report error / помилка звіту запуску",
+            MB_OK | MB_ICONERROR | MB_SETFOREGROUND
+        );
+        ExitProcess(error);
     }
 
     ac_write_line(report, L"ACCESSIBLE CHESS PORTABLE LAUNCH REPORT");
@@ -721,7 +792,14 @@ void WINAPI wWinMainCRTStartup(void) {
     ac_write_utf8(report, L"LOCALAPPDATA: ");
     ac_write_line(report, g_data);
 
-    if (!ac_direct_directory(g_app_dir)) ac_fail(report, L"App directory validation", ERROR_PATH_NOT_FOUND);
+    if (!ac_direct_directory(g_app_dir)) {
+        error = GetLastError();
+        ac_fail(
+            report,
+            L"App directory validation",
+            error == ERROR_SUCCESS ? ERROR_PATH_NOT_FOUND : error
+        );
+    }
     app_guard = ac_open_direct_directory_guard(g_app_dir);
     if (app_guard == INVALID_HANDLE_VALUE) {
         error = GetLastError();
@@ -742,7 +820,14 @@ void WINAPI wWinMainCRTStartup(void) {
         error = GetLastError();
         if (error != ERROR_ALREADY_EXISTS) ac_fail(report, L"package-local data directory creation", error);
     }
-    if (!ac_direct_directory(g_data)) ac_fail(report, L"package-local data directory validation", ERROR_DIRECTORY);
+    if (!ac_direct_directory(g_data)) {
+        error = GetLastError();
+        ac_fail(
+            report,
+            L"package-local data directory validation",
+            error == ERROR_SUCCESS ? ERROR_DIRECTORY : error
+        );
+    }
     data_guard = ac_open_direct_directory_guard(g_data);
     if (data_guard == INVALID_HANDLE_VALUE) {
         error = GetLastError();
@@ -883,13 +968,19 @@ void WINAPI wWinMainCRTStartup(void) {
             ac_write_line(report, L"CHILD_LEFT_RUNNING: NO");
             ac_flush_report(report);
 
-            ac_copy(g_message, AC_PATH_CAP + 2048, L"Accessible Chess завершився до появи робочого вікна.\r\n\r\nКод: ");
+            ac_copy(
+                g_message,
+                AC_PATH_CAP + 2048,
+                L"Accessible Chess exited before a usable window appeared.\r\n"
+                L"Accessible Chess завершився до появи робочого вікна.\r\n\r\n"
+                L"Exit code / Код: "
+            );
             ac_append_u32(g_message, AC_PATH_CAP + 2048, exit_code);
-            ac_append(g_message, AC_PATH_CAP + 2048, L"\r\nПричина: ");
+            ac_append(g_message, AC_PATH_CAP + 2048, L"\r\nReason / Причина: ");
             ac_append(g_message, AC_PATH_CAP + 2048, ac_child_exit_user_detail(exit_code));
-            ac_append(g_message, AC_PATH_CAP + 2048, L"\r\nЗвіт: ");
+            ac_append(g_message, AC_PATH_CAP + 2048, L"\r\nReport / Звіт: ");
             ac_append(g_message, AC_PATH_CAP + 2048, g_report_path);
-            MessageBoxW(NULL, g_message, L"Accessible Chess — помилка запуску", MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
+            MessageBoxW(NULL, g_message, L"Accessible Chess — startup error / помилка запуску", MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
             ac_close_child_process_handle();
             CloseHandle(report);
             ExitProcess(exit_code == 0 ? 1 : exit_code);
