@@ -550,7 +550,7 @@ class RevisedCorpusContractTests(unittest.TestCase):
                 self.assertEqual(record["upstream_git_blob"], expected_blob)
                 self.assertEqual(verified_local_source(path, record), expected_digest)
                 self.assertEqual(
-                    hashlib.sha1(f"blob {len(raw)}\\0".encode("ascii") + raw).hexdigest(),
+                    hashlib.sha1(f"blob {len(raw)}\0".encode("ascii") + raw).hexdigest(),
                     expected_blob,
                 )
                 license_file = root / record["license_source"]
@@ -559,7 +559,7 @@ class RevisedCorpusContractTests(unittest.TestCase):
                     record["license_sha256"],
                 )
                 rows = list(csv.DictReader(
-                    io.StringIO(raw.decode("utf-8-sig")), delimiter="\\t"
+                    io.StringIO(raw.decode("utf-8-sig")), delimiter="\t"
                 ))
                 self.assertEqual(len(rows), expected_rows)
                 self.assertEqual(tuple(rows[0]), ("eco", "name", "pgn"))
@@ -569,8 +569,8 @@ class RevisedCorpusContractTests(unittest.TestCase):
                     self.assertTrue(row["pgn"].startswith("1. "))
                 for row in rows[:8]:
                     self.assertEqual(len(parse_pgn_text(
-                        '[Event "Official Lichess opening"]\\n[Result "*"]\\n\\n'
-                        + row["pgn"] + " *\\n", strict=False,
+                        '[Event "Official Lichess opening"]\n[Result "*"]\n\n'
+                        + row["pgn"] + " *\n", strict=False,
                     )), 1)
                 with tempfile.TemporaryDirectory() as tmp:
                     corrupted = Path(tmp) / "corrupted.tsv"
