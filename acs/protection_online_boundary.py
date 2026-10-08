@@ -22,7 +22,7 @@ from .protection_boundary import (
 )
 
 _FLOW_ID = re.compile(r"^[A-Za-z0-9_-]{16,128}$")
-_ALLOWED_MODES = frozenset({"login", "register"})
+_ALLOWED_MODES = frozenset({"login", "register", "recover", "transfer_device"})
 _ALLOWED_POLL_STATES = frozenset({"pending", "completed", "denied", "expired"})
 _MAX_REASON = 256
 _MIN_FLOW_TTL_SECONDS = 30
