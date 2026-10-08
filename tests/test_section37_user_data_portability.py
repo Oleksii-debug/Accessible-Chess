@@ -139,6 +139,27 @@ class Section37PortabilityTests(unittest.TestCase):
         self.assertEqual(target_a.payload, b"old-a")
         self.assertEqual(target_b.payload, b"old-b")
 
+    def test_partially_published_failing_owner_is_rolled_back_too(self):
+        class _PublishThenFail(_Owner):
+            def restore(self, snapshot: DomainSnapshot) -> None:
+                super().restore(snapshot)
+                if snapshot.payload == b"new-b":
+                    raise RuntimeError("post-publication IO failure")
+
+        source = UserDataPortabilityCoordinator((
+            _Owner("a", 1, b"new-a").adapter(),
+            _Owner("b", 1, b"new-b").adapter(),
+        ))
+        raw, _ = source.create_backup()
+        a = _Owner("a", 1, b"old-a")
+        b = _PublishThenFail("b", 1, b"old-b")
+        target = UserDataPortabilityCoordinator((a.adapter(), b.adapter()))
+
+        with self.assertRaisesRegex(UserDataPortabilityError, "prior state was restored"):
+            target.restore_backup(raw)
+        self.assertEqual(a.payload, b"old-a")
+        self.assertEqual(b.payload, b"old-b")
+
     def test_unknown_domain_fails_closed_before_mutation(self):
         source = _Owner("unknown", 1, b"payload")
         raw, _ = UserDataPortabilityCoordinator((source.adapter(),)).export_user_data()
