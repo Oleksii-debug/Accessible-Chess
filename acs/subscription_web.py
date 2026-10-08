@@ -104,13 +104,23 @@ class SubscriptionWebGateway:
             [WebPrincipal | None, SubscriptionActionKind, Mapping[str, object]],
             Mapping[str, object],
         ],
+        product_security_guard: Callable[[str], None] | None = None,
     ) -> None:
         if not callable(snapshot) or not callable(command):
             raise TypeError("snapshot and command must be callable")
+        if product_security_guard is not None and not callable(product_security_guard):
+            raise TypeError("product_security_guard must be callable or None")
         self._snapshot = snapshot
         self._command = command
+        self._product_security_guard = product_security_guard
 
     def snapshot(self, principal: WebPrincipal | None) -> dict[str, object]:
+        if self._product_security_guard is not None:
+            self._product_security_guard(
+                "BND.AC-S35-COMMERCIAL"
+                if principal is not None
+                else "BND.AC-S34-WEB-SAFETY"
+            )
         if principal is not None and type(principal) is not WebPrincipal:
             raise TypeError("principal must be WebPrincipal or None")
         value = self._snapshot(principal)
@@ -133,6 +143,8 @@ class SubscriptionWebGateway:
         action: object,
         payload: object,
     ) -> dict[str, object]:
+        if self._product_security_guard is not None:
+            self._product_security_guard("BND.AC-S35-COMMERCIAL")
         try:
             kind = SubscriptionActionKind(str(action))
         except ValueError as exc:
