@@ -80,13 +80,44 @@ def merge_real_receipts(base: dict, original_positions: dict, original_books: di
             or (registered.get("sha256") is not None and digest != registered["sha256"])
         ):
             raise LawfulCorpusError("external original source checksum/Git blob differs from catalog")
-        if not _valid_digest(entry.get("license_sha256", entry.get("external_license_sha256")), 64):
+        license_digest = entry.get("license_sha256", entry.get("external_license_sha256"))
+        if not _valid_digest(license_digest, 64):
             raise LawfulCorpusError("external original license evidence unavailable")
+        pinned_license = registered.get("external_license_sha256")
+        if pinned_license is not None and license_digest != pinned_license:
+            raise LawfulCorpusError("external license digest does not match original catalog")
+        if source_id.startswith("original_epd2doc_"):
+            observed = entry.get("actual", {})
+            counts = observed.get("counts", {})
+            expected_count = registered.get("expected_line_count")
+            if (
+                expected_count != entry.get("original_record_count")
+                or not isinstance(counts, dict)
+                or sum(counts.get(k, 0) for k in ("PASS", "PARTIAL", "FAIL")) != expected_count
+                or entry.get("format") not in ("EPD", "FEN")
+                or (
+                    entry.get("qualification") == "PASS"
+                    and counts != {"PASS": expected_count, "PARTIAL": 0, "FAIL": 0}
+                )
+            ):
+                raise LawfulCorpusError("genuine EPD/FEN semantic coverage cannot be invented")
+        elif source_id == "cc0_capablanca_open_pdf_original_source":
+            if entry.get("qualification") != "UNSUPPORTED" or entry.get("actual_importer") is not None:
+                raise LawfulCorpusError("authentic PDF bytes cannot be promoted to semantic import")
+        elif (
+            entry.get("qualification") == "PARTIAL"
+            and (
+                entry.get("read") != "PASS"
+                or entry.get("actual", {}).get("semantic_blocks_identical_after_reimport") is not True
+                or entry.get("actual", {}).get("book_progress_restart") != "PASS"
+            )
+        ):
+            raise LawfulCorpusError("genuine book must prove both reimport and durable resume")
         source_receipt = base_receipts[source_id]
         if source_receipt.get("actual_sha256") is not None:
             raise LawfulCorpusError("one external original was already claimed by base source matrix")
         source_receipt["actual_sha256"] = digest
-        source_receipt["actual_bytes"] = entry.get("original_record_count") if False else entry.get("original_bytes")
+        source_receipt["actual_bytes"] = entry.get("original_bytes")
         # For position rows original bytes live in the Section 37 proof.
         # Position readback does not carry byte count: use indexed bytes after
         # SHA and independent upstream Git object checks above.
