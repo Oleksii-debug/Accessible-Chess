@@ -24,6 +24,8 @@ from .engine_play_service import EnginePlayService
 from .full_product_ui_shell import UILanguage
 from .local_profile import LocalProfileStore
 from .release_app import _sound_cache_dir, _sound_variant_provider, _user_root
+from .protection_boundary import ProtectedStartupLocked, authorize_release_startup
+from .protection_locked_ui import run_locked_security_window
 from .settings import Settings
 from .sound_runtime import GameSoundRuntime, SoundRuntime, SoundRuntimeSettings
 from .sound_windows import PackagedSoundAssetResolver, WindowsSoundPlaybackAdapter
@@ -416,6 +418,7 @@ def create_version2_release_application(
     data_root: str | Path | None = None,
     copy_text: Callable[[str], Any] = _copy_text_to_windows_clipboard,
     defer_ui: bool = False,
+    protection_authorizer: Callable[..., Any] = authorize_release_startup,
 ):
     """Compose one engine provider plus the persistent V2 application state.
 
@@ -428,6 +431,16 @@ def create_version2_release_application(
     """
 
     app_dir = Path(application_dir) if application_dir is not None else _asset_root()
+    if not callable(protection_authorizer):
+        raise TypeError("protection_authorizer must be callable")
+    protection_state_root = Path(data_root) if data_root is not None else _user_root()
+    # R00-R14 protection is evaluated before any premium engine/database/application
+    # resource is constructed. A locked packaged release therefore cannot reach
+    # Stockfish, Library, Books, Training or other premium composition by accident.
+    protection_authorizer(
+        application_dir=app_dir,
+        state_root=protection_state_root,
+    )
     layout = _prepare_version2_user_data(
         data_root=data_root,
         settings_path=settings_path,
@@ -624,7 +637,21 @@ def create_version2_release_application(
 
 
 def main() -> None:
-    api, application, runtime, native_runtime_factory = create_version2_release_application(defer_ui=True)
+    try:
+        api, application, runtime, native_runtime_factory = create_version2_release_application(
+            defer_ui=True
+        )
+    except ProtectedStartupLocked as locked:
+        # The locked shell is the only user-facing surface before authorization.
+        # It can create/import the signed offline entitlement through the private
+        # runtime boundary, then retry. Premium composition is attempted only after
+        # the private runtime returns an authorized decision.
+        if not run_locked_security_window(locked.client, locked.decision):
+            return
+        api, application, runtime, native_runtime_factory = create_version2_release_application(
+            defer_ui=True
+        )
+
     run_version2_release_window(
         api,
         application,
