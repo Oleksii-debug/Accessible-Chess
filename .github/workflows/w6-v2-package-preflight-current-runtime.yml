@@ -120,7 +120,7 @@ jobs:
             fi
             test "$(git rev-parse HEAD:tests/test_version2_package_preflight_hardening.py)" = "$CURRENT_HARDENING_BLOB"
             case "$(git rev-parse HEAD:tests/test_v2_package_required_resources.py)" in
-              "$CURRENT_REQUIRED_RESOURCES_BLOB"|"$RESOURCE_REQUIRED_RESOURCES_BLOB"|"$RUNTIME_REQUIRED_RESOURCES_BLOB") ;;
+              "$CURRENT_REQUIRED_RESOURCES_BLOB"|"$RESOURCE_REQUIRED_RESOURCES_BLOB"|"$RUNTIME_REQUIRED_RESOURCES_BLOB"|"$SECURITY_WAVE1_REQUIRED_RESOURCES_BLOB") ;;
               *) echo 'Unqualified required-resource tests' >&2; exit 1 ;;
             esac
             test "$(git rev-parse HEAD:tests/test_version2_package_zip_topology_preflight.py)" = "$CURRENT_ZIP_TOPOLOGY_BLOB"
