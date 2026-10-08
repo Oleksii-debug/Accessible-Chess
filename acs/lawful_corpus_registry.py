@@ -68,6 +68,7 @@ def load_catalog(path: Path = CATALOG_FILE) -> tuple[dict, ...]:
         if type(status) is not str or status not in {
             "PINNED_NOT_DOWNLOADED_IN_THIS_PASS", "DISCOVERED_NOT_HASH_VERIFIED",
             "SOURCE_PAGE_ONLY", "BLOCKED_NO_LAWFUL_COMPLETE_SAMPLE",
+            "VENDORED_SOURCE_VERIFIED",
         }:
             raise LawfulCorpusError("corpus acquisition truth invalid")
         digest = entry.get("sha256")
