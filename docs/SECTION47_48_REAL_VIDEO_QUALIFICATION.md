@@ -6,8 +6,8 @@ Reuses accepted Section 17 YouTube IFrame adapter and recorded media engine and 
 
 ## Implemented in this candidate
 - web/real_media_workbench.html: semantically labeled, keyboard and NVDA-oriented separate local video and remote YouTube surfaces.
-- web/real_media_workbench.js: actual HTML5 local-file MP4/WebM selection and native play/pause/seek, 10-second rewind/forward, speed and volume, source reopening and blob URL revocation, accessible error status. Does not contact YouTube for local video.
-- The same workbench uses the documented existing IFrame Player API adapter for video ID/HTTPS URLs, play/pause/seek/event/current time, visible third-party player, and offline/provider error states. Never downloads YouTube streams.
+- web/real_media_workbench.js: actual HTML5 local-file MP4/WebM selection and both native and keyboard-addressable dedicated play/pause controls, 10-second rewind/forward, speed/volume, source reopening and blob URL revocation, codec/error and on-demand non-spamming NVDA clock announcements. Does not contact YouTube for local video.
+- The same workbench uses the documented existing IFrame Player API adapter for video ID/HTTPS URLs, play/pause/seek/event/current time, visible third-party player, and offline/provider error states (including 2/5/100/101/150/153 and blocked autoplay); time is displayed in a non-live region with an on-demand keyboard read action. Never downloads YouTube streams.
 - For both providers chess state is explicitly UNLINKED until existing canonical Media Core supplies independently verified board/PGN/FEN evidence. A callback is not an integrated Windows MediaSession.
 
 ## Lawful real ORIGINAL source pages, NOT yet downloaded in this work
@@ -18,7 +18,7 @@ Documented metadata and licenses in docs/SECTION47_48_REAL_MEDIA_CATALOG.json:
 4. Youth chess championships.webm — Samson Ssemakadde, CC0 1.0, ~12s.
 
 Rights remain asset-specific. Before any public release retain original attribution/license, source and changes. Source-page checked != bytes downloaded: missing SHA256 and download_verified=false are deliberate. To produce private real-original SHA256 receipts and verify complete ffmpeg decoding:
-    python tools/section47_download_commons_corpus.py --output PRIVATE_EMPTY_DIRECTORY --decode
+    python tools/section47_download_commons_corpus.py --output PRIVATE_EMPTY_DIRECTORY --decode --derive-mp4
 Requires online access; output directory must be empty to protect existing data; ffmpeg and ffprobe must be installed. Originals do not belong in the public git tree by default. The emitted RECEIPT.json contains measured SHA-256 and full decoder outcomes.
 
 ## YouTube source registry
@@ -30,11 +30,15 @@ Actual embed result and embeddable status cannot be inferred from a public watch
 ## Qualification — distinct evidence classes
 - SIMULATED contract: node tests/js/youtube_iframe_playback_adapter_test.js and node tests/js/section47_48_real_media_workbench_test.js; plus Python adversarial integrity tests. This does NOT prove live provider or physical playback.
 - EXTERNAL ORIGINAL BYTES: real Commons API fingerprint, streaming SHA1+measured SHA256, ffprobe/ffmpeg decode, preserved source and license. CI independent job, may fail due network.
-- WINDOWS BROWSER REAL PLAYBACK: MP4/WebM loaded into real packaged Windows WebView, seek/pause/rewind/restart and codec rejection confirmed. Not proved by ffmpeg.
+- WINDOWS BROWSER REAL PLAYBACK: an independent actual Windows Chromium runner opens original WebM plus derived real H264 MP4, uses exposed play/pause buttons, seek/rate/volume/reopen and rejects malformed WebM; final packaged Windows WebView/NVDA must separately confirm these. Not proved by ffmpeg or runner declarations.
 - CANONICAL CHESS: timecode-to-board observations, actual PGN/FEN validation and MediaSession restore by existing canonical chess application; uncertainty never promoted to confirmed.
-- LIVE YOUTUBE: real chess-channel IFrame embed/current time/events, private/unavailable/embeddable/autoplay/network failure and NVDA feedback. Mock passes are not live passes.
+- LIVE YOUTUBE: real chess-channel IFrame embed/current time/events, private/unavailable/embeddable/autoplay/network failure and NVDA feedback. The actual Chromium smoke script checks spoofed hosts and offline→online before the live embed attempt. Mock passes are not live passes.
 
 ## Terminal state
 Section 47: IN_PROGRESS — NOT DONE until source-byte SHA256 receipts, actual Windows playback, board/PGN/FEN matching, MediaSession restore and packaged readback.
 Section 48: IN_PROGRESS — NOT DONE until real chess publisher embed, independently labeled live smoke/negative cases, provider clock-to-timeline integration, and Windows/accessible readback.
 Existing Section 17 remains terminally DONE and not reopened. No manual user/NVDA acceptance is demanded before the final whole-product release stage under AGENTS.md v3.
+
+## Existing shipping regression protection
+
+New required page/adapters were added to Version 2 preparation and package preflight. The already-existing synthetic fixtures in tests/test_version2_release_payload.py and tests/test_version2_package_preflight.py are updated to include the required files rather than let formerly good packaging tests fail on an unrelated missing fixture. Both complete preexisting suites are now added to the qualification workflow on Linux and Windows, but no run is called PASS before successful GitHub execution.
