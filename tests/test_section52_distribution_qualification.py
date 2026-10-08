@@ -202,5 +202,13 @@ class Section52CorpusQualificationTests(unittest.TestCase):
         self.assertGreater(original, 0)
 
 
+    def test_legitimate_sqlite_database_not_confused_with_a_credential(self):
+        original = self.stage / "books" / "sample.pgn"
+        renamed = self.stage / "books" / "sample.sqlite"
+        original.rename(renamed)
+        self.doc["assets"][0]["path"] = "books/sample.sqlite"
+        self.assertEqual(self.verify()["qualified_asset_count"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()
