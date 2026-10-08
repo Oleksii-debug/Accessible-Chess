@@ -933,17 +933,10 @@ class PortableTreeTests(unittest.TestCase):
             _portable_fixture(root)
             manifest_path = root / MANIFEST_NAME
             original_payload = manifest_path.read_bytes()
-            replacement_value = json.loads(original_payload.decode("utf-8"))
-            replacement_value["integration_sha"] = "b" * 40
-            replacement_payload = (
-                json.dumps(
-                    replacement_value,
-                    ensure_ascii=False,
-                    indent=2,
-                    sort_keys=True,
-                )
-                + "\n"
-            ).encode("utf-8")
+            needle = b'"integration_sha": "' + (_SHA.encode("ascii")) + b'"'
+            replacement = b'"integration_sha": "' + (b"b" * 40) + b'"'
+            self.assertEqual(original_payload.count(needle), 1)
+            replacement_payload = original_payload.replace(needle, replacement, 1)
             self.assertEqual(len(original_payload), len(replacement_payload))
 
             replacement_digest = hashlib.sha256(replacement_payload).hexdigest()
