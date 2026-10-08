@@ -15,6 +15,8 @@ import unittest
 import zipfile
 
 from acs.user_library_seed import BUNDLE_KIND, SCHEMA_VERSION
+from acs.version2_application import Version2Application
+from acs.bookreader import BookReader
 from tests.test_version2_package_preflight import _make_tree, _SHA
 from tools.revised_section40_offline_test_library import (
     OfflineCollectionError, build_collection,
@@ -131,6 +133,40 @@ class Section40RealWindowsQAPackageTests(unittest.TestCase):
                     self.assertIn(
                         "books/section37-advanced-workbook-en.docx", corpus.namelist()
                     )
+                    # A ZIP member being checksum-correct is still not proof
+                    # that a packaged end-user book opens. Materialize each
+                    # actual bundled member in a disposable owner QA location
+                    # and invoke the unchanged real Version2 Books opener.
+                    extracted_dir = root / "actual-packaged-workbook-file-open"
+                    extracted_dir.mkdir()
+                    by_language = {}
+                    for record in bilingual:
+                        path = extracted_dir / Path(record["source_path"]).name
+                        path.write_bytes(corpus.read(record["source_path"]))
+                        prepared = Version2Application.prepare_book_open(path)
+                        restored = Version2Application.prepare_book_open(path)
+                        self.assertEqual(
+                            prepared.document.as_dict(), restored.document.as_dict()
+                        )
+                        reader = BookReader(prepared.document)
+                        first = reader.location()
+                        second = reader.next_block()
+                        self.assertEqual(second.index, first.index + 1)
+                        visible_positions = [
+                            item.fen for item in prepared.document.blocks
+                            if item.kind == "Position"
+                        ]
+                        self.assertEqual(
+                            len(visible_positions),
+                            12 if record["format"] in ("md", "html", "epub") else 0,
+                        )
+                        by_language[(record["language"], record["format"])] = tuple(visible_positions)
+                    self.assertEqual(len(by_language), 10)
+                    for extension in ("md", "html", "epub"):
+                        self.assertEqual(
+                            by_language[("uk", extension)],
+                            by_language[("en", extension)],
+                        )
 
 
     def test_existing_private_seed_is_preserved_and_extended_only_in_disposable_qa(self):
