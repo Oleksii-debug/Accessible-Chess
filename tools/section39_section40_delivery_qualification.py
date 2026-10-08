@@ -145,6 +145,23 @@ def qualify_built_delivery(test_path: Path, public_path: Path,
     pub_starter = BookDocument.from_dict(json.loads(public["books/accessible-chess-starter-course.json"]))
     if starter.as_dict() != pub_starter.as_dict() or not starter.blocks:
         raise LawfulCorpusError("canonical BookDocument lost content between archive profiles")
+    for english_path, original_uk, task_count in (
+        ("books/advanced-lichess-16-en.json",
+         "books/advanced-lichess-16-middlegame-endgame.json", 16),
+        ("books/extreme-lichess-4-en.json",
+         "books/extreme-lichess-4-original-puzzles.json", 4),
+    ):
+        english = BookDocument.from_dict(json.loads(tests[english_path]))
+        original = BookDocument.from_dict(json.loads(tests[original_uk]))
+        public_english = BookDocument.from_dict(json.loads(public[english_path]))
+        if (
+            english.language != "en"
+            or public_english.language != "en"
+            or english.as_dict() != public_english.as_dict()
+            or len(english.exercises()) != task_count
+            or [e.fen for e in english.exercises()] != [e.fen for e in original.exercises()]
+        ):
+            raise LawfulCorpusError("advanced English real-source Books changed the canonical chess positions")
     for key, minimum in (
         ("training/advanced-lichess-16-middlegame-endgame.json", 16),
         ("training/extreme-lichess-4-original-puzzles.json", 4),
@@ -215,6 +232,7 @@ def qualify_built_delivery(test_path: Path, public_path: Path,
         "advanced_training_original_tasks": 16,
         "extreme_training_original_tasks": 4,
         "book_document_reopen": "PASS",
+        "bilingual_advanced_chess_positions": "PASS",
         "runtime_user_library_restart": "PASS",
         "public_rights_separation": "PASS",
         "owner_nvda_verified": False,
