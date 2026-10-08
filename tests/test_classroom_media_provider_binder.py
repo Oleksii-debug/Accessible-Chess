@@ -356,7 +356,7 @@ class ClassroomMediaProviderBinderTests(unittest.TestCase):
         self.assertIsNotNone(effect)
         self.assertEqual(effect.browser_payload_count(), 2)
         first_payload = binder.pending_browser_payload(lease.transaction_id)
-        self.assertEqual(len(first_payload["operations"]), 24)
+        self.assertEqual(len(first_payload["commands"]), 24)
 
         binder.mark_provider_dispatched(lease.transaction_id)
         self.assertIsNone(
@@ -370,7 +370,7 @@ class ClassroomMediaProviderBinderTests(unittest.TestCase):
             lease.transaction_id,
         )
         second_payload = binder.pending_browser_payload(lease.transaction_id)
-        self.assertEqual(len(second_payload["operations"]), 6)
+        self.assertEqual(len(second_payload["commands"]), 6)
 
         binder.acknowledge_effect_chunk_success(
             lease.transaction_id,
@@ -392,7 +392,7 @@ class ClassroomMediaProviderBinderTests(unittest.TestCase):
         )
         binder.mark_provider_dispatched(lease.transaction_id)
         before_payload = binder.pending_browser_payload(lease.transaction_id)
-        self.assertEqual(len(before_payload["operations"]), 24)
+        self.assertEqual(len(before_payload["commands"]), 24)
 
         with self.assertRaisesRegex(
             MediaProviderExecutionError,
