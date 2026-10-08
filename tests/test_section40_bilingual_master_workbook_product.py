@@ -11,6 +11,7 @@ from acs.analysis_service import AnalysisService
 from acs.book_progress_store import BookProgressStore
 from acs.bookdocument import BookDocument
 from acs.chesscore import Board
+from acs.full_product_ui_shell import UILanguage
 from acs.engine_assisted_workflows import EngineAssistedWorkflowService
 from acs.version2_starter_content_application import Version2StarterContentApplication
 from acs import section40_bilingual_master_workbook_runtime as runtime
@@ -89,6 +90,11 @@ class GenuineTwelveAdvancedWorkbookProductTests(unittest.TestCase):
                         {"material_id": runtime.MATERIAL_ID},
                     )
                     self.assertEqual(answer["kind"], "render")
+                    self.assertTrue(answer["payload"]["focus_target"])
+                    self.assertIn(
+                        "Майстерська шахова лабораторія",
+                        answer["payload"]["announcement"],
+                    )
                     self.assertEqual(first.book_key, runtime.BOOK_KEY_PREFIX + ":uk")
                     for _ in range(7):
                         first.browser_command("books", "book.next")
@@ -116,6 +122,44 @@ class GenuineTwelveAdvancedWorkbookProductTests(unittest.TestCase):
             finally:
                 analysis.close()
                 database.close()
+
+    def test_english_owner_screen_reader_books_open_has_exact_original_chess_truth(self):
+        with tempfile.TemporaryDirectory(prefix="acs-source37-english-menu-") as temp:
+            root = Path(temp)
+            db = AcsDatabase(root / "library.acsdb")
+            analysis = AnalysisService(lambda: None)
+            try:
+                app = Version2StarterContentApplication(
+                    db,
+                    progress_store=BookProgressStore(root / "books.json"),
+                    engine_assistance=EngineAssistedWorkflowService(analysis),
+                    board_dispatch=lambda *_: None,
+                    board_position_projector=lambda fen: {"fen": fen},
+                )
+                try:
+                    app.shell.set_language(UILanguage.EN)
+                    app.browser_command("shell", "screen.books")
+                    current = app.snapshot()["books"]["starter_materials"]
+                    ours = [item for item in current["items"]
+                            if item["material_id"] == runtime.MATERIAL_ID]
+                    self.assertEqual(len(ours), 1)
+                    self.assertIn("Advanced Chess Laboratory", ours[0]["title"])
+                    opened = app.browser_command(
+                        "books", "book.open_starter_material",
+                        {"material_id": runtime.MATERIAL_ID},
+                    )
+                    self.assertEqual(opened["kind"], "render")
+                    self.assertIn("Advanced Chess Laboratory",
+                                  opened["payload"]["announcement"])
+                    self.assertTrue(opened["payload"]["focus_target"])
+                    self.assertEqual(app.book_key, runtime.BOOK_KEY_PREFIX + ":en")
+                    self.assertEqual(app.reader.document.language, "en")
+                    self.assertEqual(len(app.reader.document.exercises()), 12)
+                finally:
+                    app.shutdown()
+            finally:
+                analysis.close()
+                db.close()
 
     def test_invalid_source_cannot_publish_new_program_workbook(self):
         with patch.object(runtime, "_ORIGINAL_SOURCE_TEXT", "{}"):
