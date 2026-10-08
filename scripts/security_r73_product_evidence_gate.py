@@ -30,7 +30,7 @@ class ProductEvidenceError(ValueError):
 
 
 def _sha256_file(path: Path, *, maximum: int) -> str:
-    if type(path) is not Path or maximum < 1:
+    if not isinstance(path, Path) or type(maximum) is not int or maximum < 1:
         raise ProductEvidenceError("FILE_CONTEXT_INVALID")
     try:
         if path.is_symlink() or not path.is_file():
