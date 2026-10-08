@@ -106,8 +106,8 @@ def build_manifest(root: Path = ROOT) -> dict:
                 row["verified_zip_member_bytes"] = len(member)
                 if source_id == PGN_ID:
                     games = parse_pgn_text(member.decode("utf-8-sig", errors="strict"), strict=False)
-                    if not games or not any(game.line.moves for game in games):
-                        raise LawfulCorpusError("real original PGN source parsed zero moves")
+                    if len(games) != 12092 or not all(game.line.moves for game in games):
+                        raise LawfulCorpusError("real original 12092-game PGN readback changed or lost moves")
                     row["semantic_state"] = "SEMANTIC_PGN_PARSED"
                     row["semantic_count"] = len(games)
                     # Library persistence/roundtrip are separate mandatory gates.
