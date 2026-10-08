@@ -117,3 +117,18 @@ Durable evidence: `docs/corpus/SECTION41_DESIGN_SYSTEM_EVIDENCE.json`.
 The next dependency-safe closure front is Section 42. The focused Section 41
 test passes; unrelated pre-existing Stage 1 source-contract tests remain
 separately recorded as not this front's regression evidence.
+
+## Section 42 — current closure front
+
+**Status: `INTERNAL_COMPLETE_EXTERNAL_BLOCKED` (not DONE).**
+
+Durable evidence: `docs/corpus/SECTION42_BOARD_THEME_EVIDENCE.json`.
+
+| Subsection | State | Evidence / exact limitation |
+|---|---|---|
+| 42.1 | `BLOCKED` | No external Lichess piece pack was vendored without per-asset license/provenance verification. |
+| 42.2 | `PASS` | Local Classic Wood, Modern Graphite, Tournament Blue, Light Minimal and High Contrast theme tokens are present. |
+| 42.3–42.5 | `PARTIAL` | Existing semantic board/gridcell/FEN/GameTree and accessibility runtime remain authoritative; local themes add forced-colors/reduced-motion styling, while full visual fit/animation acceptance is not claimed. |
+| 42.6 | `PARTIAL` | Existing shared board routes and focused source test remain; physical NVDA and clean Windows UIA acceptance are blocked. |
+
+The next dependency-safe closure front is Section 43.
