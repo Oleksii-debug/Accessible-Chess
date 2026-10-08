@@ -30,7 +30,7 @@ class CanonicalMigrationOperatorBoundary:
 
     def __init__(
         self, *, cutover: MigrationCutover,
-        authorize_operator: Callable[[AuthenticatedPrincipal], bool],
+        authorize_operator: Callable[[AuthenticatedPrincipal, MigrationProof], bool],
         load_approved_job: Callable[[], TrustedMigrationJob],
     ) -> None:
         if (type(cutover) is not MigrationCutover
@@ -41,13 +41,16 @@ class CanonicalMigrationOperatorBoundary:
         self._authorize = authorize_operator
         self._job = load_approved_job
 
-    def _authorized(self, actor: AuthenticatedPrincipal) -> bool:
+    def _authorized(self, actor: AuthenticatedPrincipal, proof: MigrationProof) -> bool:
         if (type(actor) is not AuthenticatedPrincipal
+                or type(proof) is not MigrationProof
                 or "migration.operator" not in actor.roles
                 or "backend.migrate" not in actor.permissions):
             return False
         try:
-            return self._authorize(actor) is True
+            # External independent operator approval MUST be bound to THIS
+            # source/target/scope/revision/backup/snapshot, not to a role alone.
+            return self._authorize(actor, proof) is True
         except Exception:
             return False
 
@@ -65,10 +68,10 @@ class CanonicalMigrationOperatorBoundary:
 
     def execute(self, actor: AuthenticatedPrincipal) -> str:
         """No automatic retry on any ambiguous fence/stage/commit result."""
-        if not self._authorized(actor):
+        if type(actor) is not AuthenticatedPrincipal:
             return "DENIED"
         job = self._approved_job()
-        if job is None:
+        if job is None or not self._authorized(actor, job.proof):
             return "DENIED"
         try:
             result = self._cutover.execute(
@@ -80,10 +83,10 @@ class CanonicalMigrationOperatorBoundary:
 
     def reconcile(self, actor: AuthenticatedPrincipal) -> str:
         """Read-only R68 reconciliation: never repeats a side effect."""
-        if not self._authorized(actor):
+        if type(actor) is not AuthenticatedPrincipal:
             return "DENIED"
         job = self._approved_job()
-        if job is None:
+        if job is None or not self._authorized(actor, job.proof):
             return "DENIED"
         try:
             result = self._cutover.reconcile(job.proof)
