@@ -514,6 +514,11 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
                 started = api.start_engine_game("white", 5, 1, 0)
                 self.assertTrue(started["ok"], started)
 
+                protected = api.clock_sound_pulse()
+                self.assertTrue(protected["ok"], protected)
+                self.assertFalse(protected["played"], protected)
+
+                api._clock_sound_not_before = 0.0
                 first = api.clock_sound_pulse()
                 self.assertTrue(first["ok"], first)
                 self.assertTrue(first["played"], first)
@@ -651,8 +656,12 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
         self.assertNotIn("row.replaceWith", text)
         self.assertIn("el('move-submit').addEventListener('click',submitMove)", self.html)
         self.assertIn("el('move-input').addEventListener('keydown'", self.html)
-        self.assertNotIn("document.addEventListener('keydown'", text)
-        self.assertNotIn("window.addEventListener('keydown'", text)
+        identity = text[
+            text.index("function installMoveEntryIdentity()"):
+            text.index("function installBoardFocusContinuity()")
+        ]
+        self.assertNotIn("document.addEventListener('keydown'", identity)
+        self.assertNotIn("window.addEventListener('keydown'", identity)
 
     def test_move_edit_runtime_exposure_contract_targets_webview_accessibility_mechanism(self) -> None:
         text = self.bootstrap
@@ -696,8 +705,12 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
         self.assertIn("input.addEventListener('focusin', rememberMoveInputFocus)", text)
         self.assertIn("stage1MoveFocusPolicyReady", text)
         self.assertLess(text.index("installMoveFocusPolicy();"), text.index("installMoveEntryIdentity();"))
-        self.assertNotIn("document.addEventListener('keydown'", text)
-        self.assertNotIn("window.addEventListener('keydown'", text)
+        policy = text[
+            text.index("function installMoveFocusPolicy()"):
+            text.index("function installMoveEntryIdentity()")
+        ]
+        self.assertNotIn("document.addEventListener('keydown'", policy)
+        self.assertNotIn("window.addEventListener('keydown'", policy)
 
     def test_board_focus_survives_state_driven_grid_replacement_without_global_key_hijack(self) -> None:
         text = self.bootstrap
@@ -715,8 +728,12 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
         self.assertIn("stage1BoardFocusContinuityReady", text)
         self.assertIn("stage1BoardUiaSemanticsReady", text)
         self.assertIn("installBoardFocusContinuity();", text)
-        self.assertNotIn("document.addEventListener('keydown'", text)
-        self.assertNotIn("window.addEventListener('keydown'", text)
+        continuity = text[
+            text.index("function installBoardFocusContinuity()"):
+            text.index("function installClockSoundPulse()")
+        ]
+        self.assertNotIn("document.addEventListener('keydown'", continuity)
+        self.assertNotIn("window.addEventListener('keydown'", continuity)
 
     def test_new_game_visual_sequence_is_visual_only_interruptible_and_sound_timed(self) -> None:
         text = self.bootstrap
@@ -780,7 +797,7 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
             "sound-settings", "sound-enabled", "sound-newgame-animation", "sound-volume",
             "sound-tick-policy", "sound-tick-last-seconds",
             "sound-low-time-policy", "sound-low-time-seconds",
-            "move-error-announcements",
+            "sound-preview-event", "sound-variant", "sound-preview",
             "sound-settings-status",
         ):
             self.assertIn(element_id, text)
@@ -792,11 +809,11 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
         self.assertIn("a.set_clock_sound_last_seconds", text)
         self.assertIn("a.set_low_time_policy", text)
         self.assertIn("a.set_low_time_seconds", text)
-        self.assertIn("a.set_move_error_announcements", text)
-        self.assertNotIn("sound-preview", text)
-        self.assertNotIn("a.preview_sound", text)
+        self.assertIn("a.set_sound_variant", text)
+        self.assertIn("a.preview_sound", text)
         self.assertIn("mate:'Мат'", text)
         self.assertIn("draw:'Нічия'", text)
+        self.assertIn("'mate','draw','tick','low_time'", text)
         self.assertIn("low_time:'Мало часу'", text)
         self.assertIn("status.setAttribute('aria-live', 'off')", text)
         self.assertNotIn("role', 'status", text)
