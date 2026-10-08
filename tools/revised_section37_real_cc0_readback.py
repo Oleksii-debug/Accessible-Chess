@@ -11,6 +11,8 @@ import io
 import json
 import os
 from pathlib import Path
+import re
+import subprocess
 import tempfile
 
 import zstandard
@@ -37,12 +39,32 @@ SAMPLE_GAMES = 128
 REPORT_FILE = Path("revised-section37-live-cc0-readback.json")
 
 
+def _exact_source_head() -> str:
+    """Bind source-byte PASS evidence to the checkout, not a stale CI ref."""
+    root = Path(__file__).resolve().parents[1]
+    try:
+        completed = subprocess.run(
+            ["git", "rev-parse", "--verify", "HEAD"],
+            cwd=root, capture_output=True, text=True, check=True, timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise RuntimeError("cannot verify checkout SHA for live corpus evidence") from exc
+    actual = completed.stdout.strip()
+    if re.fullmatch(r"[0-9a-f]{40}", actual) is None:
+        raise RuntimeError("invalid Git checkout SHA for live corpus evidence")
+    expected = os.environ.get("ACCESSIBLE_CHESS_EXPECTED_HEAD")
+    if expected is not None and expected != actual:
+        raise RuntimeError("live corpus checkout SHA differs from expected candidate")
+    return actual
+
+
 def main() -> None:
     # A new invocation must not retain a successful JSON receipt from a prior
     # invocation if acquisition, decompression, or canonical parsing now fails.
     # An existing PASS is not exact-run evidence for this invocation.
     REPORT_FILE.unlink(missing_ok=True)
     REPORT_FILE.with_suffix(".tmp").unlink(missing_ok=True)
+    source_head_sha = _exact_source_head()
     records = {item["id"]: item for item in load_catalog()}
     results = []
     with tempfile.TemporaryDirectory(prefix="accessible-chess-lawful-source-") as temp:
@@ -93,6 +115,7 @@ def main() -> None:
     # Never emit a PASS report when any source failed; do not preserve bytes.
     payload = {
         "kind": "revised-section37-live-cc0-source-readback",
+        "source_commit_sha": source_head_sha,
         "status": "PASS",
         "real_downloaded_source_count": len(results),
         "sources": results,
