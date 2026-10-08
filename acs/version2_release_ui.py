@@ -12,6 +12,7 @@ live in this module.
 from collections.abc import Mapping
 from dataclasses import asdict
 from functools import wraps
+import json
 import threading
 from typing import Any, Callable
 
@@ -685,6 +686,7 @@ def run_version2_release_window(
     menu_installer: Callable[[Any, Any], bool] = install_full_product_windows_native_menu,
     file_runtime_factory: Callable[[object], Any] | None = None,
     loaded_hook: Callable[[Any], None] | None = None,
+    protection_monitor: Any | None = None,
 ) -> None:
     """Run V2 on the original Stage 1 document and real Edge/WebView2 host."""
 
@@ -694,6 +696,11 @@ def run_version2_release_window(
         raise TypeError("V2 native menu installer must be callable")
     if file_runtime_factory is not None and not callable(file_runtime_factory):
         raise TypeError("V2 file runtime factory must be callable or None")
+    if protection_monitor is not None:
+        if not callable(getattr(protection_monitor, "start", None)):
+            raise TypeError("V2 protection monitor must expose start()")
+        if not callable(getattr(protection_monitor, "stop", None)):
+            raise TypeError("V2 protection monitor must expose stop()")
     application_factory = application if callable(application) else None
     if application_factory is not None:
         application = None
@@ -702,6 +709,7 @@ def run_version2_release_window(
 
     application_closed = False
     startup_errors: list[BaseException] = []
+    protection_monitor_started = False
 
     def close_application(*_args: Any) -> bool:
         nonlocal application_closed
@@ -826,12 +834,56 @@ def run_version2_release_window(
                 raise
 
         def install_release_web_contract(*_args: Any) -> None:
+            nonlocal protection_monitor_started
             if startup_errors:
                 return
             for _label, source in sources:
                 window.evaluate_js(source)
             if loaded_hook is not None:
                 loaded_hook(window)
+
+            if protection_monitor is not None and not protection_monitor_started:
+                def protection_warning(snapshot: Any) -> None:
+                    state = str(getattr(snapshot, "state", ""))
+                    live_region = str(getattr(snapshot, "live_region", "polite"))
+                    messages = {
+                        "renewal_due": "Захисний дозвіл скоро потрібно поновити.",
+                        "network_grace": "Немає мережі. Доступ тимчасово працює в обмеженому пільговому періоді.",
+                    }
+                    message = messages.get(state)
+                    if message is None:
+                        return
+                    live = "assertive" if live_region == "assertive" else "polite"
+                    script = (
+                        "(() => {"
+                        "let e=document.getElementById('accessible-chess-protection-status');"
+                        "if(!e){e=document.createElement('div');"
+                        "e.id='accessible-chess-protection-status';"
+                        "e.setAttribute('role','status');"
+                        "document.body.insertBefore(e, document.body.firstChild);}"
+                        f"e.setAttribute('aria-live',{json.dumps(live)});"
+                        f"e.textContent={json.dumps(message)};"
+                        "})()"
+                    )
+                    try:
+                        api._invoke_ui(lambda: window.evaluate_js(script))
+                    except BaseException:
+                        pass
+
+                def protection_block(_snapshot: Any) -> None:
+                    try:
+                        api._invoke_ui(window.destroy)
+                    except BaseException:
+                        try:
+                            window.destroy()
+                        except BaseException:
+                            pass
+
+                protection_monitor.start(
+                    warning_callback=protection_warning,
+                    block_callback=protection_block,
+                )
+                protection_monitor_started = True
 
         window.events.before_show += start_native_host
         window.events.loaded += install_release_web_contract
@@ -845,6 +897,13 @@ def run_version2_release_window(
         # If native startup recorded the real owner failure but its immediate
         # shutdown also failed, keep the original startup failure primary.
         primary_error = startup_errors[0] if startup_errors else error
+
+    if protection_monitor is not None and protection_monitor_started:
+        try:
+            protection_monitor.stop()
+        except BaseException as error:
+            if primary_error is None:
+                primary_error = error
 
     # Cleanup is ordered and exhaustive.  The first failure remains observable,
     # while later cleanup failures never replace an already-active Product/runtime
