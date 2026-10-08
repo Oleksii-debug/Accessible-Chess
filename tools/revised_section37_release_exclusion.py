@@ -116,8 +116,8 @@ def audit_public_archive(path: Path, records: tuple[dict, ...] | None = None) ->
                 if (
                     info.file_size < 0
                     or info.file_size > _MAX_SINGLE_UNPACKED
-                    or info.compress_size <= 0
-                    or info.file_size > _MAX_COMPRESS_RATIO * info.compress_size
+                    or (info.file_size > 0 and info.compress_size <= 0)
+                    or (info.file_size > 0 and info.file_size > _MAX_COMPRESS_RATIO * info.compress_size)
                 ):
                     raise LawfulCorpusError("release archive contains oversized/compression-bomb member")
                 total_expected += info.file_size
