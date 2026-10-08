@@ -16,7 +16,12 @@ from acs.lawful_corpus_registry import (
 from acs.section40_advanced_licensed_dataset import (
     original_advanced_source_bytes, SOURCE_ID,
 )
-from acs.section40_advanced_training_runtime import build_advanced_offline_material
+from acs.section40_extreme_licensed_dataset import (
+    original_extreme_source_bytes, SOURCE_ID as EXTREME_SOURCE_ID,
+)
+from acs.section40_advanced_training_runtime import (
+    build_advanced_offline_material, build_extreme_offline_material,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 _BOOK_PATH = "books/advanced-lichess-16-middlegame-endgame.json"
@@ -80,3 +85,70 @@ def build_advanced_training(*, root: Path = ROOT) -> tuple[dict[str, bytes], lis
              import_status="CANONICAL_CHESS_POSITION_AND_COMPLETE_SOLUTION_PASS"),
     ]
     return {_BOOK_PATH: doc_wire, _TRAINING_PATH: train_wire}, rows
+
+
+def build_complete_advanced_training(*, root: Path = ROOT) -> tuple[dict[str, bytes], list[dict]]:
+    """Combine two legally separated real advanced Lichess CC0 source families."""
+    assets, rows = build_advanced_training(root=root)
+    records = load_catalog(root / "docs/corpus/revised_sections37_40_sources.json")
+    candidates = [record for record in records if record.get("id") == EXTREME_SOURCE_ID]
+    if len(candidates) != 1:
+        raise LawfulCorpusError("original 3000+ puzzle source absent")
+    record = candidates[0]
+    if (record.get("acquisition") != "VENDORED_SOURCE_VERIFIED"
+        or record.get("license") != "CC0-1.0"
+        or record.get("redistribution") != "permitted"
+        or record.get("license_sha256") != _LICENSE_SHA):
+        raise LawfulCorpusError("3000+ source identity/rights not qualified")
+    read_verified_source_snapshot(
+        root / record["license_source"],
+        {"sha256": _LICENSE_SHA, "max_bytes": 1024 * 1024},
+    )
+    actual = read_verified_source_snapshot(root / record["local_source"], record)
+    if actual != original_extreme_source_bytes():
+        raise LawfulCorpusError("3000+ runtime dataset differs from genuine original")
+    book, tasks = build_extreme_offline_material()
+    if len(tasks) != 4 or any(
+        task["puzzle_rating_lichess_not_fide"] < 3000 for task in tasks
+    ):
+        raise LawfulCorpusError("3000+ advanced source cannot qualify")
+    book_wire = json.dumps(book.as_dict(), ensure_ascii=False,
+                           sort_keys=True, separators=(",", ":")).encode("utf-8") + b"\\n"
+    if BookDocument.from_dict(json.loads(book_wire)).as_dict() != book.as_dict():
+        raise LawfulCorpusError("extreme BookDocument restart/readback invalid")
+    training_wire = json.dumps({
+        "schema_version": 1,
+        "source_id": EXTREME_SOURCE_ID,
+        "rating_system": "LICHESS_PUZZLE_RATING_NOT_FIDE",
+        "composed_studies": False,
+        "tasks": tasks,
+    }, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8") + b"\\n"
+    book_path = "books/extreme-lichess-4-original-puzzles.json"
+    train_path = "training/extreme-lichess-4-original-puzzles.json"
+    if book_path in assets or train_path in assets:
+        raise LawfulCorpusError("extreme source output path conflicts with advanced curriculum")
+    assets[book_path] = book_wire
+    assets[train_path] = training_wire
+    attribution = {
+        "author": "Lichess original CC0 puzzle contributors",
+        "language": "uk",
+        "license": "CC0-1.0",
+        "redistribution": "permitted; original puzzle data only, not FeXd GPL application",
+        "source_url": record["source_page"],
+        "download_url": None,
+        "repeat_download": "BUNDLED_OFFLINE",
+    }
+    rows.extend([
+        dict(attribution, id="lichess_extreme_4_book", title=book.title,
+             genre="expert tactical calculation", format="BookDocument JSON",
+             source_path=book_path, size_bytes=len(book_wire),
+             sha256=hashlib.sha256(book_wire).hexdigest(),
+             import_status="CANONICAL_BOOKDOCUMENT_ROUNDTRIP_PASS"),
+        dict(attribution, id="lichess_extreme_4_training",
+             title="4 original 3000–3166 Lichess rated puzzles",
+             genre="expert tactical chess puzzles", format="Training JSON",
+             source_path=train_path, size_bytes=len(training_wire),
+             sha256=hashlib.sha256(training_wire).hexdigest(),
+             import_status="CANONICAL_CHESS_POSITION_AND_COMPLETE_SOLUTION_PASS"),
+    ])
+    return assets, rows
