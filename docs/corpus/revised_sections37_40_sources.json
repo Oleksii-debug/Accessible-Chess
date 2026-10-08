@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "policy": "catalog-only; no implicit public distribution; downloaded files require full pinned SHA256 verification",
+  "sources": [
+    {
+      "id": "lichess_standard_rated_2013_01",
+      "title": "Lichess Standard Rated 2013-01",
+      "author": "Lichess players",
+      "format": "pgn.zst",
+      "source_page": "https://database.lichess.org/",
+      "download_url": "https://database.lichess.org/standard/lichess_db_standard_rated_2013-01.pgn.zst",
+      "sha256": "aa40b3671fa3cf1072eb182892cd90b0e1e003a4a5943492f64b77e7f3fd1635",
+      "max_bytes": 33554432,
+      "license": "CC0",
+      "redistribution": "permitted",
+      "acquisition": "PINNED_NOT_DOWNLOADED_IN_THIS_PASS",
+      "canonical_qa": "tools/v2_library_source_catalog_real_corpus.py",
+      "notes": "Existing exact-hash download and canonical import stress source; requires executed live qualification"
+    },
+    {
+      "id": "capablanca_chess_fundamentals_txt",
+      "title": "Chess Fundamentals",
+      "author": "Jose Raul Capablanca",
+      "format": "txt",
+      "source_page": "https://www.gutenberg.org/ebooks/33870",
+      "download_url": "https://www.gutenberg.org/cache/epub/33870/pg33870.txt",
+      "sha256": null,
+      "max_bytes": 8388608,
+      "license": "US public domain; verify jurisdiction and Project Gutenberg redistribution conditions",
+      "redistribution": "NOT_CLEARED",
+      "acquisition": "DISCOVERED_NOT_HASH_VERIFIED",
+      "canonical_qa": "semantic Book TXT reader after authorized local acquisition",
+      "notes": "Gutenberg ebook #33870; rights outside USA are not inferred from USA status"
+    },
+    {
+      "id": "capablanca_chess_fundamentals_epub3",
+      "title": "Chess Fundamentals EPUB3",
+      "author": "Jose Raul Capablanca",
+      "format": "epub",
+      "source_page": "https://www.gutenberg.org/ebooks/33870",
+      "download_url": null,
+      "sha256": null,
+      "max_bytes": 16777216,
+      "license": "US public domain; verify jurisdiction and Project Gutenberg redistribution conditions",
+      "redistribution": "NOT_CLEARED",
+      "acquisition": "SOURCE_PAGE_ONLY",
+      "canonical_qa": "BookDocument EPUB3; download link requires exact current endpoint verification",
+      "notes": "Do not invent EPUB file URL or claim import support"
+    },
+    {
+      "id": "chessbase_family_complete_real_samples",
+      "title": "ChessBase CBH/CBV/CBF/2CBH/CBONE external complete sample sets",
+      "author": "external rightsholders",
+      "format": "cbh_family",
+      "source_page": null,
+      "download_url": null,
+      "sha256": null,
+      "max_bytes": 0,
+      "license": "UNKNOWN",
+      "redistribution": "NOT_CLEARED",
+      "acquisition": "BLOCKED_NO_LAWFUL_COMPLETE_SAMPLE",
+      "canonical_qa": "format capability remains unsupported or partial as separately evidenced",
+      "notes": "A synthetic .cbh extension does not qualify authentic multi-file import"
+    }
+  ]
+}
