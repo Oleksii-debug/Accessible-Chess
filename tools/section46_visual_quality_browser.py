@@ -124,6 +124,31 @@ def run(folder: Path, *, browser_engine: str = "chromium") -> dict:
                                     raise AssertionError((name,theme,zoom,width,profile,
                                                           "preview unavailable"))
                             page.locator("#ac45-profile").select_option("Classic")
+                            # Native editable text must allow Ctrl+A selection.
+                            field=page.locator("#ac45-name")
+                            field.fill("Accessible Chess User Profile")
+                            field.focus()
+                            page.keyboard.press("ControlOrMeta+A")
+                            selection=field.evaluate(
+                                "(element) => ({start:element.selectionStart,"
+                                "end:element.selectionEnd,length:element.value.length})"
+                            )
+                            if selection["start"] != 0 or selection["end"] != selection["length"]:
+                                raise AssertionError((name,theme,zoom,width,"native input selection",selection))
+                            field.fill("")
+                            # Deliberately long UI translation; original text and
+                            # tooltips are restored after measuring reflow.
+                            label=page.locator('label[for="ac45-board-theme"]')
+                            original_label=label.text_content()
+                            label.evaluate("(node) => node.textContent = 'Accessibility presentation and long internationalized thematic control name repeated for layout validation'")
+                            reflow=page.evaluate(
+                                "() => document.querySelector('#ac45-studio').scrollWidth > "
+                                "document.querySelector('#ac45-studio').clientWidth + 1"
+                            )
+                            label.evaluate("(node, text) => node.textContent = text",original_label)
+                            if reflow:
+                                raise AssertionError((name,theme,zoom,width,
+                                                      "long translation overflow"))
                             page.locator("#ac45-profile").focus()
                             focus = page.evaluate("""() => ({
                                 studio: document.querySelector('#ac45-studio')?.getAttribute('aria-labelledby'),
@@ -174,6 +199,8 @@ def run(folder: Path, *, browser_engine: str = "chromium") -> dict:
                                 "keyboard_focus": keyboard_focus,
                                 "initial_focus": initial_focus,
                                 "profile_preview_count": 6,
+                                "native_input_select_all": selection,
+                                "long_translation_no_studio_overflow": not reflow,
                                 "classification": "LOCAL_UI_FIXTURE_NOT_LIVE_DEPLOYMENT",
                             })
                             context.close()
