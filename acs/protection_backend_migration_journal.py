@@ -41,6 +41,7 @@ class SqliteMigrationJournal:
             raise MigrationError("MIGRATION_JOURNAL_PATH_UNSAFE")
         try:
             with self._open() as db:
+                db.execute("PRAGMA journal_mode=WAL")
                 db.execute("BEGIN IMMEDIATE")
                 db.execute(
                     "CREATE TABLE IF NOT EXISTS r68_journal_meta("
@@ -78,7 +79,6 @@ class SqliteMigrationJournal:
         try:
             db.execute("PRAGMA busy_timeout=10000")
             db.execute("PRAGMA synchronous=FULL")
-            db.execute("PRAGMA journal_mode=WAL")
             yield db
             if db.in_transaction:
                 db.commit()
