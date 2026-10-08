@@ -48,14 +48,14 @@ _CATALOGUE_LABELS = {
         "heading": "Офлайнова шахова бібліотека",
         "label": "Матеріал",
         "open": "Відкрити матеріал",
-        "description": "24 посібники, стартовий курс, 16 задач Lichess 2200+, 4 задачі 3000+ (не FIDE) і оригінальний етюд Реті 1921 року доступні офлайн.",
+        "description": "24 посібники, стартовий курс, 16 складних задач Lichess 2200+, 4 задачі 3000+ (рейтинг задач, не FIDE), етюд Реті 1921 року та окремий довідник 25 жанрів літератури й шахових баз (УКР/EN). Повні книги видавців не вбудовані.",
         "opened": "Відкрито матеріал",
     },
     UILanguage.EN: {
         "heading": "Offline chess learning library",
         "label": "Material",
         "open": "Open material",
-        "description": "24 booklets, starter course, 16 Lichess 2200+ and four 3000+ rated puzzles (not FIDE), plus an original Reti 1921 endgame study, open offline.",
+        "description": "24 booklets, starter course, 16 Lichess 2200+ and four 3000+ difficulty puzzles (not FIDE), an original Reti 1921 study, and a separately accessible catalogue of 25 chess literature and database genres (UA/EN). Copyrighted books are not bundled.",
         "opened": "Opened material",
     },
 }
