@@ -1112,6 +1112,44 @@
       "acquisition": "VENDORED_SOURCE_VERIFIED",
       "canonical_qa": "Actual 4 CC0 original RAV/eval PGN games; canonical PGN/Library integration tests separate. 2200+ online player ratings are NOT FIDE Elo/GM titles.",
       "notes": "Four genuine annotated fully recorded games with both Lichess opponents >=2200; 142 RAV parentheses and 265 eval comments detected in original full derived file. Not a replacement for true GM classical database, separate from IBCA championships."
+    },
+    {
+      "download_url": null,
+      "sha256": null,
+      "max_bytes": 0,
+      "license": "Unlicensed third-party GitHub mirror; do not redistribute or package actual author's composed studies",
+      "redistribution": "NOT_CLEARED",
+      "acquisition": "SOURCE_PAGE_ONLY",
+      "test_access": "EXTERNAL_LINK_ONLY",
+      "public_release": "EXCLUDED",
+      "canonical_qa": "Authorship and exact original Git blob discovered, but lawful reproduction, full checksum and semantic import not qualified",
+      "id": "grigoriev_historical_original_studies_pgn_unlicensed",
+      "title": "Nikolay Grigoriev original chess endgame studies PGN",
+      "author": "Nikolay Grigoriev (original study composer), public mirror anthology maintainers",
+      "format": "pgn (FEN+study, public historical mirror)",
+      "source_page": "https://github.com/usefulmove/chessdb",
+      "upstream_git_blob": "17d0dacf901c5c2fdef68f1d8aa39f70f44890cb",
+      "upstream_path": "EndgameStudiesGrigoriev.pgn",
+      "notes": "Real PGN with historical Grigoriev 1928 FEN and original endgame study; mirror has no visible explicit LICENSE. Source study may be public domain as original work in EU but third-party editorial annotations and original digital collection copyright are NOT CLEARED."
+    },
+    {
+      "download_url": null,
+      "sha256": null,
+      "max_bytes": 0,
+      "license": "Unlicensed third-party GitHub mirror; do not redistribute or package actual author's composed studies",
+      "redistribution": "NOT_CLEARED",
+      "acquisition": "SOURCE_PAGE_ONLY",
+      "test_access": "EXTERNAL_LINK_ONLY",
+      "public_release": "EXCLUDED",
+      "canonical_qa": "Authorship and exact original Git blob discovered, but lawful reproduction, full checksum and semantic import not qualified",
+      "id": "kasparian_domination_original_studies_pgn_unlicensed",
+      "title": "Genrikh Kasparian domination endgame study collection PGN",
+      "author": "Genrikh Kasparian and study-file annotators",
+      "format": "pgn (genuine composed study, current-rights review needed)",
+      "source_page": "https://github.com/usefulmove/chessdb",
+      "upstream_git_blob": "f5bf291e576282bfbe1ae85fb6901690267ac4db",
+      "upstream_path": "KasparianDominationStudies.pgn",
+      "notes": "Actual PGN FEN original Kasparian domination study file found in a public game repository with no clear redistribution license. Modern composer rights/annotations may persist, NOT a CC0 import. Original FEN verified from file head only; entire study not qualified."
     }
   ]
 }
