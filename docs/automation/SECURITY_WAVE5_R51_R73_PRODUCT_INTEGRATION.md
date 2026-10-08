@@ -473,3 +473,33 @@ the prior dangerous exit-0 signal that a publishing script might misinterpret
 as permission. Regression test validates this together with release_approved=false
 and the independent_release_decision next gate. No hidden bypass or auto-publish.
 All remain draft, pending actual Windows/Linux CI, native provider evidence, and merge.
+
+
+## R68 SQLite single-host migration journal — source-integrated, not production HA
+
+The existing canonical neutral `MigrationCutover` and previously prepared
+`CanonicalMigrationOperatorBoundary` now have a concrete product-local,
+`SqliteMigrationJournal` DurableJournal protocol adapter in
+`acs/protection_backend_migration_journal.py`. It uses WAL, synchronous FULL,
+BEGIN IMMEDIATE across independent connections, a versioned schema, exact
+proof digest and source snapshot identity. Before any external source fence or
+target stage it durably reserves the exact migration ID in
+`RESERVED_UNKNOWN`. Replaying the exact proof or swapping proof source,
+target, revision or scope never returns a new admission. Monotonic phases
+RESERVED_UNKNOWN → FENCED → STAGED → COMMITTED reject skipped, duplicate,
+bad-digest and forged events. All ambiguous SQL operations fail closed.
+
+`tests/test_security_r68_sqlite_migration_journal.py` exercises concurrent
+reservation, post-restart UNKNOWN, monotonic transitions, corruption, schema
+mismatch, symlinks, and one full in-process canonical MigrationCutover
+(source fence → target readback → journal commit → route CAS) followed by
+a new journal instance's read-only reconciliation and replay denial.
+The existing Wave-5 dual-OS CI runs these tests. Until GitHub actually
+completes that exact-head CI, registration is not a test PASS.
+
+This is a **single-host journal adapter**, not external source fencing,
+independently signed migration proof, backed-up HA transactional target, network
+consensus, independent rollback anchor, authenticated production operator,
+or a safe live cutover deployment. None of those capabilities or user data
+transfers are claimed. This journal is not a second issuer, ledger of
+entitlements or migration cutover decision-maker.
