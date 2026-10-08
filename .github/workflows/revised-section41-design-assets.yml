@@ -13,6 +13,7 @@ on:
       - 'docs/third_party/tabler-core-1.6.1-accessibility.scss'
       - 'tools/revised_section41_mit_asset_qualification.py'
       - 'tests/js/section41_semantic_component_dom_test.js'
+      - 'tests/js/section41_production_theme_bridge_dom_test.js'
       - 'tests/test_revised_section41_design_system.py'
       - 'tests/test_revised_section41_tabler_core.py'
       - 'tests/test_revised_sections41_42_design.py'
@@ -58,6 +59,8 @@ jobs:
           set -euo pipefail
           node --check tests/js/section41_semantic_component_dom_test.js
           node tests/js/section41_semantic_component_dom_test.js
+          node --check tests/js/section41_production_theme_bridge_dom_test.js
+          node tests/js/section41_production_theme_bridge_dom_test.js
       - name: Create precise source-only MIT asset SPDX 2.3 and actual bytes receipt
         shell: bash
         run: |
