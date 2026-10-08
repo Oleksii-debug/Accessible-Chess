@@ -65,6 +65,8 @@ def _relative(value: object) -> str:
 def _https(value: object) -> str:
     if not isinstance(value, str) or not (1 <= len(value) <= 2048):
         _reject()
+    if any(ord(char) <= 32 or ord(char) == 127 for char in value):
+        _reject()
     try:
         url = urlsplit(value)
         if (url.scheme != "https" or not url.hostname or url.username
@@ -145,13 +147,18 @@ def qualify_distribution_corpus(
     _node(stage_dir, directory=True)
     found: dict[str, Path] = {}
     folded: set[str] = set()
+    folded_dirs: set[str] = set()
     total_bytes = 0
-    for current, dirs, files in os.walk(stage_dir, followlinks=False):
+    for current, dirs, files in os.walk(stage_dir, followlinks=False,
+                                        onerror=lambda error: _reject()):
         _node(Path(current), directory=True)
         for name in dirs:
             path = Path(current) / name
             _node(path, directory=True)
-            _relative(path.relative_to(stage_dir).as_posix())
+            dir_token = _relative(path.relative_to(stage_dir).as_posix())
+            if dir_token.casefold() in folded_dirs:
+                _reject()
+            folded_dirs.add(dir_token.casefold())
         for name in files:
             path = Path(current) / name
             relative = _relative(path.relative_to(stage_dir).as_posix())
