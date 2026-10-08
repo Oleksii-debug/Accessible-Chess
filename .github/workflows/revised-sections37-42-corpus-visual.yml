@@ -34,6 +34,8 @@ on:
       - 'tools/revised_section37_release_exclusion.py'
       - 'tools/revised_section37_advanced_puzzle_curator.py'
       - 'tests/test_revised_section37_advanced_puzzle_curator.py'
+      - 'tests/test_revised_section37_advanced_owner_training_source_policy.py'
+      - 'docs/corpus/SECTION37_ADVANCED_MASTER_TRAINING_UK.md'
       - 'tests/real_corpus/advanced_training/**'
       - 'tests/test_revised_section37_release_exclusion.py'
       - 'tools/revised_section37_cbh_original_family_inventory.py'
