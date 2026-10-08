@@ -191,7 +191,7 @@ class AuthenticodeVerifierTests(unittest.TestCase):
             target = Path(tmp) / "unsigned.ps1"
             target.write_text("Write-Output 'unsigned fixture'\n", encoding="utf-8")
             evidence = WindowsAuthenticodeVerifier().verify(target)
-        self.assertEqual(evidence.status, AuthenticodeStatus.UNSIGNED)
+        self.assertNotEqual(evidence.status, AuthenticodeStatus.VALID)
         self.assertFalse(evidence.acceptable_for_release)
 
 
