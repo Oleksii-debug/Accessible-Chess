@@ -24,7 +24,11 @@ from .protection_boundary import (
     ProtectionRuntimeClient,
 )
 from .release_update_center import StagedUpdate
-from .protection_product_boundaries import boundaries_for_action, boundaries_for_surface
+from .protection_product_boundaries import (
+    CANONICAL_PRODUCT_BOUNDARY_IDS,
+    boundaries_for_action,
+    boundaries_for_surface,
+)
 
 _BOUNDARY = re.compile(r"^[a-z0-9][a-z0-9._-]{2,95}$")
 _REASON = re.compile(r"^[a-z0-9][a-z0-9._-]{0,127}$")
@@ -100,7 +104,10 @@ class ProtectionCapabilityGate:
         self.client = client
 
     def authorize(self, boundary_id: str) -> ProductBoundaryDecision:
-        if not isinstance(boundary_id, str) or _BOUNDARY.fullmatch(boundary_id) is None:
+        if not isinstance(boundary_id, str) or (
+            _BOUNDARY.fullmatch(boundary_id) is None
+            and boundary_id not in CANONICAL_PRODUCT_BOUNDARY_IDS
+        ):
             raise ProtectionAdvancedError("product boundary id is invalid")
         runtime = _runtime_v4(self.client)
         operation = getattr(runtime, "authorize_product_boundary", None)
