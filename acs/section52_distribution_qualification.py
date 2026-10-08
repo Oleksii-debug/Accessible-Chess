@@ -95,7 +95,7 @@ def _snapshot(info: os.stat_result) -> tuple[int, int, int, int, int]:
 
 def _digest(path: Path) -> tuple[str, int]:
     initial = _node(path, directory=False)
-    if initial.st_size > MAX_SINGLE_FILE:
+    if initial.st_size > MAX_SINGLE_FILE or initial.st_nlink != 1:
         _reject()
     try:
         with path.open("rb") as inp:
@@ -128,10 +128,23 @@ def qualify_distribution_corpus(
     if not isinstance(expected_source_sha, str) or not _SOURCE_SHA.fullmatch(expected_source_sha):
         _reject()
     _node(manifest_path, directory=False)
-    if manifest_path.stat().st_size > 1048576:
+    # Read a single bounded manifest file snapshot. Never accept a mixed
+    # mutable policy document or a changed path identity during qualification.
+    initial_manifest = _node(manifest_path, directory=False)
+    if initial_manifest.st_size > 1048576 or initial_manifest.st_nlink != 1:
         _reject()
     try:
-        doc = json.loads(manifest_path.read_text(encoding="utf-8"),
+        with manifest_path.open("rb") as stream:
+            opened_manifest = os.fstat(stream.fileno())
+            if _snapshot(initial_manifest) != _snapshot(opened_manifest):
+                _reject()
+            manifest_bytes = stream.read(1048577)
+            if (len(manifest_bytes) > 1048576
+                    or _snapshot(opened_manifest) != _snapshot(os.fstat(stream.fileno()))):
+                _reject()
+        if _snapshot(initial_manifest) != _snapshot(_node(manifest_path, directory=False)):
+            _reject()
+        doc = json.loads(manifest_bytes.decode("utf-8"),
                          object_pairs_hook=_strict_pairs, parse_constant=_nonfinite)
     except (UnicodeError, ValueError, OSError):
         _reject()
@@ -167,7 +180,7 @@ def qualify_distribution_corpus(
                 _reject()
             folded.add(relative.casefold())
             total_bytes += info.st_size
-            if total_bytes > MAX_TOTAL or info.st_size > MAX_SINGLE_FILE:
+            if total_bytes > MAX_TOTAL or info.st_size > MAX_SINGLE_FILE or info.st_nlink != 1:
                 _reject()
             found[relative] = path
             if len(found) > MAX_FILES:
@@ -184,7 +197,8 @@ def qualify_distribution_corpus(
         permission = asset["permission"]
         evidence = asset["rights_ref"]
         if (type(value) is not str or not _SHA256.fullmatch(value)
-                or permission not in counts or type(evidence) is not str
+                or type(permission) is not str or permission not in counts
+                or type(evidence) is not str
                 or not (1 <= len(evidence) <= 512)):
             _reject()
         _https(asset["source_url"])
@@ -194,6 +208,8 @@ def qualify_distribution_corpus(
             _reject()
         expected[name] = value
         counts[permission] += 1
+    if doc["kind"] == "TEST_BUILD" and not expected:
+        _reject()
     if set(expected) != set(found):
         _reject()
     links: set[str] = set()
