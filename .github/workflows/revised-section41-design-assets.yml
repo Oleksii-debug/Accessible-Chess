@@ -9,8 +9,11 @@ on:
       - 'web/section41_components.html'
       - 'web/assets/accessible_chess_design.css'
       - 'web/assets/tabler/**'
+      - 'web/assets/tabler-core/**'
+      - 'docs/third_party/tabler-core-1.6.1-accessibility.scss'
       - 'tools/revised_section41_mit_asset_qualification.py'
       - 'tests/test_revised_section41_design_system.py'
+      - 'tests/test_revised_section41_tabler_core.py'
       - 'tests/test_revised_sections41_42_design.py'
       - 'acs/spdx_sbom.py'
       - 'acs/version2_package_preflight.py'
@@ -42,8 +45,8 @@ jobs:
           test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
       - name: Compile and run real asset, accessibility, design regression
         run: |
-          python -m py_compile tools/revised_section41_mit_asset_qualification.py tests/test_revised_section41_design_system.py
-          python -m unittest -v tests.test_revised_section41_design_system tests.test_revised_sections41_42_design tests.test_v2_package_required_resources
+          python -m py_compile tools/revised_section41_mit_asset_qualification.py tests/test_revised_section41_design_system.py tests/test_revised_section41_tabler_core.py
+          python -m unittest -v tests.test_revised_section41_design_system tests.test_revised_section41_tabler_core tests.test_revised_sections41_42_design tests.test_v2_package_required_resources
       - name: Create precise source-only MIT asset SPDX 2.3 and actual bytes receipt
         shell: bash
         run: |
