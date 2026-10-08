@@ -293,6 +293,7 @@ def main() -> None:
     import argparse
     cli = argparse.ArgumentParser()
     cli.add_argument("--output-dir", required=True, type=Path)
+    cli.add_argument("--zip-output", type=Path, default=None)
     args = cli.parse_args()
     data = load_advanced_workbook()
     pack = make_pack(data)
@@ -343,6 +344,50 @@ def main() -> None:
         json.dumps(receipt, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
         encoding="utf-8",
     )
+    if args.zip_output is not None:
+        # The exact publication candidate must be scanned and read back
+        # BEFORE any user-facing archive is declared complete. No external
+        # publisher files are silently added to this reproducible package.
+        from tools.revised_section37_release_exclusion import audit_public_archive
+        if args.zip_output.exists() or args.zip_output.is_symlink():
+            raise FileExistsError("refuse existing release ZIP")
+        if args.zip_output.parent.resolve() == args.output_dir.resolve():
+            raise ValueError("release ZIP must be stored outside its input directory")
+        entries = tuple(sorted((*receipt["generated_files"], "section37-bilingual-manifest.json")))
+        if len(entries) != 14:
+            raise ValueError("unexpected user share package inventory")
+        staging = args.zip_output.with_name(args.zip_output.name + ".partial")
+        if staging.exists():
+            raise FileExistsError("stale unqualified release stage exists")
+        try:
+            with ZipFile(staging, "x", compression=ZIP_DEFLATED, compresslevel=6) as archive:
+                for entry in entries:
+                    content = (args.output_dir / entry).read_bytes()
+                    if entry in receipt["generated_files"]:
+                        recorded = receipt["generated_files"][entry]
+                        if sha256(content).hexdigest() != recorded["sha256"] or len(content) != recorded["bytes"]:
+                            raise ValueError("user file changed before archive publication")
+                    item = ZipInfo(entry, date_time=(2020, 1, 1, 0, 0, 0))
+                    item.compress_type = ZIP_DEFLATED
+                    item.external_attr = 0o100644 << 16
+                    archive.writestr(item, content, compress_type=ZIP_DEFLATED)
+            proven = audit_public_archive(staging)
+            if proven["result"] != "PASS_ONLY_FOR_TESTED_ZIP_BYTES":
+                raise ValueError("user ZIP external source exclusion audit refused")
+            # Exact output bytes have been inspected, preventing leaks of
+            # noncleared original ChessBase or chess-book corpora by SHA/name.
+            staging.rename(args.zip_output)
+            with ZipFile(args.zip_output, "r") as archive:
+                if set(archive.namelist()) != set(entries) or archive.testzip() is not None:
+                    raise ValueError("public ZIP readback failed")
+            print(json.dumps({
+                "zip_created": args.zip_output.name,
+                "member_count": len(entries),
+                "excluded_source_check": proven["result"],
+                "zip_sha256": sha256(args.zip_output.read_bytes()).hexdigest(),
+            }, sort_keys=True))
+        finally:
+            staging.unlink(missing_ok=True)
     print(json.dumps({"books": len(pack), "game_and_position_files": 3,
                       "languages": list(LANGS),
                       "lessons_per_language": len(data["lessons"])}, sort_keys=True))
