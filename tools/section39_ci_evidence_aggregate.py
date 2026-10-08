@@ -33,7 +33,8 @@ def _valid_digest(value: object, length: int) -> bool:
 def merge_real_receipts(base: dict, original_positions: dict, original_books: dict,
                         catalog: tuple[dict, ...], expected_sha: str,
                         cbh: dict | None = None,
-                        advanced: dict | None = None) -> dict:
+                        advanced: dict | None = None,
+                        training: dict | None = None) -> dict:
     if not _valid_digest(expected_sha, 40):
         raise LawfulCorpusError("Section 39 merge lacks exact source SHA")
     reports = (base, original_positions, original_books)
@@ -68,6 +69,55 @@ def merge_real_receipts(base: dict, original_positions: dict, original_books: di
         raise LawfulCorpusError("original licensed external-file matrices incomplete")
 
     imported_external = []
+    # Real Section 37 CC0 source changes feed the deployed Books/Training
+    # player, not just a test directory. Only executed original-byte readback
+    # qualifies the embedded 16+4 puzzles; never call derived JSON full FEN.
+    if training is not None:
+        selected = training.get("sources", [])
+        required = {
+            "lichess_cc0_advanced_16_original_derived": 16,
+            "lichess_cc0_extreme_4_original_derived_puzzles": 4,
+        }
+        if (
+            training.get("schema") != "accessible-chess-section39-real-new-training-v1"
+            or training.get("source_commit_sha") != expected_sha
+            or training.get("original_source_count") != 2
+            or training.get("total_real_legal_puzzles") != 20
+            or training.get("original_raw_source_full_dataset_verified") is not False
+            or len(selected) != 2
+            or {entry.get("source_id") for entry in selected} != set(required)
+        ):
+            raise LawfulCorpusError("latest Section37 advanced corpus is stale, synthetic or incomplete")
+        real_puzzle_evidence = []
+        for source in selected:
+            identity = source["source_id"]
+            catalog_entry = sources[identity]
+            actual = source.get("actual", {})
+            receipt = base_receipts[identity]
+            if (
+                source.get("real_original_source_read") is not True
+                or source.get("mocked") is not False
+                or source.get("source_format") != "JSON_FEN_UCI"
+                or source.get("original_sha256") != catalog_entry.get("sha256")
+                or source.get("original_bytes") != catalog_entry.get("indexed_bytes")
+                or source.get("qualification") != "PASS"
+                or source.get("public_release") != "CC0_PUZZLE_DATA_ONLY"
+                or actual.get("puzzle_count") != required[identity]
+                or actual.get("replayed_legal_chess_positions") != required[identity]
+                or actual.get("uk_en_same_canonical_positions") is not True
+                or actual.get("bookdocument_roundtrip") != "PASS"
+                or receipt.get("actual_sha256") != source["original_sha256"]
+            ):
+                raise LawfulCorpusError("original Section37 chess training source provenance/semantics invalid")
+            receipt["semantic_qualification"] = "PASS_FOR_BOUNDED_QUALIFIED_JSON_POSITIONS"
+            receipt["actual_importer"] = source["actual_importer"]
+            receipt["note"] = "original CC0 source verified and real 2200+/3000+ BookDocument/Board readback; JSON is not FEN source format"
+            real_puzzle_evidence.append({
+                "source_id": identity, "original_sha256": source["original_sha256"],
+                "verified_puzzle_count": required[identity], "source_kind": "SOURCE_BOUND_JSON_POSITION",
+            })
+        rows["FEN"]["genuine_embedded_chess_positions"] = real_puzzle_evidence
+
     # Section 37 keeps adding real original chess files on this workline.
     # Reuse those exact bytes and their observed end-to-end semantic verdicts.
     if advanced is not None:
@@ -338,11 +388,12 @@ def main() -> None:
     parser.add_argument("--books", type=Path, required=True)
     parser.add_argument("--cbh", type=Path, required=True)
     parser.add_argument("--advanced", type=Path, required=True)
+    parser.add_argument("--training", type=Path, required=True)
     args = parser.parse_args()
     head = _source_head()
     result = merge_real_receipts(
         _read(args.base), _read(args.positions), _read(args.books),
-        load_catalog(), head, _read(args.cbh), _read(args.advanced),
+        load_catalog(), head, _read(args.cbh), _read(args.advanced), _read(args.training),
     )
     staged = REPORT.with_suffix(".tmp")
     try:
