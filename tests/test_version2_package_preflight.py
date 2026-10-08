@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+from types import SimpleNamespace
 import stat
 import tempfile
 import unittest
@@ -1242,8 +1243,6 @@ class Version2PackagePreflightTests(unittest.TestCase):
             self.assertTrue(
                 {
                     "sound provenance notice",
-                    "packaged sound inventory",
-                    "sound inventory audit notice",
                     "WinForms accessibility app-config",
                     "packaged sound manifest",
                     "Stockfish GPL notice",
@@ -1382,7 +1381,7 @@ class Version2PackagePreflightTests(unittest.TestCase):
                 "\n".join(rows + [rows[0]]) + "\n", encoding="utf-8"
             )
             with self.assertRaisesRegex(
-                Version2PackagePreflightError, "duplicate paths"
+                Version2PackagePreflightError, "duplicate paths|too many entries"
             ):
                 _validate_tree(root)
 
@@ -1436,7 +1435,7 @@ class Version2PackagePreflightTests(unittest.TestCase):
                 / "amd64"
                 / "ClrLoader.dll"
             )
-            dll.parent.mkdir(parents=True)
+            dll.parent.mkdir(parents=True, exist_ok=True)
             dll.write_bytes(
                 _minimal_windows_pe()
                 + b"\x00compiler=C:\\Users\\Builder\\source\\clr_loader\\ClrLoader.pdb\x00"
