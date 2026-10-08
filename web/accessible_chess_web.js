@@ -14,6 +14,11 @@ const progressText = byId("progress-text");
 let currentRoute = "board";
 let lastSnapshot = null;
 let busy = false;
+window.addEventListener("accessible-chess-design-change", () => {
+  // Presentation-only repaint from the last authenticated canonical snapshot.
+  // No network effect, chess move or new Board truth is introduced here.
+  if (lastSnapshot) renderBoard(lastSnapshot);
+});
 
 function text(value) {
   if (value === null || value === undefined) return "";
@@ -157,9 +162,29 @@ function renderBoard(snapshot) {
   }
   boardSurface.hidden = false;
   const visual = activeVisualBoard(snapshot) || {};
-  const p = visual.preferences && typeof visual.preferences === "object" ? visual.preferences : {};
+  const canonicalPrefs = visual.preferences && typeof visual.preferences === "object" ? visual.preferences : {};
   const themes = ["classic", "high_contrast", "blue", "classic_wood",
     "modern_graphite", "tournament_blue", "light_minimal"];
+  const userPrefs=window.accessibleChessDesignPreferences;
+  const override=userPrefs && typeof userPrefs === "object" && !Array.isArray(userPrefs)
+    ? userPrefs : null;
+  const p=override ? {
+    ...canonicalPrefs,
+    boardTheme: themes.includes(override.board_theme)
+      ? override.board_theme : canonicalPrefs.boardTheme,
+    pieceTheme: ["unicode","letters","rhosgfx"].includes(override.piece_theme)
+      ? override.piece_theme : canonicalPrefs.pieceTheme,
+    orientation: ["white","black"].includes(override.orientation)
+      ? override.orientation : canonicalPrefs.orientation,
+    coordinateMode: ["off","edges","every_square"].includes(override.coordinates)
+      ? override.coordinates : canonicalPrefs.coordinateMode,
+    scalePercent: [75,100,125,150,175,200].includes(override.board_scale)
+      ? override.board_scale : canonicalPrefs.scalePercent,
+    showLastMove: typeof override.highlight === "boolean"
+      ? override.highlight : canonicalPrefs.showLastMove,
+    animateMoves: typeof override.animations === "boolean"
+      ? override.animations : canonicalPrefs.animateMoves
+  } : canonicalPrefs;
   const theme = themes.includes(p.boardTheme) ? p.boardTheme : "classic";
   const style = ["unicode", "letters", "rhosgfx"].includes(p.pieceTheme) ? p.pieceTheme : "unicode";
   const ordered = p.orientation === "black" ? [...cells].reverse() : [...cells];
