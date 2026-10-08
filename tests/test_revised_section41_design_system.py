@@ -255,6 +255,49 @@ class Section41RealDesignTests(unittest.TestCase):
                     _write_checksums(package)
                     _validate_tree(package)
 
+    def test_windows_package_rejects_remote_css_even_when_sha256sums_rewritten(self):
+        from acs.version2_package_preflight import Version2PackagePreflightError
+        from tests.test_version2_package_preflight import (
+            _make_tree, _write_checksums, _validate_tree,
+        )
+        with tempfile.TemporaryDirectory(prefix="ac41-cdn-regression-") as raw:
+            package=Path(raw)/"candidate"
+            package.mkdir()
+            _make_tree(package)
+            product=package/"AccessibleChess"
+            index=product/"web/index.html"
+            index.write_text(
+                '<link rel="stylesheet" href="assets/accessible_chess_design.css">',
+                encoding="utf-8",
+            )
+            for name in (
+                "web/assets/accessible_chess_design.css",
+                "web/assets/tabler/chess-rook.svg",
+                "web/assets/tabler/adjustments.svg",
+                "web/assets/tabler/LICENSE",
+                "web/assets/tabler/SECTION41_PROVENANCE.json",
+            ):
+                target=product/name
+                target.parent.mkdir(parents=True,exist_ok=True)
+                target.write_bytes((ROOT/name).read_bytes())
+            _write_checksums(package)
+            _validate_tree(package)
+            css=product/"web/assets/accessible_chess_design.css"
+            original=css.read_bytes()
+            for payload in (
+                b'@import url("https://untrusted.invalid/theme.css");',
+                b'background-image:url(https://untrusted.invalid/track);',
+                b'--ac41-accent:expression(alert(1));',
+            ):
+                with self.subTest(payload=payload):
+                    css.write_bytes(original+b"\n"+payload+b"\n")
+                    _write_checksums(package)
+                    with self.assertRaises(Version2PackagePreflightError):
+                        _validate_tree(package)
+                    css.write_bytes(original)
+                    _write_checksums(package)
+                    _validate_tree(package)
+
     def test_webview_and_web_use_one_local_stylesheet_and_semantic_controls(self):
         for path in ("web/index.html","web/accessible_chess_web.html"):
             with self.subTest(path=path):
