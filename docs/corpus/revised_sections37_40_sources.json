@@ -446,6 +446,57 @@
       "acquisition": "DISCOVERED_NOT_HASH_VERIFIED",
       "canonical_qa": "On lawfully acquired exact bytes: verify SHA-256 and size; use existing ChessBase CBV capability contract with honest PARTIAL/UNSUPPORTED readback; never treat source discovery as import PASS",
       "notes": "Official ChessBase 17 Starter Package page explicitly links a free Leonid Kritz CBV opening survey. This pass located the advertised direct URL but DID NOT download bytes, compute SHA256, verify CBV semantic import, establish redistribution license or qualify a complete CBH/2CBH/CBONE family. Excluded from public release and automatic CC0 acquisition."
+    },
+    {
+      "id": "libcbh_gpl_original_annotation_cbh_family",
+      "title": "Original libcbh GPL chess corpus: Annotation/TestBase.cbh",
+      "author": "rolandlo/libcbh contributors (original GPL test corpus)",
+      "format": "cbh (multifile original companion family)",
+      "source_page": "https://github.com/rolandlo/libcbh/blob/9641c5c3949d8fb210b17dd9aa54455645843696/gtest/Annotation/TestBase.cbh",
+      "download_url": null,
+      "sha256": null,
+      "max_bytes": 0,
+      "acquisition": "SOURCE_PAGE_ONLY",
+      "license": "GPL-2.0 upstream repository; preserve upstream license, attribution and source obligations",
+      "redistribution": "NOT_CLEARED",
+      "upstream_commit": "9641c5c3949d8fb210b17dd9aa54455645843696",
+      "test_companion_reference": "https://github.com/rolandlo/libcbh/blob/9641c5c3949d8fb210b17dd9aa54455645843696/gtest/Annotation/TestBaseExport.pgn",
+      "canonical_qa": "Independent real-source CBH oracle scheduled in non-bundled CI gate; neither source download nor semantic PASS is asserted before exact CI readback",
+      "notes": "4 original annotated games; independent PGN export, 29 NAGs and text comments; use only pinned external CI checkout, no silent public packaging; no fake CBF/CBV/CBONE support"
+    },
+    {
+      "id": "libcbh_gpl_original_nested_variations_cbh_family",
+      "title": "Original libcbh GPL chess corpus: WithVariations/WithVariations.cbh",
+      "author": "rolandlo/libcbh contributors (original GPL test corpus)",
+      "format": "cbh (multifile original companion family)",
+      "source_page": "https://github.com/rolandlo/libcbh/blob/9641c5c3949d8fb210b17dd9aa54455645843696/gtest/WithVariations/WithVariations.cbh",
+      "download_url": null,
+      "sha256": null,
+      "max_bytes": 0,
+      "acquisition": "SOURCE_PAGE_ONLY",
+      "license": "GPL-2.0 upstream repository; preserve upstream license, attribution and source obligations",
+      "redistribution": "NOT_CLEARED",
+      "upstream_commit": "9641c5c3949d8fb210b17dd9aa54455645843696",
+      "test_companion_reference": "https://github.com/rolandlo/libcbh/blob/9641c5c3949d8fb210b17dd9aa54455645843696/gtest/WithVariations/GamesWithVariations.pgn",
+      "canonical_qa": "Independent real-source CBH oracle scheduled in non-bundled CI gate; neither source download nor semantic PASS is asserted before exact CI readback",
+      "notes": "original complete CBH companion family with nested/sibling RAV, NAG and text commentary; use only pinned external CI checkout, no silent public packaging; no fake CBF/CBV/CBONE support"
+    },
+    {
+      "id": "libcbh_gpl_original_unusual_start_cbh_family",
+      "title": "Original libcbh GPL chess corpus: UnusualStart/UnusualStartBytes.cbh",
+      "author": "rolandlo/libcbh contributors (original GPL test corpus)",
+      "format": "cbh (multifile original companion family)",
+      "source_page": "https://github.com/rolandlo/libcbh/blob/9641c5c3949d8fb210b17dd9aa54455645843696/gtest/UnusualStart/UnusualStartBytes.cbh",
+      "download_url": null,
+      "sha256": null,
+      "max_bytes": 0,
+      "acquisition": "SOURCE_PAGE_ONLY",
+      "license": "GPL-2.0 upstream repository; preserve upstream license, attribution and source obligations",
+      "redistribution": "NOT_CLEARED",
+      "upstream_commit": "9641c5c3949d8fb210b17dd9aa54455645843696",
+      "test_companion_reference": "https://github.com/rolandlo/libcbh/blob/9641c5c3949d8fb210b17dd9aa54455645843696/gtest/UnusualStart/UnusualStart.pgn",
+      "canonical_qa": "Independent real-source CBH oracle scheduled in non-bundled CI gate; neither source download nor semantic PASS is asserted before exact CI readback",
+      "notes": "independent PGN oracle including zero-ply; known external libcbh decoder gap; use only pinned external CI checkout, no silent public packaging; no fake CBF/CBV/CBONE support"
     }
   ]
 }
