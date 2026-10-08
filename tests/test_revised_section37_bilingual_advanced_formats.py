@@ -12,6 +12,10 @@ from pathlib import Path
 import unittest
 import zipfile
 from io import BytesIO
+from unittest.mock import patch
+import tempfile
+
+from acs.pgn_roundtrip import parse_pgn_text
 
 from acs.bookdocument import Heading, Position
 from acs.book_text_import import import_text_book
@@ -162,6 +166,33 @@ class BilingualSourceGroundingTests(unittest.TestCase):
                 self.assertTrue(any(isinstance(b, Heading) for b in imported.document.blocks))
                 self.assertFalse(any(isinstance(b, Position) for b in imported.document.blocks))
                 self.assertIsNotNone(BookReader(imported.document).next_heading())
+
+    def test_actual_user_pack_contains_two_original_licensed_pgn_sources_and_real_fen_file(self):
+        from tools.revised_section37_bilingual_workbook_pack import main
+        with tempfile.TemporaryDirectory(prefix="section37-real-user-book-pack-") as tmp:
+            out = Path(tmp) / "share-to-testers"
+            with patch("sys.argv", ["section37_bilingual_pack", "--output-dir", str(out)]):
+                main()
+            items = sorted(p for p in out.iterdir() if p.is_file())
+            self.assertEqual(len(items), 14)  # ten native books + two real PGNs + FEN + receipt
+            report = json.loads((out / "section37-bilingual-manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(len(report["generated_files"]), 13)
+            self.assertEqual(report["format_family_count"], 5)
+            self.assertFalse(report["section37_terminal_done"])
+            for stem, expected in (
+                ("original-reti-1921-uk-en-study.pgn", 1),
+                ("original-lichess-2200-plus-annotated-games.pgn", 4),
+            ):
+                with self.subTest(real_original=stem):
+                    content = (out / stem).read_bytes()
+                    self.assertEqual(hashlib.sha256(content).hexdigest(),
+                                     report["generated_files"][stem]["sha256"])
+                    self.assertEqual(len(parse_pgn_text(content.decode("utf-8"), strict=False)), expected)
+            raw_fens = (out / "original-advanced-before-opponent-move.fen").read_text(encoding="utf-8").splitlines()
+            self.assertEqual(len(raw_fens), 12)
+            from acs.chesscore import Board
+            for fen in raw_fens:
+                self.assertEqual(Board(fen).fen(), fen)
 
     def test_corrupted_fen_beginner_rating_lost_language_and_unrelated_study_are_denied(self):
         work = load_advanced_workbook()
