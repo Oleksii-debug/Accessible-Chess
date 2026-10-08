@@ -171,10 +171,12 @@ def read_original_curated_bz2(path: Path) -> tuple[dict, dict]:
     def original_lines():
         nonlocal decompressed
         with bz2.open(path, "rb") as source:
-            for original in source:
+            while original := source.readline(MAX_LINE_BYTES + 1):
                 decompressed += len(original)
                 if len(original) > MAX_LINE_BYTES or decompressed > MAX_TOTAL_DECOMPRESSED_BYTES:
                     raise LawfulCorpusError("original decompress exceeds strict resource budget")
+                if not original.endswith(b"\\n") and len(original) >= MAX_LINE_BYTES:
+                    raise LawfulCorpusError("truncated oversize puzzle record")
                 yield original
     curated = curate_original_lines(original_lines())
     if curated["original_rows_seen"] != EXPECTED_ORIGINAL_ROWS:
