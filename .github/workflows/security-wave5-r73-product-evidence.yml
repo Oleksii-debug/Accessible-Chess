@@ -8,8 +8,10 @@ on:
       - 'acs/server_application_boundary.py'
       - 'acs/version2_release_app.py'
       - 'scripts/security_r51_vendor_poc_gate.py'
+      - 'scripts/security_r53_protector_candidate_gate.py'
       - 'scripts/security_r73_product_evidence_gate.py'
       - 'tests/test_security_r51_vendor_poc_gate.py'
+      - 'tests/test_security_r53_protector_candidate_gate.py'
       - 'tests/test_security_r52_product_integration.py'
       - 'tests/test_security_r65_premium_server_integration.py'
       - 'tests/test_security_r73_product_evidence_gate.py'
@@ -62,11 +64,11 @@ jobs:
         env:
           PYTHONPATH: upstream/continuum-runtime/src
         run: |
-          python -m py_compile acs/protection_license_container_boundary.py acs/server_application_boundary.py acs/version2_release_app.py scripts/security_r51_vendor_poc_gate.py scripts/security_r73_product_evidence_gate.py tests/test_security_r51_vendor_poc_gate.py tests/test_security_r52_product_integration.py tests/test_security_r65_premium_server_integration.py tests/test_security_r73_product_evidence_gate.py
-          python -m pytest -q tests/test_security_r51_vendor_poc_gate.py tests/test_security_r52_product_integration.py tests/test_security_r65_premium_server_integration.py tests/test_security_r73_product_evidence_gate.py tests/test_security_wave4_product_integration.py
+          python -m py_compile acs/protection_license_container_boundary.py acs/server_application_boundary.py acs/version2_release_app.py scripts/security_r51_vendor_poc_gate.py scripts/security_r53_protector_candidate_gate.py scripts/security_r73_product_evidence_gate.py tests/test_security_r51_vendor_poc_gate.py tests/test_security_r53_protector_candidate_gate.py tests/test_security_r52_product_integration.py tests/test_security_r65_premium_server_integration.py tests/test_security_r73_product_evidence_gate.py
+          python -m pytest -q tests/test_security_r51_vendor_poc_gate.py tests/test_security_r53_protector_candidate_gate.py tests/test_security_r52_product_integration.py tests/test_security_r65_premium_server_integration.py tests/test_security_r73_product_evidence_gate.py tests/test_security_wave4_product_integration.py
 
       - name: No client secret, unsigned release override, or runtime licensing duplication
         shell: bash
         run: |
           set -euo pipefail
-          ! grep -En 'BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY|release_approved.?[:=].?True|signing[_-]?secret.?=' scripts/security_r51_vendor_poc_gate.py scripts/security_r73_product_evidence_gate.py
+          ! grep -En 'BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY|release_approved.?[:=].?True|signing[_-]?secret.?=' scripts/security_r51_vendor_poc_gate.py scripts/security_r53_protector_candidate_gate.py scripts/security_r73_product_evidence_gate.py
