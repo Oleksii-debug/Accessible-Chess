@@ -11,6 +11,9 @@ import json
 from pathlib import Path
 import unittest
 import zipfile
+import re
+import xml.etree.ElementTree as ET
+from uuid import UUID
 from io import BytesIO
 from unittest.mock import patch
 import tempfile
@@ -163,6 +166,16 @@ class BilingualSourceGroundingTests(unittest.TestCase):
                     self.assertEqual(z.namelist()[0], "mimetype")
                     self.assertEqual(z.read("mimetype"), b"application/epub+zip")
                     self.assertIn(lang.encode("utf-8"), z.read("OEBPS/book.opf"))
+                    xml = ET.fromstring(z.read("OEBPS/book.opf"))
+                    ns = {"dc": "http://purl.org/dc/elements/1.1/",
+                          "opf": "http://www.idpf.org/2007/opf"}
+                    identifier = xml.find(".//dc:identifier", namespaces=ns)
+                    self.assertIsNotNone(identifier)
+                    self.assertTrue(identifier.text.startswith("urn:uuid:"))
+                    self.assertEqual(UUID(identifier.text[9:]).version, 5)
+                    updated = xml.find(".//opf:meta[@property='dcterms:modified']", namespaces=ns)
+                    self.assertIsNotNone(updated)
+                    self.assertRegex(updated.text, r"^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$")
                     toc = z.read("OEBPS/nav.xhtml").decode("utf-8")
                     body = z.read("OEBPS/lesson.xhtml").decode("utf-8")
                     self.assertEqual(toc.count('href="lesson.xhtml#S37-'), 12)
