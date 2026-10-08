@@ -199,6 +199,46 @@ def read_original_curated_bz2(path: Path) -> tuple[dict, dict]:
     return curated, evidence
 
 
+def verify_original_100_against_shipped_advanced_subset(source_root: Path) -> dict:
+    """Independent original-source readback for 16 legally vendored hard puzzles."""
+    original = source_root / "combined_puzzle_db_first_100.ndjson"
+    if not original.is_file() or original.is_symlink() or original.stat().st_size != 1011497:
+        raise LawfulCorpusError("original upstream 100-puzzle corpus changed or missing")
+    expected_original = "ddcb335d76f0a63edfbd8d3eccd9f6c484db22344c6be3431fed5d6ea21646da"
+    original_raw = original.read_bytes()  # bounded by prechecked exact 1 MB size
+    if hashlib.sha256(original_raw).hexdigest() != expected_original:
+        raise LawfulCorpusError("original CC0 100-source SHA256 differs from source pin")
+    collected = curate_original_lines(original_raw.splitlines(keepends=True))
+    if collected["original_rows_seen"] != 100 or len(collected["puzzles"]) != 16:
+        raise LawfulCorpusError("original 100 Lichess puzzles filtered unexpectedly")
+    indexed = ROOT / "tests/real_corpus/advanced_training/lichess_cc0_advanced_puzzles_100_sample.json"
+    raw = indexed.read_bytes()
+    if hashlib.sha256(raw).hexdigest() != "5ee2ce1117f629f678e6497cf970f31e04bb67ee9a10e4288c625f16e66bc179":
+        raise LawfulCorpusError("checked-in real 16-puzzle CC0 source index changed")
+    shipped = json.loads(raw)
+    actual = {x["puzzle_id"]: x for x in collected["puzzles"]}
+    if len(shipped["puzzles"]) != 16 or len(actual) != 16:
+        raise LawfulCorpusError("checked-in CC0 advanced puzzle count changed")
+    for item in shipped["puzzles"]:
+        found = actual.get(item["puzzle_id"])
+        if found is None or any((
+            found["fen_before_opponent_move"] != item["fen_before_opponent_move"],
+            found["uci_moves_opponent_first"] != item["uci_moves_with_opponent_first"],
+            found["puzzle_rating"] != item["rating"],
+            found["themes"] != item["themes"],
+            found["source_game"] != item["game_url"],
+        )):
+            raise LawfulCorpusError("checked-in high-level puzzle differs from original CC0 source")
+    return {
+        "source": "combined_puzzle_db_first_100.ndjson",
+        "original_sha256": expected_original,
+        "original_games_and_puzzles": 100,
+        "real_advanced_original_puzzles": 16,
+        "verified_from_source": True,
+        "original_games_embedded": False,
+    }
+
+
 def main() -> None:
     REPORT.unlink(missing_ok=True)
     SELECTION.unlink(missing_ok=True)
@@ -212,6 +252,7 @@ def main() -> None:
     root = os.environ.get("ACS_37_ADVANCED_CC0_SOURCE_ROOT")
     if not root:
         raise LawfulCorpusError("original CC0 combined puzzle source checkout missing")
+    verified_16 = verify_original_100_against_shipped_advanced_subset(Path(root))
     checkout = Path(root)
     path = checkout / FILENAME
     try:
@@ -233,6 +274,7 @@ def main() -> None:
             "status": "SOURCE_ONLY_PASS_NOT_PRODUCT_IMPORT",
             "curated_sha256": hashlib.sha256(SELECTION.read_bytes()).hexdigest(),
             "source_evidence": e,
+            "original_100_readback": verified_16,
             "original_rows": r["original_rows_seen"],
             "eligible_by_band": r["eligible_original_count_by_band"],
             "selected_by_band": r["curated_count_by_band"],
