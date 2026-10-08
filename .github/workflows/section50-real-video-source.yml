@@ -1,0 +1,39 @@
+name: Section 50 Real Lawful Video Source/Frame Qualification
+
+on:
+  pull_request:
+    paths:
+      - "tools/section50_real_video_source.py"
+      - "tests/test_section50_real_video_source.py"
+      - "docs/media/section47_real_video_catalog.json"
+      - ".github/workflows/section50-real-video-source.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  real-video-source:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Offline downloader/security unit tests
+        run: python -m unittest discover -s tests -p "test_section50_real_video_source.py" -v
+      - name: Probe installed media decoders
+        run: ffprobe -version && ffmpeg -version
+      - name: Download one real legally-sourced Commons chess video and decode a frame
+        run: python tools/section50_real_video_source.py --video-id youth-chess-championships --confirm-acquisition --output section50-real-video-evidence.json
+      - name: Publish source metadata/evidence only (no third-party video bytes)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: section50-real-video-source-receipt
+          path: section50-real-video-evidence.json
+          if-no-files-found: ignore
+          retention-days: 14

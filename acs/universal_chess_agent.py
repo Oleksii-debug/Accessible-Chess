@@ -25,6 +25,8 @@ from .agent_model_contracts import (
     ModelMessage,
     ModelRequest,
     PrivacyClass,
+    ModelGatewayError,
+    ModelFailureEffect,
 )
 from .agent_model_gateway import ModelGateway
 from .agent_tools import ToolCall, ToolExecutor
@@ -47,6 +49,7 @@ class AgentRunPolicy:
     model_timeout_seconds: float = 90.0
     privacy: PrivacyClass = PrivacyClass.PRIVATE
     estimated_cost_per_model_call: Decimal = Decimal("0")
+    fallback_provider_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         for name in ("max_steps", "max_model_calls", "max_response_chars"):
@@ -71,6 +74,15 @@ class AgentRunPolicy:
         if not cost.is_finite() or cost < 0:
             raise ValueError("estimated_cost_per_model_call must be finite and non-negative")
         object.__setattr__(self, "estimated_cost_per_model_call", cost)
+        if type(self.fallback_provider_ids) not in (tuple, list):
+            raise TypeError("fallback_provider_ids must be a bounded list or tuple")
+        routes = tuple(self.fallback_provider_ids)
+        if len(routes) > 8 or len(set(routes)) != len(routes):
+            raise ValueError("fallback routes must be unique and bounded")
+        if any(type(route) is not str or not route or route != route.strip()
+               or any(not c.isprintable() for c in route) for route in routes):
+            raise ValueError("fallback routes must be canonical provider identities")
+        object.__setattr__(self, "fallback_provider_ids", routes)
 
 
 @dataclass(frozen=True, slots=True)
@@ -217,11 +229,16 @@ class UniversalChessAgentRuntime:
             raise ValueError("provider_id must be non-empty canonical text")
         if model is not None and (type(model) is not str or not model or model != model.strip()):
             raise ValueError("model must be canonical text or None")
+        effective_policy = policy or AgentRunPolicy()
+        if effective_policy.fallback_provider_ids and model is not None:
+            raise ValueError("cross-provider fallback requires provider-specific default models")
+        if provider_id in effective_policy.fallback_provider_ids:
+            raise ValueError("primary provider cannot also be a fallback provider")
         self.gateway = gateway
         self.tools = tools
         self.provider_id = provider_id
         self.model = model
-        self.policy = policy or AgentRunPolicy()
+        self.policy = effective_policy
         self.budget = budget
         self.system_prompt = _system_prompt(tools, product_instruction)
         self._active: dict[str, asyncio.Task[AgentRunResult]] = {}
@@ -279,15 +296,24 @@ class UniversalChessAgentRuntime:
                         messages=tuple(messages),
                         provider_id=self.provider_id,
                         model=self.model,
+                        fallback_provider_ids=self.policy.fallback_provider_ids,
                         privacy=self.policy.privacy,
                         timeout_seconds=self.policy.model_timeout_seconds,
                         temperature=0.0,
                     )
                 )
-            except BaseException:
+            except BaseException as failure:
                 if self.budget is not None and reservation > 0:
                     try:
-                        self.budget.release(request_id)
+                        if (type(failure) is ModelGatewayError
+                                and failure.failure_effect is ModelFailureEffect.NO_EFFECT):
+                            self.budget.release(request_id)
+                        else:
+                            # Unknown upstream effect may already have incurred a charge.
+                            # Retain conservative unbilled estimate; never refund an
+                            # uncertain live model request to the reusable budget.
+                            self.budget.settle(request_id, incurred=Decimal("0"),
+                                               estimated_unbilled=reservation)
                     except ValueError:
                         pass
                 raise

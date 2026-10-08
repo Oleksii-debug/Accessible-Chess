@@ -1,0 +1,47 @@
+name: Section 49 Cloud Provider Offline Qualification
+
+on:
+  pull_request:
+    paths:
+      - "acs/agent_cloud_provider.py"
+      - "acs/universal_chess_agent.py"
+      - "tests/test_section49_agent_fallback.py"
+      - "tests/test_section49_agent_cloud_tool_roundtrip.py"
+      - "tests/test_section49_cloud_provider.py"
+      - "tests/test_section49_50_evidence.py"
+      - "tests/test_section50_media_agent_integration.py"
+      - "tests/test_section50_real_video_source.py"
+      - "tests/test_section50_youtube_boundary.py"
+      - "tools/section50_real_video_source.py"
+      - "tools/section49_50_live_qualification.py"
+      - ".github/workflows/section49-cloud-provider-qualification.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cloud-provider-boundary:
+    name: Exact PR head / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install optional model HTTP dependency
+        run: python -m pip install httpx==0.28.1
+      - name: Compile bounded model adapter and tests
+        run: python -m py_compile acs/agent_cloud_provider.py acs/universal_chess_agent.py tools/section49_50_live_qualification.py tools/section50_real_video_source.py tests/test_section49_cloud_provider.py tests/test_section49_agent_fallback.py tests/test_section49_agent_cloud_tool_roundtrip.py tests/test_section49_50_evidence.py tests/test_section50_media_agent_integration.py tests/test_section50_real_video_source.py tests/test_section50_youtube_boundary.py
+      - name: Execute offline adversarial integration through canonical gateway
+        run: python -m unittest discover -s tests -p "test_section49*.py" -v
+      - name: Qualify offline media-to-canonical-board-to-cloud-model seam
+        run: python -m unittest discover -s tests -p "test_section50*.py" -v
+      - name: Assert no account/API keys are required for offline qualification
+        run: python -c "from acs.agent_cloud_provider import provider_availability; assert all(not p.configured for p in provider_availability()); print('NO_KEYS_OFFLINE=PASS')"
