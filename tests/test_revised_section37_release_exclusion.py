@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import os
 from pathlib import Path
 import tempfile
@@ -219,7 +220,7 @@ class PublicReleaseExclusionTests(unittest.TestCase):
             build_zip(inner, {"books/renamed-original.bin": RAW_EXCLUDED})
             prefixed_archive = b"sfx-executable-prefix" + inner.read_bytes()
             # First bytes are not a ZIP signature, yet Python can open this.
-            self.assertTrue(zipfile.is_zipfile(__import__("io").BytesIO(prefixed_archive)))
+            self.assertTrue(zipfile.is_zipfile(io.BytesIO(prefixed_archive)))
             build_zip(outer, {"assets/innocent-looking.dat": prefixed_archive})
             with self.assertRaisesRegex(
                 LawfulCorpusError, "uninspected embedded ZIP preamble"
