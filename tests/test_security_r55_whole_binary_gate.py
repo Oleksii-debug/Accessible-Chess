@@ -158,3 +158,102 @@ def test_r55_invalid_receipt_boolean_schema_denied(trial):
     trial["receipt_file"].write_text(json.dumps(data))
     with pytest.raises(ProductEvidenceError):
         assess_product_whole_binary(**trial)
+
+
+# R56 uses the already-verified R55 image candidate, never a second packaging
+# authority or a runtime/plaintext decryption helper.
+from continuum_runtime.function_protection import (
+    FunctionPlan, FunctionTarget, prepare_functions,
+)
+from scripts.security_r55_whole_binary_gate import _receipt as parse_r55_receipt
+from scripts.security_r56_function_candidate_gate import assess_product_functions
+
+
+@pytest.fixture()
+def function_trial(trial, tmp_path):
+    parent = parse_r55_receipt(json.loads(trial["receipt_file"].read_text()))
+    plain = b"synthetic-function-plaintext-not-real-native-code"
+    function_name = "premium.policy_engine"
+    plan = FunctionPlan(
+        schema_version=1,
+        targets=(FunctionTarget(
+            function_id=function_name, module_name="AccessibleChess.exe",
+            plaintext_sha256=sha(plain), sensitivity="high-value",
+        ),),
+    )
+    receipt, protected = prepare_functions(
+        plan=plan, parent=parent,
+        payloads={function_name: plain},
+        protector=lambda name, raw: hashlib.sha256(
+            b"synthetic-only-not-a-vendor" + name.encode() + raw
+        ).digest(),
+        inspector=lambda _id, encrypted: len(encrypted) == 32,
+    )
+    path = tmp_path / "function-ciphertext"
+    path.mkdir()
+    (path / (function_name + ".bin")).write_bytes(protected[function_name])
+    plan_path = tmp_path / "function-plan.json"
+    receipt_path = tmp_path / "function-receipt.json"
+    plan_path.write_text(json.dumps(asdict(plan)), encoding="utf-8")
+    receipt_path.write_text(json.dumps(asdict(receipt)), encoding="utf-8")
+    return {
+        "source_root": trial["source_root"],
+        "protected_root": trial["protected_root"],
+        "r55_plan_file": trial["plan_file"],
+        "r55_profiles_file": trial["profiles_file"],
+        "r55_receipt_file": trial["receipt_file"],
+        "function_plan_file": plan_path,
+        "function_receipt_file": receipt_path,
+        "function_cipher_root": path,
+        "expected_build_id": trial["expected_build_id"],
+        "expected_product_sha256": trial["expected_product_sha256"],
+        "secret_key": trial["secret_key"],
+    }
+
+
+def test_r56_function_manifest_with_valid_parent_never_approves_release(function_trial):
+    record = assess_product_functions(**function_trial)
+    assert record["status"] == "R56_FUNCTION_MANIFEST_INTEGRITY_ONLY"
+    assert record["verified_function_count"] == 1
+    assert record["release_approved"] is False
+    assert record["native_function_protector_execution"] == "NOT_PERFORMED"
+
+
+def test_r56_parent_image_substitution_fails_closed(function_trial):
+    (function_trial["protected_root"] / "AccessibleChess.exe").write_bytes(pe())
+    with pytest.raises(ProductEvidenceError):
+        assess_product_functions(**function_trial)
+
+
+def test_r56_ciphertext_tamper_or_missing_payload_denied(function_trial):
+    file = function_trial["function_cipher_root"] / "premium.policy_engine.bin"
+    file.write_bytes(b"tampered")
+    with pytest.raises(ProductEvidenceError):
+        assess_product_functions(**function_trial)
+    file.unlink()
+    with pytest.raises(ProductEvidenceError):
+        assess_product_functions(**function_trial)
+
+
+def test_r56_accessibility_or_input_function_never_admitted(function_trial):
+    packet = json.loads(function_trial["function_plan_file"].read_text())
+    packet["targets"][0]["function_id"] = "accessibility.keyboard"
+    function_trial["function_plan_file"].write_text(json.dumps(packet))
+    with pytest.raises(ProductEvidenceError):
+        assess_product_functions(**function_trial)
+
+
+def test_r56_unauthorized_third_party_module_never_admitted(function_trial):
+    packet = json.loads(function_trial["function_plan_file"].read_text())
+    packet["targets"][0]["module_name"] = "stockfish.exe"
+    function_trial["function_plan_file"].write_text(json.dumps(packet))
+    with pytest.raises(ProductEvidenceError, match="R56_UNTRUSTED_TARGET_OR_RECEIPT"):
+        assess_product_functions(**function_trial)
+
+
+def test_r56_forged_function_manifest_digest_denied(function_trial):
+    packet = json.loads(function_trial["function_receipt_file"].read_text())
+    packet["function_manifest_sha256"] = "0" * 64
+    function_trial["function_receipt_file"].write_text(json.dumps(packet))
+    with pytest.raises(ProductEvidenceError):
+        assess_product_functions(**function_trial)
