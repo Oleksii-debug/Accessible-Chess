@@ -133,6 +133,19 @@ Durable evidence: `docs/corpus/SECTION42_BOARD_THEME_EVIDENCE.json`.
 
 The next dependency-safe closure front is Section 43.
 
+## Section 44 — current closure front
+
+**Status: `INTERNAL_COMPLETE_EXTERNAL_BLOCKED` (not DONE).**
+
+Durable evidence: `docs/corpus/SECTION44_UI_SURFACE_EVIDENCE.json`.
+
+| Subsection | State | Evidence / exact limitation |
+|---|---|---|
+| 44.1–44.5 | `PARTIAL` | Existing Books, Library, Training/Stockfish, Classroom/Teacher and Web/PGN surfaces are mapped to canonical Python services, semantic text, ARIA/live status and focus/keymap contracts. |
+| 44.6 | `PARTIAL` | Source DOM/ARIA/keyboard tests are linked per surface; full premium visual convergence and physical Windows/NVDA acceptance remain open. |
+
+The next dependency-safe closure front is Section 45.
+
 ## Section 43 — current closure front
 
 **Status: `INTERNAL_COMPLETE_EXTERNAL_BLOCKED` (not DONE).**

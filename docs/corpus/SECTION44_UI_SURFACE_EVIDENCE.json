@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "section": 44,
+  "status": "INTERNAL_COMPLETE_EXTERNAL_BLOCKED",
+  "surface_map": {
+    "books": {"web": "web/full_product_books_training.js", "python": "acs/bookreader.py + acs/book_board_workflow.py", "tests": ["tests/test_bookreader.py", "tests/test_v2_book_board_workflow.py"]},
+    "library": {"web": "web/full_product_library.js", "python": "acs/library_webview_bridge.py + acs/library_import_service.py", "tests": ["tests/test_library_workspace_ui_integration.py", "tests/test_d07_library_import_service.py"]},
+    "training_stockfish": {"web": "web/full_product_education.js", "python": "acs/book_training.py + acs/continuous_analysis.py", "tests": ["tests/test_book_training_passive_roots_current.py", "tests/test_continuous_analysis.py"]},
+    "classroom_teacher": {"web": "web/full_product_classroom.js + web/full_product_teacher.js", "python": "acs/classroom_* + acs/teacher_*", "tests": ["tests/test_books_training_ui_integration.py", "tests/test_teacher_webview_bridge.py"]},
+    "web_pgn": {"web": "web/full_product_pgn.js", "python": "acs/pgn_webview_projection.py", "tests": ["tests/test_dev1_pgn_webview_projection.py"]}
+  },
+  "shared_contracts": ["semantic text", "ARIA labels/live status", "focus_target", "keyboard keymap", "canonical chess/database services"],
+  "verification": {"source_mapping": "PASS", "new_demo_surface": false, "physical_visual_regression": "NOT_RUN", "human_NVDA": "NOT_RUN"},
+  "blocked": ["single premium visual convergence across every surface", "physical Windows/NVDA owner acceptance"]
+}
