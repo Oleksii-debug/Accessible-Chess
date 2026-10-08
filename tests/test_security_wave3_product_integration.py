@@ -377,3 +377,36 @@ def test_wave3_surface_expansion_uses_canonical_boundaries_and_fails_closed(tmp_
     runtime.authorize_product_boundary = deny_engine
     with pytest.raises(ProtectionAdvancedError, match="entitlement_required"):
         gate.require_surface("engine.local")
+
+
+@pytest.mark.parametrize("forged_version", [True, 1.0, 4.0, 4 + 0j, "4"])
+def test_wave3_private_runtime_version_rejects_equality_coercion(tmp_path, forged_version):
+    from acs.protection_boundary import ProtectionBoundaryError
+
+    client = ProtectionRuntimeClient(
+        application_dir=tmp_path,
+        state_root=tmp_path / "state",
+        module_loader=lambda _name: SimpleNamespace(RUNTIME_API_VERSION=forged_version),
+    )
+    with pytest.raises(ProtectionBoundaryError, match="API version is unsupported"):
+        client.runtime_api_version()
+
+
+@pytest.mark.parametrize("forged_version", [True, 1.0, 1 + 0j, "1"])
+def test_wave3_private_startup_verdict_requires_exact_api_version(forged_version):
+    from acs.protection_boundary import (
+        ProtectionBoundaryError,
+        _SAFE_OPERATIONS,
+        _validate_decision,
+    )
+
+    verdict = {
+        "api_version": forged_version,
+        "state": "locked",
+        "reason": "unverified",
+        "safe_operations": sorted(_SAFE_OPERATIONS),
+        "capabilities": [],
+        "build_id": None,
+    }
+    with pytest.raises(ProtectionBoundaryError, match="API version does not match runtime"):
+        _validate_decision(verdict, runtime_api_version=1)
