@@ -72,7 +72,7 @@ class Section15VisualBoardContractTests(unittest.TestCase):
             ("piece_theme", "svg-script"),
             ("orientation", "sideways"),
             ("coordinate_mode", "unknown"),
-            ("scale_percent", 151),
+            ("scale_percent", 201),
             ("scale_percent", True),
             ("show_last_move", 1),
             ("unknown", "value"),
