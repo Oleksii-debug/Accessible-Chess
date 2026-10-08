@@ -13,6 +13,11 @@ on:
       - 'tools/section47_download_commons_corpus.py'
       - 'tests/test_section47_real_commons_originals.py'
       - 'tests/test_section48_native_youtube_url_contract.py'
+      - 'tests/test_section47_48_windows_media_composition.py'
+      - 'acs/version2_release_ui.py'
+      - 'acs/version2_release_app.py'
+      - 'acs/version2_release_payload.py'
+      - 'acs/version2_package_preflight.py'
       - 'tests/js/youtube_iframe_playback_adapter_test.js'
       - 'tests/js/section47_canonical_browser_playback.js'
       - 'tests/js/section48_canonical_youtube_live_smoke.js'
@@ -44,6 +49,12 @@ jobs:
           node-version: '22'
       - name: Python real-original tool and host ingress syntax
         run: python -m py_compile tools/section47_download_commons_corpus.py acs/version2_media_runtime.py
+      - name: Native Windows WebView Media composition contract
+        run: python -m unittest discover -s tests -p test_section47_48_windows_media_composition.py -v
+      - name: Existing release payload regression suite
+        run: python -m unittest discover -s tests -p test_version2_release_payload.py -v
+      - name: Existing package preflight regression suite
+        run: python -m unittest discover -s tests -p test_version2_package_preflight.py -v
       - name: Native YouTube host URL negative suite
         run: python -m unittest discover -s tests -p test_section48_native_youtube_url_contract.py -v
       - name: Real-original checksums and URL tamper suite
