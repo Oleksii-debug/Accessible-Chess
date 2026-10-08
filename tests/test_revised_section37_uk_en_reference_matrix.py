@@ -54,9 +54,18 @@ class Section37BothLanguageWorktypeMatrix(unittest.TestCase):
         self.assertIn("no implicit chess", status["txt"].lower())
         self.assertIn("BookEpubImport", status["epub"])
         self.assertIn("BookDocxImport", status["docx"])
-        self.assertFalse(d["ukrainian_external_book_status"]["downloaded"])
-        self.assertEqual(d["ukrainian_external_book_status"]["redistribution"], "NOT_AUTHORIZED")
-        self.assertTrue(d["ukrainian_external_book_status"]["low_level_sections_excluded"])
+        paid = d["ukrainian_external_book_status"]
+        self.assertFalse(paid["imported_into_accessible_chess"])
+        self.assertFalse(paid["listed_as_owner_test_file"])
+        self.assertFalse(paid["full_original_rights_to_redistribute"])
+        self.assertTrue(paid["owner_reading_policy"].startswith("NO_PAID"))
+        self.assertFalse(d["external_publication_is_program_content"])
+        for track in d["worktypes"]:
+            self.assertEqual(track["ukrainian_external_verified_references"], [])
+            self.assertEqual(
+                track["usable_in_accessible_chess"]["paid_external_book"],
+                "NOT_IMPORTED_NOT_INCLUDED",
+            )
 
     def test_actual_both_language_shareable_markdown_is_full_source_not_only_index(self):
         a = UK.read_text(encoding="utf-8")
