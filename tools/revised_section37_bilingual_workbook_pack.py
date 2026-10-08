@@ -19,6 +19,7 @@ import re
 from typing import Mapping
 from xml.sax.saxutils import escape as xml_escape
 from zipfile import ZipFile, ZipInfo, ZIP_DEFLATED, ZIP_STORED
+from uuid import NAMESPACE_URL, uuid5
 
 from acs.chesscore import Board
 from acs.lawful_corpus_registry import load_catalog, verified_local_source
@@ -224,13 +225,20 @@ def render_docx(data: dict, lang: str) -> bytes:
 
 
 def render_epub3(data: dict, lang: str) -> bytes:
+    if lang not in LANGS:
+        raise ValueError("EPUB language must be Ukrainian or English")
+    # A real valid RFC-4122 urn:uuid, rather than a misleading free-text UUID.
+    stable_id = uuid5(
+        NAMESPACE_URL, "https://github.com/Oleksii-debug/Accessible-Chess/section37-advanced/" + lang
+    )
     opf = (
         '<?xml version="1.0" encoding="UTF-8"?>'
         '<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="pub-id">'
         '<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">'
-        '<dc:identifier id="pub-id">urn:uuid:acs-section37-advanced-' + lang + '</dc:identifier>'
+        '<dc:identifier id="pub-id">urn:uuid:' + str(stable_id) + '</dc:identifier>'
         '<dc:title>' + xml_escape(data["title"][lang]) + '</dc:title>'
         '<dc:language>' + lang + '</dc:language>'
+        '<meta property="dcterms:modified">2026-10-08T00:00:00Z</meta>'
         '</metadata><manifest>'
         '<item id="lesson" href="lesson.xhtml" media-type="application/xhtml+xml"/>'
         '<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>'
