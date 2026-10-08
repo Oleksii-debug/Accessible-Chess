@@ -79,13 +79,13 @@ def load_catalog(path: Path = CATALOG_FILE) -> tuple[dict, ...]:
         for key in ("source_page", "download_url"):
             value = entry.get(key)
             if value is not None:
-                _https_url(value)
+                _https_url(value, source_page=key == "source_page")
         if digest is None and status == "PINNED_NOT_DOWNLOADED_IN_THIS_PASS":
             raise LawfulCorpusError("pinned acquisition requires pinned bytes")
     return tuple(records)
 
 
-def _https_url(url: object) -> str:
+def _https_url(url: object, *, source_page: bool = False) -> str:
     if type(url) is not str or len(url) > 2048:
         raise LawfulCorpusError("source URL invalid")
     try:
@@ -98,7 +98,10 @@ def _https_url(url: object) -> str:
         or parsed.username is not None or parsed.password is not None
         or port not in (None, 443)
         or parsed.fragment or parsed.query
-        or parsed.hostname not in {"database.lichess.org", "www.gutenberg.org"}
+        or parsed.hostname not in (
+            {"database.lichess.org", "www.gutenberg.org", "github.com"}
+            if source_page else {"database.lichess.org", "www.gutenberg.org"}
+        )
     ):
         raise LawfulCorpusError("source URL must be recognized, credential-free HTTPS")
     return url
