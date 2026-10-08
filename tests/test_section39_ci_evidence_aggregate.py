@@ -148,6 +148,39 @@ class EvidenceJoinSafety(unittest.TestCase):
         with self.assertRaisesRegex(LawfulCorpusError, "CBH companion SHA256s"):
             merge_real_receipts(base, positions, books, catalog, HEAD, cbh)
 
+    def test_invented_new_section37_annotated_games_cannot_be_credited(self):
+        catalog, base, positions, books = synthetic_evidence()
+        falsely_completed = {
+            "schema": "accessible-chess-section39-new-section37-annotated-source-v1",
+            "source_commit_sha": "b" * 40,
+            "source_id": "lichess_cc0_high_level_4_original_annotated_games",
+            "qualification": "PASS",
+            "real_source_read": True,
+            "mocked": False,
+        }
+        with self.assertRaisesRegex(LawfulCorpusError, "annotated source"):
+            merge_real_receipts(base, positions, books, catalog, HEAD,
+                                advanced=falsely_completed)
+
+    def test_new_section37_puzzles_require_actual_original_sha_and_board(self):
+        catalog, base, positions, books = synthetic_evidence()
+        mock_puzzles = {
+            "schema": "accessible-chess-section39-real-new-training-v1",
+            "source_commit_sha": HEAD,
+            "original_source_count": 2,
+            "total_real_legal_puzzles": 20,
+            "original_raw_source_full_dataset_verified": False,
+            "sources": [
+                {"source_id": "lichess_cc0_advanced_16_original_derived",
+                 "qualification": "PASS", "real_original_source_read": False},
+                {"source_id": "lichess_cc0_extreme_4_original_derived_puzzles",
+                 "qualification": "PASS", "real_original_source_read": True},
+            ],
+        }
+        with self.assertRaisesRegex(LawfulCorpusError, "training source provenance"):
+            merge_real_receipts(base, positions, books, catalog, HEAD,
+                                training=mock_puzzles)
+
     def test_missing_external_format_cannot_be_called_complete(self):
         catalog, base, positions, books = synthetic_evidence()
         books["sources"].pop()
