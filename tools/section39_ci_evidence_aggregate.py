@@ -457,6 +457,12 @@ def merge_real_receipts(base: dict, original_positions: dict, original_books: di
         "coverage": "EXECUTED_BOUNDED_SLICE",
         "actual": epd_source["actual"],
     })
+    # EPD's original non-Chess960 puzzle PASS does not prove all genuine
+    # Chess960 castling position records are supported. Keep the weakest
+    # observed real-original verdict after the generic EPD result is merged.
+    if chess960 is not None and any(x["unsupported"] for x in chess960_evidence):
+        epd["qualification"] = "PARTIAL"
+        epd["roundtrip"] = "PARTIAL"
     fen_extra = rows["FEN"]["genuine_external_sources"][0]
     if fen_extra["qualification"] != "PASS":
         rows["FEN"]["qualification"] = "PARTIAL"
