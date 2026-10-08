@@ -14,6 +14,7 @@ from unittest.mock import patch
 
 from acs.book_text_import import import_text_book
 from acs.bookreader import BookReader
+from acs.book_progress_store import BookProgressStore
 from acs.lawful_corpus_registry import (
     LawfulCorpusError, acquire_cc0_source, load_catalog,
     qualify_offline_collection, verified_local_source,
@@ -110,6 +111,21 @@ class ActualBookTextSourceTests(unittest.TestCase):
         resumed.next_block()
         self.assertEqual(resumed.restore_return_point("real_book_checkpoint"), destination)
         self.assertEqual(resumed.document_title_author_snapshot()[0], "Chess Fundamentals")
+        # Unlike a snapshot-only roundtrip, this persists a genuine-book
+        # checkpoint through the production crash-safe JSON progress store,
+        # closes it, and restores with a fresh store and source import.
+        with tempfile.TemporaryDirectory(prefix="acs-real-book-progress-") as temp:
+            filename = Path(temp) / "book-progress.json"
+            BookProgressStore(filename).save(first.book_key, reader)
+            self.assertTrue(filename.is_file())
+            reloaded = BookProgressStore(filename).restore(
+                reopened.book_key, reopened.document
+            )
+            self.assertEqual(reloaded.location(), destination)
+            reloaded.next_block()
+            self.assertEqual(
+                reloaded.restore_return_point("real_book_checkpoint"), destination,
+            )
         self.assertEqual(record["redistribution"], "NOT_CLEARED")
 
     def test_corruption_and_implicit_network_or_release_refused(self):
