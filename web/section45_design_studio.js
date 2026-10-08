@@ -302,6 +302,11 @@ async function apply() {
         return;
       }
     }
+    if(!bridge){
+      status("Вебоформлення збережено локально. Налаштування звуку тут не підтверджує фактичне відтворення.",
+        "Web appearance saved locally. The sound preference does not verify actual audio playback.");
+      return;
+    }
     status("Профіль застосовано та збережено.","Profile applied and saved.");
   }catch(err){status("Не збережено: конфлікт або недоступне сховище. Відкрийте налаштування знову.",
     "Not saved: conflict or storage unavailable. Reopen preferences.",true);}
