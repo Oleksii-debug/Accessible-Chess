@@ -52,6 +52,7 @@ class FakeYTPlayer {
 }
 async function main() {
   let seq = 0;
+  let timerId = 0;
   const revoked = [];
   let networkRequests = 0;
   const nodes = {};
@@ -77,7 +78,7 @@ async function main() {
       createObjectURL: () => "blob:local-" + (++seq),
       revokeObjectURL: v => revoked.push(v),
     }),
-    setInterval(fn) { const id = ++seq; timers.set(id, fn); return id; },
+    setInterval(fn) { const id = ++timerId; timers.set(id, fn); return id; },
     clearInterval(id) { timers.delete(id); },
     setTimeout() { throw new Error("Not needed with injected YT"); },
     clearTimeout() {},
@@ -151,7 +152,7 @@ async function main() {
   assert(workbench.localSnapshot(),"YouTube loss must not destroy local MP4");
   assert.equal(workbench.close(),true);
   assert.equal(workbench.close(),false);
-  assert.deepEqual(revoked,["blob:local-1","blob:local-3"]);
+  assert.deepEqual(revoked,["blob:local-1","blob:local-2"]);
   assert.equal(timers.size,0);
   assert.equal(workbench.localSnapshot(),null);
   console.log("section47_48_real_media_workbench_test: PASS; local reopen/error/seek/rate/volume, remote API events/errors/offline and isolation");
