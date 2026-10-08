@@ -294,3 +294,25 @@ billing replay, revoked/expired grant denial, stale sequence, strict
 trusted-transport binding, NEW-only admission, UNKNOWN/replay denial and
 exception redaction. W5 dual-OS tests are registered but not presumed to PASS.
 **R63–R65: STAGED CONTRACT, NOT DEPLOYED / NOT SHIPPING.**
+
+## R69/R71 adversarial evidence intake against exact protected release — staged
+
+`scripts/security_r69_r71_adversarial_evidence_gate.py` verifies exact
+protected-artifact file SHA-256, separate SHA-256 pinned independent
+verifier-key inventory, strict versioned JSON and replay floors.
+R69 dispatches to canonical `continuum_runtime.offline_crack_qualification`;
+R71 dispatches to canonical `continuum_runtime.protector_release_qualification`
+with fixed Windows x64 / exact build identity. These are the ONLY signed-evidence
+authorities. No vulnerable binary probing, key issuing, commercial protector,
+new neutral verifier, self-issued PASS or automatic release acceptance occurs.
+Synthetic evidence is categorized `FIXTURE_EVIDENCE_ONLY`, missing or mixed
+evidence `INCONCLUSIVE`, forged/stale/replayed/altered bytes DENIED, real
+PHYSICAL attestations still independently require verified execution and
+final human release decision. `release_approved` is always `false`.
+
+The dual-OS Wave-5 workflow includes focused synthetic/negative tests from
+`tests/test_security_r69_r71_adversarial_evidence_gate.py`. Actual
+protected Windows image, physical adversarial campaign, verifier independence,
+Windows/NVDA/AV approval and independent release verdict do not exist in this
+repository. **Candidate tooling only; R69/R71 product physical status
+NOT_VERIFIED; this does NOT unblock PR #2497 or release.**
