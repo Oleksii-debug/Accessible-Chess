@@ -99,35 +99,65 @@ def _read_publisher_source(url: str) -> bytes:
 
 
 def _extract_with_mit(binary: Path, archive: Path, outdir: Path) -> None:
+    """Monitor extraction *while it runs*, not only after a decompression bomb."""
+    import time
+
     if outdir.exists() or outdir.is_symlink():
         raise LawfulCorpusError("original CBV extraction target is not fresh")
-    result = subprocess.run(
-        [os.fspath(binary), "archive", "extract", os.fspath(archive), os.fspath(outdir)],
-        cwd=os.fspath(binary.parent), stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
-        shell=False, timeout=120, check=False,
-    )
-    if result.returncode != 0 or len(result.stderr) > 1024 * 1024:
-        raise LawfulCorpusError("MIT CBV decoder refused real publisher original")
-    if not outdir.is_dir() or outdir.is_symlink():
-        raise LawfulCorpusError("MIT CBV decoder produced no regular destination")
-    members = list(outdir.rglob("*"))
-    if len(members) > 150:
-        raise LawfulCorpusError("decoded CBV output has too many members")
-    expanded = 0
-    for item in members:
-        metadata = item.lstat()
-        if stat.S_ISLNK(metadata.st_mode):
-            raise LawfulCorpusError("CBV extraction must not contain symlinks")
-        if stat.S_ISDIR(metadata.st_mode):
-            continue
-        if not stat.S_ISREG(metadata.st_mode):
-            raise LawfulCorpusError("CBV extraction emitted special file")
-        expanded += metadata.st_size
-        if expanded > MAX_EXTRACTED_TOTAL:
-            raise LawfulCorpusError("original CBV extraction exceeds budget")
-    if not any(x.suffix.lower() == ".cbh" for x in members):
-        raise LawfulCorpusError("genuine CBV archive lacks classic CBH source")
+
+    def inventory() -> tuple[int, int]:
+        if not outdir.exists():
+            return 0, 0
+        if not outdir.is_dir() or outdir.is_symlink():
+            raise LawfulCorpusError("MIT CBV decoder output is not a direct directory")
+        members = list(outdir.rglob("*"))
+        if len(members) > 150:
+            raise LawfulCorpusError("decoded CBV output has too many members")
+        expanded = 0
+        for item in members:
+            metadata = item.lstat()
+            if stat.S_ISLNK(metadata.st_mode):
+                raise LawfulCorpusError("CBV extraction must not contain symlinks")
+            if stat.S_ISDIR(metadata.st_mode):
+                continue
+            if not stat.S_ISREG(metadata.st_mode):
+                raise LawfulCorpusError("CBV extraction emitted special file")
+            expanded += metadata.st_size
+            if expanded > MAX_EXTRACTED_TOTAL:
+                raise LawfulCorpusError("original CBV extraction exceeds budget")
+        return len(members), expanded
+
+    try:
+        process = subprocess.Popen(
+            [os.fspath(binary), "archive", "extract",
+             os.fspath(archive), os.fspath(outdir)],
+            cwd=os.fspath(binary.parent), stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            shell=False, start_new_session=(os.name != "nt"),
+        )
+    except OSError as exc:
+        raise LawfulCorpusError("MIT original CBV executable cannot start") from exc
+    deadline = time.monotonic() + 120
+    try:
+        while process.poll() is None:
+            if time.monotonic() > deadline:
+                raise LawfulCorpusError("MIT original CBV extraction timed out")
+            inventory()
+            time.sleep(0.05)
+        if process.returncode != 0:
+            raise LawfulCorpusError("MIT CBV decoder refused real publisher original")
+        inventory()
+        if not outdir.is_dir() or outdir.is_symlink():
+            raise LawfulCorpusError("MIT CBV decoder produced no regular destination")
+        if not any(
+            x.suffix.lower() == ".cbh"
+            for x in outdir.rglob("*") if x.is_file() and not x.is_symlink()
+        ):
+            raise LawfulCorpusError("genuine CBV archive lacks classic CBH source")
+    finally:
+        if process.poll() is None:
+            process.kill()
+        process.wait(timeout=10)
 
 
 def qualify_original_publisher_pair(
