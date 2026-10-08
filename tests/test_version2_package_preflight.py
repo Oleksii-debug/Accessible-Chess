@@ -101,6 +101,9 @@ def _make_tree(root: Path) -> None:
     web.mkdir()
     web_files = (
         "index.html",
+    "real_media_workbench.html",
+    "real_media_workbench.js",
+    "youtube_iframe_playback_adapter.js",
         "stage1_release_bootstrap.js",
         "stage1_board_actions.js",
         "full_product_pgn.js",
