@@ -269,7 +269,7 @@ def make_pack(data: dict) -> dict[str, bytes]:
 
 def source_receipt(data: dict, outputs: Mapping[str, bytes]) -> dict:
     return {
-        "schema": "acs-section37-bilingual-generated-lawmful-derived-content-v1",
+        "schema": "acs-section37-bilingual-generated-lawful-derived-content-v1",
         "genuine_cc0_source_licensing": "Lichess CC0; original attributed dataset separately qualified",
         "derived_material_is_newly_authored": True,
         "languages": list(LANGS),
