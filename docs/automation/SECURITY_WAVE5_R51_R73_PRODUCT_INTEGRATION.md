@@ -266,3 +266,31 @@ workflow. **Not deployed**: production trusted operator credentials, durable
 journal, real R22 backend, commercial watermark allocation/forensic evidence,
 appeal/recovery, protected Windows release and independent release approval.
 The R62 product state is **STAGED ONLY / NOT SHIPPING / NOT INTEGRATED**.
+
+## R63/R64 shared billing state into existing R65 server admission — staged
+
+`acs/protection_paid_server_binding.py` is a thin server-side composition
+over the EXISTING neutral `BillingAdapter`, `SubscriptionPolicyBackend`,
+`ServerPremiumGuard` and current Chess `ServerApplicationBoundary`.
+One injected R64 atomic store supplies R63 subscription readback; no browser
+payment confirmation, client license issuer or alternative subscription
+database is created. The optional `CanonicalPaidOperationCallback` accepts
+only authenticated SERVER-RESOLVED transport, checks authenticated actor and
+session identity and delegates exact payload bytes/device/build/request to
+canonical R65. Only a literal NEW `OperationAdmission` from the identical
+canonical R65 ledger can start work; UNKNOWN/CONFIRMED/forged/cross-account
+or unconfigured context deny. The existing paid-heavy queue refusal remains.
+
+The product itself does NOT contain the provider-specific webhook verifier,
+a signed API snapshot implementation, durable transactional billing/payment
+store, production session/device resolver, an ACID premium ledger or a
+deployed paid endpoint. Test fixtures explicitly use only an in-memory
+billing store and synthetic verifier; they are not production integration.
+No payments, customer changes, entitlement grants or release authorization
+are executed by these source changes.
+
+`tests/test_security_r63_r65_paid_server_binding.py` covers current-state
+billing replay, revoked/expired grant denial, stale sequence, strict
+trusted-transport binding, NEW-only admission, UNKNOWN/replay denial and
+exception redaction. W5 dual-OS tests are registered but not presumed to PASS.
+**R63–R65: STAGED CONTRACT, NOT DEPLOYED / NOT SHIPPING.**
