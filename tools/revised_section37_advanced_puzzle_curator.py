@@ -264,7 +264,7 @@ def main() -> None:
             "score_type": "lichess_puzzle_rating_not_fide_elo",
             "target_user_level": "first_category_through_classical_candidate_master_to_gm_aspiration",
             "first_uci_is_opponents_last_move": True,
-            "solution_hidden_by_default": True,
+            "solution_display_contract": "USER_INTERFACE_MUST_HIDE_UNTIL_USER_REQUESTS_REVEAL; SOURCE_JSON_CONTAINS_SOLUTION_FOR_CANONICAL_IMPORT",
             "composed_studies_not_claimed": True,
             **r,
         }
