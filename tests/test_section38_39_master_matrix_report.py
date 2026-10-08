@@ -117,6 +117,47 @@ class MasterMatrixCoverageTests(unittest.TestCase):
                         with self.assertRaises((ValueError, TypeError, KeyError)):
                             qa.build_master_qa_matrix()
 
+    def test_atomic_800_cell_publication_refuses_reuse_and_concurrent_owner(self):
+        with tempfile.TemporaryDirectory(prefix="acs-master-matrix-atomic-") as raw:
+            root = Path(raw)
+            destination = root / "claim-matrix"
+            receipt = qa.publish_master_qa_matrix(destination)
+            self.assertEqual(receipt["requirement_cells"], 800)
+            original = (destination / qa.OUTPUT_FILE).read_bytes()
+            self.assertEqual(json.loads(original)["genres"], 25)
+            with self.assertRaises(FileExistsError):
+                qa.publish_master_qa_matrix(destination)
+            self.assertEqual((destination / qa.OUTPUT_FILE).read_bytes(), original)
+            competing_destination = root / "concurrent"
+            original_publisher = qa._publish_directory_no_replace
+
+            def competing_owner(staged, output):
+                output.mkdir()
+                (output / "owner.txt").write_text("keep original", encoding="utf-8")
+                return original_publisher(staged, output)
+
+            with patch.object(qa, "_publish_directory_no_replace",
+                              side_effect=competing_owner):
+                with self.assertRaises(Exception):
+                    qa.publish_master_qa_matrix(competing_destination)
+            self.assertEqual(
+                (competing_destination / "owner.txt").read_text(encoding="utf-8"),
+                "keep original",
+            )
+            self.assertFalse((competing_destination / qa.OUTPUT_FILE).exists())
+            self.assertEqual(list(root.glob(".acs-master-matrix-*")), [])
+
+    def test_invalid_source_fails_before_any_master_qa_publication(self):
+        with tempfile.TemporaryDirectory(prefix="acs-master-matrix-negative-") as raw:
+            parent = Path(raw)
+            destination = parent / "unpublished"
+            with patch.object(qa, "build_master_qa_matrix",
+                              side_effect=ValueError("unqualified genre")):
+                with self.assertRaisesRegex(ValueError, "unqualified genre"):
+                    qa.publish_master_qa_matrix(destination)
+            self.assertFalse(destination.exists())
+            self.assertEqual(list(parent.glob(".acs-master-matrix-*")), [])
+
     def test_manifest_is_deterministic_and_sha_bound_to_actual_catalog_bytes(self):
         again = qa.build_master_qa_matrix()
         self.assertEqual(self.report, again)
