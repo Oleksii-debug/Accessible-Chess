@@ -232,7 +232,7 @@
       state.video.addEventListener(kind, function () { publishLocal(state); });
     });
     state.video.addEventListener("error", function () {
-      if (state.localUrl) {
+      if (state.localUrl && state.video.error) {
         safeStatus(root, "Кодек або файл не підтримується. Виберіть інший MP4/WebM.");
         notify(state, localSnapshot(state));
       }
@@ -262,8 +262,15 @@
     }
     state.interval = global.setInterval(function () {
       if (!state.youtube || state.disposed) return;
-      try { onYouTubeSnapshot(state, state.youtube.refresh()); }
-      catch (_) { ytStatus(state, "YouTube стан невідомий; перевірте підключення."); }
+      try {
+        const current = state.youtube.snapshot();
+        if (!current.ok || !current.ready) return;
+        // refresh() itself delivers one onSnapshot callback. Do not double
+        // announce the same time/state to NVDA or mask provider-specific errors.
+        state.youtube.refresh();
+      } catch (_) {
+        ytStatus(state, "YouTube стан невідомий; перевірте підключення.");
+      }
     }, 1000);
     return Object.freeze({
       openLocal: function (file) { return openLocal(state, file); },
