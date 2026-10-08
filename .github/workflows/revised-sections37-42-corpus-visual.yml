@@ -5,6 +5,10 @@ on:
       - converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
     paths:
       - 'acs/lawful_corpus_registry.py'
+      - 'acs/book_docx_import.py'
+      - 'acs/version2_application.py'
+      - 'acs/version2_windows_native_dialog_ownership.py'
+      - 'acs/format_capabilities.py'
       - 'acs/visual_board_contract.py'
       - 'docs/corpus/revised_sections37_40_sources.json'
       - 'docs/automation/REVISED_SECTIONS37_42_PROGRESS_AND_ASSET_PROVENANCE.md'
@@ -16,6 +20,8 @@ on:
       - 'tests/test_revised_section37_offline_collection_readback.py'
       - 'tests/test_revised_section38_official_openings_library.py'
       - 'tests/test_revised_section38_stockfish_real_library.py'
+      - 'tests/test_revised_section38_docx_book_integration.py'
+      - 'tests/test_section0_format_capabilities.py'
       - 'tests/test_revised_section37_38_offline_manifest.py'
       - 'tests/test_revised_section38_real_cbh_oracles.py'
       - 'tools/revised_sections37_38_offline_manifest.py'
@@ -54,6 +60,10 @@ jobs:
         run: >-
           python -m py_compile
           acs/lawful_corpus_registry.py
+          acs/book_docx_import.py
+          acs/version2_application.py
+          acs/format_capabilities.py
+          tests/test_revised_section38_docx_book_integration.py
           acs/visual_board_contract.py
           tests/test_revised_sections37_40_corpus.py
           tools/revised_section37_real_cc0_readback.py
@@ -81,6 +91,8 @@ jobs:
           tests.test_revised_section37_offline_collection_readback
           tests.test_revised_section38_official_openings_library
           tests.test_revised_section38_stockfish_real_library
+          tests.test_revised_section38_docx_book_integration
+          tests.test_section0_format_capabilities
           tests.test_revised_section37_38_offline_manifest
           tests.test_revised_section37_external_book_acquisition
           tests.test_revised_section37_external_position_acquisition
