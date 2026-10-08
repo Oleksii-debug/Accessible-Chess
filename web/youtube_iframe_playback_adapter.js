@@ -145,6 +145,7 @@
       this._ready = false;
       this._destroyed = false;
       this._errorCode = null;
+      this._autoplayBlocked = false;
       this._player = new YT.Player(element, {
         videoId: this.videoId,
         playerVars: {
@@ -158,12 +159,19 @@
             if (this._destroyed) return;
             this._ready = true;
             this._errorCode = null;
+            this._autoplayBlocked = false;
             this._emit();
           },
           onStateChange: (event) => {
             if (this._destroyed) return;
             if (!event || typeof event !== "object") throw new Error("invalid YouTube state event");
-            stateName(event.data);
+            const nextState = stateName(event.data);
+            if (nextState === "playing") this._autoplayBlocked = false;
+            this._emit();
+          },
+          onAutoplayBlocked: () => {
+            if (this._destroyed) return;
+            this._autoplayBlocked = true;
             this._emit();
           },
           onError: (event) => {
@@ -218,6 +226,7 @@
           positionMs,
           durationMs,
           errorCode: this._errorCode,
+          autoplayBlocked: this._autoplayBlocked,
         });
       }
       if (this._ready) {
@@ -240,6 +249,7 @@
         positionMs,
         durationMs,
         errorCode: this._errorCode,
+        autoplayBlocked: this._autoplayBlocked,
       });
     }
 
