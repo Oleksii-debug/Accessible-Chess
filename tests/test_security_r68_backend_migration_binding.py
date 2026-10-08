@@ -156,3 +156,26 @@ def test_r68_migration_authority_cannot_be_missing():
         CanonicalMigrationOperatorBoundary(
             cutover=None, authorize_operator=lambda *_: True, load_approved_job=job,
         )
+
+
+def test_r68_operator_approval_bound_to_exact_migration_proof():
+    approved_proofs = []
+    def authorize(principal, proof):
+        approved_proofs.append(proof)
+        return (type(principal) is AuthenticatedPrincipal
+                and proof.migration_id == "migration.one"
+                and proof.source_id == "source.one"
+                and proof.target_id == "target.one"
+                and proof.scope_id == "scope.one"
+                and proof.revision == 1)
+    bridge, calls = boundary(approve=authorize)
+    assert bridge.execute(actor()) == "COMMITTED"
+    assert len(approved_proofs) == 1
+    assert approved_proofs[0] == job().proof
+    assert len(calls) == 1
+
+    denied_job = lambda: TrustedMigrationJob(replace(job().proof, target_id="target.other"),
+                                               b"trusted-backup")
+    bridge, calls = boundary(approve=authorize, load=denied_job)
+    assert bridge.execute(actor()) == "DENIED"
+    assert calls == []
