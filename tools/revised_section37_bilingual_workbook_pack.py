@@ -33,6 +33,65 @@ MAX_LESSONS = 100
 LANGS = ("uk", "en")
 
 
+def _verify_original_cc0_puzzle_lineage(lessons: list[dict]) -> None:
+    """Authoritative source verification before any shareable book is emitted.
+
+    The lesson description alone is not evidence that its FEN, difficulty and
+    solution are authentic. Read the two actual original-derived CC0 fixtures,
+    verify their exact bytes against the pinned catalog and match every lesson.
+    This is source identity, NOT a second chess-rules or publication authority.
+    """
+    registry = {record["id"]: record for record in load_catalog()}
+    expected: dict[str, tuple[str, tuple[str, ...], int, tuple[str, ...]]] = {}
+    families = (
+        ("lichess_cc0_advanced_16_original_derived",
+         "tests/real_corpus/advanced_training/lichess_cc0_advanced_puzzles_100_sample.json",
+         "rating", "uci_moves_with_opponent_first"),
+        ("lichess_cc0_extreme_4_original_derived_puzzles",
+         "tests/real_corpus/advanced_training/lichess_cc0_extreme_3000_3166_original_puzzles.json",
+         "puzzle_rating", "uci_moves_opponent_first"),
+    )
+    for source_id, relative, rating_field, moves_field in families:
+        record = registry.get(source_id)
+        if not isinstance(record, dict) or record.get("local_source") != relative:
+            raise ValueError("missing exact licensed advanced CC0 original identity")
+        candidate = SOURCE.parents[3] / relative
+        verified_local_source(candidate, record)
+        originals = json.loads(candidate.read_text(encoding="utf-8"))
+        items = originals.get("puzzles")
+        if type(items) is not list or not items:
+            raise ValueError("licensed original CC0 puzzle source empty")
+        for puzzle in items:
+            identity = puzzle.get("puzzle_id")
+            if type(identity) is not str or identity in expected:
+                raise ValueError("duplicate/invalid original CC0 puzzle ID")
+            moves = puzzle.get(moves_field)
+            if type(moves) is not str or len(moves.split()) < 2:
+                raise ValueError("original CC0 solution chain invalid")
+            expected[identity] = (
+                puzzle.get("fen_before_opponent_move"),
+                tuple(moves.split()),
+                puzzle.get(rating_field),
+                tuple(puzzle.get("themes", [])),
+            )
+    for lesson in lessons:
+        identity = lesson.get("original_puzzle_id")
+        record = expected.get(identity) if type(identity) is str else None
+        if record is None:
+            raise ValueError("high-level lesson has no authenticated original CC0 puzzle")
+        actual_moves = (
+            lesson["opponent_previous_move_uci"],
+            *lesson["solution_after_opponent_uci"],
+        )
+        if (
+            lesson["fen_before_opponent_move"] != record[0]
+            or actual_moves != record[1]
+            or lesson["rating_lichess_puzzle"] != record[2]
+            or tuple(lesson.get("original_lichess_themes", [])) != record[3]
+        ):
+            raise ValueError("high-level lesson does not match verified original CC0 source")
+
+
 def load_advanced_workbook(path: Path = SOURCE) -> dict:
     raw = path.read_bytes()
     if not 0 < len(raw) <= 512 * 1024:
@@ -74,6 +133,7 @@ def load_advanced_workbook(path: Path = SOURCE) -> dict:
         except (TypeError, ValueError) as exc:
             raise ValueError("bilingual source contains invalid canonical chess play") from exc
         ids.add(ident)
+    _verify_original_cc0_puzzle_lineage(lessons)
     return data
 
 
