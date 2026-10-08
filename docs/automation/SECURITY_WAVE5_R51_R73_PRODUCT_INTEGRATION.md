@@ -451,3 +451,25 @@ Valid stolen token plus valid device, production OIDC/JWKS, HA session/revocatio
 persistence, real administrative identities and independent live red-team
 qualification remain unverified. The security Wave-5 PR is still draft,
 not product shipping, and an exact-head queued or pending run is not PASS.
+
+
+## 2026-10-08 security corrections: R68 / R70 / R73
+
+R68: Independent operator approval now receives the EXACT immutable MigrationProof
+plus trusted authenticated principal, not actor/role alone. The operator is rejected
+BEFORE privileged job loading unless required role and permission are present. An
+approved actor with a substituted source, target or scope cannot reuse prior approval.
+Product R68 negative/recovery tests cover substituted proof and fail-closed UNKNOWN.
+CI repaired to EXECUTE R66/R67/R68 product suites, rather than merely compile them.
+
+R70: Run canonical R70 online-account adversarial suite from pinned neutral source
+and enforce direct CanonicalPaidOperationCallback workspace/principal equality before
+the R65 ledger. Negative product regressions exercise a forged client account/device/
+token claim and cross-workspace attempt. No real provider penetration PASS implied.
+
+R73: Independently signed PHYSICAL observations alone NEVER approve release. CLI
+now returns a nonzero process exit even for complete physical evidence, avoiding
+the prior dangerous exit-0 signal that a publishing script might misinterpret
+as permission. Regression test validates this together with release_approved=false
+and the independent_release_decision next gate. No hidden bypass or auto-publish.
+All remain draft, pending actual Windows/Linux CI, native provider evidence, and merge.
