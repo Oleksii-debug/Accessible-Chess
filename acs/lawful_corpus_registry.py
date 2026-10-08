@@ -381,3 +381,96 @@ def qualify_offline_collection(
             "semantic_state": "VERIFIED_BYTES_NOT_IMPORTED",
         })
     return tuple(sorted(output, key=lambda item: item["source_id"]))
+
+
+def _vendored_asset_path(repository_root: Path, relative: object) -> Path:
+    """Locate only direct, non-reparse fixtures in tests/real_corpus.
+
+    Catalog text never grants permission to traverse outside the fixture root,
+    including through a symlinked intermediate directory on Unix or a Windows
+    reparse point. This helper does not copy or publish owner-owned material.
+    """
+    from pathlib import PurePosixPath
+
+    if type(relative) is not str or not relative or "\\" in relative or ":" in relative:
+        raise LawfulCorpusError("vendored corpus path invalid")
+    segments = relative.split("/")
+    if (
+        len(segments) < 3
+        or segments[:2] != ["tests", "real_corpus"]
+        or any(part in ("", ".", "..") for part in segments)
+        or PurePosixPath(relative).is_absolute()
+    ):
+        raise LawfulCorpusError("vendored corpus path escapes fixture root")
+    path = repository_root
+    for part in segments:
+        path = path / part
+        try:
+            info = path.lstat()
+        except OSError as exc:
+            raise LawfulCorpusError("vendored corpus path cannot be inspected") from exc
+        if (
+            stat.S_ISLNK(info.st_mode)
+            or getattr(info, "st_file_attributes", 0)
+            & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+        ):
+            raise LawfulCorpusError("vendored corpus path is indirect")
+    if not stat.S_ISREG(info.st_mode):
+        raise LawfulCorpusError("vendored corpus asset must be regular")
+    return path
+
+
+def inventory_vendored_corpus(
+    records: tuple[dict, ...], repository_root: Path, *, distribution: str,
+) -> tuple[dict[str, str | int], ...]:
+    """Verify genuine local CC0 source and license bytes for a *non-copying* index.
+
+    The result is evidence of bytes only, not semantic chess import or a
+    redistributable release package. A PUBLIC_RELEASE inventory conservatively
+    permits only exact CC0/permitted records; qualified TEST_BUILD inventories
+    may include other explicitly declared upstream CC0 variants. A
+    NOT_CLEARED book/CBV is never automatically repackaged.
+    """
+    if distribution not in {"TEST_BUILD", "PUBLIC_RELEASE"}:
+        raise LawfulCorpusError("offline distribution class invalid")
+    if not repository_root.is_dir() or repository_root.is_symlink():
+        raise LawfulCorpusError("corpus root must be direct")
+    output: list[dict[str, str | int]] = []
+    seen: set[str] = set()
+    for entry in records:
+        if type(entry) is not dict or entry.get("acquisition") != "VENDORED_SOURCE_VERIFIED":
+            continue
+        license_name = entry.get("license")
+        rights = entry.get("redistribution")
+        if (
+            type(license_name) is not str or not license_name.startswith("CC0")
+            or type(rights) is not str or not rights.startswith("permitted")
+        ):
+            continue
+        if distribution == "PUBLIC_RELEASE" and (license_name != "CC0" or rights != "permitted"):
+            continue
+        source_id = entry.get("id")
+        if type(source_id) is not str or not _ID.fullmatch(source_id) or source_id in seen:
+            raise LawfulCorpusError("vendored corpus ID invalid or duplicate")
+        seen.add(source_id)
+        expected_license = entry.get("license_sha256")
+        if type(expected_license) is not str or not _HASH.fullmatch(expected_license):
+            raise LawfulCorpusError("vendored corpus license is not hash-pinned")
+        source_path = _vendored_asset_path(repository_root, entry.get("local_source"))
+        license_path = _vendored_asset_path(repository_root, entry.get("license_source"))
+        source_digest = verified_local_source(source_path, entry)
+        verified_local_source(
+            license_path,
+            {"sha256": expected_license, "max_bytes": 1024 * 1024},
+        )
+        output.append({
+            "source_id": source_id,
+            "relative_path": entry["local_source"],
+            "format": str(entry.get("format", "")),
+            "sha256": source_digest,
+            "bytes": source_path.stat().st_size,
+            "license_sha256": expected_license,
+            "distribution": distribution,
+            "semantic_state": "VERIFIED_BYTES_NOT_IMPORTED",
+        })
+    return tuple(sorted(output, key=lambda item: item["source_id"]))
