@@ -99,19 +99,7 @@
         "notes": "Publisher catalogue/excerpt directory, not full ebook"
       },
       "separately_imported_real_chess_material": "20 real rated CC0 Lichess puzzle records, 2200–3166; not a proof of GM playing title",
-      "ukrainian_external_verified_references": [
-        {
-          "author": "Іван Хабінець",
-          "title": "Шахова тактика. Від a до h",
-          "language": "uk",
-          "year": 2022,
-          "format": "publisher PDF; 280 pages",
-          "verified_public_source": "https://book.ua/book/067264-shakhova-taktyka",
-          "evidence": "Online retailer explicitly labels the e-book language Ukrainian, and PDF purchase format. Contains distinctive chess motifs and examples. Master-only difficulty NOT independently verified.",
-          "distribution": "BUY_OR_LICENSED_SAMPLE_ONLY",
-          "free_full_book": false
-        }
-      ]
+      "ukrainian_external_verified_references": []
     },
     {
       "work_type": "composed_studies",
@@ -356,5 +344,7 @@
   "full_foreign_paid_books_included": false,
   "translations_of_protected_books_included": false,
   "high_level_uK_external_policy": "No claim that any ISBN is exclusively first-category/GM unless actual publisher contents prove it; only include high-level sections and verified Ukrainian language editions.",
-  "high_level_en_external_policy": "English commercial books stay referrals/excerpts, NOT uploaded as full redistributed books."
+  "high_level_en_external_policy": "English commercial books stay referrals/excerpts, NOT uploaded as full redistributed books.",
+  "owner_library_rule": "In the shareable library list only list files actually importable/readable by the canonical application. Paid unacquired publications such as Ivan Khabinets are NOT included as source content or user test fixtures. Third-party bibliography, if retained, is strictly reference-only and not product content.",
+  "external_publication_is_program_content": false
 }
