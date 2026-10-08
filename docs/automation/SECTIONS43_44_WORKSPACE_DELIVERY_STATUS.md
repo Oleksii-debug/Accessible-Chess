@@ -21,7 +21,10 @@ Do not merge this feature into docs-only `main` while shipping ancestry remains 
   globally selectable density and column flow, restore-layout action and
   versioned bounded layout-only storage. Existing V2 module navigation gets its
   own mode selector (comfortable/compact/reading) with per-route restart
-  persistence; dynamic services retain their DOM ownership.
+  persistence; dynamic services retain their DOM ownership. **Windows persistence
+  now uses the existing atomic, upgrade-locked Settings writer via validated
+  `get_presentation_layout`/`save_presentation_layout` API methods.** Browser
+  localStorage is a fallback only, not treated as durable in pywebview private mode.
 - 43.4 Menus/dialogs/import-export/progress/help: **PARTIAL**. Shared CSS
   styles existing native controls/forms/status; no signed native-menu rewrite or
   confirmed complete Windows dialog-by-dialog aesthetic qualification.
@@ -30,8 +33,10 @@ Do not merge this feature into docs-only `main` while shipping ancestry remains 
   restart and corrupt-profile cases tested in JS harness. Actual Windows UIA
   and NVDA acceptance have not been verified.
 - 43.6 Tests: **PARTIAL**. Repo-local V8 execution of canonical inline UI and
-  product-mode snippets passed; live Actions Ubuntu/Windows exact-SHA
-  qualification is currently queued, not SUCCESS. No screenshot/DPI/zoom
+  product-mode snippets passed; source changes also include a new five-case
+  native `Settings` unit suite for actual durable restart, stale writers,
+  upgrade lock, invalid payloads and no-chess-data side effects. Live Actions
+  Ubuntu/Windows exact-SHA qualification remains queued, not SUCCESS. No screenshot/DPI/zoom
   pixel/real WebView2 run has completed for this new source.
 
 ## S44 — shared style for actual services
