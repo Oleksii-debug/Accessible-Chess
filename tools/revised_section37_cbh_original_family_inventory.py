@@ -20,6 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 REPORT = ROOT / "revised-section37-original-cbh-companion-evidence.json"
 UPSTREAM_COMMIT = "9641c5c3949d8fb210b17dd9aa54455645843696"
 SHA40 = re.compile(r"^[a-f0-9]{40}$")
+SHA256 = re.compile(r"^[a-f0-9]{64}$")
 SAFE = re.compile(r"^[A-Za-z0-9_+.-]{1,96}$")
 SUFFIXES = frozenset({".cbh", ".cbg", ".cbp", ".cbt", ".cba", ".cbs", ".cbc", ".cbe", ".cbj", ".cbl", ".cbm"})
 MAX_FILE = 32 * 1024 * 1024
@@ -95,6 +96,28 @@ def verify_gpl_cbh_family(record: dict, checkout: Path) -> dict:
         raise LawfulCorpusError("CBH companion manifest does not cover exact family")
     if any(type(v) is not str or not SHA40.fullmatch(v) for v in expected.values()):
         raise LawfulCorpusError("CBH companion file has no pinned Git blob")
+    sha_records = record.get("external_companion_source_checksums")
+    if type(sha_records) is not dict or set(sha_records) != set(expected):
+        raise LawfulCorpusError("complete companion SHA256 and size pins are required")
+    for value in sha_records.values():
+        if (
+            type(value) is not dict
+            or type(value.get("bytes")) is not int
+            or not 0 < value["bytes"] <= MAX_FILE
+            or type(value.get("sha256")) is not str
+            or not SHA256.fullmatch(value["sha256"])
+        ):
+            raise LawfulCorpusError("invalid original companion byte/SHA256 pin")
+    oracle_index = record.get("external_oracle_source_checksum")
+    if (
+        type(oracle_index) is not dict
+        or oracle_index.get("name") != oracle_name
+        or type(oracle_index.get("bytes")) is not int
+        or not 0 < oracle_index["bytes"] <= MAX_FILE
+        or type(oracle_index.get("sha256")) is not str
+        or not SHA256.fullmatch(oracle_index["sha256"])
+    ):
+        raise LawfulCorpusError("independent PGN oracle must be pinned by SHA256 and size")
     gtest = checkout / "gtest"
     if not gtest.is_dir() or gtest.is_symlink():
         raise LawfulCorpusError("original CBH gtest directory absent or indirect")
@@ -120,6 +143,11 @@ def verify_gpl_cbh_family(record: dict, checkout: Path) -> dict:
         raw = _regular_source(family / name)
         if _raw_git_blob(raw) != expected[name]:
             raise LawfulCorpusError("original CBH companion Git blob mismatch")
+        if (
+            len(raw) != sha_records[name]["bytes"]
+            or hashlib.sha256(raw).hexdigest() != sha_records[name]["sha256"]
+        ):
+            raise LawfulCorpusError("original CBH companion SHA256 or byte count mismatch")
         total += len(raw)
         if total > MAX_FAMILY:
             raise LawfulCorpusError("original CBH family over resource bound")
@@ -135,6 +163,11 @@ def verify_gpl_cbh_family(record: dict, checkout: Path) -> dict:
         raise LawfulCorpusError("independent PGN oracle is not pinned")
     if _raw_git_blob(oracle_data) != expected_oracle:
         raise LawfulCorpusError("independent PGN oracle source changed")
+    if (
+        len(oracle_data) != oracle_index["bytes"]
+        or hashlib.sha256(oracle_data).hexdigest() != oracle_index["sha256"]
+    ):
+        raise LawfulCorpusError("independent PGN oracle SHA256 or byte count mismatch")
     return {
         "source_id": record["id"],
         "source_page": record["source_page"],
