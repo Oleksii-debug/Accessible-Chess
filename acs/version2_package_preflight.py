@@ -1722,6 +1722,30 @@ def _validate_required_runtime_resources(
             label="packaged Version 2 web resource",
         )
 
+    # The new first-party local UI stylesheet is loaded by the existing
+    # canonical WebView index.html. Earlier already-shipped package fixtures
+    # without that opt-in link remain valid, but any NEW candidate advertising
+    # the local design system must contain its exact same-volume offline
+    # assets, MIT notice and source manifest. It cannot silently fall back to
+    # an unstyled page or remote CDN after the release preflight says PASS.
+    web_index = root / "AccessibleChess" / "web" / "index.html"
+    index_info = _safe_lstat(web_index, label="packaged HTML theme entrypoint")
+    if index_info.st_size <= 0 or index_info.st_size > 4 * 1024 * 1024:
+        _fail("packaged HTML theme entrypoint size is invalid")
+    index_bytes = web_index.read_bytes()
+    if b'assets/accessible_chess_design.css' in index_bytes:
+        for relative in (
+            "AccessibleChess/web/assets/accessible_chess_design.css",
+            "AccessibleChess/web/assets/tabler/chess-rook.svg",
+            "AccessibleChess/web/assets/tabler/adjustments.svg",
+            "AccessibleChess/web/assets/tabler/LICENSE",
+            "AccessibleChess/web/assets/tabler/SECTION41_PROVENANCE.json",
+        ):
+            _require_package_file(
+                root, inventory, relative,
+                label="packaged Section 41 offline MIT design resource",
+            )
+
     stockfish = _require_package_file(
         root,
         inventory,
