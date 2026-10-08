@@ -60,6 +60,25 @@ class PublicReleaseExclusionTests(unittest.TestCase):
         self.assertEqual(deny["basenames"]["endgamestudiesgrigoriev.pgn"], "grigoriev_historical_original_studies_pgn_unlicensed")
         self.assertEqual(deny["basenames"]["kaspariandominationstudies.pgn"], "kasparian_domination_original_studies_pgn_unlicensed")
 
+    def test_uncleared_vendored_real_book_is_denied_after_renaming(self):
+        # The genuine, pinned Gutenberg test-only book is not CC0 distribution.
+        # The release guard must reject its bytes even if someone renames it.
+        catalog = load_catalog()
+        book = next(
+            item for item in catalog
+            if item["id"] == "gitenberg_capablanca_33870_original_txt"
+        )
+        self.assertEqual(book["redistribution"], "NOT_CLEARED")
+        self.assertEqual(book["public_release"], "EXCLUDED")
+        original = Path(__file__).resolve().parents[1] / book["local_source"]
+        with tempfile.TemporaryDirectory() as tmp:
+            archive = Path(tmp) / "release.zip"
+            build_zip(archive, {"unrelated/renamed-authorless-source.dat": original.read_bytes()})
+            with self.assertRaisesRegex(
+                LawfulCorpusError, "byte-identical excluded original source"
+            ):
+                audit_public_archive(archive, catalog)
+
     def test_clean_release_passes_and_honestly_disclaims_public_authorization(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "safe-release.zip"
