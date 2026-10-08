@@ -63,7 +63,7 @@ jobs:
         run: python -m pip install 'zstandard==0.25.0'
       - name: Actually fetch SHA256-verified CC0 Lichess file and import 5000 real games
         run: python -m tools.v2_library_source_catalog_real_corpus
-      - name: Acquire two additional official SHA-pinned CC0 corpora and parse real samples
+      - name: Acquire four official SHA-pinned CC0 corpora and parse real samples
         run: python -m tools.revised_section37_real_cc0_readback
       - name: Preserve non-private exact corpus qualification facts
         if: always()
