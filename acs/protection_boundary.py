@@ -12,7 +12,6 @@ from dataclasses import dataclass
 import importlib
 import json
 from pathlib import Path
-import stat
 import sys
 from types import ModuleType
 from typing import Callable
