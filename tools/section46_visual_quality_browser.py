@@ -33,8 +33,12 @@ class _Handler(http.server.SimpleHTTPRequestHandler):
 
     def translate_path(self, path):
         url = urlsplit(path).path
-        if url == "/assets/section45_design_studio.js":
-            return str(WEB / "section45_design_studio.js")
+        if url in {
+            "/assets/section45_design_studio.js",
+            "/assets/accessible_chess_web.js",
+            "/assets/board_overlay_renderer.js",
+        }:
+            return str(WEB / url.rsplit("/", 1)[-1])
         return super().translate_path(path)
 
     def log_message(self, format, *args):
@@ -88,6 +92,9 @@ def run(folder: Path, *, browser_engine: str = "chromium") -> dict:
                             errors = []
                             page.on("pageerror", lambda error: errors.append(str(error)[:300]))
                             page.goto(url + "/" + name, wait_until="domcontentloaded")
+                            # Browser device pixel density alone does NOT simulate
+                            # 125-200% page zoom or enlarged desktop text.
+                            page.evaluate("(value) => { document.documentElement.style.zoom = value; }", zoom)
                             page.locator("#ac41-theme").select_option(theme)
                             page.locator("#ac45-toggle").click()
                             page.locator("#ac45-profile").focus()
@@ -99,14 +106,22 @@ def run(folder: Path, *, browser_engine: str = "chromium") -> dict:
                                 status: document.querySelector('#ac45-status')?.getAttribute('aria-live'),
                                 theme: document.documentElement.dataset.acUiTheme,
                                 reduced: matchMedia('(prefers-reduced-motion: reduce)').matches,
-                                forced: matchMedia('(forced-colors: active)').matches
+                                forced: matchMedia('(forced-colors: active)').matches,
+                                zoom: Number(document.documentElement.style.zoom)
                             })""")
                             if focus["expanded"] != "true" or focus["studio"] != "ac45-title" or focus["status"] != "polite":
                                 raise AssertionError((name,theme,zoom,width,"semantic failure",focus))
                             if focus["overflow"]:
                                 raise AssertionError((name,theme,zoom,width,"horizontal overflow",focus))
+                            if abs(float(focus["zoom"]) - zoom) > 0.01:
+                                raise AssertionError((name,theme,zoom,width,"CSS zoom not applied",focus))
                             if not focus["reduced"] or focus["forced"] != (theme == "contrast"):
                                 raise AssertionError((name,theme,zoom,width,"forced/reduced mode",focus))
+                            # A real page can exceed the logical viewport at
+                            # larger zoom, but the studio must itself remain
+                            # keyboard reachable and never disappear.
+                            if not page.locator("#ac45-apply").is_visible():
+                                raise AssertionError((name,theme,zoom,width,"Apply inaccessible"))
                             page.add_script_tag(path=str(axe))
                             violations = page.evaluate("""async () => {
                               const result = await axe.run(document, {
@@ -139,6 +154,8 @@ def run(folder: Path, *, browser_engine: str = "chromium") -> dict:
               "human_sighted_review": "NOT_PERFORMED",
               "native_windows_UIA_NVDA": "NOT_PERFORMED",
               "full_product_performance": "NOT_PERFORMED",
+              "browser_scale_type": "CSS_ZOOM_AND_DEVICE_SCALE_NOT_NATIVE_WINDOWS_DPI",
+              "web_backend": "NOT_CONNECTED_LOCAL_UI_FIXTURE",
               "axe_executed": True}
     (folder / "quality-manifest.json").write_text(
         json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8"
