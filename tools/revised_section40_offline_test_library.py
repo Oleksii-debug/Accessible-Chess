@@ -31,6 +31,7 @@ from acs.starter_books_training_release import (
     build_training_task_catalogue,
 )
 from acs.starter_books_training_runtime import build_training_ready_starter_course
+from tools.revised_section40_advanced_training import build_advanced_training
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -231,6 +232,11 @@ def build_collection(profile: str, output: Path, *, root: Path = ROOT) -> dict:
     book_assets, book_rows = _books_and_training()
     assets.update(book_assets)
     rows.extend(book_rows)
+    advanced_assets, advanced_rows = build_advanced_training(root=root)
+    if set(assets) & set(advanced_assets):
+        raise OfflineCollectionError("duplicate advanced training content key")
+    assets.update(advanced_assets)
+    rows.extend(advanced_rows)
     imported = None
     with tempfile.TemporaryDirectory(prefix="acs-section40-", dir=output.parent) as temp:
         work = Path(temp)
@@ -249,7 +255,7 @@ def build_collection(profile: str, output: Path, *, root: Path = ROOT) -> dict:
         assets["README_UK.txt"] = (
             "Accessible Chess: офлайнова бібліотека для перевірок.\n"
             "Файли books/*.json читає канонічний BookDocument; training/*.json "
-            "містить авторські вправи. У TEST_BUILD файл library/*.acsdb "
+            "містить авторські вправи й справжні задачі Lichess 2200+ (НЕ FIDE Elo). У TEST_BUILD файл library/*.acsdb "
             "містить 512 справжніх PGN-партій та добірки 32/128/512, імпортовані через існуючу Library.\n"
             "PUBLIC_RELEASE містить лише дозволені джерела й посилання; "
             "заборонено трактувати посилання як дозвіл передруку.\n"
@@ -258,7 +264,7 @@ def build_collection(profile: str, output: Path, *, root: Path = ROOT) -> dict:
         ).encode("utf-8")
         assets["README_EN.txt"] = (
             "Accessible Chess offline corpus for QA. Canonical BookDocument "
-            "course/booklets and authored Training examples are included. "
+            "course/booklets, authored Training and real CC0 Lichess 2200+ puzzles (not FIDE Elo) are included. "
             "TEST_BUILD contains real 32/128/512 game collections and 512 genuine games in canonical ACSDB. "
             "PUBLIC_RELEASE is more restrictive and includes links only for "
             "unqualified external sources. This is not a Windows EXE, "
