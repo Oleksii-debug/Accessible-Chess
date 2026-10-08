@@ -433,3 +433,21 @@ on the pinned neutral source. This is repository-controlled server
 integration only: no actual production data export, HA target, real
 database/backup restoration, durable external CAS, routed traffic, Windows
 shipping integration or independently approved migration has occurred.
+
+## R70 online/account adversarial regression intake — source CI only
+
+The existing canonical R70 verifier and attack regression suite
+`continuum_runtime/tests/test_r70_online_account_attack_qualification.py`
+are now included in the same exact-head Wave-5 Linux/Windows qualification as
+the existing product Wave-2 online entitlement suite. This reuses, rather
+than duplicates, the existing R08 signed entitlement, R17 account directory,
+R18 session manager, R19 device registry, R20 issuer, R21 renewal, R22
+revocation, R23 audited administration and R48 proof/challenge authorities.
+The synthetic matrix covers forged responses, session abuse, stale or revoked
+device/build, unauthorized capabilities, replay and admin privilege attempts.
+
+The test-fixture class is not a deployed online-identity penetration test.
+Valid stolen token plus valid device, production OIDC/JWKS, HA session/revocation
+persistence, real administrative identities and independent live red-team
+qualification remain unverified. The security Wave-5 PR is still draft,
+not product shipping, and an exact-head queued or pending run is not PASS.
