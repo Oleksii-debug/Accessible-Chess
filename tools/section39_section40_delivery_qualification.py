@@ -161,6 +161,23 @@ def qualify_built_delivery(test_path: Path, public_path: Path,
         raise LawfulCorpusError("uncleared original source entered public offline package")
     if any("gitenberg_" in name or "chessbase_" in name for name in public):
         raise LawfulCorpusError("uncleared original copyrighted binary included in public package")
+    # A self-consistent checksums.json is not an authorization to smuggle
+    # unknown files into the public distribution. Every payload needs a
+    # published catalog material record or one explicitly approved metadata/
+    # attribution path; a raw extra chess book is always a failure.
+    allowed_public_payloads = {
+        "catalog/materials.json", "catalog/checksums.json",
+        "catalog/external-links.json", "README_UK.txt", "README_EN.txt",
+        "licenses/ACCESSIBLE_CHESS_STARTER_UK.txt",
+    }
+    allowed_public_payloads.update(row["source_path"] for row in publish["materials"])
+    allowed_public_payloads.update(
+        row["license_path"] for row in publish["materials"]
+        if "license_path" in row
+    )
+    if set(public) != allowed_public_payloads:
+        raise LawfulCorpusError("unauthorized unregistered file entered public chess archive")
+
     external_links = json.loads(public["catalog/external-links.json"])
     if not any(x.get("id") == "gitenberg_capablanca_33870_original_txt" for x in external_links):
         raise LawfulCorpusError("legal external-only library catalog missing")
