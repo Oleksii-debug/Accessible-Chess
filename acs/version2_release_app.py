@@ -24,7 +24,12 @@ from .engine_play_service import EnginePlayService
 from .full_product_ui_shell import UILanguage
 from .local_profile import LocalProfileStore
 from .release_app import _sound_cache_dir, _sound_variant_provider, _user_root
-from .protection_boundary import ProtectedStartupLocked, authorize_release_startup
+from .protection_boundary import (
+    ProtectedStartupLocked,
+    ProtectionDecision,
+    ProtectionStartupSession,
+    open_release_protection_session,
+)
 from .protection_locked_ui import run_locked_security_window
 from .settings import Settings
 from .sound_runtime import GameSoundRuntime, SoundRuntime, SoundRuntimeSettings
@@ -418,7 +423,7 @@ def create_version2_release_application(
     data_root: str | Path | None = None,
     copy_text: Callable[[str], Any] = _copy_text_to_windows_clipboard,
     defer_ui: bool = False,
-    protection_authorizer: Callable[..., Any] = authorize_release_startup,
+    protection_authorizer: Callable[..., Any] = open_release_protection_session,
 ):
     """Compose one engine provider plus the persistent V2 application state.
 
@@ -437,10 +442,19 @@ def create_version2_release_application(
     # R00-R14 protection is evaluated before any premium engine/database/application
     # resource is constructed. A locked packaged release therefore cannot reach
     # Stockfish, Library, Books, Training or other premium composition by accident.
-    protection_authorizer(
+    protection_result = protection_authorizer(
         application_dir=app_dir,
         state_root=protection_state_root,
     )
+    protection_session: ProtectionStartupSession | None = None
+    if isinstance(protection_result, ProtectionStartupSession):
+        if not protection_result.decision.authorized:
+            raise RuntimeError("authorized startup session contains a locked decision")
+        protection_session = protection_result
+    elif protection_result is not None and not isinstance(protection_result, ProtectionDecision):
+        # Test/integration seams may intentionally return None. Any other
+        # unexpected authority object is rejected instead of silently ignored.
+        raise TypeError("protection authorizer returned an unsupported result")
     layout = _prepare_version2_user_data(
         data_root=data_root,
         settings_path=settings_path,
@@ -491,6 +505,9 @@ def create_version2_release_application(
             engine_play_service=engine_play,
             lang=language.value,
         )
+        # Host-only security state. It is never returned through the pywebview
+        # public method surface; the release host consumes it for periodic R26 checks.
+        api._protection_session = protection_session
     except BaseException:
         _close_partial_version2_composition(continuous, analysis, engine_runtime)
         raise
