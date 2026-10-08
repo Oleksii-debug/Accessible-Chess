@@ -236,6 +236,41 @@ def run(folder: Path, *, browser_engine: str = "chromium") -> dict:
                                 "long_translation_no_studio_overflow": not reflow,
                                 "classification": "LOCAL_UI_FIXTURE_NOT_LIVE_DEPLOYMENT",
                             })
+                            # Real Windows HTML keymap and engine-start dialog
+                            # surfaces get additional explicit (unapproved)
+                            # screenshot + axe proof in each theme at 100%.
+                            if name=="index.html" and width==1440 and zoom==1.0:
+                                for dialog_id in ("keymap-dialog","engine-game-dialog"):
+                                    dialog=page.locator("#"+dialog_id)
+                                    dialog.evaluate("(node) => node.showModal()")
+                                    dialog_png=folder / (fname+"_"+dialog_id+".png")
+                                    page.screenshot(
+                                        path=str(dialog_png), full_page=True,
+                                        animations="disabled"
+                                    )
+                                    dialog_violations=page.evaluate("""async () => {
+                                      const result=await axe.run(document, {
+                                        runOnly:{type:'tag',values:[
+                                          'wcag2a','wcag2aa','wcag21a','wcag21aa']}
+                                      });
+                                      return result.violations.map(v=>({
+                                        id:v.id,impact:v.impact,nodes:v.nodes.length,
+                                        targets:v.nodes.slice(0,3).map(n=>n.target.join(' '))
+                                      }));
+                                    }""")
+                                    records.append({
+                                        "page": name,
+                                        "surface": dialog_id,
+                                        "theme": theme,
+                                        "zoom_percent": int(zoom*100),
+                                        "width": width,
+                                        "screenshot": dialog_png.name,
+                                        "sha256": hashlib.sha256(dialog_png.read_bytes()).hexdigest(),
+                                        "axe_violations": dialog_violations,
+                                        "page_errors": list(errors),
+                                        "classification": "LOCAL_UI_DIALOG_NOT_LIVE_WINFORMS"
+                                    })
+                                    dialog.evaluate("(node) => node.close()")
                             context.close()
         finally:
             browser.close()
