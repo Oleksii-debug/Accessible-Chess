@@ -25,7 +25,11 @@ class Element {
     assert.ok(handler, this.id + " missing " + type + " handler");
     handler(payload);
   }
-  focus() { document.activeElement = this; }
+  focus(options) {
+    document.activeElement = this;
+    this.focusCount = (this.focusCount || 0) + 1;
+    this.focusOptions = options;
+  }
   showModal() {
     assert.equal(this.open, false, "modal opened twice");
     this.open = true;
@@ -83,6 +87,10 @@ nodes["close-dialog"].emit("click");
 assert.equal(nodes["fixture-dialog"].open, false);
 assert.equal(document.activeElement, nodes["open-dialog"],
   "closing dialog must restore focus to its keyboard trigger");
+assert.equal(nodes["open-dialog"].focusOptions.preventScroll, true,
+  "dialog close must restore keyboard focus without forced scroll");
+assert.equal(nodes["dialog-heading"].focusCount, 1,
+  "re-entrant dialog click must not repeatedly move focus");
 
 let prevented = 0;
 nodes["fixture-form"].emit("submit", {
@@ -93,6 +101,13 @@ assert.match(nodes["form-status"].textContent, /Форму перевірено/
 assert.equal(document.activeElement, nodes["open-dialog"],
   "status update must not steal keyboard focus");
 
+for (const token of ['href="#main"', 'id="main" tabindex="-1"',
+  '<th scope="col">', '<th scope="row">', '<legend>',
+  'aria-labelledby="dialog-heading"', 'aria-describedby="dialog-help"']) {
+  assert.ok(html.includes(token), "missing semantic fixture token " + token);
+}
+assert.doesNotMatch(html, /onfocus=|onblur=|onerror=/i,
+  "no inline event attributes in keyboard fixture");
 assert.match(html, /id="copy-content" tabindex="0"/,
   "copyable native text must remain keyboard focusable");
 assert.match(html, /role="status" aria-live="polite"/,
