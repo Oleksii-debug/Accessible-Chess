@@ -396,6 +396,7 @@
   }
 
   function activateYouTube(envelope, sourceText) {
+    const requested = openRequestSerial;
     renderEnvelope(envelope, false);
     setStatus(
       uiText(
@@ -405,6 +406,7 @@
       false
     );
     return ensureYouTubeApi().then(function (YT) {
+      if (requested !== openRequestSerial) return false;
       const namespace = global.AccessibleChessYouTubeIframePlayback;
       if (
         !namespace ||
@@ -414,6 +416,7 @@
       }
       destroyProvider();
       activeSourceId = envelope.sourceId;
+      const generation = providerGeneration;
       const mount = documentRef.createElement("div");
       mount.id = "section20-youtube-player";
       providerHost.appendChild(mount);
@@ -426,7 +429,7 @@
         source: sourceText,
         origin: origin,
         onSnapshot: function (snapshot) {
-          syncYouTubeSnapshot(snapshot);
+          syncYouTubeSnapshot(snapshot, generation);
         },
       });
       activeProviderKind = "youtube";
@@ -455,6 +458,8 @@
     }
     try {
       destroyProvider();
+      activeSourceId = envelope.sourceId;
+      const generation = providerGeneration;
       const mount = documentRef.createElement("div");
       mount.id = "section47-local-video-player";
       providerHost.appendChild(mount);
@@ -463,7 +468,7 @@
         sourceUrl: envelope.browserSourceUrl,
         sourceId: envelope.sourceId,
         onSnapshot: function (snapshot) {
-          syncYouTubeSnapshot(snapshot);
+          syncYouTubeSnapshot(snapshot, generation);
         },
       });
       activeProviderKind = "browser_local";
@@ -504,6 +509,7 @@
       return Promise.resolve(false);
     }
     pastedOpen.disabled = true;
+    const request = ++openRequestSerial;
     activeSourceText = sourceText;
     let invoke;
     try {
@@ -517,6 +523,7 @@
       return Promise.resolve(false);
     }
     return invoke(sourceText).then(function (value) {
+      if (request !== openRequestSerial) return false;
       return activateOpened(value, sourceText);
     }).catch(function () {
       setStatus(
@@ -533,6 +540,7 @@
   }
 
   function openLocal() {
+    const request = ++openRequestSerial;
     localOpen.disabled = true;
     let invoke;
     try {
@@ -546,6 +554,7 @@
       return Promise.resolve(false);
     }
     return invoke().then(function (value) {
+      if (request !== openRequestSerial) return false;
       activeSourceText = "";
       return activateOpened(value, "");
     }).catch(function () {
