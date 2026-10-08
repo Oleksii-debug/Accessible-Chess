@@ -22,7 +22,7 @@ class RevisedSection40CollectionTests(unittest.TestCase):
             public_report = builder.build_collection("PUBLIC_RELEASE", public)
             self.assertFalse(test_report["section40_done"])
             self.assertFalse(public_report["section40_done"])
-            self.assertEqual(test_report["real_import_readback"]["game_count"], 32)
+            self.assertEqual(test_report["real_import_readback"]["game_count"], 512)
             self.assertIsNone(public_report["real_import_readback"])
             self.assertEqual(test_report["archive_sha256"],
                              hashlib.sha256(trial.read_bytes()).hexdigest())
@@ -33,9 +33,12 @@ class RevisedSection40CollectionTests(unittest.TestCase):
                 catalog = json.loads(z.read("catalog/materials.json"))
                 self.assertEqual(catalog["profile"], "TEST_BUILD")
                 self.assertFalse(catalog["owner_accepted"])
-                self.assertEqual(catalog["real_import_readback"]["game_count"], 32)
-                self.assertIn("library/real-stockfish-first-32.acsdb", trial_names)
+                self.assertEqual(catalog["real_import_readback"]["game_count"], 512)
+                self.assertIn("library/real-stockfish-first-512.acsdb", trial_names)
                 self.assertIn("library/real-stockfish-first-32.pgn", trial_names)
+                self.assertIn("library/real-stockfish-first-128.pgn", trial_names)
+                self.assertIn("library/real-stockfish-first-512.pgn", trial_names)
+                self.assertEqual(catalog["real_import_readback"]["sample_sizes"], [32, 128, 512])
                 self.assertIn("books/accessible-chess-starter-course.json", trial_names)
                 self.assertIn("training/starter-exercises.json", trial_names)
                 self.assertEqual(
