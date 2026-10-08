@@ -36,7 +36,21 @@ _REQUIRED_WEB = (
     "full_product_pgn.js",
     "full_product_library.js",
     "full_product_books_training.js",
+    "full_product_teacher.js",
+    "full_product_education.js",
+    "version2_final_product_bootstrap.js",
     "version2_release_bootstrap.js",
+)
+
+_VALID_WINFORMS_CONFIG = (
+    '<?xml version="1.0" encoding="utf-8"?>\n'
+    '<configuration><runtime><AppContextSwitchOverrides value="'
+    'Switch.UseLegacyAccessibilityFeatures=false;'
+    'Switch.UseLegacyAccessibilityFeatures.2=false;'
+    'Switch.UseLegacyAccessibilityFeatures.3=false;'
+    'Switch.UseLegacyAccessibilityFeatures.4=false;'
+    'Switch.UseLegacyAccessibilityFeatures.5=false'
+    '" /></runtime></configuration>\n'
 )
 
 
@@ -68,6 +82,9 @@ class Version2PackageAssemblerTests(unittest.TestCase):
         web = product / "web"
         web.mkdir(parents=True)
         (product / "AccessibleChess.exe").write_bytes(_minimal_windows_pe())
+        (product / "AccessibleChess.exe.config").write_text(
+            _VALID_WINFORMS_CONFIG, encoding="utf-8"
+        )
         (product / "runtime.dll").write_bytes(b"runtime")
         for name in _REQUIRED_WEB:
             (web / name).write_text(f"// canonical fixture {name}\n", encoding="utf-8")
@@ -140,6 +157,9 @@ class Version2PackageAssemblerTests(unittest.TestCase):
             self.assertEqual(assembled.tree_report.integration_sha, _SHA)
             self.assertTrue((output / "AccessibleChess" / "AccessibleChess.exe").is_file())
             self.assertTrue(
+                (output / "AccessibleChess" / "AccessibleChess.exe.config").is_file()
+            )
+            self.assertTrue(
                 (output / "THIRD_PARTY_NOTICES" / "Stockfish-18-source.zip").is_file()
             )
             self.assertTrue(
@@ -152,6 +172,7 @@ class Version2PackageAssemblerTests(unittest.TestCase):
             self.assertEqual(manifest["upgrade_journal_schema"], UPGRADE_JOURNAL_SCHEMA_VERSION)
             self.assertEqual(manifest["settings_schema"], SETTINGS_SCHEMA_VERSION)
             self.assertEqual(manifest["acsdb_schema"], ACSDB_SCHEMA_VERSION)
+            self.assertIs(manifest["human_tested"], False)
             self.assertIs(manifest["nvda_verified"], False)
             self.assertIs(manifest["user_data_bundled"], False)
             self.assertIs(manifest["raw_source_bundled"], False)
@@ -212,6 +233,32 @@ class Version2PackageAssemblerTests(unittest.TestCase):
                     diagnostic_files={"debug.json": native},
                 )
             self.assertFalse(other.exists())
+
+    def test_invalid_winforms_accessibility_config_fails_before_publication(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            product, notices = self._sources(root)
+            config = product / "AccessibleChess.exe.config"
+            config.write_text(
+                _VALID_WINFORMS_CONFIG.replace(
+                    "Switch.UseLegacyAccessibilityFeatures.5=false",
+                    "Switch.UseLegacyAccessibilityFeatures.5=true",
+                ),
+                encoding="utf-8",
+            )
+            output = root / "candidate"
+
+            with self.assertRaisesRegex(
+                Exception,
+                "disable all legacy accessibility switches",
+            ):
+                assemble_version2_package_tree(
+                    product,
+                    notices,
+                    output,
+                    integration_sha=_SHA,
+                )
+            self.assertFalse(output.exists())
 
     def test_user_data_and_raw_source_leaks_fail_before_publication(self) -> None:
         cases = (
@@ -342,6 +389,12 @@ class Version2PackageAssemblerTests(unittest.TestCase):
             self.assertEqual(names, sorted(names, key=str.casefold))
             self.assertEqual(timestamps, {(1980, 1, 1, 0, 0, 0)})
             self.assertIn("AccessibleChess/AccessibleChess.exe", names)
+            self.assertIn("AccessibleChess/AccessibleChess.exe.config", names)
+            with zipfile.ZipFile(first) as archive:
+                self.assertEqual(
+                    archive.read("AccessibleChess/AccessibleChess.exe.config"),
+                    (output / "AccessibleChess" / "AccessibleChess.exe.config").read_bytes(),
+                )
             self.assertIn(MANIFEST_NAME, names)
             self.assertIn(CHECKSUMS_NAME, names)
 

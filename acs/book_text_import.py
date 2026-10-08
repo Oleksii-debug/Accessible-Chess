@@ -15,8 +15,18 @@ from hashlib import sha256
 import re
 from types import MappingProxyType
 
-from .bookdocument import BookDocument, Diagram, Game, Heading, Note, Paragraph, Position
+from .bookdocument import (
+    BookDocument,
+    Diagram,
+    Game,
+    Heading,
+    ListBlock,
+    Note,
+    Paragraph,
+    Position,
+)
 from .chesscore import Board
+from .legacy_text_encoding import LegacyTextEncodingError, decode_book_text_bytes
 from .pgn_roundtrip import PgnRoundTripError, parse_pgn_text
 
 
@@ -76,7 +86,7 @@ def _optional_text(value: object, field: str) -> str | None:
     return _required_text(value, field)
 
 
-def _source_text(source: object) -> tuple[str, bytes]:
+def _source_text(source: object) -> tuple[str, bytes, bool]:
     if type(source) is str:
         try:
             raw = source.encode("utf-8")
@@ -90,7 +100,7 @@ def _source_text(source: object) -> tuple[str, bytes]:
                 "Text book source exceeds the supported size",
                 code=BookTextImportErrorCode.RESOURCE_LIMIT,
             )
-        return source, raw
+        return source, raw, False
     if type(source) is bytes:
         if len(source) > MAX_TEXT_SOURCE_BYTES:
             raise BookTextImportError(
@@ -98,12 +108,13 @@ def _source_text(source: object) -> tuple[str, bytes]:
                 code=BookTextImportErrorCode.RESOURCE_LIMIT,
             )
         try:
-            return source.decode("utf-8-sig"), source
-        except UnicodeDecodeError as exc:
+            decoded = decode_book_text_bytes(source)
+        except LegacyTextEncodingError as exc:
             raise BookTextImportError(
-                "Text book source must use UTF-8 encoding",
+                "Text book source must use UTF-8 or qualified Windows-1251 encoding",
                 code=BookTextImportErrorCode.UNSUPPORTED_ENCODING,
             ) from exc
+        return decoded.text, source, decoded.legacy
     raise BookTextImportError(
         "Text book source must be text or bytes",
         code=BookTextImportErrorCode.INVALID_ARGUMENT,
@@ -190,6 +201,34 @@ class _Builder:
                 text=text,
                 level=level,
                 block_id=self._id("Heading", f"{level}\0{text}"),
+                source_anchor=f"line:{line}",
+            )
+        )
+
+    def list_block(
+        self,
+        items: list[str],
+        line: int,
+        *,
+        ordered: bool,
+        start: int | None,
+    ) -> None:
+        clean = [item.strip() for item in items if item.strip()]
+        if not clean:
+            return
+        identity = (
+            ("ordered" if ordered else "unordered")
+            + "\0"
+            + (str(start) if start is not None else "")
+            + "\0"
+            + "\0".join(clean)
+        )
+        self._append(
+            ListBlock(
+                items=clean,
+                ordered=ordered,
+                start=start,
+                block_id=self._id("List", identity),
                 source_anchor=f"line:{line}",
             )
         )
@@ -291,7 +330,9 @@ class _Builder:
 _HEADING_RE = re.compile(r"^(#{1,6})[ \t]+(.+?)\s*#*\s*$")
 _FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})([^`]*)$")
 _IMAGE_RE = re.compile(r"!\[([^\]]+)\]\([^\)]+\)")
-_LIST_RE = re.compile(r"^\s*(?:[-+*]|\d+[.)])\s+(.+)$")
+_LIST_RE = re.compile(
+    r"^(?P<indent>[ \t]*)(?:(?P<bullet>[-+*])|(?P<number>[0-9]{1,9})[.)])\s+(?P<text>.+)$"
+)
 _QUOTE_RE = re.compile(r"^\s*>\s?(.*)$")
 
 
@@ -409,9 +450,58 @@ def _parse_markdown(text: str, builder: _Builder) -> None:
         quote_match = _QUOTE_RE.match(line)
         if list_match:
             flush()
-            builder.paragraph("• " + list_match.group(1).strip(), number)
-            builder.warning("Markdown list structure was preserved as ordered reading text because the current BookDocument has no list block kind")
-            index += 1
+            indent = list_match.group("indent")
+            ordered = list_match.group("number") is not None
+            start_value = int(list_match.group("number")) if ordered else None
+
+            if indent:
+                builder.paragraph(line.strip(), number)
+                builder.warning(
+                    "Markdown list indentation or nesting could not be represented canonically and was preserved as readable text"
+                )
+                index += 1
+                continue
+
+            if ordered and start_value is not None and start_value < 1:
+                builder.paragraph(line.strip(), number)
+                builder.warning(
+                    "Markdown ordered list with non-positive start was preserved as reading text because canonical List start must be positive"
+                )
+                index += 1
+                continue
+
+            items = [list_match.group("text").strip()]
+            expected = (start_value + 1) if start_value is not None else None
+            next_index = index + 1
+            while next_index < len(lines):
+                candidate = lines[next_index]
+                candidate_match = _LIST_RE.match(candidate)
+                if candidate_match is None or candidate_match.group("indent") != indent:
+                    break
+                candidate_ordered = candidate_match.group("number") is not None
+                if candidate_ordered != ordered:
+                    break
+                if ordered:
+                    candidate_number = int(candidate_match.group("number"))
+                    if candidate_number != expected:
+                        break
+                    expected = candidate_number + 1
+                visible += len(candidate)
+                if visible > MAX_TEXT_VISIBLE_CHARS:
+                    raise BookTextImportError(
+                        "Markdown book visible text exceeds the supported size",
+                        code=BookTextImportErrorCode.RESOURCE_LIMIT,
+                    )
+                items.append(candidate_match.group("text").strip())
+                next_index += 1
+
+            builder.list_block(
+                items,
+                number,
+                ordered=ordered,
+                start=start_value if ordered else None,
+            )
+            index = next_index
             continue
         if quote_match:
             flush()
@@ -439,7 +529,7 @@ def import_text_book(
     author: str | None = None,
     language: str | None = None,
 ) -> BookTextImportResult:
-    """Import UTF-8 TXT or Markdown into an existing semantic ``BookDocument``.
+    """Import UTF-8 or qualified Windows-1251 TXT/Markdown into ``BookDocument``.
 
     The adapter performs no filesystem or network access. Plain TXT is readable
     text only: it never guesses headings, games, FENs, or ASCII chess diagrams.
@@ -451,8 +541,10 @@ def import_text_book(
     override_title = _optional_text(title, "title")
     override_author = _optional_text(author, "author")
     override_language = _optional_text(language, "language")
-    text, raw = _source_text(source)
+    text, raw, legacy_windows_1251 = _source_text(source)
     builder = _Builder(resolved_format)
+    if legacy_windows_1251:
+        builder.warning("Legacy Windows-1251 book text was decoded losslessly.")
 
     if resolved_format is BookTextFormat.TXT:
         _parse_txt(text, builder)
@@ -497,16 +589,17 @@ BOOK_TEXT_CAPABILITIES = MappingProxyType(
     {
         "TXT": {
             "status": "SUPPORTED",
-            "encoding": "UTF-8",
+            "encoding": "UTF-8; evidence-gated Windows-1251",
             "semantics": ("Paragraph",),
             "chess_inference": "NONE",
         },
         "Markdown": {
             "status": "PARTIAL",
-            "encoding": "UTF-8",
+            "encoding": "UTF-8; evidence-gated Windows-1251",
             "semantics": (
                 "Heading",
                 "Paragraph",
+                "List(ordered/unordered)",
                 "Note(image/code)",
                 "Game(explicit fenced PGN)",
                 "Position(explicit fenced FEN)",
@@ -519,7 +612,7 @@ BOOK_TEXT_CAPABILITIES = MappingProxyType(
             "DOCX",
             "EPUB",
             "PDF/OCR",
-            "arbitrary legacy encodings",
+            "legacy encodings other than qualified Windows-1251",
             "ASCII-diagram recognition",
             "implicit PGN/FEN recognition from prose",
             "network or filesystem source fetching",

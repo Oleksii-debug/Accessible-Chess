@@ -1,0 +1,31 @@
+name: Section 26 Local Teacher Classroom Terminal Gate
+
+on:
+  pull_request:
+    branches:
+      - work/full-product-teacher-education-reachability-20260911
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  section26:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile Section 26 owners
+        run: python -m py_compile acs/teaching_session.py acs/teaching_session_store.py acs/teaching_session_adapter.py acs/teaching_classroom_adapter.py acs/classroom_domain.py acs/education_workspace.py acs/education_workspace_store.py acs/version2_final_product_application.py
+      - name: Local Teacher Classroom contract
+        run: python -m unittest -v tests.test_teaching_session tests.test_teaching_session_adversarial tests.test_teaching_session_store tests.test_teaching_session_adapter tests.test_teaching_classroom_adapter tests.test_teaching_classroom_floor_control tests.test_classroom_domain tests.test_classroom_domain_corruption tests.test_education_workspace tests.test_education_records tests.test_education_records_store tests.test_education_classroom_integration tests.test_version2_teacher_session_runtime_binding tests.test_teaching_pointer_actions
+      - name: Accessible Teacher surface
+        run: node tests/js/teacher_surface_dom_test.js
+      - name: Accessible Education surface
+        run: node tests/js/education_surface_dom_test.js

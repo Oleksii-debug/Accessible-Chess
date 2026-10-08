@@ -56,6 +56,7 @@ from .pgn_roundtrip import (
     PgnRoundTripError,
     canonical_round_trip_bytes,
     canonical_round_trip_text,
+    materialize_pgn_games_bounded,
     parse_pgn_text,
     serialize_pgn_bytes,
     serialize_pgn_text,
@@ -109,17 +110,24 @@ def _workspace_error(message: str, code: PgnWorkspaceErrorCode) -> PgnWorkspaceE
 
 def _validate_document(games: Iterable[PgnGame]) -> list[PgnGame]:
     try:
-        snapshot = tuple(deepcopy(tuple(games)))
+        bounded = materialize_pgn_games_bounded(games)
+    except PgnRoundTripError as exc:
+        raise _workspace_error(
+            "PGN workspace input is not a valid bounded document",
+            PgnWorkspaceErrorCode.INVALID_DOCUMENT,
+        ) from exc
+    if not bounded:
+        raise _workspace_error(
+            "PGN workspace cannot be empty",
+            PgnWorkspaceErrorCode.EMPTY_DOCUMENT,
+        )
+    try:
+        snapshot = tuple(deepcopy(bounded))
     except TypeError as exc:
         raise _workspace_error(
             "PGN workspace requires an iterable of games",
             PgnWorkspaceErrorCode.INVALID_DOCUMENT,
         ) from exc
-    if not snapshot:
-        raise _workspace_error(
-            "PGN workspace cannot be empty",
-            PgnWorkspaceErrorCode.EMPTY_DOCUMENT,
-        )
     try:
         text = serialize_pgn_text(snapshot)
         reparsed = parse_pgn_text(text, strict=True)

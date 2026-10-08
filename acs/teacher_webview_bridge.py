@@ -90,7 +90,10 @@ class TeacherWebViewBridge:
                 return TeacherWebViewEvent(
                     "render-pointer",
                     {
-                        "snapshot": self._projection.snapshot(language=self._language.value),
+                        "snapshot": self._projection.snapshot(
+                            language=self._language.value,
+                            include_visual_assets=False,
+                        ),
                         "square": event.payload["square"],
                         "clear_editor": True,
                         "focus_target": "teacher-pointer-input",
@@ -104,7 +107,10 @@ class TeacherWebViewBridge:
                     "render-visual",
                     {
                         "orientation": event.payload["orientation"],
-                        "snapshot": self._projection.snapshot(language=self._language.value),
+                        "snapshot": self._projection.snapshot(
+                            language=self._language.value,
+                            include_visual_assets=False,
+                        ),
                         "focus_target": "teacher-orientation-toggle",
                         "announcement": "",
                     },

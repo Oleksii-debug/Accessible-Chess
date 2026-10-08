@@ -562,6 +562,8 @@ class KeymapAwareAccessibleChessAPI(AccessibleChessAPI):
         pv_actions = {f"analysis.pv{i}": i for i in range(1, 6)}
         if action_id in pv_actions:
             return self.read_analysis_pv(pv_actions[action_id])
+        if action_id == "file.new":
+            return self.new_game()
         analysis_actions = {
             "analysis.start": self.start_analysis,
             "analysis.stop": self.stop_analysis,

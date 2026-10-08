@@ -32,6 +32,7 @@ from .bookdocument import (
     Position,
 )
 from .chesscore import Board
+from .legacy_text_encoding import LegacyTextEncodingError, decode_book_text_bytes
 from .pgn_roundtrip import PgnRoundTripError, parse_pgn_text
 
 
@@ -130,7 +131,7 @@ def _text(value: object, field: str, *, optional: bool = False) -> str | None:
     return value.strip()
 
 
-def _source_text(source: object) -> tuple[str, bytes]:
+def _source_text(source: object) -> tuple[str, bytes, bool]:
     if type(source) is str:
         try:
             encoded = source.encode("utf-8")
@@ -144,7 +145,7 @@ def _source_text(source: object) -> tuple[str, bytes]:
                 "HTML book source exceeds the supported size",
                 code=BookHtmlImportErrorCode.RESOURCE_LIMIT,
             )
-        return source, encoded
+        return source, encoded, False
     if type(source) is bytes:
         if len(source) > MAX_HTML_SOURCE_BYTES:
             raise BookHtmlImportError(
@@ -152,12 +153,13 @@ def _source_text(source: object) -> tuple[str, bytes]:
                 code=BookHtmlImportErrorCode.RESOURCE_LIMIT,
             )
         try:
-            return source.decode("utf-8-sig"), source
-        except UnicodeDecodeError as exc:
+            decoded = decode_book_text_bytes(source, html=True)
+        except LegacyTextEncodingError as exc:
             raise BookHtmlImportError(
-                "HTML book source must use UTF-8 encoding",
+                "HTML book source must use UTF-8 or qualified Windows-1251 encoding",
                 code=BookHtmlImportErrorCode.UNSUPPORTED_ENCODING,
             ) from exc
+        return decoded.text, source, decoded.legacy
     raise BookHtmlImportError(
         "HTML book source must be text or bytes",
         code=BookHtmlImportErrorCode.INVALID_ARGUMENT,
@@ -205,6 +207,7 @@ class _SemanticHtmlParser(HTMLParser):
         self._captures: list[_Capture] = []
         self._lists: list[_ListCapture] = []
         self._suppressed_depth = 0
+        self._suppressed_tags: list[str] = []
         self._node_count = 0
         self._ids: dict[str, int] = {}
         self._warned_table_flatten = False
@@ -353,12 +356,21 @@ class _SemanticHtmlParser(HTMLParser):
                 "HTML book contains too many markup nodes",
                 code=BookHtmlImportErrorCode.RESOURCE_LIMIT,
             )
-        attrs = {name.lower(): value or "" for name, value in attrs_list}
         if tag in _SUPPRESSED_TAGS:
             self._suppressed_depth += 1
+            self._suppressed_tags.append(tag)
             return
         if self._suppressed_depth:
             return
+        attrs: dict[str, str] = {}
+        for name, value in attrs_list:
+            normalized_name = name.lower()
+            if normalized_name == "data-acs-fen" and normalized_name in attrs:
+                raise BookHtmlImportError(
+                    "HTML book contains a repeated explicitly marked chess position",
+                    code=BookHtmlImportErrorCode.MALFORMED_CHESS_CONTENT,
+                )
+            attrs[normalized_name] = value or ""
         if tag in _BLOCK_BOUNDARY_TAGS:
             self._append_visible("\n")
         if tag == "html" and not self.language:
@@ -450,7 +462,13 @@ class _SemanticHtmlParser(HTMLParser):
         tag = tag.lower()
         if tag in _SUPPRESSED_TAGS:
             if self._suppressed_depth:
+                if not self._suppressed_tags or self._suppressed_tags[-1] != tag:
+                    self._warning(
+                        "malformed HTML mismatched suppressed elements; readable text may have been omitted"
+                    )
+                    return
                 self._suppressed_depth -= 1
+                self._suppressed_tags.pop()
             return
         if self._suppressed_depth:
             return
@@ -528,6 +546,12 @@ class _SemanticHtmlParser(HTMLParser):
 
     def close(self) -> None:
         super().close()
+        if self._suppressed_depth:
+            self._warning(
+                "malformed HTML left suppressed content unclosed; subsequent readable text may have been omitted"
+            )
+            self._suppressed_depth = 0
+            self._suppressed_tags.clear()
         while self._captures:
             self._finish_capture(self._captures.pop(), recovered=True)
         while self._lists:
@@ -644,7 +668,7 @@ def import_html_book(
     language: str | None = None,
     available_assets: object = None,
 ) -> BookHtmlImportResult:
-    """Import one UTF-8 HTML/XHTML document into semantic ``BookDocument``.
+    """Import UTF-8 or qualified Windows-1251 HTML/XHTML into ``BookDocument``.
 
     Network/file access is deliberately outside this adapter.  A trusted host may
     provide a source byte string and, optionally, the names of assets it has
@@ -659,7 +683,7 @@ def import_html_book(
     override_title = _text(title, "title", optional=True)
     override_author = _text(author, "author", optional=True)
     override_language = _text(language, "language", optional=True)
-    text, raw = _source_text(source)
+    text, raw, legacy_windows_1251 = _source_text(source)
     assets = _asset_set(available_assets)
 
     parser = _SemanticHtmlParser(available_assets=assets)
@@ -676,6 +700,8 @@ def import_html_book(
 
     visible_text = "".join(parser.visible_parts)
     warnings = list(parser.warnings)
+    if legacy_windows_1251:
+        warnings.append("Legacy Windows-1251 HTML was decoded losslessly.")
     embedded_games = _canonical_pgn_games(_pgn_candidates(visible_text), warnings)
     for block in embedded_games:
         parser._append_block(block)
@@ -726,7 +752,7 @@ def import_html_book(
 SUPPORTED_HTML_BOOK_CAPABILITY = MappingProxyType(
     {
         "format": "HTML/XHTML",
-        "encoding": "UTF-8",
+        "encoding": "UTF-8; evidence-gated Windows-1251",
         "semantic_blocks": (
             "Heading",
             "Paragraph",
@@ -739,7 +765,7 @@ SUPPORTED_HTML_BOOK_CAPABILITY = MappingProxyType(
         "does_not_claim": (
             "implicit PGN inference from ordinary text",
             "image-to-position recognition",
-            "arbitrary legacy encodings",
+            "legacy encodings other than qualified Windows-1251",
             "network asset fetching",
             "TXT",
             "Markdown",

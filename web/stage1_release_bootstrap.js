@@ -145,6 +145,320 @@ function stableBoardAccessibleName(cell) {
     return detail ? `${square}, ${detail}` : square;
 }
 
+const STANDARD_START_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+
+const NEW_GAME_IMPACTS_BY_VARIANT = Object.freeze({
+    '1': Object.freeze([
+        160, 374, 748, 853, 1112, 1302, 1427, 1532,
+        1766, 1906, 2504, 2599, 2869, 3143, 3751, 4106,
+        4455, 4600, 4804, 4904, 5148, 5647, 5792, 5897,
+        6276, 6455, 6610, 7074, 7588, 7797, 8062, 8231
+    ]),
+    '3d': Object.freeze([
+        145, 254, 424, 549, 698, 848, 943, 1048,
+        1287, 1402, 1566, 1751, 1876, 2075, 2185, 2669,
+        3098, 3522, 3766, 4021, 4200, 4505, 5158, 5907,
+        6121, 6415, 6620, 6959, 7278, 7418, 7907, 8012
+    ])
+});
+
+const VISUAL_PIECE_NAMES = Object.freeze([
+    ['білий король', '♔'], ['white king', '♔'],
+    ['білий ферзь', '♕'], ['white queen', '♕'],
+    ['біла тура', '♖'], ['white rook', '♖'],
+    ['білий слон', '♗'], ['white bishop', '♗'],
+    ['білий кінь', '♘'], ['white knight', '♘'],
+    ['білий пішак', '♙'], ['white pawn', '♙'],
+    ['чорний король', '♚'], ['black king', '♚'],
+    ['чорний ферзь', '♛'], ['black queen', '♛'],
+    ['чорна тура', '♜'], ['black rook', '♜'],
+    ['чорний слон', '♝'], ['black bishop', '♝'],
+    ['чорний кінь', '♞'], ['black knight', '♞'],
+    ['чорний пішак', '♟'], ['black pawn', '♟']
+]);
+
+const VISUAL_PIECE_ASSET_IDS = Object.freeze({
+    '♔': 'white_king', '♕': 'white_queen', '♖': 'white_rook',
+    '♗': 'white_bishop', '♘': 'white_knight', '♙': 'white_pawn',
+    '♚': 'black_king', '♛': 'black_queen', '♜': 'black_rook',
+    '♝': 'black_bishop', '♞': 'black_knight', '♟': 'black_pawn'
+});
+
+function safeVisualPieceUrl(value) {
+    const text = typeof value === 'string' ? value : '';
+    return /^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(text) ? text : '';
+}
+
+function activeVisualPieceAssets() {
+    const currentState = typeof state !== 'undefined' ? state : null;
+    const visual = currentState && currentState.visualBoard && currentState.visualBoard.visual;
+    const assets = visual && visual.assets;
+    return assets && assets.pieces && typeof assets.pieces === 'object' ? assets.pieces : {};
+}
+
+let newGameVisualPending = false;
+let newGameAnimationGeneration = 0;
+let newGameAnimationEndTimer = null;
+
+function visualPieceGlyph(cell) {
+    const label = String(cell && cell.getAttribute('aria-label') || '').toLowerCase();
+    for (const [name, glyph] of VISUAL_PIECE_NAMES) {
+        if (label.includes(name)) return glyph;
+    }
+    return '';
+}
+
+function ensureVisualPieceStyle() {
+    if (byId('stage1-visual-piece-style')) return;
+    const style = document.createElement('style');
+    style.id = 'stage1-visual-piece-style';
+    style.textContent = [
+        '#board-grid [role="gridcell"]{position:relative;min-height:4.5rem;overflow:visible}',
+        '.stage1-visual-piece{position:relative;display:block;width:100%;min-height:2.5rem;font-family:"Segoe UI Symbol","Noto Sans Symbols 2",sans-serif;font-size:calc(2.25rem * var(--piece-scale, .92));line-height:1.05;pointer-events:none;transform-origin:50% 65%;will-change:transform,opacity;background-repeat:no-repeat;background-position:center;background-size:contain}',
+        '#board-grid.stage1-new-game-animating .stage1-visual-piece{z-index:3}'
+    ].join('');
+    document.head.appendChild(style);
+}
+
+function decorateVisibleBoardPieces(grid = byId('board-grid')) {
+    if (!grid) return 0;
+    ensureVisualPieceStyle();
+    const cells = [...grid.querySelectorAll('[role="gridcell"][data-square]')];
+    const customAssets = activeVisualPieceAssets();
+    let count = 0;
+    cells.forEach(cell => {
+        const glyph = visualPieceGlyph(cell);
+        const existing = cell.querySelector('.stage1-visual-piece');
+        if (!glyph) {
+            if (existing) existing.remove();
+            return;
+        }
+        const piece = existing || document.createElement('span');
+        const assetId = VISUAL_PIECE_ASSET_IDS[glyph] || '';
+        const assetUrl = assetId ? safeVisualPieceUrl(customAssets[assetId]) : '';
+        piece.className = 'stage1-visual-piece';
+        piece.setAttribute('aria-hidden', 'true');
+        piece.textContent = assetUrl ? '' : glyph;
+        piece.style.backgroundImage = assetUrl ? 'url("' + assetUrl + '")' : '';
+        piece.dataset.visualAsset = assetUrl ? assetId : '';
+        piece.dataset.square = String(cell.dataset.square || '');
+        if (!existing) cell.appendChild(piece);
+        count += 1;
+    });
+    return count;
+}
+
+function finishNewGameVisualSequence() {
+    newGameVisualPending = false;
+    newGameAnimationGeneration += 1;
+    if (newGameAnimationEndTimer !== null) {
+        clearTimeout(newGameAnimationEndTimer);
+        newGameAnimationEndTimer = null;
+    }
+    const grid = byId('board-grid');
+    if (!grid) return;
+    grid.classList.remove('stage1-new-game-animating');
+    grid.querySelectorAll('.stage1-visual-piece').forEach(piece => {
+        piece.style.transition = 'none';
+        piece.style.transform = 'translate(0px, 0px) rotate(0deg) scale(1)';
+        piece.style.opacity = '1';
+        piece.style.zIndex = '';
+        delete piece.dataset.newGameAnimating;
+    });
+}
+
+function startNewGameVisualSequence() {
+    newGameVisualPending = false;
+    const board = byId('board-application');
+    const grid = byId('board-grid');
+    if (!grid || !board || board.hidden) return false;
+    const currentState = typeof state !== 'undefined' ? state : null;
+    const announcement = String(currentState && currentState.announcement || '');
+    if (
+        !currentState
+        || Number(currentState.historyLength) !== 0
+        || String(currentState.fen || '') !== STANDARD_START_FEN
+        || !['Стандартну позицію встановлено.', 'Standard position loaded.'].includes(announcement)
+    ) {
+        finishNewGameVisualSequence();
+        return false;
+    }
+    if (!currentSoundState) {
+        // Never guess the timing variant: persisted audio may already be 3D.
+        // Skipping a too-early visual effect is safer than desynchronizing it
+        // from the long NEWGAME sound.
+        finishNewGameVisualSequence();
+        return false;
+    }
+    if (currentSoundState.newGameAnimation === false) {
+        finishNewGameVisualSequence();
+        return false;
+    }
+    if (grid.dataset.reducedMotion === 'true') {
+        finishNewGameVisualSequence();
+        return false;
+    }
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        finishNewGameVisualSequence();
+        return false;
+    }
+
+    decorateVisibleBoardPieces(grid);
+    const startVariant = currentSoundState && currentSoundState.selectedVariants
+        ? String(currentSoundState.selectedVariants.start || '1')
+        : '1';
+    const impactTimes = NEW_GAME_IMPACTS_BY_VARIANT[startVariant]
+        || NEW_GAME_IMPACTS_BY_VARIANT['1'];
+    const pieces = [...grid.querySelectorAll('.stage1-visual-piece')];
+    if (pieces.length !== 32 || impactTimes.length !== 32) {
+        finishNewGameVisualSequence();
+        return false;
+    }
+
+    finishNewGameVisualSequence();
+    const generation = newGameAnimationGeneration;
+    const gridRect = grid.getBoundingClientRect();
+    const centerX = gridRect.left + gridRect.width / 2;
+    const centerY = gridRect.top + gridRect.height / 2;
+    grid.classList.add('stage1-new-game-animating');
+
+    pieces.forEach((piece, index) => {
+        const rect = piece.getBoundingClientRect();
+        const pieceX = rect.left + rect.width / 2;
+        const pieceY = rect.top + rect.height / 2;
+        const seed = index + 1;
+        const spreadX = Math.min(gridRect.width * 0.32, 160);
+        const spreadY = Math.min(gridRect.height * 0.30, 150);
+        const jitterX = ((((seed * 37) % 101) - 50) / 50) * spreadX;
+        const jitterY = ((((seed * 29) % 97) - 48) / 48) * spreadY;
+        const rotation = ((seed * 41) % 161) - 80;
+        const scale = 0.72 + (((seed * 17) % 31) / 100);
+        piece.style.transition = 'none';
+        piece.style.opacity = '0.94';
+        piece.style.zIndex = String(40 + index);
+        piece.style.transform =
+            `translate(${Math.round(centerX - pieceX + jitterX)}px, ${Math.round(centerY - pieceY + jitterY)}px) rotate(${rotation}deg) scale(${scale.toFixed(2)})`;
+        piece.dataset.newGameAnimating = 'true';
+    });
+
+    // Force the scattered state to become the visual starting point before
+    // applying the impact-timed landing transitions.
+    void grid.offsetWidth;
+
+    requestAnimationFrame(() => {
+        if (generation !== newGameAnimationGeneration) return;
+        pieces.forEach((piece, index) => {
+            const impact = impactTimes[index];
+            const duration = Math.min(300, Math.max(150, impact));
+            const delay = Math.max(0, impact - duration);
+            piece.style.transition =
+                `transform ${duration}ms cubic-bezier(.18,.84,.24,1.18) ${delay}ms, opacity 120ms linear ${delay}ms`;
+            piece.style.transform = 'translate(0px, 0px) rotate(0deg) scale(1)';
+            piece.style.opacity = '1';
+        });
+    });
+
+    newGameAnimationEndTimer = setTimeout(() => {
+        if (generation !== newGameAnimationGeneration) return;
+        grid.classList.remove('stage1-new-game-animating');
+        pieces.forEach(piece => {
+            piece.style.transition = '';
+            piece.style.transform = '';
+            piece.style.opacity = '';
+            piece.style.zIndex = '';
+            delete piece.dataset.newGameAnimating;
+        });
+        newGameAnimationEndTimer = null;
+    }, Math.max(...impactTimes) + 300);
+    return true;
+}
+
+window.startNewGameVisualSequence = startNewGameVisualSequence;
+window.finishNewGameVisualSequence = finishNewGameVisualSequence;
+
+function installNewGameVisualSequence() {
+    if (document.body.dataset.stage1NewGameVisualReady === 'true') return;
+
+    // Button activation and remappable file.new both ultimately cross apiAction.
+    // Own the request lifetime at that shared boundary so a rejected/failed New
+    // Game cannot leave the visual trigger armed for an unrelated later render.
+    const baseApiAction = window.apiAction;
+    if (typeof baseApiAction === 'function' && !baseApiAction.__newGameVisualPendingRecovery) {
+        const wrappedApiAction = async function(name, ...args) {
+            const isNewGameRequest =
+                name === 'new_game'
+                || (name === 'dispatch_action' && String(args[0] || '') === 'file.new');
+            if (isNewGameRequest) newGameVisualPending = true;
+            try {
+                return await baseApiAction.call(this, name, ...args);
+            } finally {
+                if (isNewGameRequest) {
+                    // A successful render's MutationObserver consumes the flag
+                    // first. One extra microtask lets that observer run; if the
+                    // flag is still armed, the request produced no usable board
+                    // render and must fail closed instead of leaking to the next
+                    // state change.
+                    await Promise.resolve();
+                    if (newGameVisualPending) newGameVisualPending = false;
+                }
+            }
+        };
+        wrappedApiAction.__newGameVisualPendingRecovery = true;
+        window.apiAction = wrappedApiAction;
+    }
+
+    const baseExecuteAction = window.executeAction;
+    if (typeof baseExecuteAction === 'function' && !baseExecuteAction.__newGameVisualTrigger) {
+        const wrappedExecuteAction = async function(id, ...args) {
+            if (id === 'file.new') newGameVisualPending = true;
+            return baseExecuteAction.call(this, id, ...args);
+        };
+        wrappedExecuteAction.__newGameVisualTrigger = true;
+        window.executeAction = wrappedExecuteAction;
+    }
+
+    document.addEventListener('click', event => {
+        const target = event.target && event.target.closest
+            ? event.target.closest('#new-game')
+            : null;
+        if (target) newGameVisualPending = true;
+    }, true);
+
+    document.addEventListener('keydown', event => {
+        const key = String(event.key || '').toLowerCase();
+        if (
+            event.ctrlKey && !event.altKey && !event.shiftKey && !event.metaKey
+            && key === 'n'
+            && !(typeof capture !== 'undefined' && capture)
+        ) {
+            // Chromium owns Ctrl+N unless the application suppresses it before
+            // the asynchronous central keymap resolver returns. Suppress the
+            // browser window command, then honour the *current* remappable
+            // binding instead of hard-coding file.new.
+            event.preventDefault();
+            event.stopPropagation();
+            const chord = typeof eventChord === 'function' ? eventChord(event) : 'Ctrl+N';
+            if (typeof resolveBinding === 'function') {
+                void resolveBinding(chord, 'document', 'document').then(action => {
+                    if (!action || !action.actionId) return;
+                    const execute = window.executeAction;
+                    if (typeof execute === 'function') void execute(action.actionId);
+                });
+            }
+            return;
+        }
+        if (!newGameVisualPending && byId('board-grid')?.classList.contains('stage1-new-game-animating')) {
+            finishNewGameVisualSequence();
+        }
+    }, true);
+    document.addEventListener('pointerdown', () => {
+        if (!newGameVisualPending && byId('board-grid')?.classList.contains('stage1-new-game-animating')) {
+            finishNewGameVisualSequence();
+        }
+    }, true);
+    document.body.dataset.stage1NewGameVisualReady = 'true';
+}
+
 function stabilizeBoardUiaSemantics(grid = byId('board-grid')) {
     if (!grid) return 0;
     const cells = [...grid.querySelectorAll('[role="gridcell"][data-square]')];
@@ -157,6 +471,7 @@ function stabilizeBoardUiaSemantics(grid = byId('board-grid')) {
         cell.setAttribute('aria-label', stableBoardAccessibleName(cell));
         cell.setAttribute('data-accessible-square', square);
     });
+    decorateVisibleBoardPieces(grid);
     if (cells.length === 64) document.body.dataset.stage1BoardUiaSemanticsReady = 'true';
     return cells.length;
 }
@@ -305,7 +620,10 @@ function installBoardFocusContinuity() {
     const observer = new MutationObserver(records => {
         // Rendering replaces the grid cells. Re-normalize their exposed names
         // on every render before focus recovery.
-        queueMicrotask(() => stabilizeBoardUiaSemantics(grid));
+        queueMicrotask(() => {
+            stabilizeBoardUiaSemantics(grid);
+            if (newGameVisualPending) startNewGameVisualSequence();
+        });
         if (!focusState.boardNode || board.hidden) return;
         const focusedCellWasReplaced = records.some(record =>
             [...record.removedNodes].some(node =>
@@ -333,18 +651,48 @@ function installBoardFocusContinuity() {
     document.body.dataset.stage1BoardFocusContinuityReady = 'true';
 }
 
+let clockSoundPulseInFlight = false;
+
+function installClockSoundPulse() {
+    if (document.body.dataset.stage1ClockSoundPulseReady === 'true') return;
+    setInterval(async () => {
+        if (clockSoundPulseInFlight) return;
+        const a = api();
+        if (!a || typeof a.clock_sound_pulse !== 'function') return;
+        clockSoundPulseInFlight = true;
+        try {
+            await a.clock_sound_pulse();
+        } catch (_) {
+            // Clock ambience is presentation-only and must never affect the game.
+        } finally {
+            clockSoundPulseInFlight = false;
+        }
+    }, 3400);
+    document.body.dataset.stage1ClockSoundPulseReady = 'true';
+}
+
 const soundLabels = {
     uk: {
-        legend: 'Звуки', enabled: 'Увімкнути звуки', volume: 'Гучність',
-        previewEvent: 'Звук для прослуховування', preview: 'Прослухати',
+        legend: 'Звуки', enabled: 'Увімкнути звуки', newGameAnimation: 'Анімація нової партії', volume: 'Гучність',
+        previewEvent: 'Звук для прослуховування', variant: 'Варіант звуку', preview: 'Прослухати',
+        tickPolicy: 'Коли звучить годинник',
+        tickLastSeconds: 'Останні секунд (0 — увесь час)',
+        lowTimePolicy: 'Кому попереджати про малий час',
+        lowTimeSeconds: 'Мало часу — секунд (0 — вимкнено)',
+        tickModes: {off:'Вимкнено', my_turn:'Лише мій хід', both:'Обидві сторони'},
         unavailable: 'Налаштування звуку недоступні.',
-        events: {move:'Хід', capture:'Взяття', check:'Шах', castle:'Рокіровка', promotion:'Перетворення', illegal:'Нелегальний хід', start:'Початок партії', end:'Кінець партії', tick:'Тік годинника'}
+        events: {move:'Хід', capture:'Взяття', check:'Шах', castle:'Рокірування', promotion:'Перетворення', illegal:'Нелегальний хід', start:'Початок партії', end:'Інше завершення партії', mate:'Мат', draw:'Нічия', tick:'Тік годинника', low_time:'Мало часу'}
     },
     en: {
-        legend: 'Sounds', enabled: 'Enable sounds', volume: 'Volume',
-        previewEvent: 'Sound to preview', preview: 'Preview',
+        legend: 'Sounds', enabled: 'Enable sounds', newGameAnimation: 'New-game animation', volume: 'Volume',
+        previewEvent: 'Sound to preview', variant: 'Sound variant', preview: 'Preview',
+        tickPolicy: 'When the clock sounds',
+        tickLastSeconds: 'Last seconds (0 — whole game)',
+        lowTimePolicy: 'Whose low time triggers a warning',
+        lowTimeSeconds: 'Low time — seconds (0 — off)',
+        tickModes: {off:'Off', my_turn:'My turn only', both:'Both sides'},
         unavailable: 'Sound settings are unavailable.',
-        events: {move:'Move', capture:'Capture', check:'Check', castle:'Castling', promotion:'Promotion', illegal:'Illegal move', start:'Game start', end:'Game end', tick:'Clock tick'}
+        events: {move:'Move', capture:'Capture', check:'Check', castle:'Castling', promotion:'Promotion', illegal:'Illegal move', start:'Game start', end:'Other game end', mate:'Checkmate', draw:'Draw', tick:'Clock tick', low_time:'Low time'}
     }
 };
 
@@ -352,21 +700,70 @@ function text() {
     return soundLabels[document.documentElement.lang === 'en' ? 'en' : 'uk'];
 }
 
+let currentSoundState = null;
+let soundStateLoadPromise = Promise.resolve();
+
+function renderSoundVariants() {
+    const eventSelect = byId('sound-preview-event');
+    const variantSelect = byId('sound-variant');
+    if (!eventSelect || !variantSelect) return;
+    const eventId = eventSelect.value;
+    const variants = currentSoundState && currentSoundState.variants
+        ? currentSoundState.variants[eventId]
+        : null;
+    const selected = currentSoundState && currentSoundState.selectedVariants
+        ? currentSoundState.selectedVariants[eventId]
+        : '1';
+    variantSelect.textContent = '';
+    const language = document.documentElement.lang === 'en' ? 'en' : 'uk';
+    (Array.isArray(variants) && variants.length
+        ? variants
+        : [{id:'1', labelUk:'Варіант 1', labelEn:'Variant 1'}]
+    ).forEach(item => {
+        const option = document.createElement('option');
+        option.value = String(item.id || '1');
+        option.textContent = language === 'en'
+            ? String(item.labelEn || ('Variant ' + option.value))
+            : String(item.labelUk || ('Варіант ' + option.value));
+        option.selected = option.value === String(selected || '1');
+        variantSelect.appendChild(option);
+    });
+}
+
 async function loadSoundState() {
     const a = api();
     const enabled = byId('sound-enabled');
+    const newGameAnimation = byId('sound-newgame-animation');
     const volume = byId('sound-volume');
+    const variant = byId('sound-variant');
+    const tickPolicy = byId('sound-tick-policy');
+    const tickLastSeconds = byId('sound-tick-last-seconds');
+    const lowTimePolicy = byId('sound-low-time-policy');
+    const lowTimeSeconds = byId('sound-low-time-seconds');
     const status = byId('sound-settings-status');
     if (!a || typeof a.get_sound_settings !== 'function') {
         if (status) status.textContent = text().unavailable;
         if (enabled) enabled.disabled = true;
+        if (newGameAnimation) newGameAnimation.disabled = true;
         if (volume) volume.disabled = true;
+        if (variant) variant.disabled = true;
+        if (tickPolicy) tickPolicy.disabled = true;
+        if (tickLastSeconds) tickLastSeconds.disabled = true;
+        if (lowTimePolicy) lowTimePolicy.disabled = true;
+        if (lowTimeSeconds) lowTimeSeconds.disabled = true;
         return;
     }
     try {
         const state = await a.get_sound_settings();
+        currentSoundState = state;
         if (enabled) enabled.checked = !!state.enabled;
+        if (newGameAnimation) newGameAnimation.checked = state.newGameAnimation !== false;
         if (volume) volume.value = String(state.volume ?? 80);
+        if (tickPolicy) tickPolicy.value = String(state.tickPolicy ?? 'my_turn');
+        if (tickLastSeconds) tickLastSeconds.value = String(state.tickLastSeconds ?? 0);
+        if (lowTimePolicy) lowTimePolicy.value = String(state.lowTimePolicy ?? 'my_turn');
+        if (lowTimeSeconds) lowTimeSeconds.value = String(state.lowTimeSeconds ?? 30);
+        renderSoundVariants();
         if (status) status.textContent = '';
     } catch (_) {
         if (status) status.textContent = text().unavailable;
@@ -377,13 +774,25 @@ function applySoundLanguage() {
     const t = text();
     const legend = byId('sound-settings-legend');
     const enabledLabel = byId('sound-enabled-label');
+    const newGameAnimationLabel = byId('sound-newgame-animation-label');
     const volumeLabel = byId('sound-volume-label');
     const eventLabel = byId('sound-preview-event-label');
+    const variantLabel = byId('sound-variant-label');
+    const tickPolicyLabel = byId('sound-tick-policy-label');
+    const tickLastSecondsLabel = byId('sound-tick-last-seconds-label');
+    const lowTimePolicyLabel = byId('sound-low-time-policy-label');
+    const lowTimeSecondsLabel = byId('sound-low-time-seconds-label');
     const preview = byId('sound-preview');
     if (legend) legend.textContent = t.legend;
     if (enabledLabel) enabledLabel.textContent = t.enabled;
+    if (newGameAnimationLabel) newGameAnimationLabel.textContent = t.newGameAnimation;
     if (volumeLabel) volumeLabel.textContent = t.volume;
     if (eventLabel) eventLabel.textContent = t.previewEvent;
+    if (variantLabel) variantLabel.textContent = t.variant;
+    if (tickPolicyLabel) tickPolicyLabel.textContent = t.tickPolicy;
+    if (tickLastSecondsLabel) tickLastSecondsLabel.textContent = t.tickLastSeconds;
+    if (lowTimePolicyLabel) lowTimePolicyLabel.textContent = t.lowTimePolicy;
+    if (lowTimeSecondsLabel) lowTimeSecondsLabel.textContent = t.lowTimeSeconds;
     if (preview) preview.textContent = t.preview;
     const select = byId('sound-preview-event');
     if (select) {
@@ -391,6 +800,16 @@ function applySoundLanguage() {
             option.textContent = t.events[option.value] || option.value;
         });
     }
+    const tickPolicy = byId('sound-tick-policy');
+    const lowTimePolicy = byId('sound-low-time-policy');
+    for (const policySelect of [tickPolicy, lowTimePolicy]) {
+        if (policySelect) {
+            [...policySelect.options].forEach(option => {
+                option.textContent = t.tickModes[option.value] || option.value;
+            });
+        }
+    }
+    renderSoundVariants();
 }
 
 function installSoundSettings() {
@@ -416,6 +835,17 @@ function installSoundSettings() {
     enabledRow.append(enabled, enabledLabel);
     fieldset.appendChild(enabledRow);
 
+    const newGameAnimationRow = document.createElement('div');
+    newGameAnimationRow.className = 'row';
+    const newGameAnimation = document.createElement('input');
+    newGameAnimation.type = 'checkbox';
+    newGameAnimation.id = 'sound-newgame-animation';
+    const newGameAnimationLabel = document.createElement('label');
+    newGameAnimationLabel.id = 'sound-newgame-animation-label';
+    newGameAnimationLabel.htmlFor = newGameAnimation.id;
+    newGameAnimationRow.append(newGameAnimation, newGameAnimationLabel);
+    fieldset.appendChild(newGameAnimationRow);
+
     const volumeRow = document.createElement('div');
     volumeRow.className = 'row';
     const volumeLabel = document.createElement('label');
@@ -431,6 +861,66 @@ function installSoundSettings() {
     volumeRow.append(volumeLabel, volume);
     fieldset.appendChild(volumeRow);
 
+    const tickPolicyRow = document.createElement('div');
+    tickPolicyRow.className = 'row';
+    const tickPolicyLabel = document.createElement('label');
+    tickPolicyLabel.id = 'sound-tick-policy-label';
+    tickPolicyLabel.htmlFor = 'sound-tick-policy';
+    const tickPolicy = document.createElement('select');
+    tickPolicy.id = 'sound-tick-policy';
+    ['off', 'my_turn', 'both'].forEach(value => {
+        const option = document.createElement('option');
+        option.value = value;
+        tickPolicy.appendChild(option);
+    });
+    tickPolicyRow.append(tickPolicyLabel, tickPolicy);
+    fieldset.appendChild(tickPolicyRow);
+
+    const tickLastSecondsRow = document.createElement('div');
+    tickLastSecondsRow.className = 'row';
+    const tickLastSecondsLabel = document.createElement('label');
+    tickLastSecondsLabel.id = 'sound-tick-last-seconds-label';
+    tickLastSecondsLabel.htmlFor = 'sound-tick-last-seconds';
+    const tickLastSeconds = document.createElement('input');
+    tickLastSeconds.id = 'sound-tick-last-seconds';
+    tickLastSeconds.type = 'number';
+    tickLastSeconds.min = '0';
+    tickLastSeconds.max = '3600';
+    tickLastSeconds.step = '1';
+    tickLastSeconds.inputMode = 'numeric';
+    tickLastSecondsRow.append(tickLastSecondsLabel, tickLastSeconds);
+    fieldset.appendChild(tickLastSecondsRow);
+
+    const lowTimePolicyRow = document.createElement('div');
+    lowTimePolicyRow.className = 'row';
+    const lowTimePolicyLabel = document.createElement('label');
+    lowTimePolicyLabel.id = 'sound-low-time-policy-label';
+    lowTimePolicyLabel.htmlFor = 'sound-low-time-policy';
+    const lowTimePolicy = document.createElement('select');
+    lowTimePolicy.id = 'sound-low-time-policy';
+    ['off', 'my_turn', 'both'].forEach(value => {
+        const option = document.createElement('option');
+        option.value = value;
+        lowTimePolicy.appendChild(option);
+    });
+    lowTimePolicyRow.append(lowTimePolicyLabel, lowTimePolicy);
+    fieldset.appendChild(lowTimePolicyRow);
+
+    const lowTimeSecondsRow = document.createElement('div');
+    lowTimeSecondsRow.className = 'row';
+    const lowTimeSecondsLabel = document.createElement('label');
+    lowTimeSecondsLabel.id = 'sound-low-time-seconds-label';
+    lowTimeSecondsLabel.htmlFor = 'sound-low-time-seconds';
+    const lowTimeSeconds = document.createElement('input');
+    lowTimeSeconds.id = 'sound-low-time-seconds';
+    lowTimeSeconds.type = 'number';
+    lowTimeSeconds.min = '0';
+    lowTimeSeconds.max = '3600';
+    lowTimeSeconds.step = '1';
+    lowTimeSeconds.inputMode = 'numeric';
+    lowTimeSecondsRow.append(lowTimeSecondsLabel, lowTimeSeconds);
+    fieldset.appendChild(lowTimeSecondsRow);
+
     const previewRow = document.createElement('div');
     previewRow.className = 'row';
     const eventLabel = document.createElement('label');
@@ -438,16 +928,28 @@ function installSoundSettings() {
     eventLabel.htmlFor = 'sound-preview-event';
     const eventSelect = document.createElement('select');
     eventSelect.id = 'sound-preview-event';
-    ['move','capture','check','castle','promotion','illegal','start','end','tick'].forEach(value => {
+    ['move','capture','check','castle','promotion','illegal','start','end','mate','draw','tick','low_time'].forEach(value => {
         const option = document.createElement('option');
         option.value = value;
         eventSelect.appendChild(option);
     });
+    previewRow.append(eventLabel, eventSelect);
+    fieldset.appendChild(previewRow);
+
+    const variantRow = document.createElement('div');
+    variantRow.className = 'row';
+    const variantLabel = document.createElement('label');
+    variantLabel.id = 'sound-variant-label';
+    variantLabel.htmlFor = 'sound-variant';
+    const variantSelect = document.createElement('select');
+    variantSelect.id = 'sound-variant';
+    variantRow.append(variantLabel, variantSelect);
+    fieldset.appendChild(variantRow);
+
     const preview = document.createElement('button');
     preview.id = 'sound-preview';
     preview.type = 'button';
-    previewRow.append(eventLabel, eventSelect, preview);
-    fieldset.appendChild(previewRow);
+    fieldset.appendChild(preview);
 
     const status = document.createElement('div');
     status.id = 'sound-settings-status';
@@ -461,6 +963,21 @@ function installSoundSettings() {
         try {
             const result = await a.set_sound_enabled(!!enabled.checked);
             enabled.checked = !!result.enabled;
+            status.textContent = result.ok ? '' : (result.message || '');
+            speak(result.message);
+        } catch (_) {
+            status.textContent = text().unavailable;
+            speak(text().unavailable);
+        }
+    });
+
+    newGameAnimation.addEventListener('change', async () => {
+        const a = api();
+        if (!a || typeof a.set_newgame_animation_enabled !== 'function') return;
+        try {
+            const result = await a.set_newgame_animation_enabled(!!newGameAnimation.checked);
+            currentSoundState = result;
+            newGameAnimation.checked = result.newGameAnimation !== false;
             status.textContent = result.ok ? '' : (result.message || '');
             speak(result.message);
         } catch (_) {
@@ -484,6 +1001,95 @@ function installSoundSettings() {
         }
     });
 
+    tickPolicy.addEventListener('change', async () => {
+        const a = api();
+        if (!a || typeof a.set_clock_sound_policy !== 'function') return;
+        try {
+            const result = await a.set_clock_sound_policy(tickPolicy.value);
+            currentSoundState = result;
+            tickPolicy.value = String(result.tickPolicy ?? 'my_turn');
+            tickLastSeconds.value = String(result.tickLastSeconds ?? 0);
+            status.textContent = result.ok ? '' : (result.message || '');
+            speak(result.message);
+        } catch (_) {
+            status.textContent = text().unavailable;
+            speak(text().unavailable);
+        }
+    });
+
+    tickLastSeconds.addEventListener('change', async () => {
+        const a = api();
+        if (!a || typeof a.set_clock_sound_last_seconds !== 'function') return;
+        const value = Number(tickLastSeconds.value);
+        try {
+            const result = await a.set_clock_sound_last_seconds(
+                Number.isInteger(value) ? value : -1
+            );
+            currentSoundState = result;
+            tickPolicy.value = String(result.tickPolicy ?? 'my_turn');
+            tickLastSeconds.value = String(result.tickLastSeconds ?? 0);
+            status.textContent = result.ok ? '' : (result.message || '');
+            speak(result.message);
+        } catch (_) {
+            status.textContent = text().unavailable;
+            speak(text().unavailable);
+        }
+    });
+
+    lowTimePolicy.addEventListener('change', async () => {
+        const a = api();
+        if (!a || typeof a.set_low_time_policy !== 'function') return;
+        try {
+            const result = await a.set_low_time_policy(lowTimePolicy.value);
+            currentSoundState = result;
+            lowTimePolicy.value = String(result.lowTimePolicy ?? 'my_turn');
+            lowTimeSeconds.value = String(result.lowTimeSeconds ?? 30);
+            status.textContent = result.ok ? '' : (result.message || '');
+            speak(result.message);
+        } catch (_) {
+            status.textContent = text().unavailable;
+            speak(text().unavailable);
+        }
+    });
+
+    lowTimeSeconds.addEventListener('change', async () => {
+        const a = api();
+        if (!a || typeof a.set_low_time_seconds !== 'function') return;
+        const value = Number(lowTimeSeconds.value);
+        try {
+            const result = await a.set_low_time_seconds(
+                Number.isInteger(value) ? value : -1
+            );
+            currentSoundState = result;
+            lowTimePolicy.value = String(result.lowTimePolicy ?? 'my_turn');
+            lowTimeSeconds.value = String(result.lowTimeSeconds ?? 30);
+            status.textContent = result.ok ? '' : (result.message || '');
+            speak(result.message);
+        } catch (_) {
+            status.textContent = text().unavailable;
+            speak(text().unavailable);
+        }
+    });
+
+    eventSelect.addEventListener('change', () => {
+        renderSoundVariants();
+    });
+
+    variantSelect.addEventListener('change', async () => {
+        const a = api();
+        if (!a || typeof a.set_sound_variant !== 'function') return;
+        try {
+            const result = await a.set_sound_variant(eventSelect.value, variantSelect.value);
+            currentSoundState = result;
+            renderSoundVariants();
+            status.textContent = result.ok ? '' : (result.message || '');
+            speak(result.message);
+        } catch (_) {
+            status.textContent = text().unavailable;
+            speak(text().unavailable);
+        }
+    });
+
     preview.addEventListener('click', async () => {
         const a = api();
         if (!a || typeof a.preview_sound !== 'function') return;
@@ -498,7 +1104,7 @@ function installSoundSettings() {
     });
 
     applySoundLanguage();
-    loadSoundState();
+    soundStateLoadPromise = loadSoundState();
 }
 
 function refreshReleaseLanguageSemantics() {
@@ -511,6 +1117,7 @@ async function markReady() {
     if (a && typeof a.get_state === 'function') {
         try { await a.get_state(); } catch (_) {}
     }
+    try { await soundStateLoadPromise; } catch (_) {}
     stabilizeMoveEntryUiaSemantics();
     stabilizeBoardUiaSemantics();
     // Do not mark the whole main document aria-busy while WebView2 is building
@@ -525,6 +1132,8 @@ async function markReady() {
 installMoveFocusPolicy();
 installMoveEntryIdentity();
 installBoardFocusContinuity();
+installNewGameVisualSequence();
+installClockSoundPulse();
 installSemanticFocusBoundary();
 installSoundSettings();
 new MutationObserver(refreshReleaseLanguageSemantics).observe(document.documentElement, {attributes:true, attributeFilter:['lang']});

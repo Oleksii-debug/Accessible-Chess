@@ -19,13 +19,14 @@ from .continuous_analysis import ContinuousAnalysisService
 from .engine_assisted_workflows import EngineAssistedWorkflowService
 from .engine_play_service import EnginePlayService
 from .full_product_ui_shell import UILanguage
-from .release_app import _sound_cache_dir, _user_root
+from .release_app import _sound_cache_dir, _sound_variant_provider, _user_root
 from .settings import Settings
 from .sound_runtime import GameSoundRuntime, SoundRuntime, SoundRuntimeSettings
 from .sound_windows import PackagedSoundAssetResolver, WindowsSoundPlaybackAdapter
 from .stockfish_runtime import StockfishRuntime, StockfishRuntimeConfig
 from .v1_runtime_bridge import V1RuntimeBridgeCoordinator
 from .version2_application import Version2Application
+from .version2_gametree_resume import Version2GameTreeResumeCoordinator
 from .version2_release_ui import Version2ReleaseAccessibleChessAPI, run_version2_release_window
 from .version2_upgrade import UserDataLayout, Version2UpgradeCoordinator
 from .version2_windows_host_runtime import Version2WindowsFileWorkflowRuntime
@@ -49,6 +50,21 @@ class _Version2OwnedBookDialogs(Version2OwnedWindowsFileDialogs):
         finally:
             dialog.Dispose()
 
+    def confirm_recover_book_progress(self) -> bool:
+        """Confirm rollback to the previous valid Book-progress snapshot."""
+
+        owner = self._dialog_owner.resolve()
+        DialogResult, _, _ = self._forms_loader()
+        MessageBox, MessageBoxButtons, MessageBoxIcon = self._message_box_loader()
+        result = MessageBox.Show(
+            owner,
+            self.dialog_text("book_progress_recovery_message"),
+            self.dialog_text("book_progress_recovery_title"),
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Warning,
+        )
+        return result == DialogResult.Yes
+
     def confirm_discard_unsaved_pgn_on_exit(self) -> bool:
         """Confirm destructive application close on the exact native owner Form."""
 
@@ -69,6 +85,8 @@ def _install_unsaved_pgn_close_guard(
     application: Version2Application,
     owner_control: object,
     dialogs: object,
+    *,
+    before_shutdown: Callable[[Version2Application], Any] | None = None,
 ):
     """Own confirmation and accepted cleanup at one native FormClosing boundary.
 
@@ -88,6 +106,8 @@ def _install_unsaved_pgn_close_guard(
     shutdown = getattr(application, "shutdown", None)
     if not callable(shutdown):
         raise TypeError("Version 2 application shutdown is unavailable")
+    if before_shutdown is not None and not callable(before_shutdown):
+        raise TypeError("Version 2 pre-shutdown hook must be callable or None")
     closing_event = getattr(owner_control, "FormClosing", None)
     if closing_event is None:
         raise RuntimeError("Version 2 native owner does not expose FormClosing")
@@ -129,6 +149,14 @@ def _install_unsaved_pgn_close_guard(
                     cancel_close(event)
                     return
 
+            if before_shutdown is not None:
+                try:
+                    before_shutdown(application)
+                except Exception as error:
+                    setattr(application, "_native_close_resume_error", error)
+                    cancel_close(event)
+                    return
+
             try:
                 shutdown_complete = shutdown() is True
             except Exception as error:
@@ -154,6 +182,8 @@ def _install_close_guard_or_shutdown(
     application: Version2Application,
     owner_control: object,
     dialogs: object,
+    *,
+    before_shutdown: Callable[[Version2Application], Any] | None = None,
 ):
     """Install the close guard or synchronously retire the unbound runtime.
 
@@ -164,7 +194,12 @@ def _install_close_guard_or_shutdown(
     """
 
     try:
-        _install_unsaved_pgn_close_guard(application, owner_control, dialogs)
+        _install_unsaved_pgn_close_guard(
+            application,
+            owner_control,
+            dialogs,
+            before_shutdown=before_shutdown,
+        )
     except Exception:
         cleanup_error = None
         try:
@@ -354,6 +389,9 @@ def create_version2_release_application(
         settings_path=settings_path,
         application_dir=app_dir,
     )
+    resume_coordinator = Version2GameTreeResumeCoordinator(
+        layout.root / "gametree-resume.json"
+    )
 
     engine_runtime: Any | None = None
     analysis: Any | None = None
@@ -370,11 +408,15 @@ def create_version2_release_application(
             language = UILanguage(language_value)
         except (TypeError, ValueError):
             language = UILanguage.UA
+        sound_assets = PackagedSoundAssetResolver(app_dir)
+        selected_sound_variant = _sound_variant_provider(settings, sound_assets)
+
         playback = sound_playback
         if playback is None:
             playback = WindowsSoundPlaybackAdapter(
-                PackagedSoundAssetResolver(app_dir),
+                sound_assets,
                 cache_dir=(layout.root / "sound-cache") if data_root is not None else _sound_cache_dir(),
+                variant_provider=selected_sound_variant,
             )
         sound_runtime = SoundRuntime(
             playback,
@@ -387,6 +429,7 @@ def create_version2_release_application(
             game_sounds=game_sounds,
             sound_runtime=sound_runtime,
             settings=settings,
+            sound_asset_resolver=sound_assets,
             engine_play_service=engine_play,
             lang=language.value,
         )
@@ -396,15 +439,18 @@ def create_version2_release_application(
 
     database_path = layout.library_path
     application = None
+    application_build_failed = False
 
     def build_application() -> Version2Application:
-        nonlocal application
+        nonlocal application, application_build_failed
         if application is not None:
             raise RuntimeError("Version 2 application is already constructed")
+        if application_build_failed:
+            raise RuntimeError("Version 2 application construction previously failed")
         database: Any | None = None
         try:
             database = AcsDatabase(database_path)
-            application = Version2Application(
+            candidate = Version2Application(
                 database,
                 progress_store=BookProgressStore(layout.root / "book-progress.json"),
                 engine_assistance=EngineAssistedWorkflowService(analysis),
@@ -413,10 +459,16 @@ def create_version2_release_application(
                 copy_text=copy_text,
                 language=language,
             )
-            _share_v2_action_registry(api, application)
-            api.bind_version2_application(application)
-            return application
+            resume_coordinator.restore(candidate)
+            _share_v2_action_registry(api, candidate)
+            visual = getattr(candidate, "visual", None)
+            if visual is not None:
+                api.bind_visual_board_state(visual)
+            api.bind_version2_application(candidate)
+            application = candidate
+            return candidate
         except Exception:
+            application_build_failed = True
             _close_partial_version2_composition(
                 database,
                 continuous,
@@ -439,7 +491,6 @@ def create_version2_release_application(
             lambda: owner_control,
             language_provider=dialog_language_provider,
         )
-        application.open_book_dialog = book_dialogs.open_book
         file_runtime = Version2WindowsFileWorkflowRuntime(
             owner_control=owner_control,
             get_pgn_session=lambda: application.session,
@@ -453,12 +504,17 @@ def create_version2_release_application(
             dialog_language_provider=dialog_language_provider,
         )
         file_runtime = _install_close_guard_or_shutdown(
-            file_runtime, application, owner_control, book_dialogs
+            file_runtime,
+            application,
+            owner_control,
+            book_dialogs,
+            before_shutdown=resume_coordinator.prepare_shutdown,
         )
-        # Application-owned PGN replacements, including Library -> Open game,
-        # reuse the exact owner-bound confirmation source used by native PGN Open.
-        # Bind only after the native close guard succeeds so a failed startup
-        # cannot leave application state pointing at a retired file runtime.
+        # Publish every owner-bound application callback only after the native
+        # runtime and FormClosing guard are both live. Failed startup must leave
+        # no callback pointing at a retired/unowned Form.
+        application.open_book_dialog = book_dialogs.open_book
+        application.confirm_book_progress_recovery = book_dialogs.confirm_recover_book_progress
         application.confirm_document_replace = file_runtime.file_dialogs.confirm_discard_unsaved_pgn
         return file_runtime
 

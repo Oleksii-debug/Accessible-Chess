@@ -10,6 +10,7 @@ from unittest.mock import patch
 import wave
 import zipfile
 
+from acs import version2_package_preflight as preflight
 from acs.acsdb import ACSDB_SCHEMA_VERSION
 from acs.settings import SCHEMA_VERSION as SETTINGS_SCHEMA_VERSION
 from acs.sound_events import SoundEvent
@@ -20,6 +21,7 @@ from acs.version2_package_preflight import (
     V2_PACKAGE_MANIFEST_SCHEMA_VERSION,
     V2_PACKAGE_PROFILE,
     Version2PackagePreflightError,
+    validate_winforms_accessibility_app_config,
     validate_version2_package_tree,
     validate_version2_package_zip,
 )
@@ -27,6 +29,18 @@ from acs.version2_upgrade import UPGRADE_JOURNAL_SCHEMA_VERSION
 
 
 _SHA = "a" * 40
+
+_VALID_WINFORMS_CONFIG = (
+    '<?xml version="1.0" encoding="utf-8"?>\n'
+    '<configuration><runtime><AppContextSwitchOverrides value="'
+    'Switch.UseLegacyAccessibilityFeatures=false;'
+    'Switch.UseLegacyAccessibilityFeatures.2=false;'
+    'Switch.UseLegacyAccessibilityFeatures.3=false;'
+    'Switch.UseLegacyAccessibilityFeatures.4=false;'
+    'Switch.UseLegacyAccessibilityFeatures.5=false'
+    '" /></runtime></configuration>\n'
+)
+
 
 
 def _validate_tree(root, **kwargs):
@@ -79,6 +93,9 @@ def _make_tree(root: Path) -> None:
     product = root / "AccessibleChess"
     product.mkdir(parents=True)
     (product / "AccessibleChess.exe").write_bytes(_minimal_windows_pe())
+    (product / "AccessibleChess.exe.config").write_text(
+        _VALID_WINFORMS_CONFIG, encoding="utf-8"
+    )
 
     web = product / "web"
     web.mkdir()
@@ -89,6 +106,9 @@ def _make_tree(root: Path) -> None:
         "full_product_pgn.js",
         "full_product_library.js",
         "full_product_books_training.js",
+        "full_product_teacher.js",
+        "full_product_education.js",
+        "version2_final_product_bootstrap.js",
         "version2_release_bootstrap.js",
     )
     for name in web_files:
@@ -151,6 +171,7 @@ def _make_tree(root: Path) -> None:
         "product": "Accessible Chess",
         "package_profile": V2_PACKAGE_PROFILE,
         "integration_sha": _SHA,
+        "human_tested": False,
         "nvda_verified": False,
         "upgrade_from_version1": True,
         "upgrade_journal_schema": UPGRADE_JOURNAL_SCHEMA_VERSION,
@@ -167,6 +188,142 @@ def _make_tree(root: Path) -> None:
     _write_checksums(root)
 
 
+def _write_inventory_wave(
+    path: Path,
+    *,
+    sample: int,
+    sample_width: int = 2,
+) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with wave.open(str(path), "wb") as writer:
+        writer.setnchannels(1)
+        writer.setsampwidth(sample_width)
+        writer.setframerate(8000)
+        if sample_width == 1:
+            if not 0 <= sample <= 255:
+                raise ValueError("8-bit WAV sample must be in 0..255")
+            writer.writeframes(bytes([sample]) * 16)
+        elif sample_width == 2:
+            writer.writeframes(int(sample).to_bytes(2, "little", signed=True) * 16)
+        elif sample_width == 3:
+            writer.writeframes(int(sample).to_bytes(3, "little", signed=True) * 16)
+        else:
+            raise ValueError("test WAV sample width must be 1, 2 or 3")
+
+
+def _enable_full_sound_inventory(
+    root: Path,
+    *,
+    alt_sample_width: int = 1,
+) -> tuple[int, str, Path]:
+    sounds = root / "AccessibleChess" / "assets" / "sounds"
+    manifest_path = sounds / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    provenance_path = root / "THIRD_PARTY_NOTICES" / "SOUND_PROVENANCE.json"
+    provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+
+    library = sounds / "library"
+    library.mkdir()
+    moved: dict[str, str] = {}
+    for file_name in sorted(set(manifest["files"].values()), key=str.casefold):
+        source = sounds / file_name
+        destination = library / file_name
+        source.replace(destination)
+        moved[file_name] = f"library/{file_name}"
+
+    for event in SoundEvent:
+        old_name = manifest["files"][event.value]
+        new_name = moved[old_name]
+        manifest["files"][event.value] = new_name
+        provenance["events"][event.value]["file"] = new_name
+        provenance["events"][event.value]["sha256"] = _sha256(sounds / new_name)
+
+    alt = library / "move-alt.wav"
+    _write_inventory_wave(alt, sample=177, sample_width=alt_sample_width)
+    variants = {
+        "schema_version": 1,
+        "events": {
+            event.value: [
+                {
+                    "id": "1",
+                    "file": manifest["files"][event.value],
+                    "label_uk": "Варіант 1",
+                    "label_en": "Variant 1",
+                }
+            ]
+            for event in SoundEvent
+        },
+    }
+    variants["events"][SoundEvent.MOVE.value].append(
+        {
+            "id": "2",
+            "file": "library/move-alt.wav",
+            "label_uk": "Хід 2",
+            "label_en": "Move 2",
+        }
+    )
+    manifest_path.write_text(
+        json.dumps(manifest, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    provenance_path.write_text(
+        json.dumps(provenance, sort_keys=True, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    (sounds / "variants.json").write_text(
+        json.dumps(variants, ensure_ascii=False, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    (sounds / "layers.json").write_text(
+        json.dumps({"schema_version": 1, "events": {}}, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    entries: list[dict[str, object]] = []
+    fingerprint_rows: list[bytes] = []
+    for path in sorted(
+        (item for item in library.rglob("*") if item.is_file() and item.suffix.casefold() == ".wav"),
+        key=lambda item: item.relative_to(library).as_posix().casefold(),
+    ):
+        relative = path.relative_to(library).as_posix()
+        digest = _sha256(path)
+        with wave.open(str(path), "rb") as reader:
+            frames = reader.getnframes()
+            rate = reader.getframerate()
+            entries.append(
+                {
+                    "file": f"library/{relative}",
+                    "sha256": digest,
+                    "bytes": path.stat().st_size,
+                    "channels": reader.getnchannels(),
+                    "sample_width_bytes": reader.getsampwidth(),
+                    "sample_rate": rate,
+                    "frames": frames,
+                    "duration_seconds": round(frames / rate, 6),
+                    "compression": reader.getcomptype(),
+                }
+            )
+        fingerprint_rows.append(f"{relative}\0{digest}\n".encode("utf-8"))
+
+    inventory_sha = hashlib.sha256(b"".join(fingerprint_rows)).hexdigest()
+    inventory = {
+        "schema_version": 1,
+        "source": preflight._USER_SOUND_SOURCE,
+        "license_id": preflight._USER_SOUND_LICENSE_ID,
+        "creator": preflight._USER_SOUND_CREATOR,
+        "file_count": len(entries),
+        "source_inventory_sha256": inventory_sha,
+        "files": entries,
+    }
+    inventory_text = json.dumps(inventory, ensure_ascii=False, sort_keys=True, indent=2) + "\n"
+    (sounds / "inventory.json").write_text(inventory_text, encoding="utf-8")
+    (root / "THIRD_PARTY_NOTICES" / "SOUND_INVENTORY.json").write_text(
+        inventory_text,
+        encoding="utf-8",
+    )
+    return len(entries), inventory_sha, alt
+
+
 def _zip_tree(root: Path, destination: Path) -> None:
     with zipfile.ZipFile(destination, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for path in sorted(root.rglob("*"), key=lambda item: item.relative_to(root).as_posix()):
@@ -175,6 +332,34 @@ def _zip_tree(root: Path, destination: Path) -> None:
 
 
 class Version2PackagePreflightTests(unittest.TestCase):
+    def test_winforms_accessibility_config_rejects_runtime_mixed_text(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "AccessibleChess.exe.config"
+            path.write_text(
+                _VALID_WINFORMS_CONFIG.replace(
+                    "<AppContextSwitchOverrides",
+                    "unexpected<AppContextSwitchOverrides",
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                Version2PackagePreflightError,
+                "runtime must not contain mixed text",
+            ):
+                validate_winforms_accessibility_app_config(path)
+
+    def test_winforms_accessibility_config_allows_other_valid_runtime_elements(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "AccessibleChess.exe.config"
+            path.write_text(
+                _VALID_WINFORMS_CONFIG.replace(
+                    "</runtime>",
+                    "<gcServer enabled=\"true\" /></runtime>",
+                ),
+                encoding="utf-8",
+            )
+            validate_winforms_accessibility_app_config(path)
+
     def test_valid_tree_and_zip_post_build_readback(self):
         with tempfile.TemporaryDirectory() as td:
             base = Path(td)
@@ -195,6 +380,390 @@ class Version2PackagePreflightTests(unittest.TestCase):
             self.assertEqual(readback.checksums_verified, tree.checksums_verified)
             self.assertEqual(len(readback.archive_sha256 or ""), 64)
 
+    def test_package_preflight_accepts_8bit_pcm_sound_asset(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+
+            sound_root = root / "AccessibleChess" / "assets" / "sounds"
+            manifest = json.loads(
+                (sound_root / "manifest.json").read_text(encoding="utf-8")
+            )
+            file_name = manifest["files"][SoundEvent.LOW_TIME.value]
+            sound_path = sound_root / file_name
+            with wave.open(str(sound_path), "wb") as writer:
+                writer.setnchannels(1)
+                writer.setsampwidth(1)
+                writer.setframerate(8000)
+                writer.writeframes(bytes([0, 64, 128, 192, 255] * 4))
+
+            provenance_path = root / "THIRD_PARTY_NOTICES" / "SOUND_PROVENANCE.json"
+            provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+            provenance["events"][SoundEvent.LOW_TIME.value]["sha256"] = _sha256(
+                sound_path
+            )
+            provenance_path.write_text(
+                json.dumps(provenance, sort_keys=True, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            _write_checksums(root)
+
+            report = _validate_tree(root)
+            self.assertEqual(report.integration_sha, _SHA)
+
+    def test_sound_manifest_allows_provenance_verified_semantic_alias(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+
+            sounds = root / "AccessibleChess" / "assets" / "sounds"
+            manifest_path = sounds / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            events = list(SoundEvent)
+            shared_event = events[0]
+            alias_event = events[1]
+            shared_file = manifest["files"][shared_event.value]
+            manifest["files"][alias_event.value] = shared_file
+            manifest_path.write_text(
+                json.dumps(manifest, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+
+            provenance_path = root / "THIRD_PARTY_NOTICES" / "SOUND_PROVENANCE.json"
+            provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+            provenance["events"][alias_event.value]["file"] = shared_file
+            provenance["events"][alias_event.value]["sha256"] = _sha256(
+                sounds / shared_file
+            )
+            provenance_path.write_text(
+                json.dumps(provenance, sort_keys=True, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            _write_checksums(root)
+
+            report = _validate_tree(root)
+            self.assertEqual(report.integration_sha, _SHA)
+
+    def test_full_sound_inventory_tree_and_zip_readback_bind_nondefault_variant_bytes(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            root = base / "package"
+            root.mkdir()
+            _make_tree(root)
+            count, inventory_sha, alt = _enable_full_sound_inventory(root)
+            _write_checksums(root)
+
+            with (
+                patch.object(preflight, "_USER_SOUND_EXPECTED_WAV_COUNT", count),
+                patch.object(
+                    preflight,
+                    "_USER_SOUND_EXPECTED_INVENTORY_SHA256",
+                    inventory_sha,
+                ),
+            ):
+                report = _validate_tree(root)
+                self.assertEqual(report.integration_sha, _SHA)
+                inventory_doc = json.loads(
+                    (
+                        root
+                        / "AccessibleChess"
+                        / "assets"
+                        / "sounds"
+                        / "inventory.json"
+                    ).read_text(encoding="utf-8")
+                )
+                alt_entry = next(
+                    item for item in inventory_doc["files"]
+                    if item["file"] == "library/move-alt.wav"
+                )
+                self.assertEqual(alt_entry["sample_width_bytes"], 1)
+
+                archive = base / "inventory-bound.zip"
+                _zip_tree(root, archive)
+                zip_report = _validate_zip(archive)
+                self.assertEqual(zip_report.integration_sha, _SHA)
+
+            _write_inventory_wave(alt, sample=778)
+            # Demonstrate that regenerating the package's generic checksum list
+            # cannot legitimize a substituted non-default runtime WAV.
+            _write_checksums(root)
+            with (
+                patch.object(preflight, "_USER_SOUND_EXPECTED_WAV_COUNT", count),
+                patch.object(
+                    preflight,
+                    "_USER_SOUND_EXPECTED_INVENTORY_SHA256",
+                    inventory_sha,
+                ),
+                self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "sound inventory SHA-256 mismatch",
+                ),
+            ):
+                _validate_tree(root)
+
+    def test_inventory_bound_runtime_variant_rejects_24bit_pcm(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+            count, inventory_sha, _alt = _enable_full_sound_inventory(
+                root,
+                alt_sample_width=3,
+            )
+            _write_checksums(root)
+            with (
+                patch.object(preflight, "_USER_SOUND_EXPECTED_WAV_COUNT", count),
+                patch.object(
+                    preflight,
+                    "_USER_SOUND_EXPECTED_INVENTORY_SHA256",
+                    inventory_sha,
+                ),
+                self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "runtime sound asset must be uncompressed 8-bit or 16-bit PCM",
+                ),
+            ):
+                _validate_tree(root)
+
+    def test_full_sound_inventory_rejects_nonfinite_duration_even_with_checksums(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+            count, inventory_sha, _alt = _enable_full_sound_inventory(root)
+            inventory_path = (
+                root / "AccessibleChess" / "assets" / "sounds" / "inventory.json"
+            )
+            notice_path = root / "THIRD_PARTY_NOTICES" / "SOUND_INVENTORY.json"
+            raw = json.loads(inventory_path.read_text(encoding="utf-8"))
+            raw["files"][0]["duration_seconds"] = float("nan")
+            malformed = json.dumps(raw, sort_keys=True) + "\n"
+            inventory_path.write_text(malformed, encoding="utf-8")
+            notice_path.write_text(malformed, encoding="utf-8")
+            _write_checksums(root)
+            with (
+                patch.object(preflight, "_USER_SOUND_EXPECTED_WAV_COUNT", count),
+                patch.object(
+                    preflight,
+                    "_USER_SOUND_EXPECTED_INVENTORY_SHA256",
+                    inventory_sha,
+                ),
+                self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "non-finite JSON number: NaN",
+                ),
+            ):
+                _validate_tree(root)
+
+    def test_full_sound_inventory_notice_is_required_independently_of_checksums(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+            count, inventory_sha, _alt = _enable_full_sound_inventory(root)
+            notice = root / "THIRD_PARTY_NOTICES" / "SOUND_INVENTORY.json"
+            notice.unlink()
+            _write_checksums(root)
+            with (
+                patch.object(preflight, "_USER_SOUND_EXPECTED_WAV_COUNT", count),
+                patch.object(
+                    preflight,
+                    "_USER_SOUND_EXPECTED_INVENTORY_SHA256",
+                    inventory_sha,
+                ),
+                self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "inventory and audit notice must both be present",
+                ),
+            ):
+                _validate_tree(root)
+
+    def test_full_sound_inventory_notice_must_match_runtime_copy(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+            count, inventory_sha, _alt = _enable_full_sound_inventory(root)
+            notice_path = root / "THIRD_PARTY_NOTICES" / "SOUND_INVENTORY.json"
+            notice = json.loads(notice_path.read_text(encoding="utf-8"))
+            notice["creator"] = "tampered"
+            notice_path.write_text(
+                json.dumps(notice, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            _write_checksums(root)
+            with (
+                patch.object(preflight, "_USER_SOUND_EXPECTED_WAV_COUNT", count),
+                patch.object(
+                    preflight,
+                    "_USER_SOUND_EXPECTED_INVENTORY_SHA256",
+                    inventory_sha,
+                ),
+                self.assertRaisesRegex(
+                    Version2PackagePreflightError,
+                    "does not match audit notice",
+                ),
+            ):
+                _validate_tree(root)
+
+    def test_winforms_accessibility_app_config_is_required(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "package"
+            root.mkdir()
+            _make_tree(root)
+            (root / "AccessibleChess" / "AccessibleChess.exe.config").unlink()
+            _write_checksums(root)
+            with self.assertRaisesRegex(
+                Version2PackagePreflightError,
+                "WinForms accessibility app-config is missing",
+            ):
+                _validate_tree(root)
+
+    def test_winforms_accessibility_app_config_semantics_fail_closed(self):
+        cases = (
+            (
+                "<configuration><runtime /></configuration>\n",
+                "exactly one AppContextSwitchOverrides element",
+            ),
+            (
+                _VALID_WINFORMS_CONFIG.replace(
+                    "Switch.UseLegacyAccessibilityFeatures.3=false",
+                    "Switch.UseLegacyAccessibilityFeatures.3=true",
+                ),
+                "disable all legacy accessibility switches",
+            ),
+            (
+                _VALID_WINFORMS_CONFIG.replace(
+                    "Switch.UseLegacyAccessibilityFeatures.5=false",
+                    "Switch.UseLegacyAccessibilityFeatures.4=false",
+                ),
+                "switch names must be unique",
+            ),
+            (
+                _VALID_WINFORMS_CONFIG.replace(
+                    "Switch.UseLegacyAccessibilityFeatures.5=false",
+                    "Switch.UseLegacyAccessibilityFeatures.5=false;"
+                    "Switch.Accessibility.Experimental=true",
+                ),
+                "unexpected accessibility switches",
+            ),
+            (
+                "<!DOCTYPE configuration [<!ENTITY x 'false'>]>"
+                "<configuration><runtime /></configuration>",
+                "must not contain DTD or entities",
+            ),
+            (
+                _VALID_WINFORMS_CONFIG.replace(
+                    '" /></runtime>',
+                    '">unexpected</AppContextSwitchOverrides></runtime>',
+                ),
+                "must not contain child content",
+            ),
+            (
+                _VALID_WINFORMS_CONFIG.replace(
+                    '" /></runtime>',
+                    '"><unexpected /></AppContextSwitchOverrides></runtime>',
+                ),
+                "must not contain child content",
+            ),
+            (
+                _VALID_WINFORMS_CONFIG.encode("utf-16"),
+                "must be UTF-8",
+            ),
+            (
+                _VALID_WINFORMS_CONFIG.replace(
+                    'encoding="utf-8"',
+                    'encoding="utf-16"',
+                ),
+                "XML declaration must declare UTF-8",
+            ),
+            (
+                _VALID_WINFORMS_CONFIG.replace(
+                    'encoding="utf-8"',
+                    'encoding="windows-1252"',
+                ),
+                "XML declaration must declare UTF-8",
+            ),
+        )
+        for config_text, expected in cases:
+            with self.subTest(expected=expected), tempfile.TemporaryDirectory() as td:
+                root = Path(td) / "package"
+                root.mkdir()
+                _make_tree(root)
+                config = root / "AccessibleChess" / "AccessibleChess.exe.config"
+                if isinstance(config_text, bytes):
+                    config.write_bytes(config_text)
+                else:
+                    config.write_text(config_text, encoding="utf-8")
+                _write_checksums(root)
+                with self.assertRaisesRegex(Version2PackagePreflightError, expected):
+                    _validate_tree(root)
+
+    def test_zip_readback_rejects_semantically_invalid_winforms_app_config(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            root = base / "package"
+            root.mkdir()
+            _make_tree(root)
+            config = root / "AccessibleChess" / "AccessibleChess.exe.config"
+            config.write_text(
+                '<?xml version="1.0" encoding="utf-8"?>\n'
+                '<configuration><runtime><AppContextSwitchOverrides value="'
+                'Switch.UseLegacyAccessibilityFeatures=false;'
+                'Switch.UseLegacyAccessibilityFeatures.2=false;'
+                'Switch.UseLegacyAccessibilityFeatures.3=false;'
+                'Switch.UseLegacyAccessibilityFeatures.4=false'
+                '" /></runtime></configuration>\n',
+                encoding="utf-8",
+            )
+            _write_checksums(root)
+            archive = base / "candidate.zip"
+            _zip_tree(root, archive)
+            with self.assertRaisesRegex(
+                Version2PackagePreflightError,
+                "missing required accessibility switches",
+            ):
+                _validate_zip(archive)
+
+    def test_final_product_runtime_web_resources_are_required(self):
+        required = (
+            "full_product_teacher.js",
+            "full_product_education.js",
+            "version2_final_product_bootstrap.js",
+        )
+        for missing in required:
+            with self.subTest(missing=missing), tempfile.TemporaryDirectory() as td:
+                root = Path(td) / "package"
+                root.mkdir()
+                _make_tree(root)
+                (root / "AccessibleChess" / "web" / missing).unlink()
+                _write_checksums(root)
+                with self.assertRaisesRegex(
+                    Version2PackagePreflightError, "web resource is missing"
+                ):
+                    _validate_tree(root)
+
+    def test_final_zip_and_nested_zip_use_snapshot_handles(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            root = base / "package"
+            root.mkdir()
+            _make_tree(root)
+            archive = base / "Accessible-Chess-V2.zip"
+            _zip_tree(root, archive)
+            original_zipfile = zipfile.ZipFile
+            with patch(
+                "acs.version2_package_preflight.zipfile.ZipFile",
+                wraps=original_zipfile,
+            ) as wrapped:
+                report = _validate_zip(archive)
+            self.assertEqual(report.integration_sha, _SHA)
+            self.assertGreaterEqual(len(wrapped.call_args_list), 2)
+            for call in wrapped.call_args_list:
+                self.assertFalse(isinstance(call.args[0], (str, Path)))
+
     def test_manifest_and_checksum_tamper_fail_closed(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "package"
@@ -203,6 +772,15 @@ class Version2PackagePreflightTests(unittest.TestCase):
             manifest_path = root / MANIFEST_NAME
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             manifest["nvda_verified"] = True
+            manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+            _write_checksums(root)
+            with self.assertRaisesRegex(
+                Version2PackagePreflightError, "manifest contract mismatch"
+            ):
+                _validate_tree(root)
+
+            manifest["nvda_verified"] = False
+            manifest["human_tested"] = True
             manifest_path.write_text(json.dumps(manifest) + "\n", encoding="utf-8")
             _write_checksums(root)
             with self.assertRaisesRegex(

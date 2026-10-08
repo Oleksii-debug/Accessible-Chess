@@ -9,16 +9,14 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-import re
 from typing import Any
 
 from .full_product_presenters import BookBlockView, BookReaderPresenter
 from .full_product_ui_shell import UILanguage, concise_user_error
+from .presentation_privacy import redact_local_paths
 
 CommandDispatch = Callable[[str, Mapping[str, object]], Any]
 _MAX_BOOKMARK_NAME = 80
-_WINDOWS_PATH = re.compile(r"(?i)(?<![\w])([a-z]:[\\/][^\r\n\t]*)")
-_POSIX_PATH = re.compile(r"(?i)(?<![\w])(/(?:home|users|tmp|mnt|var/tmp|private/tmp)/[^\r\n\t ]*)")
 
 _LABELS = {
     UILanguage.UA: {
@@ -74,9 +72,7 @@ def _safe_text(value: object, *, language: UILanguage, limit: int) -> str:
     if not isinstance(value, str):
         raise TypeError("book presentation text must be text")
     text = value.replace("\x00", "").strip()
-    replacement = _LABELS[language]["hidden_path"]
-    text = _WINDOWS_PATH.sub(replacement, text)
-    text = _POSIX_PATH.sub(replacement, text)
+    text = redact_local_paths(text, _LABELS[language]["hidden_path"])
     return text[:limit]
 
 

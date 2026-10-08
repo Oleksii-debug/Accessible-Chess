@@ -589,9 +589,10 @@ class V1RuntimeBridgeCoordinator:
                         settings_candidate, self.layout.settings_path, "Version 2 settings"
                     )
                     raise V1RuntimeBridgeError("published V2 settings verification failed")
-            journal["phase"] = "settings_published"
-            _atomic_json(self.journal_path, journal)
-            self._notify("settings-published")
+            if journal.get("phase") == "prepared":
+                journal["phase"] = "settings_published"
+                _atomic_json(self.journal_path, journal)
+                self._notify("settings-published")
 
         self._verify_sources(legacy_root, sources, journal)
 
@@ -628,9 +629,10 @@ class V1RuntimeBridgeCoordinator:
                         library_candidate, self.layout.library_path, "Version 2 library"
                     )
                     raise V1RuntimeBridgeError("published V2 library verification failed")
-            journal["phase"] = "library_published"
-            _atomic_json(self.journal_path, journal)
-            self._notify("library-published")
+            if journal.get("phase") in {"prepared", "settings_published"}:
+                journal["phase"] = "library_published"
+                _atomic_json(self.journal_path, journal)
+                self._notify("library-published")
 
         self._verify_sources(legacy_root, sources, journal)
         journal["phase"] = "committed"

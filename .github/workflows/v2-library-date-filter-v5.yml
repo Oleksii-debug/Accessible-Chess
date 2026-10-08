@@ -23,7 +23,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  STACK_BASE: c26099870bbdc70a60cfb9aaf6bde59f447e490c
+  DATE_OWNER_SHA: e5ed60a042889a273f10b8f002574ebf5c727c33
+  INTEGRITY_OWNER_SHA: c1bd4f0c7610365458689a786ebb56d1c7d073df
   LIBCBH_COMMIT: 9641c5c3949d8fb210b17dd9aa54455645843696
   UNCBV_COMMIT: 3c18e8a7c6a30c21f945a1ab5462521c306dca57
 
@@ -54,27 +55,37 @@ jobs:
           python-version: '3.12'
       - name: Install pinned verification dependency
         run: python -m pip install -q pytest==8.4.2
-      - name: Ownership ancestry and exact child diff hygiene
+      - name: Retain accepted Date and schema-v6 Integrity authority
         shell: bash
+        env:
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
-          git merge-base --is-ancestor "$STACK_BASE" HEAD
-          git diff --check "$STACK_BASE" HEAD
-          changed="$(git diff --name-only "$STACK_BASE" HEAD | sort)"
-          expected="$(printf '%s\n' \
-            '.github/workflows/v2-library-date-filter-v5.yml' \
-            'acs/acsdb.py' \
-            'acs/search_policy.py' \
-            'acs/search_service.py' \
-            'tests/test_v2_library_acsdb_search_v4.py' \
-            'tests/test_v2_library_date_filter_v5.py' \
-            'tests/test_v2_library_date_real_cbv.py' \
-            'tools/v2_library_date_filter_v5_benchmark.py' | sort)"
-          test "$changed" = "$expected"
-          if printf '%s\n' "$changed" | grep -E 'teacher|classroom|education|chessbase_decoder|gametree.py|pgn_document|pgn_service|pgn_workspace'; then
-            echo 'Out-of-lane or parser/chess-core contamination detected' >&2
-            exit 1
+          base="${EVENT_BASE_SHA:-}"
+          if [ -z "$base" ]; then
+            base="$(git rev-parse HEAD^)"
           fi
+          git cat-file -e "${base}^{commit}" || git fetch --no-tags origin "$base"
+          for sha in "$DATE_OWNER_SHA" "$INTEGRITY_OWNER_SHA"; do
+            git cat-file -e "${sha}^{commit}" || git fetch --no-tags origin "$sha"
+            git merge-base --is-ancestor "$sha" HEAD || {
+              printf 'Required Library Date/Integrity authority is not retained: %s\n' "$sha" >&2
+              exit 1
+            }
+          done
+          git merge-base --is-ancestor "$base" HEAD
+          git diff --check "$base" HEAD
+          for path in \
+            tests/test_v2_library_acsdb_search_v4.py \
+            tests/test_v2_library_date_filter_v5.py \
+            tests/test_v2_library_date_real_cbv.py \
+            tools/v2_library_date_filter_v5_benchmark.py
+          do
+            test "$(git rev-parse "HEAD:$path")" = "$(git rev-parse "${INTEGRITY_OWNER_SHA}:$path")" || {
+              printf 'Library Date retained oracle drift: %s\n' "$path" >&2
+              exit 1
+            }
+          done
       - name: Compile
         run: python -m compileall -q acs tests tools run_accessible_chess.py
       - name: Focused ACSDB v5 date and inherited D07 regressions

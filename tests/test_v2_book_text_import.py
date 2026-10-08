@@ -14,7 +14,7 @@ from acs.book_text_import import (
     BookTextImportErrorCode,
     import_text_book,
 )
-from acs.bookdocument import Diagram, Game, Heading, Note, Paragraph, Position
+from acs.bookdocument import Diagram, Game, Heading, ListBlock, Note, Paragraph, Position
 from acs.bookreader import BookReader
 from acs.chesscore import Board
 from acs.gametree import serialize_game
@@ -53,6 +53,44 @@ class BookTextImportTests(unittest.TestCase):
         self.assertIn("8/8/8/8/8/8/8/8", result.document.blocks[1].text)
         self.assertFalse(any(isinstance(block, (Game, Position, Diagram)) for block in result.document.blocks))
         self.assertTrue(result.book_key.startswith("txt-sha256:"))
+
+    def test_windows_1251_txt_and_markdown_are_decoded_losslessly_without_ai(self) -> None:
+        txt_source = (
+            "Шахові етюди\n\n"
+            "Розділ про короля і пішака. Аналіз позиції словами.\n"
+        ).encode("cp1251")
+        txt = import_text_book(
+            txt_source,
+            source_name="legacy-studies.txt",
+            source_format="txt",
+        )
+        self.assertTrue(
+            any("Windows-1251" in warning and "losslessly" in warning for warning in txt.warnings)
+        )
+        self.assertTrue(
+            any(
+                isinstance(block, Paragraph) and "Шахові етюди" in block.text
+                for block in txt.document.blocks
+            )
+        )
+
+        markdown_source = f"""# Шахова книга
+
+Пояснення варіанта і позиції.
+
+```fen
+{Board.START}
+Початкова позиція
+```
+""".encode("cp1251")
+        markdown = import_text_book(
+            markdown_source,
+            source_name="legacy-book.md",
+            source_format="markdown",
+        )
+        self.assertEqual(markdown.positions, 1)
+        self.assertEqual(markdown.document.title, "Шахова книга")
+        self.assertTrue(any("Windows-1251" in warning for warning in markdown.warnings))
 
     def test_markdown_structure_and_explicit_chess_blocks_use_canonical_services(self) -> None:
         source = f'''# Accessible Chess Book
@@ -148,7 +186,7 @@ Starting board
             import_text_book("text", source_name="book.rtf", source_format="rtf")
         self.assertEqual(format_error.exception.code, BookTextImportErrorCode.UNSUPPORTED_FORMAT)
 
-    def test_markdown_lists_quotes_are_readable_but_structure_loss_is_explicit(self) -> None:
+    def test_markdown_lists_are_semantic_while_block_quote_loss_remains_explicit(self) -> None:
         source = '''# Notes
 
 - First item
@@ -157,11 +195,14 @@ Starting board
 > Quoted advice
 '''
         result = import_text_book(source, source_name="notes.md", source_format="markdown")
+        lists = [block for block in result.document.blocks if isinstance(block, ListBlock)]
+        self.assertEqual(len(lists), 1)
+        self.assertEqual(lists[0].items, ["First item", "Second item"])
+        self.assertFalse(lists[0].ordered)
+        self.assertIsNone(lists[0].start)
         paragraphs = [block.text for block in result.document.blocks if isinstance(block, Paragraph)]
-        self.assertIn("• First item", paragraphs)
-        self.assertIn("• Second item", paragraphs)
         self.assertIn("Quoted advice", paragraphs)
-        self.assertTrue(any("list structure" in warning for warning in result.warnings))
+        self.assertFalse(any("list structure" in warning for warning in result.warnings))
         self.assertTrue(any("block quote" in warning for warning in result.warnings))
 
     def test_markdown_game_navigation_exact_return_and_progress_reopen(self) -> None:
@@ -208,6 +249,8 @@ After game.
         nonclaims = set(BOOK_TEXT_CAPABILITIES["does_not_claim"])
         self.assertTrue({"HTML/XHTML", "DOCX", "EPUB", "PDF/OCR"}.issubset(nonclaims))
         self.assertIn("ASCII-diagram recognition", nonclaims)
+        self.assertIn("Windows-1251", BOOK_TEXT_CAPABILITIES["TXT"]["encoding"])
+        self.assertIn("Windows-1251", BOOK_TEXT_CAPABILITIES["Markdown"]["encoding"])
 
 
 if __name__ == "__main__":
