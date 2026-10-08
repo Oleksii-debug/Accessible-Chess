@@ -52,6 +52,17 @@ class RealStockfishOwnerLibrarySeedTests(unittest.TestCase):
                 self.assertFalse(rows.has_more)
                 database.verify_integrity()
 
+    def test_existing_empty_seed_directory_is_never_replaced(self):
+        with tempfile.TemporaryDirectory() as temp:
+            parent = Path(temp) / "release-content"
+            parent.mkdir()
+            target = parent / "user-library-seed"
+            target.mkdir()
+            with self.assertRaises(FileExistsError):
+                prepare_owner_test_stockfish_seed(target)
+            self.assertEqual(tuple(target.iterdir()), ())
+            self.assertTrue(target.is_dir())
+
     def test_no_clobber_and_corrupted_real_seed_fail_closed(self):
         with tempfile.TemporaryDirectory() as temp:
             parent = Path(temp) / "release-content"
