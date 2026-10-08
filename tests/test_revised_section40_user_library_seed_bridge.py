@@ -1,0 +1,98 @@
+"""Real Section 40 Windows/Linux owner-test ingress through existing runtime seam."""
+from __future__ import annotations
+
+import hashlib
+import json
+from pathlib import Path
+import tempfile
+import unittest
+import zipfile
+
+from tools import revised_section40_offline_test_library as corpus
+from tools import revised_section40_user_library_seed_bridge as bridge
+from acs.acsdb import AcsDatabase
+from acs.user_library_seed import (
+    import_user_library_seed, load_user_library_seed,
+)
+
+
+class RevisedSection40RuntimeSeedTests(unittest.TestCase):
+    def test_real_collection_is_loadable_by_unmodified_program_library(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            base = Path(scratch)
+            src = base / "actual-offline-test.zip"
+            output = base / "owner-runtime-seed.zip"
+            corpus.build_collection("TEST_BUILD", src)
+            report = bridge.build_owner_test_seed(src, output)
+            self.assertTrue(output.exists())
+            self.assertEqual(report["source_count"], 1)
+            self.assertEqual(report["game_count"], 512)
+            self.assertFalse(report["section40_done"])
+            self.assertEqual(report["archive_sha256"],
+                             hashlib.sha256(output.read_bytes()).hexdigest())
+            package = base / "mock-executable-directory"
+            with zipfile.ZipFile(output) as z:
+                self.assertEqual(sorted(z.namelist()), [
+                    "release-content/user-library-seed/manifest.json",
+                    "release-content/user-library-seed/section40-stockfish-512-real-games.pgn",
+                ])
+                for name in z.namelist():
+                    path = package.joinpath(*name.split("/"))
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_bytes(z.read(name))
+            seed = load_user_library_seed(package / "release-content" / "user-library-seed")
+            with AcsDatabase(base / "persisted-library.acsdb") as db:
+                initial = import_user_library_seed(db, seed)
+                self.assertEqual(initial.game_count, 512)
+                self.assertEqual(initial.reused_source_count, 0)
+            with AcsDatabase(base / "persisted-library.acsdb") as reopened:
+                again = import_user_library_seed(reopened, seed)
+                self.assertEqual(again.source_count, 1)
+                self.assertEqual(again.reused_source_count, 1)
+                reopened.verify_integrity()
+
+    def test_public_release_is_not_disguised_as_owner_test_ingress(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            base = Path(scratch)
+            src = base / "public.zip"
+            dst = base / "must-not-exist.zip"
+            corpus.build_collection("PUBLIC_RELEASE", src)
+            with self.assertRaises(corpus.OfflineCollectionError):
+                bridge.build_owner_test_seed(src, dst)
+            self.assertFalse(dst.exists())
+
+    def test_owner_output_is_never_overwritten(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            base = Path(scratch)
+            original = base / "existing.zip"
+            original.write_bytes(b"OWNER DATA")
+            with self.assertRaisesRegex(corpus.OfflineCollectionError, "already exists"):
+                bridge.build_owner_test_seed(base / "absent.zip", original)
+            self.assertEqual(original.read_bytes(), b"OWNER DATA")
+
+    def test_bad_issuer_receipts_are_rejected_before_seed_creation(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            base = Path(scratch)
+            corrupted = base / "tampered.zip"
+            with zipfile.ZipFile(corrupted, "w", zipfile.ZIP_DEFLATED) as z:
+                z.writestr("catalog/checksums.json", "[]")
+                z.writestr("catalog/materials.json", '{"profile":"TEST_BUILD"}')
+                z.writestr("library/real-stockfish-first-512.pgn", "1. e4 e5 *")
+            with self.assertRaises(corpus.OfflineCollectionError):
+                bridge.build_owner_test_seed(corrupted, base / "reject.zip")
+            self.assertFalse((base / "reject.zip").exists())
+
+    def test_zip_slip_is_rejected(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            base = Path(scratch)
+            corrupted = base / "traversal.zip"
+            with zipfile.ZipFile(corrupted, "w", zipfile.ZIP_DEFLATED) as z:
+                z.writestr("../evil.pgn", "1. e4 e5 *")
+                z.writestr("catalog/checksums.json", "[]")
+            with self.assertRaises(corpus.OfflineCollectionError):
+                bridge.build_owner_test_seed(corrupted, base / "reject.zip")
+            self.assertFalse((base / "reject.zip").exists())
+
+
+if __name__ == "__main__":
+    unittest.main()
