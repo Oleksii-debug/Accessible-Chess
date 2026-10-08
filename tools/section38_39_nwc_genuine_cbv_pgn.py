@@ -18,7 +18,7 @@ import ssl
 import stat
 import subprocess
 import tempfile
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 from urllib.request import Request, build_opener, HTTPSHandler, HTTPRedirectHandler
 
 from acs.lawful_corpus_registry import LawfulCorpusError, load_catalog
@@ -71,9 +71,28 @@ def _qualified_url(url: str) -> str:
         or parts.username is not None or parts.password is not None
         or port not in (None, 443) or parts.fragment or parts.query
         or not parts.path.startswith("/articles/games/published/")
-        or any(component in ("..", ".") for component in parts.path.split("/"))
     ):
         raise LawfulCorpusError("original source escapes Northwest Chess publisher")
+    # The original names use %20 for spaces. Refuse any escaped URL
+    # delimiters/traversal, including repeatedly encoded components, before
+    # urllib or an intermediate CDN has a chance to normalize a redirect.
+    decoded = parts.path
+    try:
+        for _ in range(3):
+            next_path = unquote(decoded, encoding="utf-8", errors="strict")
+            if next_path == decoded:
+                break
+            decoded = next_path
+    except UnicodeError as exc:
+        raise LawfulCorpusError("original source URL has invalid path encoding") from exc
+    if (
+        decoded.startswith("//") or "\\\\" in decoded
+        or any(ch in decoded for ch in ("\\x00", "?", "#", "\\\\"))
+        or any(component in (".", "..") for component in decoded.split("/"))
+        or not decoded.startswith("/articles/games/published/")
+        or not decoded.casefold().endswith((".pgn", ".cbv"))
+    ):
+        raise LawfulCorpusError("original CBV/PGN source contains unsafe encoded path")
     return url
 
 
