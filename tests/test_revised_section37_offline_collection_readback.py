@@ -25,14 +25,14 @@ class OfflineCorpusInventoryTests(unittest.TestCase):
         records = load_catalog()
         inventory = inventory_vendored_corpus(records, ROOT, distribution="TEST_BUILD")
         ids = {row["source_id"] for row in inventory}
-        self.assertEqual(len(inventory), 9)
+        self.assertEqual(len(inventory), 12)
         self.assertEqual(
             len([name for name in ids if name.startswith("lichess_openings_original_")]), 5
         )
         self.assertEqual(
             len([name for name in ids if name.startswith("stockfish_")]), 4
         )
-        self.assertTrue(all(row["bytes"] > 0 for row in inventory))
+        self.assertEqual(\n            len([name for name in ids if name.startswith("lichess_cc0_")]), 3\n        )\n        self.assertTrue(any("advanced" in name for name in ids))\n        self.assertTrue(all(row["bytes"] > 0 for row in inventory))
         self.assertTrue(
             all(row["semantic_state"] == "VERIFIED_BYTES_NOT_IMPORTED" for row in inventory)
         )
@@ -42,7 +42,7 @@ class OfflineCorpusInventoryTests(unittest.TestCase):
         records = load_catalog()
         trial = inventory_vendored_corpus(records, ROOT, distribution="TEST_BUILD")
         public = inventory_vendored_corpus(records, ROOT, distribution="PUBLIC_RELEASE")
-        self.assertEqual(len(trial), 9)
+        self.assertEqual(len(trial), 12)
         self.assertEqual(len(public), 5)
         self.assertTrue(all(row["source_id"].startswith("lichess_openings_original_") for row in public))
         self.assertTrue(all(row["distribution"] == "PUBLIC_RELEASE" for row in public))
