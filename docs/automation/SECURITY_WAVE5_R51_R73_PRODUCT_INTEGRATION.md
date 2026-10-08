@@ -214,3 +214,30 @@ may be converted into a public-client license check or a self-issued release
 PASS. R63/R64 require independent provider-backed subscription/billing
 authority and durable reconciliation; R66–R72 require independent physical or
 operational evidence. Those capabilities are not proven deployed here.
+
+## R61 independent post-protection attribution — build-only
+
+`scripts/security_r61_attribution_gate.py` verifies a separately issued,
+detached Ed25519 attribution envelope against the actual first-party protected
+artifact's immutable file bytes and an independently pinned key inventory.
+It reuses **the canonical** `continuum_runtime.watermark_attribution.verify_attribution`
+and the same outside-pinned `verifier_public_keys` trust schema used by R73.
+It reads a bounded regular file and rejects symlinks, race/substitution,
+tampered artifacts, build mismatch, missing/forged signatures, unknown keys,
+inventory swap, malformed and duplicate-key envelopes. Markers are not issued
+inside the public client; customer allocation identifiers, issuer signing
+secrets and tag values are not returned to product logs.
+
+This neutral R61 verifier has a 16 MiB per-artifact ceiling: larger native
+packages MUST be qualified through a separately designed signed component
+manifest, not silently truncated or accepted. The receipt is only
+`INDEPENDENT_SIGNATURE_BYTE_READBACK_ONLY`, always
+`release_approved=false`; real vendor instrumentation, customer allocation
+provenance, Windows/NVDA physical release and trusted R62 service actions
+remain independent unverified requirements.
+
+`tests/test_security_r61_attribution_gate.py` exercises signed synthetic
+contracts and negative byte, signature, build, pinned-trust, malformed JSON,
+symlink and missing-envelope cases in the existing Wave-5 dual-OS workflow.
+No actual provider signature or release qualification is claimed until an
+independent trusted issuer supplies it.
