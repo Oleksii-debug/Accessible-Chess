@@ -27,12 +27,14 @@ from .local_profile import LocalProfileStore
 from .release_app import _sound_cache_dir, _sound_variant_provider, _user_root
 from .protection_boundary import (
     ADVANCED_SECURITY_RUNTIME_API_VERSION,
+    HARDENED_SECURITY_RUNTIME_API_VERSION,
     ENTITLEMENT_RUNTIME_API_VERSION,
     ProtectedStartupLocked,
     ProtectionDecision,
     ProtectionStartupSession,
     open_release_protection_session,
 )
+from .protection_hardened_boundary import HardenedReleaseBoundary
 from .protection_locked_ui import run_locked_security_window
 from .protection_entitlement_lifecycle import ProtectionEntitlementLifecycle
 from .protection_advanced_boundary import (
@@ -562,6 +564,12 @@ def create_version2_release_application(
                             build_id=protection_session.decision.build_id,
                         ),
                         protection_session.client,
+                    )
+                # Private v5 hardening is independently checked before composing
+                # user data or premium services; v1-v4 remain supported unchanged.
+                if runtime_version >= HARDENED_SECURITY_RUNTIME_API_VERSION:
+                    HardenedReleaseBoundary(protection_session.client).require_all(
+                        build_id=protection_session.decision.build_id
                     )
                 capability_gate = ProtectionCapabilityGate(protection_session.client)
                 capability_gate.require_surface("licensing.local")
