@@ -57,10 +57,11 @@ def test_r68_journal_records_only_exact_order_and_source_digest(tmp_path):
 
 def test_r68_parallel_reservations_have_single_winner(tmp_path):
     path = tmp_path / "parallel.sqlite3"
-    SqliteMigrationJournal(path)
+    store = SqliteMigrationJournal(path)
     record = proof()
     def reserve(_):
-        return SqliteMigrationJournal(path).begin(record)
+        # Each call creates an independent SQLite transaction/connection.
+        return store.begin(record)
     with ThreadPoolExecutor(max_workers=6) as pool:
         results = list(pool.map(reserve, range(12)))
     assert sum(result is True for result in results) == 1
