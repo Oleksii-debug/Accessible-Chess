@@ -769,6 +769,30 @@ class RevisedCorpusContractTests(unittest.TestCase):
                 read_verified_zip_member(archive_path, record, expected_member="safe.epd", max_unpacked_bytes=True)
 
 
+    def test_verified_zip_reader_normalizes_corrupt_deflate_errors(self):
+        """A damaged DEFLATE stream must fail as a corpus error, not crash the caller."""
+        import zipfile
+        import zlib
+        from acs.lawful_corpus_registry import read_verified_zip_member
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "corrupt-deflate.zip"
+            with zipfile.ZipFile(source, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr("positions.epd", "8/8/8/8/8/8/8/8 w - - 0 1")
+            payload = source.read_bytes()
+            record = {
+                "sha256": hashlib.sha256(payload).hexdigest(),
+                "max_bytes": len(payload),
+                "indexed_bytes": len(payload),
+            }
+            with patch.object(
+                zipfile.ZipExtFile, "read", side_effect=zlib.error("corrupt deflate")
+            ):
+                with self.assertRaisesRegex(LawfulCorpusError, "cannot be read safely"):
+                    read_verified_zip_member(
+                        source, record, expected_member="positions.epd"
+                    )
+
     def test_verified_zip_snapshot_refuses_valid_archive_swapped_after_hash_check(self):
         """A source swap between pathname hash verification and ZIP parsing is denied."""
         import zipfile
