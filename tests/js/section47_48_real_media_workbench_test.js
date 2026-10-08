@@ -59,8 +59,9 @@ async function main() {
   const nodes = {};
   const ids = [
     "real-media-video", "real-media-file", "real-media-status",
+    "real-media-time", "real-media-read-position",
     "real-media-rate", "real-media-volume", "real-media-rewind", "real-media-forward",
-    "real-youtube-status", "real-youtube-url", "real-youtube-open",
+    "real-youtube-status", "real-youtube-time", "real-youtube-read-position", "real-youtube-url", "real-youtube-open",
     "real-youtube-player", "real-youtube-play", "real-youtube-pause",
     "real-youtube-back", "real-youtube-forward",
   ];
@@ -104,6 +105,9 @@ async function main() {
   const video = nodes["#real-media-video"];
   video.duration = 26; video.readyState = 4; video.currentTime = 7; video.paused = false;
   video.emit("loadedmetadata");
+  assert(nodes["#real-media-time"].textContent.includes("7.0"), "non-live local time readout missing");
+  nodes["#real-media-read-position"].emit("click");
+  assert(nodes["#real-media-status"].textContent.includes("7.0"), "local position announce button failed");
   assert.equal(snapshots.at(-1).positionMs,7000);
   assert.equal(snapshots.at(-1).durationMs,26000);
   assert.equal(snapshots.at(-1).playbackState,"playing");
@@ -132,6 +136,9 @@ async function main() {
   yt.ready();
   assert.equal(snapshots.at(-1).sourceKind,"remote_media");
   yt.time = 5.25; yt.change(1);
+  assert(nodes["#real-youtube-time"].textContent.includes("5.3"), "non-live YouTube clock readout missing");
+  nodes["#real-youtube-read-position"].emit("click");
+  assert(nodes["#real-youtube-status"].textContent.includes("5.3"), "YouTube position read action failed");
   assert.equal(snapshots.at(-1).positionMs,5250);
   assert.equal(snapshots.at(-1).qualification,"unlinked");
   nodes["#real-youtube-play"].emit("click");
