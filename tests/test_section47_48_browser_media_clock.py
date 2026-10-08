@@ -3,11 +3,16 @@ from __future__ import annotations
 """Section 47/48 replay, identity, no-privilege, and provider-negative oracles."""
 import unittest
 
-from acs.media_core import MediaSession, MediaPlaybackState, MediaSourceKind
+from acs.media_core import (
+    MediaSession, MediaPlaybackState, MediaSourceKind, MediaTimelineIdentity,
+    MediaPositionTimeline, MediaChessLink, MediaLinkStatus,
+    MediaReconciliationState, MediaTimelineBarrier,
+)
 from acs.section47_48_browser_media_clock import (
     BrowserMediaClockError,
     BrowserSourceAuthority,
     accept_browser_clock,
+    resolve_only_verified_canonical_position,
 )
 
 
@@ -133,6 +138,64 @@ class BrowserMediaClockQualificationTest(unittest.TestCase):
             with self.subTest(changed=changed):
                 with self.assertRaises(BrowserMediaClockError):
                     accept_browser_clock({**REMOTE, **changed}, authority=B)
+
+    def test_can_reuse_verified_canonical_position_but_never_infer_from_video(self):
+        session = accept_browser_clock(dict(LOCAL), authority=A)
+        identity = MediaTimelineIdentity(
+            source_id=A.source_id, source_revision=A.source_revision,
+            recognizer_revision="trusted-frame-detector-v1",
+            reconciliation_revision="canonical-chess-state-v1",
+        )
+        verified = MediaChessLink(
+            source_id=A.source_id, timestamp_ms=5000,
+            chess_ref="canonical:verified-board-5s",
+            status=MediaLinkStatus.CONFIRMED,
+            qualification=MediaReconciliationState.VERIFIED,
+            evidence_ids=("verified-frame:5s",),
+        )
+        timeline = MediaPositionTimeline(A.source_id, [verified], identity=identity)
+        selected = resolve_only_verified_canonical_position(session, timeline)
+        self.assertTrue(selected.resolved)
+        self.assertEqual(selected.chess_ref, "canonical:verified-board-5s")
+        self.assertIsNone(session.media_chess_ref,
+                          "read-only lookup must not mutate canonical session")
+
+        candidate = MediaChessLink(
+            source_id=A.source_id, timestamp_ms=5000,
+            chess_ref="candidate:unverified",
+            status=MediaLinkStatus.CANDIDATE,
+        )
+        self.assertIsNone(resolve_only_verified_canonical_position(
+            session, MediaPositionTimeline(A.source_id, [candidate], identity=identity)))
+        inferred = MediaChessLink(
+            source_id=A.source_id, timestamp_ms=5000,
+            chess_ref="candidate:inferred",
+            status=MediaLinkStatus.CONFIRMED,
+            qualification=MediaReconciliationState.INFERRED,
+        )
+        self.assertIsNone(resolve_only_verified_canonical_position(
+            session, MediaPositionTimeline(A.source_id, [inferred], identity=identity)))
+
+        barrier = MediaTimelineBarrier(
+            source_id=A.source_id, timestamp_ms=6000,
+            state=MediaReconciliationState.RESYNC_REQUIRED,
+        )
+        blocked = MediaPositionTimeline(
+            A.source_id, [verified], identity=identity, barriers=[barrier])
+        self.assertIsNone(resolve_only_verified_canonical_position(session, blocked))
+
+        stale_identity = MediaTimelineIdentity(
+            source_id=A.source_id, source_revision="obsolete-media-byte-revision",
+            recognizer_revision="trusted-frame-detector-v1",
+            reconciliation_revision="canonical-chess-state-v1",
+        )
+        with self.assertRaises(BrowserMediaClockError):
+            resolve_only_verified_canonical_position(
+                session, MediaPositionTimeline(
+                    A.source_id, [verified], identity=stale_identity))
+        with self.assertRaises(BrowserMediaClockError):
+            resolve_only_verified_canonical_position(
+                session, MediaPositionTimeline(A.source_id, [verified]))
 
     def test_source_authority_must_be_exact_host_type(self):
         with self.assertRaises(BrowserMediaClockError):
