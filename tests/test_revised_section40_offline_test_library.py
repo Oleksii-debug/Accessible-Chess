@@ -45,7 +45,11 @@ class RevisedSection40CollectionTests(unittest.TestCase):
                     len([n for n in trial_names if n.startswith("books/booklet-")]), 24)
                 self.assertTrue(any("stockfish_2moves" in n for n in trial_names))
                 self.assertFalse(any("gitenberg_capablanca" in n for n in trial_names))
-                self.assertEqual(len(catalog["materials"]), 35)
+                self.assertGreaterEqual(len(catalog["materials"]), 37)
+                self.assertTrue(any(x["id"] == "lichess_cc0_advanced_16_original_derived"
+                                    for x in catalog["materials"]))
+                self.assertTrue(any(x["id"] == "lichess_cc0_high_level_4_original_annotated_games"
+                                    for x in catalog["materials"]))
                 self.assertEqual(len(json.loads(z.read("training/starter-exercises.json"))["tasks"]), 144)
                 data = json.loads(z.read("catalog/checksums.json"))
                 for receipt in data:
@@ -104,7 +108,11 @@ class RevisedSection40CollectionTests(unittest.TestCase):
             records, builder.ROOT, distribution="TEST_BUILD")
         public = builder.inventory_vendored_corpus(
             records, builder.ROOT, distribution="PUBLIC_RELEASE")
-        self.assertEqual(len(test_sources), 9)
+        self.assertGreaterEqual(len(test_sources), 11)
+        self.assertIn("lichess_cc0_advanced_16_original_derived",
+                      {s["source_id"] for s in test_sources})
+        self.assertIn("lichess_cc0_high_level_4_original_annotated_games",
+                      {s["source_id"] for s in test_sources})
         self.assertEqual(len(public), 5)
         self.assertTrue(all(s["source_id"].startswith("lichess_openings_original_")
                             for s in public))
