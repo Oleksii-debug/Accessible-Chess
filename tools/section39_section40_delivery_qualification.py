@@ -18,6 +18,7 @@ import zipfile
 
 from acs.acsdb import AcsDatabase
 from acs.bookdocument import BookDocument
+from acs.pgn_roundtrip import parse_pgn_text
 from acs.lawful_corpus_registry import LawfulCorpusError, load_catalog
 from acs.user_library_seed import MANIFEST_NAME, import_user_library_seed, load_user_library_seed
 from tools.revised_section40_user_library_seed_bridge import _read_qualified_collection
@@ -139,6 +140,31 @@ def qualify_built_delivery(test_path: Path, public_path: Path,
                         and origin.get("redistribution") != "permitted")
                 ):
                     raise LawfulCorpusError("package changed original rights or material SHA")
+    # Latest Section37 original composed endgame study is an owner-test PGN,
+    # not an invented replacement for authentic ChessBase studies.
+    study_id = "historical_reti_1921_original_bilingual_study_pgn"
+    original_study = catalogue.get(study_id)
+    study_path = "library/original-reti-1921-uk-en-study.pgn"
+    if (
+        original_study is None
+        or study_path not in tests
+        or study_path in public
+        or original_study.get("acquisition") != "VENDORED_SOURCE_VERIFIED"
+        or _sha(tests[study_path]) != original_study.get("sha256")
+        or len(tests[study_path]) != original_study.get("indexed_bytes")
+    ):
+        raise LawfulCorpusError("real Réti composed study source not separated in original TEST_BUILD")
+    imported_study = parse_pgn_text(tests[study_path].decode("utf-8"), strict=False)
+    if (
+        len(imported_study) != 1
+        or imported_study[0].tags.get("FEN") != "7K/8/k1P5/7p/8/8/8/8 w - - 0 1"
+        or imported_study[0].tags.get("SetUp") != "1"
+        or len(imported_study[0].line.moves) != 11
+        or b"UK:" not in tests[study_path]
+        or b"EN:" not in tests[study_path]
+    ):
+        raise LawfulCorpusError("genuine historical original study FEN/SAN/bilingual comments missing")
+
     # Contents authored by this project are materialized in BookDocument form,
     # never conflated with the restricted original Gutenberg TXT.
     starter = BookDocument.from_dict(json.loads(tests["books/accessible-chess-starter-course.json"]))
@@ -229,6 +255,7 @@ def qualify_built_delivery(test_path: Path, public_path: Path,
         "real_stockfish_sample_sha256": _sha(original_stockfish),
         "real_library_games": 516,
         "original_annotated_games": 4,
+        "genuine_historical_bilingual_composed_studies": 1,
         "advanced_training_original_tasks": 16,
         "extreme_training_original_tasks": 4,
         "book_document_reopen": "PASS",
