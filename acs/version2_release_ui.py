@@ -10,13 +10,25 @@ live in this module.
 """
 
 from collections.abc import Mapping
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from functools import wraps
 import json
 import threading
 from typing import Any, Callable
 
 from .chesscore import Board
+from .design_studio import (
+    AppTheme,
+    Density,
+    DesignPreferences,
+    DESIGN_SCHEMA_VERSION,
+    encode_preferences,
+    exported_profile,
+    preset_profile,
+    preset_profiles,
+    safe_preferences_or_default,
+)
+from .visual_preferences import BoardOrientation, CoordinateMode
 from .full_product_native_menu import install_full_product_windows_native_menu
 from .input_limits import MAX_FEN_CHARS
 from .full_product_ui_shell import UILanguage
@@ -43,6 +55,178 @@ class Version2ReleaseAccessibleChessAPI(Stage1ReleaseAccessibleChessAPI):
         self._version2_application: Any | None = None
         self._version2_language_refresh: Callable[[], bool] | None = None
         self._external_review_fen: str | None = None
+        self._design_preview: DesignPreferences | None = None
+
+    def _stored_design_preferences(self) -> DesignPreferences:
+        settings = getattr(self, "_settings", None)
+        raw = None
+        if settings is not None:
+            try:
+                raw = settings.get("design_profile_json", None)
+            except Exception:
+                raw = None
+        return safe_preferences_or_default(raw)
+
+    def _effective_design_preferences(self) -> DesignPreferences:
+        return self._design_preview or self._stored_design_preferences()
+
+    @staticmethod
+    def _design_payload(value: DesignPreferences, *, preview: bool) -> dict[str, Any]:
+        return {
+            "ok": True,
+            "schema_version": DESIGN_SCHEMA_VERSION,
+            "preview": preview,
+            "preferences": exported_profile(value),
+            "presets": [
+                {"id": key, "name": preset_profiles()[key].profile_name}
+                for key in sorted(preset_profiles())
+            ],
+        }
+
+    def design_snapshot(self) -> dict[str, Any]:
+        value = self._effective_design_preferences()
+        return self._design_payload(value, preview=self._design_preview is not None)
+
+    def design_preview_preset(self, profile_id: str) -> dict[str, Any]:
+        if type(profile_id) is not str:
+            raise TypeError("profile_id must be text")
+        self._design_preview = preset_profile(profile_id)
+        return self.design_snapshot()
+
+    def design_preview_fields(
+        self,
+        theme: str,
+        density: str,
+        text_scale_percent: int,
+        app_zoom_percent: int,
+    ) -> dict[str, Any]:
+        current = self._effective_design_preferences()
+        try:
+            next_theme = AppTheme(theme)
+            next_density = Density(density)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("invalid design preview enum") from exc
+        self._design_preview = replace(
+            current,
+            theme=next_theme,
+            density=next_density,
+            text_scale_percent=text_scale_percent,
+            app_zoom_percent=app_zoom_percent,
+        )
+        return self.design_snapshot()
+
+    def _persist_design(self, value: DesignPreferences) -> None:
+        settings = getattr(self, "_settings", None)
+        if not self._settings_persistence_available(settings):
+            raise RuntimeError("design settings persistence is unavailable")
+        settings.set("design_profile_json", encode_preferences(value))
+
+    def design_apply(self) -> dict[str, Any]:
+        value = self._effective_design_preferences()
+        self._persist_design(value)
+        self._design_preview = None
+        return self.design_snapshot()
+
+    def design_cancel(self) -> dict[str, Any]:
+        self._design_preview = None
+        return self.design_snapshot()
+
+    def design_reset(self, profile_id: str = "classic") -> dict[str, Any]:
+        value = preset_profile(profile_id)
+        self._persist_design(value)
+        self._design_preview = None
+        return self.design_snapshot()
+
+    def design_export_profile(self) -> str:
+        return encode_preferences(self._effective_design_preferences())
+
+    def design_import_profile(self, profile_json: str, apply: bool = False) -> dict[str, Any]:
+        from .design_studio import decode_preferences
+        value = decode_preferences(profile_json)
+        if type(apply) is not bool:
+            raise TypeError("apply must be bool")
+        self._design_preview = value
+        if apply:
+            self._persist_design(value)
+            self._design_preview = None
+        return self.design_snapshot()
+
+    def design_update_layout(
+        self,
+        workspace: str,
+        panel_order: list[str],
+        collapsed: list[str],
+        primary_percent: int,
+    ) -> dict[str, Any]:
+        from .design_studio import WorkspaceLayout
+        if type(panel_order) is not list or type(collapsed) is not list:
+            raise TypeError("workspace panel state must be arrays")
+        layout = WorkspaceLayout(
+            workspace=workspace,
+            panel_order=tuple(panel_order),
+            collapsed=tuple(collapsed),
+            primary_percent=primary_percent,
+        )
+        value = self._effective_design_preferences().with_layout(layout)
+        self._persist_design(value)
+        self._design_preview = None
+        return self.design_snapshot()
+
+    def set_visual_preference(self, name: str, value: object) -> dict[str, Any]:
+        """Compatibility bridge: existing board controls write the shared schema."""
+        if type(name) is not str:
+            raise TypeError("visual preference name must be text")
+        current = self._effective_design_preferences()
+        board = current.board
+        if name == "board_theme":
+            if type(value) is not str:
+                raise TypeError("board theme must be text")
+            board = replace(board, board_theme_id=value)
+        elif name == "piece_theme":
+            if type(value) is not str:
+                raise TypeError("piece theme must be text")
+            board = replace(board, piece_theme_id=value)
+        elif name == "orientation":
+            try:
+                board = replace(board, orientation=BoardOrientation(value))
+            except (TypeError, ValueError) as exc:
+                raise ValueError("invalid board orientation") from exc
+        elif name == "coordinate_mode":
+            try:
+                board = replace(board, coordinate_mode=CoordinateMode(value))
+            except (TypeError, ValueError) as exc:
+                raise ValueError("invalid coordinate mode") from exc
+        elif name == "scale_percent":
+            board = replace(board, board_scale_percent=value)
+        elif name == "show_last_move":
+            if type(value) is not bool:
+                raise TypeError("show_last_move must be bool")
+            board = replace(board, show_last_move=value)
+        else:
+            raise KeyError("unsupported visual preference")
+        next_value = replace(current, board=board)
+        self._persist_design(next_value)
+        self._design_preview = None
+        return {"ok": True, **self.design_snapshot()}
+
+    def get_state(self) -> dict[str, Any]:
+        state = super().get_state()
+        design = self._effective_design_preferences()
+        board = design.board
+        existing = state.get("visualBoard")
+        visual = dict(existing) if isinstance(existing, Mapping) else {}
+        visual["preferences"] = {
+            "boardTheme": board.board_theme_id,
+            "pieceTheme": board.piece_theme_id,
+            "orientation": board.orientation.value,
+            "coordinateMode": board.coordinate_mode.value,
+            "scalePercent": board.board_scale_percent,
+            "showLastMove": board.show_last_move,
+            "reducedMotion": board.reduced_motion,
+        }
+        state["visualBoard"] = visual
+        state["design"] = exported_profile(design)
+        return state
 
     def _bind_ui_owner(self, owner: Any, *, action_factory: Callable | None = None) -> None:
         """Trusted host seam: called on the actual Form thread before DB creation."""
