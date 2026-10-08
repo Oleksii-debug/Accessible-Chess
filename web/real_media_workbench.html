@@ -45,6 +45,8 @@ small{display:block}
 <input id="real-media-volume" type="range" min="0" max="100" value="100">
 </div>
 <p class="status" id="real-media-status" role="status" aria-live="polite" aria-atomic="true">Виберіть MP4 або WebM. Файл не завантажується до інтернету.</p>
+<p id="real-media-time" aria-live="off">Час відео ще невідомий.</p>
+<button id="real-media-read-position" type="button">Оголосити поточний час локального відео</button>
 <p>Час відео не є доказом шахової позиції. Зіставлення FEN/PGN дозволене лише після перевірених спостережень канонічним Media Core.</p>
 <details>
 <summary>Де законно отримати тестові шахові відео</summary>
@@ -63,6 +65,8 @@ small{display:block}
 <input id="real-youtube-url" type="url" autocomplete="off" spellcheck="false">
 <button type="button" id="real-youtube-open">Відкрити у YouTube IFrame</button>
 <p class="status" role="status" id="real-youtube-status" aria-live="polite" aria-atomic="true">YouTube ще не запущено. Потрібні мережа й дозвіл автора на вбудовування.</p>
+<p id="real-youtube-time" aria-live="off">Час YouTube ще невідомий.</p>
+<button id="real-youtube-read-position" type="button">Оголосити час YouTube</button>
 <div id="real-youtube-player"></div>
 <div>
 <button type="button" id="real-youtube-play">YouTube: відтворити</button>
