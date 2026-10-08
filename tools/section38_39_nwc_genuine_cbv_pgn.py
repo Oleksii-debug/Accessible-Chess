@@ -21,7 +21,7 @@ import tempfile
 from urllib.parse import urlsplit
 from urllib.request import Request, build_opener, HTTPSHandler, HTTPRedirectHandler
 
-from acs.lawful_corpus_registry import LawfulCorpusError
+from acs.lawful_corpus_registry import LawfulCorpusError, load_catalog
 from acs.acsdb import AcsDatabase
 from acs.gametree import parse_games
 from acs.library_import_service import LibraryImportService
@@ -46,6 +46,8 @@ PGN_URL = (
 MAX_SOURCE = 32 * 1024 * 1024
 MAX_EXTRACTED_TOTAL = 256 * 1024 * 1024
 MAX_GAME_COUNT = 25_000
+CBV_SOURCE_ID = "northwest_chess_2013_01_annotated_cbv_original_external"
+PGN_SOURCE_ID = "northwest_chess_2013_01_annotated_pgn_independent_oracle_external"
 _NO_SECRET = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -160,6 +162,34 @@ def _extract_with_mit(binary: Path, archive: Path, outdir: Path) -> None:
         process.wait(timeout=10)
 
 
+def _catalog_source_pair() -> tuple[dict, dict]:
+    """The single canonical source registry owns the source and legal labels.
+
+    Exact publisher endpoints below are a security allowlist, not a second
+    license/destination authority. Tampered registry/rights/redirect fails
+    BEFORE any external source request.
+    """
+    records = {record["id"]: record for record in load_catalog()}
+    if CBV_SOURCE_ID not in records or PGN_SOURCE_ID not in records:
+        raise LawfulCorpusError("original Northwest Chess source catalogue is absent")
+    cbv, pgn = records[CBV_SOURCE_ID], records[PGN_SOURCE_ID]
+    for record, expected_url, extension in (
+        (cbv, CBV_URL, "cbv"), (pgn, PGN_URL, "pgn"),
+    ):
+        if (
+            record.get("format") != extension
+            or record.get("source_page") != PUBLISHER
+            or record.get("download_url") != expected_url
+            or record.get("acquisition") != "SOURCE_PAGE_ONLY"
+            or record.get("redistribution") != "NOT_CLEARED"
+            or record.get("public_release") != "EXCLUDED"
+            or record.get("sha256") is not None
+            or record.get("max_bytes") != MAX_SOURCE
+        ):
+            raise LawfulCorpusError("NWC original source records violated lawful metadata")
+    return cbv, pgn
+
+
 def qualify_original_publisher_pair(
     *, binary: Path, expected_binary_sha256: str,
 ) -> dict:
@@ -170,8 +200,9 @@ def qualify_original_publisher_pair(
     before = _bounded_file_digest(binary, max_bytes=120 * 1024 * 1024)
     if before[0] != expected_binary_sha256:
         raise LawfulCorpusError("MIT CBV binary digest mismatch before source I/O")
-    expected_raw = _read_publisher_source(PGN_URL)
-    cbv_raw = _read_publisher_source(CBV_URL)
+    cbv_record, pgn_record = _catalog_source_pair()
+    expected_raw = _read_publisher_source(pgn_record["download_url"])
+    cbv_raw = _read_publisher_source(cbv_record["download_url"])
     expected_games = tuple(parse_pgn_text(
         expected_raw.decode("utf-8-sig", errors="strict"), strict=False
     ))
@@ -272,6 +303,8 @@ def qualify_original_publisher_pair(
         "schema": "acs-section38-39-external-NWC-original-cbv-pgn-oracle-v1",
         "publisher_index": PUBLISHER,
         "publisher": "Northwest Chess",
+        "canonical_source_ids": [CBV_SOURCE_ID, PGN_SOURCE_ID],
+        "source_acquisition_authority": "acs.lawful_corpus_registry.load_catalog",
         "edition": "January 2013 annotated published games",
         "original_pgn_url": PGN_URL,
         "original_cbv_url": CBV_URL,
@@ -334,7 +367,8 @@ def main() -> None:
 
 
 __all__ = [
-    "PUBLISHER", "CBV_URL", "PGN_URL", "_qualified_url",
+    "PUBLISHER", "CBV_URL", "PGN_URL", "CBV_SOURCE_ID", "PGN_SOURCE_ID",
+    "_catalog_source_pair", "_qualified_url",
     "_read_publisher_source", "qualify_original_publisher_pair",
 ]
 
