@@ -1,0 +1,33 @@
+name: Section 33 Online Social Closure
+
+on:
+  pull_request:
+    paths:
+      - 'acs/multiplayer_coordination.py'
+      - 'acs/multiplayer_spectator.py'
+      - 'acs/player_directory.py'
+      - 'tests/test_multiplayer_coordination.py'
+      - 'tests/test_player_directory.py'
+      - 'tests/test_section33_online_social_closure.py'
+      - '.github/workflows/section33-online-social.yml'
+  workflow_dispatch:
+
+jobs:
+  ubuntu:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install pytest
+      - run: python -m pytest -q tests/test_multiplayer_coordination.py tests/test_player_directory.py tests/test_section33_online_social_closure.py
+  windows:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install pytest
+      - run: python -m pytest -q tests/test_multiplayer_coordination.py tests/test_player_directory.py tests/test_section33_online_social_closure.py
