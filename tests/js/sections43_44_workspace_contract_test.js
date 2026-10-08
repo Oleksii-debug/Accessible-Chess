@@ -175,7 +175,9 @@ const key = "accessible-chess.workspace-layout.v1";
   for (const required of [
     "#v2-navigation", "#main-content", "#v2-workspace", "#board-grid",
     "[role=\"listbox\"]", "[role=\"tree\"]", "video", "prefers-reduced-motion",
-    "forced-colors:active", "ac43-workspace-controls"
+    "forced-colors:active", "ac43-workspace-controls",
+    "#ac43-product-layout", "#book-document-title", "#training-answer",
+    "#education-detail", "#routes", "#workspace"
   ]) assert.ok(css.includes(required), "missing skin contract: " + required);
   for (const route of ["pgn","library","books","training","teacher","classes"]) {
     assert.ok(v2.includes('routeId === "' + route + '"'), "real V2 route missing " + route);
