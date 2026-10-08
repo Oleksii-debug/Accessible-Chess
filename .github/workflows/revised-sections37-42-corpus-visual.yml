@@ -794,7 +794,7 @@ jobs:
           python -m unittest -v tests.test_revised_section37_owner_readable_only
       - name: Materialize actual five format bilingual user testing books
         shell: bash
-        run: python -m tools.revised_section37_bilingual_workbook_pack --output-dir section37-bilingual-shareable-advanced-books
+        run: python -m tools.revised_section37_bilingual_workbook_pack --output-dir section37-bilingual-shareable-advanced-books --zip-output section37-advanced-uk-en-tested-corpus.zip
       - name: Validate generated zip-based EPUB3 and DOCX are readable containers with actual contents
         shell: bash
         run: |
@@ -804,7 +804,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: section37-uk-en-advanced-tactics-positional-endgame-books-${{ matrix.os }}
-          path: section37-bilingual-shareable-advanced-books/
+          path: |
+            section37-bilingual-shareable-advanced-books/
+            section37-advanced-uk-en-tested-corpus.zip
           if-no-files-found: error
           retention-days: 21
 
