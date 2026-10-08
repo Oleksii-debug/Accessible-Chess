@@ -5,27 +5,95 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .protection_boundary import ProtectionDecision, ProtectionRuntimeClient
+from .protection_boundary import ONLINE_RUNTIME_API_VERSION, ProtectionDecision, ProtectionRuntimeClient
+from .protection_online_boundary import ProtectionOnlineClient
 from .webapp_keymap import _asset_root
 
 
 class ProtectionLockedAPI:
-    def __init__(self, client: ProtectionRuntimeClient, decision: ProtectionDecision) -> None:
+    def __init__(
+        self,
+        client: ProtectionRuntimeClient,
+        decision: ProtectionDecision,
+        *,
+        online_client: ProtectionOnlineClient | None = None,
+    ) -> None:
         self.client = client
         self.decision = decision
         self.authorized = False
         self._window: Any | None = None
+        self._online = online_client or ProtectionOnlineClient(client)
+        self._online_flow_id: str | None = None
+        self._online_mode: str | None = None
 
     def bind_window(self, window: Any) -> None:
         self._window = window
 
     def status(self) -> dict[str, object]:
+        try:
+            online_available = self.client.runtime_api_version() >= ONLINE_RUNTIME_API_VERSION
+        except Exception:
+            online_available = False
         return {
             "state": self.decision.state,
             "reason": self.decision.reason,
             "safe_operations": sorted(self.decision.safe_operations),
             "build_id": self.decision.build_id,
+            "online_available": online_available,
         }
+
+    def _begin_online(self, mode: str) -> dict[str, object]:
+        try:
+            flow = self._online.begin(mode=mode)
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+        self._online_flow_id = flow.flow_id
+        self._online_mode = flow.mode
+        return {
+            "ok": True,
+            "mode": flow.mode,
+            "expires_in_seconds": flow.expires_in_seconds,
+        }
+
+    def begin_online_login(self) -> dict[str, object]:
+        return self._begin_online("login")
+
+    def begin_online_registration(self) -> dict[str, object]:
+        return self._begin_online("register")
+
+    def poll_online_access(self) -> dict[str, object]:
+        if self._online_flow_id is None:
+            return {"ok": False, "error": "online access flow has not been started"}
+        try:
+            poll = self._online.poll(flow_id=self._online_flow_id)
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+        result: dict[str, object] = {
+            "ok": True,
+            "state": poll.state,
+            "reason": poll.reason,
+            "mode": self._online_mode,
+            "authorized": False,
+        }
+        if not poll.completed:
+            return result
+
+        try:
+            decision = self.client.evaluate()
+        except Exception as exc:
+            return {"ok": False, "authorized": False, "error": str(exc)}
+        self.decision = decision
+        if not decision.authorized:
+            result["reason"] = decision.reason
+            return result
+
+        self.authorized = True
+        result["authorized"] = True
+        destroy = getattr(self._window, "destroy", None)
+        if callable(destroy):
+            destroy()
+        return result
 
     def create_activation_request(self) -> dict[str, object]:
         try:
