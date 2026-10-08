@@ -99,6 +99,37 @@ class PublicReleaseExclusionTests(unittest.TestCase):
             with self.assertRaises(LawfulCorpusError):
                 audit_public_archive(zip_path, (RECORD,))
 
+    def test_noncanonical_archive_paths_fail_before_windows_extraction_aliases(self):
+        # A ZIP with normalized equivalents may overwrite a file when
+        # extracted, evading source-name checks or duplicate detection.
+        for filename in (
+            "assets/./safe.txt",
+            "assets//safe.txt",
+            "assets/safe.txt.",
+            "assets/safe.txt ",
+            "assets/safe.txt:alternate-stream",
+            "assets/../safe.txt",
+        ):
+            with self.subTest(filename=filename):
+                with tempfile.TemporaryDirectory() as temp:
+                    archive = Path(temp) / "alias.zip"
+                    build_zip(archive, {filename: b"benign"})
+                    with self.assertRaisesRegex(LawfulCorpusError, "unsafe member path"):
+                        audit_public_archive(archive, (RECORD,))
+
+    def test_duplicate_alias_cannot_hide_original_book(self):
+        with tempfile.TemporaryDirectory() as temp:
+            archive = Path(temp) / "alias-original.zip"
+            build_zip(
+                archive,
+                {
+                    "product/original-chess-book.md.": b"disguised",
+                    "product/readme.txt": b"safe",
+                },
+            )
+            with self.assertRaises(LawfulCorpusError):
+                audit_public_archive(archive, (RECORD,))
+
     def test_archive_replaced_between_lstat_and_open_is_refused(self):
         # Simulate an attacker exchanging the checked path before the ZIP opens.
         # os.replace works on Windows without symlink privileges.
