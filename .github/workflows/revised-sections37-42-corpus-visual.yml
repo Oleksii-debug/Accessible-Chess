@@ -87,6 +87,11 @@ on:
       - 'tests/test_section15_visual_board_contract.py'
       - '.github/workflows/revised-sections37-42-corpus-visual.yml'
   workflow_dispatch: {}
+# Keep the latest exact product SHA when many Section37 collaborators share
+# the same PR; old queued runs cannot certify a newer product revision.
+concurrency:
+  group: ${{ github.workflow }}-pr-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
