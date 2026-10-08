@@ -101,7 +101,11 @@ function canonicalSquares(cells) {
   if (!Array.isArray(cells) || cells.length !== 64) return false;
   const names = cells.map(cell => cell && cell.square);
   return names.every(x => typeof x === "string" && /^[a-h][1-8]$/.test(x))
-    && new Set(names).size === 64;
+    && new Set(names).size === 64
+    && cells.every(cell => cell && typeof cell === "object" &&
+      (cell.piece == null || (typeof cell.piece === "string" &&
+        (cell.piece === "" || /^[KQRBNPkqrbnp]$/.test(cell.piece))))
+      && (cell.label == null || (typeof cell.label === "string" && cell.label.length <= 256)));
 }
 function activeVisualBoard(snapshot) {
   if (!snapshot || typeof snapshot !== "object") return null;
@@ -159,7 +163,8 @@ function renderBoard(snapshot) {
   const theme = themes.includes(p.boardTheme) ? p.boardTheme : "classic";
   const style = ["unicode", "letters", "rhosgfx"].includes(p.pieceTheme) ? p.pieceTheme : "unicode";
   const ordered = p.orientation === "black" ? [...cells].reverse() : [...cells];
-  const legal = new Set(Array.isArray(visual.legalTargets) ? visual.legalTargets : []);
+  const legal = new Set(Array.isArray(visual.legalTargets) ?
+    visual.legalTargets.slice(0,64).filter(x => typeof x === "string" && /^[a-h][1-8]$/.test(x)) : []);
   const last = visual.lastMove && typeof visual.lastMove === "object"
     ? [visual.lastMove.from, visual.lastMove.to] : [];
   const activeSquare = typeof visual.selectedSquare === "string" ? visual.selectedSquare : null;
@@ -187,8 +192,9 @@ function renderBoard(snapshot) {
     const token = cell && typeof cell === "object" && typeof cell.piece === "string"
       && /^[KQRBNPkqrbnp]$/.test(cell.piece) ? cell.piece : "";
     const fallback = String(cell || ("Клітинка " + (index+1)));
-    const label = cell && typeof cell === "object"
+    const rawLabel = cell && typeof cell === "object"
       ? String(cell.label || cell.description || square || fallback) : fallback;
+    const label = rawLabel.replace(/[\x00-\x1f\x7f]/g," ").trim().slice(0,256) || square;
     button.dataset.square = square;
     button.dataset.index = String(index);
     button.dataset.piece = token;
