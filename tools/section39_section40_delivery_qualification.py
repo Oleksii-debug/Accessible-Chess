@@ -112,6 +112,12 @@ def qualify_built_delivery(test_path: Path, public_path: Path,
         raise LawfulCorpusError("test, public and runtime seed packages are not distinct")
     trial = _catalog_data(tests, "TEST_BUILD")
     publish = _catalog_data(public, "PUBLIC_RELEASE")
+    expected_source_head = _source_head()
+    if (
+        trial.get("source_commit_sha") != expected_source_head
+        or publish.get("source_commit_sha") != expected_source_head
+    ):
+        raise LawfulCorpusError("mixed-version Section40 offline archives do not match exact current original source SHA")
     if set(owner) != set(OWNER_FILES):
         raise LawfulCorpusError("owner seed artifact has extra or missing runtime files")
     if (
@@ -333,6 +339,7 @@ def qualify_built_delivery(test_path: Path, public_path: Path,
                     raise LawfulCorpusError("actual owner runtime seed failed canonical startup/restart")
     return {
         "schema": "acs-section39-40-actual-three-package-integration-v1",
+        "product_source_commit_sha": expected_source_head,
         "archive_sha256": {"TEST_BUILD": test_hash,
                             "PUBLIC_RELEASE": public_hash, "OWNER_RUNTIME_SEED": owner_hash},
         "original_annotated_source_sha256": _sha(original_annotated),
