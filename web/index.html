@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Accessible Chess</title>
+<link rel="stylesheet" href="accessible_chess_design.css">
 <style>
 :root{--ac-space-1:.25rem;--ac-space-2:.5rem;--ac-space-3:.75rem;--ac-space-4:1rem;--ac-space-6:1.5rem;--ac-radius:.5rem;--ac-focus:Highlight;--ac-shadow:0 2px 12px rgba(0,0,0,.12)}
 :where(button,input,select,textarea,a):focus-visible{outline:3px solid var(--ac-focus);outline-offset:3px}
@@ -157,5 +158,6 @@ el('key-export').addEventListener('click',async()=>{const en=document.documentEl
 el('key-import').addEventListener('change',async e=>{const f=e.target.files&&e.target.files[0];if(!f)return;const en=document.documentElement.lang==='en';try{const text=await f.text(),a=api();if(!(centralKeymap&&a&&typeof a.keymap_import_profile==='function'))throw new Error();let r=await a.keymap_import_profile(text,false);if(r.requiresConfirmation&&!window.confirm(r.message||(en?'Import this profile?':'Імпортувати цей профіль?')))return;if(r.requiresConfirmation)r=await a.keymap_import_profile(text,true);if(!r.ok){announceUserAction(r.message||(en?'Keyboard profile could not be imported.':'Не вдалося імпортувати профіль клавіш.'));return}await applyKeymapMutation(r)}catch(err){announceUserAction(en?'Keyboard settings could not be imported.':'Не вдалося імпортувати налаштування.')}finally{e.target.value=''}});
 window.addEventListener('pywebviewready',async()=>{await refreshState();await loadKeymap();setInterval(refreshAnalysis,700)});
 </script>
+<script src="accessible_chess_workspaces.js" defer></script>
 </body>
 </html>
