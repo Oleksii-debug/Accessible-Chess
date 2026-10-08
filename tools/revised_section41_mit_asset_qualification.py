@@ -26,7 +26,7 @@ class Section41AssetError(RuntimeError):
 
 
 def git_blob_sha1(data: bytes) -> str:
-    return hashlib.sha1(b"blob " + str(len(data)).encode("ascii") + b"\\0" + data).hexdigest()
+    return hashlib.sha1(b"blob " + str(len(data)).encode("ascii") + b"\0" + data).hexdigest()
 
 
 def qualified_mit_icons(*, root: Path = ROOT) -> tuple[dict, tuple[ComponentRecord, ...]]:
@@ -132,7 +132,7 @@ def main() -> None:
         raise Section41AssetError("refusing to overwrite design asset evidence")
     args.output.mkdir(parents=True, exist_ok=False)
     (args.output / "section41-icons-evidence.json").write_text(
-        json.dumps(report, ensure_ascii=False, sort_keys=True, indent=2) + "\\n",
+        json.dumps(report, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
         encoding="utf-8",
     )
     (args.output / "section41-icons-spdx-2.3.json").write_text(
