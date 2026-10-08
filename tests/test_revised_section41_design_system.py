@@ -129,6 +129,7 @@ class Section41RealDesignTests(unittest.TestCase):
                         self.assertEqual(api.board.fen(),prior_fen)
                         self.assertEqual(api.review_history.export_tree(),prior_game)
                         self.assertEqual(len(state["visualBoard"]["cells"]),64)
+                self.assertEqual(api.set_ui_theme("dark")["uiTheme"],"dark")
             finally:
                 api.close_analysis()
             reopened=Stage1ReleaseAccessibleChessAPI(
@@ -136,7 +137,7 @@ class Section41RealDesignTests(unittest.TestCase):
                 settings=Settings(settings_path),
             )
             try:
-                self.assertEqual(reopened.get_state()["uiTheme"],"system")
+                self.assertEqual(reopened.get_state()["uiTheme"],"dark")
             finally:
                 reopened.close_analysis()
 
