@@ -56,8 +56,13 @@
     const s = localSnapshot(state);
     const time = s.positionMs === null ? "?" : (s.positionMs / 1000).toFixed(1);
     const duration = s.durationMs === null ? "?" : (s.durationMs / 1000).toFixed(1);
-    safeStatus(state.root, "Локальне відео: " + s.playbackState +
-      "; " + time + " із " + duration + " с. Шахову позицію не підтверджено.");
+    required(state.root, "#real-media-time").textContent =
+      "Час локального відео: " + time + " із " + duration + " с.";
+    if (state.lastLocalPlaybackState !== s.playbackState) {
+      state.lastLocalPlaybackState = s.playbackState;
+      safeStatus(state.root, "Локальне відео: " + s.playbackState +
+        ". Шахову позицію не підтверджено.");
+    }
     notify(state, s);
   }
   function disposeLocal(state) {
@@ -86,6 +91,7 @@
     }
     disposeLocal(state);
     state.revision += 1;
+    state.lastLocalPlaybackState = null;
     state.localId = "local-file:session-" + state.revision;
     state.localUrl = candidate;
     state.video.src = candidate;
@@ -99,18 +105,27 @@
   }
   function onYouTubeSnapshot(state, snap) {
     if (state.disposed) return;
-    if (!snap.ok) {
-      const reason = [101, 150].includes(snap.errorCode) ?
-        "Власник заборонив вбудовування цього відео." :
-        snap.errorCode === 100 ? "Відео видалене, приватне або недоступне." :
-        snap.errorCode === 5 ? "Помилка підтримки HTML5-плеєра." :
-        "Провайдер відхилив відтворення.";
-      ytStatus(state, "YouTube, помилка " + snap.errorCode + ". " + reason);
-    } else if (snap.autoplayBlocked) {
-      ytStatus(state, "Автоматичне відтворення YouTube заблоковано. Натисніть кнопку відтворення вручну.");
-    } else ytStatus(state, "YouTube: " + snap.playbackState + "; позиція " +
-      (snap.positionMs / 1000).toFixed(1) +
-      " с. Відновлення шахової позиції без перевірених доказів заборонено.");
+    const clockText = (snap.positionMs / 1000).toFixed(1);
+    required(state.root, "#real-youtube-time").textContent =
+      "Час YouTube: " + clockText + " с.";
+    const key = !snap.ok ? "error:" + snap.errorCode :
+      snap.autoplayBlocked ? "autoplay-blocked" : snap.playbackState;
+    if (key !== state.lastYoutubeStatusKey) {
+      state.lastYoutubeStatusKey = key;
+      if (!snap.ok) {
+        const reason = [101, 150].includes(snap.errorCode) ?
+          "Власник заборонив вбудовування цього відео." :
+          snap.errorCode === 100 ? "Відео видалене, приватне або недоступне." :
+          snap.errorCode === 5 ? "Помилка підтримки HTML5-плеєра." :
+          "Провайдер відхилив відтворення.";
+        ytStatus(state, "YouTube, помилка " + snap.errorCode + ". " + reason);
+      } else if (snap.autoplayBlocked) {
+        ytStatus(state, "Автоматичне відтворення YouTube заблоковано. Натисніть кнопку відтворення вручну.");
+      } else {
+        ytStatus(state, "YouTube: " + snap.playbackState +
+          ". Шахова позиція залишається непідтвердженою.");
+      }
+    }
     notify(state, Object.assign({}, snap, { qualification: "unlinked", chessRef: null }));
   }
   function ensureYouTubeApi(state) {
@@ -164,6 +179,7 @@
     if (global.navigator && global.navigator.onLine === false) {
       ytStatus(state, "Немає мережі. YouTube не працює офлайн; локальне MP4/WebM доступне."); return false;
     }
+    state.lastYoutubeStatusKey = null;
     const generation = ++state.ytGeneration;
     if (state.youtube) {
       state.youtube.destroy();
@@ -220,6 +236,7 @@
       root, onSnapshot, video: required(root, "#real-media-video"),
       localUrl: null, localId: null, revision: 0, youtube: null,
       apiPromise: null, ytGeneration: 0, disposed: false, interval: null,
+      lastLocalPlaybackState: null, lastYoutubeStatusKey: null,
     };
     states.set(root, state);
     required(root, "#real-media-file").addEventListener("change", function (event) {
@@ -237,6 +254,16 @@
         notify(state, localSnapshot(state));
       }
     });
+    required(root, "#real-media-read-position").addEventListener("click", function () {
+      if (!state.localUrl) {
+        safeStatus(root, "Спочатку виберіть локальне шахове відео.");
+        return;
+      }
+      const current = localSnapshot(state);
+      safeStatus(root, "Локальне відео, час " +
+        (current.positionMs === null ? "невідомий" : (current.positionMs / 1000).toFixed(1) + " секунд") +
+        ". Позицію шахів не перевірено.");
+    });
     required(root, "#real-media-rate").addEventListener("change", function (event) {
       const rate = Number(event.target.value);
       if ([0.5, 0.75, 1, 1.25, 1.5, 2].includes(rate)) state.video.playbackRate = rate;
@@ -253,6 +280,19 @@
       if (state.localUrl && secondsMs(state.video.currentTime) !== null)
         state.video.currentTime = Math.min(Number.isFinite(state.video.duration) ?
           state.video.duration : state.video.currentTime + 10, state.video.currentTime + 10);
+    });
+    required(root, "#real-youtube-read-position").addEventListener("click", function () {
+      if (!state.youtube) {
+        ytStatus(state, "Спочатку відкрийте відео YouTube.");
+        return;
+      }
+      try {
+        const current = state.youtube.snapshot();
+        ytStatus(state, "YouTube, час " + (current.positionMs / 1000).toFixed(1) +
+          " секунд. Стан: " + current.playbackState + ". Шахову позицію не підтверджено.");
+      } catch (_) {
+        ytStatus(state, "Час YouTube недоступний.");
+      }
     });
     required(root, "#real-youtube-open").addEventListener("click", function () { openYouTube(state); });
     for (const action of ["play", "pause", "back", "forward"]) {
