@@ -361,21 +361,202 @@ class _Builder:
 
 _HEADING_RE = re.compile(r"^(#{1,6})[ \t]+(.+?)(?:[ \t]+#+)?[ \t]*$")
 _LEGACY_HEADING_ID_RE = re.compile(r"^(#{1,6})[ \t]+(.+?)\s*#*\s*$")
-_FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})([^`]*)$")
-_IMAGE_RE = re.compile(r"!\[([^\]]+)\]\([^\)]+\)")
+_BACKTICK_FENCE_RE = re.compile(r"^ {0,3}(`{3,})([^`]*)$")
+_TILDE_FENCE_RE = re.compile(r"^ {0,3}(~{3,})(.*)$")
 _LIST_RE = re.compile(
-    r"^(?P<indent>[ \t]*)(?:(?P<bullet>[-+*])|(?P<number>[0-9]{1,9})[.)])\s+(?P<text>.+)$"
+    r"^(?P<indent>[ \t]*)(?:(?P<bullet>[-+*])|(?P<number>[0-9]{1,9})(?P<delimiter>[.)]))\s+(?P<text>.+)$"
 )
-_QUOTE_RE = re.compile(r"^\s*>\s?(.*)$")
+_QUOTE_RE = re.compile(r"^ {0,3}>[ \t]?(.*)$")
+
+
+def _match_block_quote(line: str) -> tuple[str, str, int] | None:
+    """Return fully unwrapped quote text, legacy one-level text, and depth.
+
+    BookDocument has no block-quote node. Strip every valid nested CommonMark
+    quote marker before publishing readable fallback text, but retain the
+    historical one-level projection separately so durable block identifiers can
+    remain stable for books already opened by older releases.
+    """
+
+    first = _QUOTE_RE.match(line)
+    if first is None:
+        return None
+    legacy_source = first.group(1)
+    content = legacy_source
+    depth = 1
+    while True:
+        nested = _QUOTE_RE.match(content)
+        if nested is None:
+            break
+        depth += 1
+        content = nested.group(1)
+    return content, legacy_source, depth
+
+
+def _match_fence_opener(line: str) -> tuple[str, str] | None:
+    """Return a bounded CommonMark fenced-code opener.
+
+    Backtick fence info strings may not contain a backtick. Tilde fence info
+    strings may contain backticks, so sharing the stricter backtick grammar
+    makes a valid tilde code block fall through into semantic Markdown parsing.
+    """
+
+    match = _BACKTICK_FENCE_RE.match(line)
+    if match is not None:
+        return match.group(1), match.group(2)
+    match = _TILDE_FENCE_RE.match(line)
+    if match is not None:
+        return match.group(1), match.group(2)
+    return None
+
+
+def _semantic_image_opener(line: str, index: int) -> tuple[int, str] | None:
+    """Return destination start and accessible alt text for a bounded image opener."""
+
+    if not line.startswith("![", index):
+        return None
+    cursor = index + 2
+    alt: list[str] = []
+    while cursor < len(line):
+        char = line[cursor]
+        if char == "\\" and cursor + 1 < len(line):
+            escaped = line[cursor + 1]
+            if escaped in "\\[]()!":
+                alt.append(escaped)
+                cursor += 2
+                continue
+            alt.append(char)
+            cursor += 1
+            continue
+        if char == "]" and cursor + 1 < len(line) and line[cursor + 1] == "(":
+            return cursor + 2, "".join(alt)
+        alt.append(char)
+        cursor += 1
+    return None
+
+
+@dataclass(frozen=True, slots=True)
+class _SemanticImageMatch:
+    start_index: int
+    end_index: int
+    alt: str
+
+    def start(self) -> int:
+        return self.start_index
+
+    def end(self) -> int:
+        return self.end_index
+
+    def group(self, index: int) -> str:
+        if index != 1:
+            raise IndexError("semantic image match exposes only alt-text group 1")
+        return self.alt
+
+
+def _semantic_image_end(line: str, destination_start: int) -> int | None:
+    """Return the exclusive end of one bounded CommonMark inline-image target."""
+
+    length = len(line)
+    cursor = destination_start
+    leading_whitespace = False
+    while cursor < length and line[cursor] in " \t":
+        leading_whitespace = True
+        cursor += 1
+    if cursor >= length:
+        return None
+    if line[cursor] == ")":
+        return cursor + 1
+
+    # Empty destination followed by a quoted title.
+    destination_complete = False
+    if leading_whitespace and line[cursor] in {'"', "'"}:
+        destination_complete = True
+    elif line[cursor] == "<":
+        cursor += 1
+        while cursor < length:
+            char = line[cursor]
+            if char == "\\" and cursor + 1 < length:
+                cursor += 2
+                continue
+            if char == "<":
+                return None
+            if char == ">":
+                cursor += 1
+                destination_complete = True
+                break
+            cursor += 1
+        if not destination_complete:
+            return None
+    else:
+        nested = 0
+        started = cursor
+        while cursor < length:
+            char = line[cursor]
+            if char == "\\" and cursor + 1 < length:
+                cursor += 2
+                continue
+            if char in " \t":
+                if nested:
+                    return None
+                destination_complete = True
+                break
+            if ord(char) < 0x20 or ord(char) == 0x7F:
+                return None
+            if char == "(":
+                nested += 1
+                cursor += 1
+                continue
+            if char == ")":
+                if nested:
+                    nested -= 1
+                    cursor += 1
+                    continue
+                return cursor + 1
+            cursor += 1
+        if cursor == started or not destination_complete:
+            return None
+
+    while cursor < length and line[cursor] in " \t":
+        cursor += 1
+    if cursor >= length:
+        return None
+    if line[cursor] == ")":
+        return cursor + 1
+
+    opener = line[cursor]
+    if opener not in {'"', "'", "("}:
+        return None
+    closer = ")" if opener == "(" else opener
+    cursor += 1
+    while cursor < length:
+        char = line[cursor]
+        if char == "\\" and cursor + 1 < length:
+            cursor += 2
+            continue
+        if char == closer:
+            cursor += 1
+            break
+        if opener == "(" and char == "(":
+            return None
+        cursor += 1
+    else:
+        return None
+
+    while cursor < length and line[cursor] in " \t":
+        cursor += 1
+    if cursor < length and line[cursor] == ")":
+        return cursor + 1
+    return None
 
 
 def _iter_semantic_images(line: str):
-    """Yield unescaped inline images outside conservative backtick literals.
+    """Yield bounded inline images outside conservative backtick literals.
 
-    This is deliberately a bounded, single-pass recognizer rather than a second
-    Markdown parser. Escaped punctuation and backtick-delimited text stay
-    readable source text. If a backtick run is never closed, the rest of the
-    line is conservatively treated as literal instead of inventing semantics.
+    This remains a single-pass recognizer, not a second Markdown parser.
+    Escaped punctuation and backtick-delimited text stay readable source text.
+    Image destinations follow a bounded CommonMark inline-target grammar:
+    empty targets, angle-bracket targets, balanced raw parentheses and optional
+    titles are recognized; malformed or ambiguous targets remain literal text.
     """
 
     index = 0
@@ -402,12 +583,86 @@ def _iter_semantic_images(line: str):
         if char == "\\":
             index = min(length, index + 2)
             continue
-        match = _IMAGE_RE.match(line, index)
-        if match is not None:
-            yield match
-            index = match.end()
-            continue
+
+        opener = _semantic_image_opener(line, index)
+        if opener is not None:
+            destination_start, alt_text = opener
+            image_end = _semantic_image_end(line, destination_start)
+            if image_end is not None:
+                yield _SemanticImageMatch(
+                    start_index=index,
+                    end_index=image_end,
+                    alt=alt_text,
+                )
+                index = image_end
+                continue
+
         index += 1
+
+
+def _semantic_image_stripped_text(text: str) -> str:
+    """Remove recognized image references while preserving all other source text."""
+
+    parts: list[str] = []
+    cursor = 0
+    for match in _iter_semantic_images(text):
+        parts.append(text[cursor:match.start()])
+        cursor = match.end()
+    parts.append(text[cursor:])
+    return "".join(parts)
+
+
+def _accessible_inline_text(text: str) -> tuple[str, bool]:
+    """Replace recognized inline images with readable alt text only.
+
+    This projection is used when the canonical BookDocument cannot retain an
+    inline image child inside another structure. Destination URLs and titles
+    are deliberately excluded from readable text and deterministic block
+    identity; malformed or ambiguous image syntax remains literal source text.
+    """
+
+    matches = _iter_semantic_images(text)
+    first = next(matches, None)
+    if first is None:
+        return text.strip(), False
+
+    parts: list[str] = []
+    cursor = 0
+    match = first
+    while match is not None:
+        parts.append(text[cursor:match.start()])
+        alt = match.group(1).strip()
+        if alt:
+            parts.append(alt)
+        cursor = match.end()
+        match = next(matches, None)
+    parts.append(text[cursor:])
+    return "".join(parts).strip(), True
+
+
+def _accessible_list_item_text(text: str) -> tuple[str, bool]:
+    """Preserve inline image alt text inside a flat canonical list item."""
+
+    projected, had_image = _accessible_inline_text(text)
+    return re.sub(r"[ \t]+", " ", projected).strip(), had_image
+
+
+def _readable_list_fallback(match: re.Match[str]) -> tuple[str, bool]:
+    """Flatten an unrepresentable list row without leaking image destinations.
+
+    Keep the authored marker visible so reading order and list intent survive the
+    fallback, but reduce semantic inline images to their accessible alt text.
+    This never fetches assets or infers chess content.
+    """
+
+    ordered = match.group("number") is not None
+    marker = (
+        f"{match.group('number')}{match.group('delimiter')}"
+        if ordered
+        else match.group("bullet")
+    )
+    item, had_image = _accessible_list_item_text(match.group("text"))
+    return f"{marker} {item}".rstrip(), had_image
 
 
 def _is_fence_close(line: str, marker: str) -> bool:
@@ -472,11 +727,11 @@ def _parse_markdown(text: str, builder: _Builder, control_checkpoint: Callable[[
                 "Markdown book visible text exceeds the supported size",
                 code=BookTextImportErrorCode.RESOURCE_LIMIT,
             )
-        fence = _FENCE_RE.match(line)
-        if fence:
+        fence = _match_fence_opener(line)
+        if fence is not None:
             flush()
-            marker = fence.group(1)
-            language = fence.group(2).strip().lower().split(None, 1)[0] if fence.group(2).strip() else ""
+            marker, info = fence
+            language = info.strip().lower().split(None, 1)[0] if info.strip() else ""
             body_lines: list[str] = []
             fence_chars = 0
             index += 1
@@ -516,18 +771,35 @@ def _parse_markdown(text: str, builder: _Builder, control_checkpoint: Callable[[
         heading = _HEADING_RE.match(line)
         if heading:
             flush()
+            # A heading is itself the structural owner of the line. Project any
+            # recognized inline image through its accessible alt text before
+            # publication so destination URLs/titles never become heading text
+            # or document title. The source-derived identity below is retained
+            # deliberately for backward-compatible progress restoration.
+            heading_text, heading_had_image = _accessible_inline_text(
+                heading.group(2)
+            )
             legacy_heading = _LEGACY_HEADING_ID_RE.match(line)
-            identity_text = (
+            identity_source = (
                 legacy_heading.group(2)
                 if legacy_heading is not None
                 else heading.group(2)
             )
+            # Keep the historical source-derived target identity for the
+            # exact same book bytes. Existing BookReader snapshots may already
+            # reference that key; sanitizing visible text must not silently
+            # orphan persisted reading progress after an application upgrade.
+            identity_text = identity_source
             builder.heading(
-                heading.group(2),
+                heading_text,
                 len(heading.group(1)),
                 number,
                 identity_text=identity_text,
             )
+            if heading_had_image:
+                builder.warning(
+                    "Markdown image inside a heading was preserved as accessible heading text; no asset was fetched and the image destination was excluded from reading text"
+                )
             index += 1
             continue
 
@@ -536,15 +808,25 @@ def _parse_markdown(text: str, builder: _Builder, control_checkpoint: Callable[[
             index += 1
             continue
 
+        # Classify structural line owners before the generic inline-image
+        # projection. A block quote containing an image must remain on the
+        # blockquote fallback path so its marker is not exposed as prose and
+        # its image destination/title cannot escape into readable identity.
+        list_match = _LIST_RE.match(line)
+        quote_match = _match_block_quote(line)
         image_matches = _iter_semantic_images(line)
         first_image = next(image_matches, None)
-        if first_image is not None:
+        if (
+            first_image is not None
+            and list_match is None
+            and quote_match is None
+        ):
             flush()
-            # Before this source-order repair, all regex-shaped image Notes were
-            # appended first and one combined Paragraph containing the remaining
-            # prose was appended last. Keep that historical Paragraph identity
-            # while recognizing only unescaped images outside literal code now.
-            legacy_paragraph_identity = _IMAGE_RE.sub("", line).strip() or None
+            # Keep the historical Paragraph identity for ordinary image
+            # references, but derive it from the same bounded recognizer that
+            # owns visible semantics. This keeps nested/escaped destination URLs
+            # out of deterministic reading-progress identity.
+            legacy_paragraph_identity = _semantic_image_stripped_text(line).strip() or None
             legacy_identity_available = legacy_paragraph_identity is not None
             cursor = 0
             match = first_image
@@ -580,8 +862,6 @@ def _parse_markdown(text: str, builder: _Builder, control_checkpoint: Callable[[
             index += 1
             continue
 
-        list_match = _LIST_RE.match(line)
-        quote_match = _QUOTE_RE.match(line)
         if list_match:
             flush()
             indent = list_match.group("indent")
@@ -589,23 +869,44 @@ def _parse_markdown(text: str, builder: _Builder, control_checkpoint: Callable[[
             start_value = int(list_match.group("number")) if ordered else None
 
             if "\t" in indent or len(indent) > 3:
-                builder.paragraph(line.strip(), number)
+                fallback_text, fallback_had_image = _readable_list_fallback(
+                    list_match
+                )
+                builder.paragraph(fallback_text, number)
                 builder.warning(
                     "Markdown list indentation or nesting could not be represented canonically and was preserved as readable text"
                 )
+                if fallback_had_image:
+                    builder.warning(
+                        "Markdown image inside an unrepresentable list item was preserved as accessible text; no asset was fetched and nested image structure is not represented"
+                    )
                 index += 1
                 continue
 
             if ordered and start_value is not None and start_value < 1:
-                builder.paragraph(line.strip(), number)
+                fallback_text, fallback_had_image = _readable_list_fallback(
+                    list_match
+                )
+                builder.paragraph(fallback_text, number)
                 builder.warning(
                     "Markdown ordered list with non-positive start was preserved as reading text because canonical List start must be positive"
                 )
+                if fallback_had_image:
+                    builder.warning(
+                        "Markdown image inside an unrepresentable list item was preserved as accessible text; no asset was fetched and nested image structure is not represented"
+                    )
                 index += 1
                 continue
 
-            items = [list_match.group("text").strip()]
-            expected = (start_value + 1) if start_value is not None else None
+            first_item, list_image_warning = _accessible_list_item_text(
+                list_match.group("text")
+            )
+            items = [first_item]
+            marker_identity = (
+                list_match.group("delimiter")
+                if ordered
+                else list_match.group("bullet")
+            )
             next_index = index + 1
             while next_index < len(lines):
                 if control_checkpoint is not None and next_index % 128 == 0:
@@ -617,18 +918,29 @@ def _parse_markdown(text: str, builder: _Builder, control_checkpoint: Callable[[
                 candidate_ordered = candidate_match.group("number") is not None
                 if candidate_ordered != ordered:
                     break
-                if ordered:
-                    candidate_number = int(candidate_match.group("number"))
-                    if candidate_number != expected:
-                        break
-                    expected = candidate_number + 1
+                candidate_marker_identity = (
+                    candidate_match.group("delimiter")
+                    if candidate_ordered
+                    else candidate_match.group("bullet")
+                )
+                if candidate_marker_identity != marker_identity:
+                    break
+                # Markdown numbering after the first ordered marker does not
+                # define the rendered sequence. The first marker establishes
+                # the canonical start; later authored numbers remain list items
+                # unless the delimiter or indentation changes. Requiring +1
+                # here created false list boundaries for keyboard/NVDA readers.
                 visible += len(candidate)
                 if visible > MAX_TEXT_VISIBLE_CHARS:
                     raise BookTextImportError(
                         "Markdown book visible text exceeds the supported size",
                         code=BookTextImportErrorCode.RESOURCE_LIMIT,
                     )
-                items.append(candidate_match.group("text").strip())
+                candidate_item, candidate_had_image = _accessible_list_item_text(
+                    candidate_match.group("text")
+                )
+                items.append(candidate_item)
+                list_image_warning = list_image_warning or candidate_had_image
                 next_index += 1
 
             builder.list_block(
@@ -637,6 +949,10 @@ def _parse_markdown(text: str, builder: _Builder, control_checkpoint: Callable[[
                 ordered=ordered,
                 start=start_value if ordered else None,
             )
+            if list_image_warning:
+                builder.warning(
+                    "Markdown image inside a list item was preserved as accessible list-item text; no asset was fetched and nested image structure is not represented"
+                )
 
             # One to three leading spaces can represent a top-level Markdown
             # list when the whole list uses that indentation.  A deeper list
@@ -665,7 +981,14 @@ def _parse_markdown(text: str, builder: _Builder, control_checkpoint: Callable[[
                         "Markdown book visible text exceeds the supported size",
                         code=BookTextImportErrorCode.RESOURCE_LIMIT,
                     )
-                builder.paragraph(nested_line.strip(), next_index + 1)
+                fallback_text, fallback_had_image = _readable_list_fallback(
+                    nested_match
+                )
+                builder.paragraph(fallback_text, next_index + 1)
+                if fallback_had_image:
+                    builder.warning(
+                        "Markdown image inside an unrepresentable list item was preserved as accessible text; no asset was fetched and nested image structure is not represented"
+                    )
                 if not nested_warning_emitted:
                     builder.warning(
                         "Markdown list indentation or nesting could not be represented canonically and was preserved as readable text"
@@ -677,10 +1000,62 @@ def _parse_markdown(text: str, builder: _Builder, control_checkpoint: Callable[[
             continue
         if quote_match:
             flush()
-            quote = quote_match.group(1).strip()
-            if quote:
-                builder.paragraph(quote, number)
-            builder.warning("Markdown block quote structure was preserved as reading text because the current BookDocument has no quote block kind")
+            quote_source, legacy_quote_source, quote_depth = quote_match
+            quote_images = _iter_semantic_images(quote_source)
+            first_quote_image = next(quote_images, None)
+            quote_had_image = first_quote_image is not None
+            if first_quote_image is None:
+                quote = quote_source.strip()
+                if quote:
+                    builder.paragraph(
+                        quote,
+                        number,
+                        identity_text=legacy_quote_source.strip() or None,
+                    )
+            else:
+                # Before this quote-specific path existed, the generic inline
+                # image projection emitted Paragraph -> Image Note -> Paragraph
+                # and assigned the first paragraph the image-stripped full-line
+                # identity. Keep those meaningful durable targets intact while
+                # removing the quote marker from newly published reading text.
+                legacy_paragraph_identity = (
+                    _semantic_image_stripped_text(line).strip() or None
+                )
+                legacy_identity_available = legacy_paragraph_identity is not None
+                cursor = 0
+                match = first_quote_image
+                while match is not None:
+                    leading = quote_source[cursor:match.start()].strip()
+                    if leading:
+                        builder.paragraph(
+                            leading,
+                            number,
+                            identity_text=(
+                                legacy_paragraph_identity
+                                if legacy_identity_available
+                                else None
+                            ),
+                        )
+                        legacy_identity_available = False
+                    alt = match.group(1).strip()
+                    if alt:
+                        builder.image_note(alt, number)
+                    cursor = match.end()
+                    match = next(quote_images, None)
+                trailing = quote_source[cursor:].strip()
+                if trailing:
+                    builder.paragraph(trailing, number)
+            builder.warning(
+                "Markdown block quote structure was preserved as reading text because the current BookDocument has no quote block kind"
+            )
+            if quote_depth > 1:
+                builder.warning(
+                    "Nested Markdown block quote markers were flattened into accessible reading text; durable paragraph identity remains compatible with the historical one-level projection"
+                )
+            if quote_had_image:
+                builder.warning(
+                    "Markdown image inside an unrepresentable block quote was preserved in accessible reading order; no asset was fetched and the image destination was excluded from reading text"
+                )
             index += 1
             continue
 

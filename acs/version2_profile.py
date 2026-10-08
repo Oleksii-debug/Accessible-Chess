@@ -71,12 +71,13 @@ VERSION2_ROUTES: tuple[ModuleRoute, ...] = tuple(
     _VERSION2_ROUTE_INDEX[route_id] for route_id in VERSION2_ROUTE_IDS
 )
 
-_VERSION2_DOMAIN_PREFIXES = ("pgn.", "library.", "book.", "training.", "toolbar.")
+_VERSION2_DOMAIN_PREFIXES = ("pgn.", "library.", "book.", "training.", "toolbar.", "release.")
 _VERSION2_SCREEN_ACTION_IDS = frozenset(route.open_action_id for route in VERSION2_ROUTES)
 VERSION2_FULL_PRODUCT_ACTIONS = tuple(
     definition
     for definition in FULL_PRODUCT_ACTIONS
     if definition.action_id in _VERSION2_SCREEN_ACTION_IDS
+    or definition.action_id == "position.copy_fen"
     or definition.action_id.startswith(_VERSION2_DOMAIN_PREFIXES)
 )
 VERSION2_FULL_PRODUCT_ACTION_IDS = frozenset(
@@ -180,12 +181,18 @@ def build_version2_router(
     delegate: Callable[[str, Mapping[str, object]], Any],
     *,
     registry: ActionRegistry | None = None,
+    security_guard: Callable[[str], None] | None = None,
 ) -> FullProductActionRouter:
     if not isinstance(shell, Version2ShellState):
         raise TypeError("Version 2 router requires Version2ShellState")
     selected_registry = registry or build_version2_action_registry()
     validate_version2_action_registry(selected_registry)
-    return FullProductActionRouter(shell, delegate, registry=selected_registry)
+    return FullProductActionRouter(
+        shell,
+        delegate,
+        registry=selected_registry,
+        security_guard=security_guard,
+    )
 
 
 def build_version2_webview_adapter(

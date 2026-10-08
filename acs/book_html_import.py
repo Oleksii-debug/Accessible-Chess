@@ -17,12 +17,17 @@ from dataclasses import dataclass, field
 from enum import Enum
 from hashlib import sha256
 from html.parser import HTMLParser
+from io import StringIO
 import re
 from types import MappingProxyType
 from typing import Callable
 from urllib.parse import urlsplit
 
 from .bookdocument import (
+    BookDocumentError,
+    MAX_BOOK_TEXT_FIELD_CHARS,
+    MAX_BOOK_DOCUMENT_BLOCKS,
+    MAX_BOOK_SOURCE_ANCHOR_CHARS,
     BookDocument,
     Diagram,
     Game,
@@ -40,11 +45,15 @@ from .pgn_roundtrip import PgnRoundTripError, parse_pgn_text
 
 MAX_HTML_SOURCE_BYTES = 8 * 1024 * 1024
 MAX_HTML_VISIBLE_CHARS = 12 * 1024 * 1024
-MAX_HTML_BLOCKS = 50_000
+MAX_HTML_BLOCKS = MAX_BOOK_DOCUMENT_BLOCKS
 MAX_HTML_IMAGES = 10_000
 MAX_HTML_PGN_GAMES = 1_024
+MAX_HTML_PGN_CANDIDATES = MAX_HTML_PGN_GAMES * 4
 MAX_HTML_PGN_CHARS = 1 * 1024 * 1024
 MAX_HTML_WARNINGS = 2_048
+MAX_HTML_AVAILABLE_ASSET_TOTAL_CHARS = MAX_HTML_SOURCE_BYTES * 2
+MAX_HTML_MARKUP_NAME_CHARS = 256
+MAX_HTML_LIST_START_CHARS = 128
 
 
 class BookHtmlImportErrorCode(str, Enum):
@@ -157,40 +166,645 @@ _PGN_EVENT_RE = re.compile(r'^\[Event\s+"', re.IGNORECASE)
 _PGN_MARKER_RE = re.compile(r'^\{PGN\s+\d+\}\s*$', re.IGNORECASE)
 _END_PGN_RE = re.compile(r'^End of PGN Supplement\s*$', re.IGNORECASE)
 _HTML_INTEGER_RE = re.compile(r"^[+-]?\d+$")
+_CSS_WHITESPACE = " \t\r\n\f"
+_CSS_IMPORTANT_RE = re.compile(r"[ \t\r\n\f]*![ \t\r\n\f]*important[ \t\r\n\f]*$")
+
+_CSS_DISPLAY_SINGLE_VALUES = frozenset(
+    {
+        "none", "contents", "block", "inline", "run-in", "flow", "flow-root",
+        "table", "flex", "grid", "ruby", "math", "grid-lanes", "inline-grid-lanes",
+        "list-item", "inline-block", "inline-table", "inline-flex", "inline-grid",
+        "table-row-group",
+        "table-header-group", "table-footer-group", "table-row", "table-cell",
+        "table-column-group", "table-column", "table-caption", "ruby-base",
+        "ruby-text", "ruby-base-container", "ruby-text-container",
+        "initial", "unset",
+    }
+)
+_CSS_DISPLAY_OUTSIDE = frozenset({"block", "inline", "run-in"})
+# CSS Display Level 4 permits math as the inside alternative paired with an
+# outside display keyword (for example, "block math").
+_CSS_DISPLAY_INSIDE = frozenset({"flow", "flow-root", "table", "flex", "grid", "ruby", "math"})
 
 
-def _text(value: object, field: str, *, optional: bool = False) -> str | None:
+def _css_whitespace_tokens(
+    value: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> tuple[str, ...]:
+    """Split CSS whitespace-delimited tokens with bounded cancellation latency."""
+
+    tokens: list[str] = []
+    token_start: int | None = None
+    for index, char in enumerate(value):
+        if control_checkpoint is not None and index % 4_096 == 0:
+            control_checkpoint()
+        if char in _CSS_WHITESPACE:
+            if token_start is not None:
+                tokens.append(value[token_start:index])
+                token_start = None
+            continue
+        if token_start is None:
+            token_start = index
+    if token_start is not None:
+        tokens.append(value[token_start:])
+    if control_checkpoint is not None:
+        control_checkpoint()
+    return tuple(tokens)
+
+
+def _deterministic_display_value(
+    value: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> str | None:
+    """Return one bounded valid display value, or None for invalid/indeterminate CSS."""
+
+    tokens = _css_whitespace_tokens(value, control_checkpoint)
+    if any(len(token) > 32 for token in tokens):
+        return None
+    if len(tokens) == 1 and tokens[0] in _CSS_DISPLAY_SINGLE_VALUES:
+        return tokens[0]
+    if len(tokens) not in {2, 3} or len(set(tokens)) != len(tokens):
+        return None
+
+    token_set = set(tokens)
+    outside = token_set & _CSS_DISPLAY_OUTSIDE
+    inside = token_set & _CSS_DISPLAY_INSIDE
+    if len(tokens) == 2 and len(outside) == 1 and len(inside) == 1:
+        return " ".join(tokens)
+
+    if "list-item" in token_set:
+        remaining = token_set - {"list-item"}
+        outside = remaining & _CSS_DISPLAY_OUTSIDE
+        flow_inside = remaining & {"flow", "flow-root"}
+        if (
+            remaining == outside | flow_inside
+            and len(outside) <= 1
+            and len(flow_inside) <= 1
+        ):
+            return " ".join(tokens)
+    return None
+
+
+_CSS_CONTENT_VISIBILITY_VALUES = frozenset(
+    {"visible", "auto", "hidden", "initial", "unset"}
+)
+
+
+def _deterministic_content_visibility_value(value: str) -> str | None:
+    """Return one bounded content-visibility value or None if cascade-dependent."""
+
+    if len(value) > 7:
+        return None
+    if value in _CSS_CONTENT_VISIBILITY_VALUES:
+        return value
+    # revert/revert-layer depend on other cascade origins/layers that this
+    # bounded inline adapter deliberately does not model.
+    return None
+
+
+
+def _css_ascii_lower(
+    value: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> str:
+    """Apply CSS ASCII case-insensitive folding without Unicode case expansion."""
+
+    if control_checkpoint is None:
+        return "".join(
+            chr(ord(char) + 32) if "A" <= char <= "Z" else char
+            for char in value
+        )
+    chunks: list[str] = []
+    for offset in range(0, len(value), 4_096):
+        control_checkpoint()
+        chunk = value[offset : offset + 4_096]
+        chunks.append(
+            "".join(
+                chr(ord(char) + 32) if "A" <= char <= "Z" else char
+                for char in chunk
+            )
+        )
+    control_checkpoint()
+    return "".join(chunks)
+
+
+def _inline_style_without_comments(
+    style: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> str:
+    """Remove real CSS comments as whitespace before bounded display parsing.
+
+    Comment-looking text inside quoted CSS strings or behind a backslash escape
+    is data, not comment syntax. Preserve it verbatim so bounded display parsing
+    cannot accidentally consume a later real declaration. An unterminated real
+    comment still consumes the remainder.
+    """
+
+    parts: list[str] = []
+    cursor = 0
+    quote: str | None = None
+    while cursor < len(style):
+        if control_checkpoint is not None and (cursor + 1) % 4096 == 0:
+            control_checkpoint()
+        char = style[cursor]
+        if char == "\\":
+            parts.append(char)
+            if cursor + 1 < len(style):
+                parts.append(style[cursor + 1])
+                cursor += 2
+            else:
+                cursor += 1
+            continue
+        if quote is not None:
+            parts.append(char)
+            if char == quote:
+                quote = None
+            cursor += 1
+            continue
+        if char in {'"', "'"}:
+            quote = char
+            parts.append(char)
+            cursor += 1
+            continue
+        if char == "/" and cursor + 1 < len(style) and style[cursor + 1] == "*":
+            # Preserve a token boundary even when a preceding hexadecimal
+            # CSS escape consumes one following whitespace code point.
+            parts.append("  ")
+            end = cursor + 2
+            scanned = 0
+            while end + 1 < len(style):
+                if control_checkpoint is not None and scanned % 4_096 == 0:
+                    control_checkpoint()
+                if style[end] == "*" and style[end + 1] == "/":
+                    break
+                end += 1
+                scanned += 1
+            if end + 1 >= len(style):
+                break
+            cursor = end + 2
+            continue
+        parts.append(char)
+        cursor += 1
+    return "".join(parts)
+
+def _split_inline_style_declarations(
+    style: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> tuple[str, ...]:
+    """Split only top-level declarations in one bounded inline style."""
+
+    declarations: list[str] = []
+    current: list[str] = []
+    quote: str | None = None
+    nesting: list[str] = []
+    matching = {")": "(", "]": "[", "}": "{"}
+    cursor = 0
+    while cursor < len(style):
+        if control_checkpoint is not None and (cursor + 1) % 4096 == 0:
+            control_checkpoint()
+        char = style[cursor]
+        if char == "\\":
+            current.append(char)
+            if cursor + 1 < len(style):
+                current.append(style[cursor + 1])
+                cursor += 2
+            else:
+                cursor += 1
+            continue
+        if quote is not None:
+            current.append(char)
+            if char == quote:
+                quote = None
+            cursor += 1
+            continue
+        if char in {'"', "'"}:
+            quote = char
+            current.append(char)
+            cursor += 1
+            continue
+        if char in "([{":
+            nesting.append(char)
+            current.append(char)
+            cursor += 1
+            continue
+        if char in ")]}":
+            if nesting and nesting[-1] == matching[char]:
+                nesting.pop()
+            current.append(char)
+            cursor += 1
+            continue
+        if char == ";" and not nesting:
+            declarations.append("".join(current))
+            current = []
+            cursor += 1
+            continue
+        current.append(char)
+        cursor += 1
+    declarations.append("".join(current))
+    return tuple(declarations)
+
+
+def _controlled_css_strip(
+    value: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> str:
+    """Match str.strip(CSS_WHITESPACE) while polling trusted cancellation."""
+
+    if control_checkpoint is None:
+        return value.strip(_CSS_WHITESPACE)
+    start = 0
+    end = len(value)
+    while start < end:
+        if start % 4_096 == 0:
+            control_checkpoint()
+        if value[start] not in _CSS_WHITESPACE:
+            break
+        start += 1
+    scanned_from_end = 0
+    while end > start:
+        if scanned_from_end % 4_096 == 0:
+            control_checkpoint()
+        if value[end - 1] not in _CSS_WHITESPACE:
+            break
+        end -= 1
+        scanned_from_end += 1
+    control_checkpoint()
+    return value[start:end]
+
+
+def _controlled_css_partition(
+    declaration: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> tuple[str, str, str]:
+    """Match str.partition on the first colon with bounded cancellation latency."""
+
+    if control_checkpoint is None:
+        return declaration.partition(":")
+    for offset in range(0, len(declaration), 4_096):
+        control_checkpoint()
+        chunk = declaration[offset : offset + 4_096]
+        relative = chunk.find(":")
+        if relative >= 0:
+            split_at = offset + relative
+            return declaration[:split_at], ":", declaration[split_at + 1 :]
+    control_checkpoint()
+    return declaration, "", ""
+
+
+def _split_css_important(
+    value: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> tuple[str, bool]:
+    """Remove one trailing CSS !important marker without a long regex scan."""
+
+    trimmed = _controlled_css_strip(value, control_checkpoint)
+    if len(trimmed) < len("!important") or not trimmed.endswith("important"):
+        return trimmed, False
+    prefix = _controlled_css_strip(
+        trimmed[:-len("important")],
+        control_checkpoint,
+    )
+    if not prefix.endswith("!"):
+        return trimmed, False
+    return _controlled_css_strip(prefix[:-1], control_checkpoint), True
+
+
+def _css_unescape_token(
+    value: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> str:
+    """Decode CSS escapes for one bounded property/value token."""
+
+    parts: list[str] = []
+    cursor = 0
+    hexdigits = "0123456789abcdefABCDEF"
+    while cursor < len(value):
+        if control_checkpoint is not None and (cursor + 1) % 4096 == 0:
+            control_checkpoint()
+        char = value[cursor]
+        if char != "\\":
+            parts.append(char)
+            cursor += 1
+            continue
+        cursor += 1
+        if cursor >= len(value):
+            # A trailing escape is invalid CSS. Preserve an impossible token
+            # rather than manufacturing a valid display keyword.
+            parts.append("\\")
+            break
+        escaped = value[cursor]
+        if escaped in "\n\r\f":
+            # Backslash + newline is not a valid CSS identifier escape. Keep
+            # an impossible token instead of joining text into display/none.
+            parts.append("\\")
+            parts.append(escaped)
+            cursor += 1
+            continue
+        if escaped in hexdigits:
+            end = cursor
+            while end < len(value) and end - cursor < 6 and value[end] in hexdigits:
+                end += 1
+            codepoint = int(value[cursor:end], 16)
+            if codepoint == 0 or codepoint > 0x10FFFF or 0xD800 <= codepoint <= 0xDFFF:
+                parts.append("\uFFFD")
+            else:
+                parts.append(chr(codepoint))
+            cursor = end
+            if cursor < len(value) and value[cursor] in " \t\r\n\f":
+                if value[cursor] == "\r" and cursor + 1 < len(value) and value[cursor + 1] == "\n":
+                    cursor += 2
+                else:
+                    cursor += 1
+            continue
+        parts.append(escaped)
+        cursor += 1
+    return "".join(parts)
+
+def _inline_style_hides(
+    style: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> bool:
+    """Recognize deterministic inline subtree-hiding declarations.
+
+    This intentionally is not a CSS engine. display:none and
+    content-visibility:hidden both suppress an element's rendered/accessibility
+    subtree and cannot be reversed by a descendant. Stylesheet class rules and
+    cascade-dependent CSS-wide values stay outside this bounded HTML adapter.
+    """
+
+    effective_display: tuple[str, bool] | None = None
+    effective_content_visibility: tuple[str, bool] | None = None
+
+    for declaration_index, declaration in enumerate(
+        _split_inline_style_declarations(
+            _inline_style_without_comments(style, control_checkpoint),
+            control_checkpoint,
+        ),
+        start=1,
+    ):
+        if control_checkpoint is not None and declaration_index % 128 == 0:
+            control_checkpoint()
+        name, separator, raw_value = _controlled_css_partition(
+            declaration,
+            control_checkpoint,
+        )
+        if not separator:
+            continue
+        property_name = _css_ascii_lower(
+            _css_unescape_token(
+                _controlled_css_strip(name, control_checkpoint),
+                control_checkpoint,
+            ),
+            control_checkpoint,
+        )
+        if property_name not in {"display", "content-visibility"}:
+            continue
+
+        value = _css_ascii_lower(
+            _css_unescape_token(
+                _controlled_css_strip(raw_value, control_checkpoint),
+                control_checkpoint,
+            ),
+            control_checkpoint,
+        )
+        value, important = _split_css_important(value, control_checkpoint)
+
+        if property_name == "display":
+            deterministic_value = _deterministic_display_value(
+                value,
+                control_checkpoint,
+            )
+            if deterministic_value is None:
+                continue
+            if effective_display is not None and effective_display[1] and not important:
+                continue
+            effective_display = (deterministic_value, important)
+            continue
+
+        deterministic_content_visibility = _deterministic_content_visibility_value(value)
+        if deterministic_content_visibility is None:
+            continue
+        if (
+            effective_content_visibility is not None
+            and effective_content_visibility[1]
+            and not important
+        ):
+            continue
+        effective_content_visibility = (deterministic_content_visibility, important)
+
+    display_hidden = effective_display is not None and effective_display[0] == "none"
+    content_hidden = (
+        effective_content_visibility is not None
+        and effective_content_visibility[0] == "hidden"
+    )
+    return display_hidden or content_hidden
+
+def _controlled_strip(
+    value: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> str:
+    """Match str.strip() while polling trusted cancellation on long metadata."""
+
+    if control_checkpoint is None:
+        return value.strip()
+    start = 0
+    end = len(value)
+    while start < end:
+        if start % 4_096 == 0:
+            control_checkpoint()
+        if not value[start].isspace():
+            break
+        start += 1
+    scanned_from_end = 0
+    while end > start:
+        if scanned_from_end % 4_096 == 0:
+            control_checkpoint()
+        if not value[end - 1].isspace():
+            break
+        end -= 1
+        scanned_from_end += 1
+    control_checkpoint()
+    return value[start:end]
+
+
+def _controlled_rstrip(
+    value: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> str:
+    if control_checkpoint is None:
+        return value.rstrip()
+    end = len(value)
+    scanned = 0
+    while end:
+        if scanned % 4_096 == 0:
+            control_checkpoint()
+        if not value[end - 1].isspace():
+            break
+        end -= 1
+        scanned += 1
+    control_checkpoint()
+    return value[:end]
+
+
+def _controlled_join_strings(
+    values,
+    separator: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> str:
+    if control_checkpoint is None:
+        return separator.join(values)
+    output = StringIO()
+    for value_index, value in enumerate(values):
+        if value_index % 128 == 0:
+            control_checkpoint()
+        if value_index:
+            output.write(separator)
+        output.write(value)
+    control_checkpoint()
+    return output.getvalue()
+
+
+def _iter_text_lines(
+    value: str,
+    control_checkpoint: Callable[[], None] | None = None,
+):
+    """Yield source lines without an eager whole-string replace/split pass."""
+
+    line_start = 0
+    cursor = 0
+    next_control_offset = 0
+    while cursor < len(value):
+        if control_checkpoint is not None and cursor >= next_control_offset:
+            control_checkpoint()
+            next_control_offset = cursor + 16_384
+        character = value[cursor]
+        if character == "\r":
+            yield line_start, value[line_start:cursor]
+            cursor += (
+                2
+                if cursor + 1 < len(value) and value[cursor + 1] == "\n"
+                else 1
+            )
+            line_start = cursor
+            continue
+        if character == "\n":
+            yield line_start, value[line_start:cursor]
+            cursor += 1
+            line_start = cursor
+            continue
+        cursor += 1
+    if control_checkpoint is not None:
+        control_checkpoint()
+    yield line_start, value[line_start:]
+
+
+def _sha256_text_hex(
+    value: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> str:
+    if control_checkpoint is None:
+        return sha256(value.encode("utf-8")).hexdigest()
+    state = sha256()
+    for offset in range(0, len(value), 4_096):
+        control_checkpoint()
+        state.update(value[offset : offset + 4_096].encode("utf-8"))
+    control_checkpoint()
+    return state.hexdigest()
+
+
+def _sha256_bytes_hex(
+    value: bytes,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> str:
+    if control_checkpoint is None:
+        return sha256(value).hexdigest()
+    state = sha256()
+    for offset in range(0, len(value), 64 * 1024):
+        control_checkpoint()
+        state.update(value[offset : offset + 64 * 1024])
+    control_checkpoint()
+    return state.hexdigest()
+
+
+def _text(
+    value: object,
+    field: str,
+    *,
+    optional: bool = False,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> str | None:
     if value is None and optional:
         return None
-    if type(value) is not str or not value.strip():
+    if type(value) is not str:
         raise BookHtmlImportError(
             f"{field} must be non-empty text",
             code=BookHtmlImportErrorCode.INVALID_ARGUMENT,
         )
-    return value.strip()
-
-
-def _source_text(source: object) -> tuple[str, bytes, bool]:
+    if len(value) > MAX_BOOK_TEXT_FIELD_CHARS:
+        raise BookHtmlImportError(
+            f"{field} exceeds the canonical BookDocument text field limit",
+            code=BookHtmlImportErrorCode.RESOURCE_LIMIT,
+        )
+    stripped = _controlled_strip(value, control_checkpoint)
+    if not stripped:
+        raise BookHtmlImportError(
+            f"{field} must be non-empty text",
+            code=BookHtmlImportErrorCode.INVALID_ARGUMENT,
+        )
+    return stripped
+def _source_text(
+    source: object,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> tuple[str, bytes, bool]:
     if type(source) is str:
-        try:
-            encoded = source.encode("utf-8")
-        except UnicodeEncodeError as exc:
-            raise BookHtmlImportError(
-                "HTML book source must be valid Unicode text",
-                code=BookHtmlImportErrorCode.UNSUPPORTED_ENCODING,
-            ) from exc
-        if len(encoded) > MAX_HTML_SOURCE_BYTES:
+        # Every Unicode scalar requires at least one UTF-8 byte. Reject an
+        # impossible source before allocating the encoded representation.
+        if len(source) > MAX_HTML_SOURCE_BYTES:
             raise BookHtmlImportError(
                 "HTML book source exceeds the supported size",
                 code=BookHtmlImportErrorCode.RESOURCE_LIMIT,
             )
-        return source, encoded, False
+        if control_checkpoint is None:
+            try:
+                encoded = source.encode("utf-8")
+            except UnicodeEncodeError as exc:
+                raise BookHtmlImportError(
+                    "HTML book source must be valid Unicode text",
+                    code=BookHtmlImportErrorCode.UNSUPPORTED_ENCODING,
+                ) from exc
+            if len(encoded) > MAX_HTML_SOURCE_BYTES:
+                raise BookHtmlImportError(
+                    "HTML book source exceeds the supported size",
+                    code=BookHtmlImportErrorCode.RESOURCE_LIMIT,
+                )
+            return source, encoded, False
+
+        encoded = bytearray()
+        for offset in range(0, len(source), 16_384):
+            control_checkpoint()
+            try:
+                chunk = source[offset : offset + 16_384].encode("utf-8")
+            except UnicodeEncodeError as exc:
+                raise BookHtmlImportError(
+                    "HTML book source must be valid Unicode text",
+                    code=BookHtmlImportErrorCode.UNSUPPORTED_ENCODING,
+                ) from exc
+            if len(encoded) + len(chunk) > MAX_HTML_SOURCE_BYTES:
+                raise BookHtmlImportError(
+                    "HTML book source exceeds the supported size",
+                    code=BookHtmlImportErrorCode.RESOURCE_LIMIT,
+                )
+            encoded.extend(chunk)
+        control_checkpoint()
+        return source, bytes(encoded), False
     if type(source) is bytes:
         if len(source) > MAX_HTML_SOURCE_BYTES:
             raise BookHtmlImportError(
                 "HTML book source exceeds the supported size",
                 code=BookHtmlImportErrorCode.RESOURCE_LIMIT,
             )
+        if control_checkpoint is not None:
+            control_checkpoint()
         try:
             decoded = decode_book_text_bytes(source, html=True)
         except LegacyTextEncodingError as exc:
@@ -198,34 +812,102 @@ def _source_text(source: object) -> tuple[str, bytes, bool]:
                 "HTML book source must use UTF-8, BOM UTF-16 or qualified Windows-1251 encoding",
                 code=BookHtmlImportErrorCode.UNSUPPORTED_ENCODING,
             ) from exc
+        if control_checkpoint is not None:
+            control_checkpoint()
         return decoded.text, source, decoded.legacy
     raise BookHtmlImportError(
         "HTML book source must be text or bytes",
         code=BookHtmlImportErrorCode.INVALID_ARGUMENT,
     )
 
+def _compact(
+    value: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> str:
+    if control_checkpoint is None:
+        # Preserve the historical fast path and its exact Python whitespace
+        # semantics when no active-import cancellation authority is present.
+        return " ".join(value.replace("\xa0", " ").split())
 
-def _compact(value: str) -> str:
-    return " ".join(value.replace("\xa0", " ").split())
+    output = StringIO()
+    wrote_text = False
+    pending_space = False
+    for offset in range(0, len(value), 4_096):
+        control_checkpoint()
+        chunk = value[offset : offset + 4_096].replace("\xa0", " ")
+        parts = chunk.split()
+        if not parts:
+            if wrote_text:
+                pending_space = True
+            continue
+        leading_space = chunk[0].isspace()
+        trailing_space = chunk[-1].isspace()
+        if wrote_text and (pending_space or leading_space):
+            output.write(" ")
+        output.write(" ".join(parts))
+        wrote_text = True
+        pending_space = trailing_space
+    # A cancel that races with the final bounded chunk must still win before
+    # the compacted semantic text can be published as a Book block.
+    control_checkpoint()
+    return output.getvalue()
 
 
-def _asset_name(value: str) -> str:
+def _asset_name(
+    value: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> str:
+    if control_checkpoint is not None:
+        control_checkpoint()
+    stripped = _controlled_strip(value, control_checkpoint)
     try:
-        parts = urlsplit(value.strip())
+        parts = urlsplit(stripped)
     except ValueError:
         return ""
+    if control_checkpoint is not None:
+        control_checkpoint()
     if parts.scheme or parts.netloc or not parts.path:
         return ""
-    segments = [segment for segment in parts.path.replace("\\", "/").split("/") if segment not in {"", "."}]
-    if not segments or ".." in segments:
+
+    segments: list[str] = []
+    segment_start = 0
+    parent_seen = False
+
+    def append_segment(segment: str) -> None:
+        nonlocal parent_seen
+        if segment in {"", "."}:
+            return
+        if segment == "..":
+            parent_seen = True
+        segments.append(segment)
+
+    for character_index, character in enumerate(parts.path):
+        if control_checkpoint is not None and character_index % 4_096 == 0:
+            control_checkpoint()
+        if character not in {"/", "\\"}:
+            continue
+        append_segment(parts.path[segment_start:character_index])
+        segment_start = character_index + 1
+    append_segment(parts.path[segment_start:])
+
+    if not segments or parent_seen:
         return ""
-    return "/".join(segments)
+    return _controlled_join_strings(segments, "/", control_checkpoint)
 
-
-def _explicit_pgn_pre(raw: str) -> bool:
+def _explicit_pgn_pre(
+    raw: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> bool:
     """Return whether a ``pre`` starts with an explicit PGN marker and Event tag."""
-    lines = raw.replace("\r\n", "\n").replace("\r", "\n").split("\n")
-    meaningful = [line.strip() for line in lines if line.strip()]
+
+    meaningful: list[str] = []
+    for _, line in _iter_text_lines(raw, control_checkpoint):
+        stripped = _controlled_strip(line, control_checkpoint)
+        if not stripped:
+            continue
+        meaningful.append(stripped)
+        if len(meaningful) == 2:
+            break
     return (
         len(meaningful) >= 2
         and _PGN_MARKER_RE.fullmatch(meaningful[0]) is not None
@@ -234,9 +916,16 @@ def _explicit_pgn_pre(raw: str) -> bool:
 
 
 class _SemanticHtmlParser(HTMLParser):
-    def __init__(self, *, available_assets: frozenset[str] | None) -> None:
+    def __init__(
+        self,
+        *,
+        available_assets: frozenset[str] | None,
+        control_checkpoint: Callable[[], None] | None = None,
+    ) -> None:
         super().__init__(convert_charrefs=True)
         self.available_assets = available_assets
+        self.control_checkpoint = control_checkpoint
+        self._control_failure: BaseException | None = None
         self.blocks = []
         self.warnings: list[str] = []
         self._warnings_suppressed = False
@@ -254,10 +943,46 @@ class _SemanticHtmlParser(HTMLParser):
         self._hidden_tags: list[str] = []
         self._head_depth = 0
         self._node_count = 0
+        self._control_event_count = 0
         self._text_boundary_count = 0
         self._ids: dict[str, int] = {}
         self._warned_table_flatten = False
         self._warned_list_fallback = False
+
+    def _checkpoint(self) -> None:
+        if self.control_checkpoint is None:
+            return
+        try:
+            self.control_checkpoint()
+        except BaseException as exc:
+            self._control_failure = exc
+            raise
+
+    def _source_anchor(self, attrs: dict[str, str]) -> str | None:
+        value = attrs.get("id")
+        if not value:
+            return None
+        if len(value) > MAX_BOOK_SOURCE_ANCHOR_CHARS:
+            raise BookHtmlImportError(
+                "HTML semantic source anchor exceeds the canonical BookDocument identifier limit",
+                code=BookHtmlImportErrorCode.RESOURCE_LIMIT,
+            )
+        return value
+
+
+    def _compact_text(self, value: str) -> str:
+        return _compact(
+            value,
+            self._checkpoint if self.control_checkpoint is not None else None,
+        )
+
+    def _parser_event_checkpoint(self) -> None:
+        """Bound trusted cancellation latency inside a single HTMLParser feed chunk."""
+        if self.control_checkpoint is None:
+            return
+        self._control_event_count += 1
+        if self._control_event_count % 128 == 1:
+            self._checkpoint()
 
     def _warning(self, message: str) -> None:
         if self._warnings_suppressed:
@@ -268,7 +993,7 @@ class _SemanticHtmlParser(HTMLParser):
         # The configured maximum is a total-output bound, not a pre-marker
         # allowance. Only a real overflow sacrifices the final warning slot.
         if MAX_HTML_WARNINGS > 0:
-            self.warnings[-1] = "additional HTML import warnings were suppressed"
+            self.warnings[-1] = _HTML_WARNING_SUPPRESSION_NOTICE
         self._warnings_suppressed = True
 
     def _list_warning(self, message: str) -> None:
@@ -298,7 +1023,16 @@ class _SemanticHtmlParser(HTMLParser):
         self._text_boundary_count += 1
 
     def _block_id(self, kind: str, payload: str) -> str:
-        digest = sha256((kind + "\0" + payload).encode("utf-8")).hexdigest()[:20]
+        if self.control_checkpoint is None:
+            digest = sha256((kind + "\0" + payload).encode("utf-8")).hexdigest()[:20]
+        else:
+            digest_state = sha256()
+            digest_state.update((kind + "\0").encode("utf-8"))
+            for offset in range(0, len(payload), 4_096):
+                self._checkpoint()
+                digest_state.update(payload[offset : offset + 4_096].encode("utf-8"))
+            self._checkpoint()
+            digest = digest_state.hexdigest()[:20]
         key = f"{kind}:{digest}"
         occurrence = self._ids.get(key, 0) + 1
         self._ids[key] = occurrence
@@ -322,6 +1056,8 @@ class _SemanticHtmlParser(HTMLParser):
 
     def _block_identity_index(self, target: object) -> int:
         for index, block in enumerate(self.blocks):
+            if self.control_checkpoint is not None and index % 128 == 0:
+                self._checkpoint()
             if block is target:
                 return index
         raise BookHtmlImportError(
@@ -329,11 +1065,69 @@ class _SemanticHtmlParser(HTMLParser):
             code=BookHtmlImportErrorCode.INVALID_ARGUMENT,
         )
 
-    @staticmethod
-    def _ordered_start(attrs: dict[str, str]) -> tuple[int | None, bool]:
+    def _find_capture_index(
+        self,
+        predicate: Callable[[_Capture], bool],
+        *,
+        reverse: bool = False,
+    ) -> int | None:
+        """Find one semantic capture while bounding deep-stack cancellation latency."""
+
+        indexes = (
+            range(len(self._captures) - 1, -1, -1)
+            if reverse
+            else range(len(self._captures))
+        )
+        for scan_count, index in enumerate(indexes, start=1):
+            if self.control_checkpoint is not None and scan_count % 128 == 0:
+                self._checkpoint()
+            if predicate(self._captures[index]):
+                return index
+        return None
+
+    def _recover_capture_tail(self, target_length: int) -> None:
+        """Recover a malformed capture tail with bounded cancellation latency."""
+        recovered = 0
+        while len(self._captures) > target_length:
+            if self.control_checkpoint is not None and recovered % 128 == 0:
+                self._checkpoint()
+            capture = self._captures.pop()
+            self._finish_capture_and_record_parent(capture, recovered=True)
+            recovered += 1
+
+    def _inline_requires_split(self, capture: _Capture) -> bool:
+        for event_index, event in enumerate(capture.inline_semantics, start=1):
+            if self.control_checkpoint is not None and event_index % 128 == 0:
+                self._checkpoint()
+            if (not event.structural) or event.forces_split:
+                return True
+        return False
+
+    def _blocks_have_pgn_slot_from(self, start_index: int) -> bool:
+        for block_offset, block_index in enumerate(
+            range(start_index, len(self.blocks)),
+            start=1,
+        ):
+            if self.control_checkpoint is not None and block_offset % 128 == 0:
+                self._checkpoint()
+            if isinstance(self.blocks[block_index], _PgnSlot):
+                return True
+        return False
+
+    def _ordered_start(self, attrs: dict[str, str]) -> tuple[int | None, bool]:
         if "start" not in attrs:
             return None, True
-        raw = attrs.get("start", "").strip()
+        raw_value = attrs.get("start", "")
+        raw = (
+            _controlled_strip(
+                raw_value,
+                self._checkpoint if self.control_checkpoint is not None else None,
+            )
+            if raw_value
+            else ""
+        )
+        if len(raw) > MAX_HTML_LIST_START_CHARS:
+            return None, False
         if _HTML_INTEGER_RE.fullmatch(raw) is None:
             return None, False
         try:
@@ -343,8 +1137,18 @@ class _SemanticHtmlParser(HTMLParser):
         return (value, value >= 1)
 
     def _emit_list(self, captured: _ListCapture) -> None:
-        items = [item for item in captured.items if item]
-        identity_items = [item for item in captured.identity_items if item]
+        items: list[str] = []
+        for item_index, item in enumerate(captured.items, start=1):
+            if self.control_checkpoint is not None and item_index % 128 == 1:
+                self._checkpoint()
+            if item:
+                items.append(item)
+        identity_items: list[str] = []
+        for item_index, item in enumerate(captured.identity_items, start=1):
+            if self.control_checkpoint is not None and item_index % 128 == 1:
+                self._checkpoint()
+            if item:
+                identity_items.append(item)
         ordered = captured.tag == "ol"
         start, start_valid = self._ordered_start(captured.attrs) if ordered else (None, True)
 
@@ -362,14 +1166,18 @@ class _SemanticHtmlParser(HTMLParser):
                 + "\0"
                 + (str(start) if start is not None else "")
                 + "\0"
-                + "\0".join(identity_items)
+                + _controlled_join_strings(
+                    identity_items,
+                    "\0",
+                    self._checkpoint if self.control_checkpoint is not None else None,
+                )
             )
             captured.legacy_identity_block.block_id = self._block_id(
                 "List",
                 legacy_identity,
             )
             captured.legacy_identity_block.source_anchor = (
-                captured.attrs.get("id") or None
+                self._source_anchor(captured.attrs)
             )
 
         if not items:
@@ -389,7 +1197,9 @@ class _SemanticHtmlParser(HTMLParser):
                 self._list_warning(
                     "HTML list numbering or nesting could not be represented canonically and was preserved as readable text"
                 )
-            for item in items:
+            for item_index, item in enumerate(items, start=1):
+                if self.control_checkpoint is not None and item_index % 128 == 1:
+                    self._checkpoint()
                 # Once numbering semantics are outside the canonical ListBlock model
                 # (reversed lists, per-item value overrides, invalid starts, nesting),
                 # never synthesize a numeric sequence. Preserve the source item text
@@ -405,7 +1215,7 @@ class _SemanticHtmlParser(HTMLParser):
                     Paragraph(
                         text=text,
                         block_id=self._block_id(identity_kind, text),
-                        source_anchor=captured.attrs.get("id") or None,
+                        source_anchor=self._source_anchor(captured.attrs),
                     )
                 )
             return
@@ -415,7 +1225,11 @@ class _SemanticHtmlParser(HTMLParser):
             + "\0"
             + (str(start) if start is not None else "")
             + "\0"
-            + "\0".join(items)
+            + _controlled_join_strings(
+                items,
+                "\0",
+                self._checkpoint if self.control_checkpoint is not None else None,
+            )
         )
         self._append_block(
             ListBlock(
@@ -423,7 +1237,7 @@ class _SemanticHtmlParser(HTMLParser):
                 ordered=ordered,
                 start=start if ordered else None,
                 block_id=self._block_id("List", identity),
-                source_anchor=captured.attrs.get("id") or None,
+                source_anchor=self._source_anchor(captured.attrs),
             )
         )
 
@@ -441,9 +1255,9 @@ class _SemanticHtmlParser(HTMLParser):
         if raw_fen is None:
             return
         fen = self._validate_fen(raw_fen)
-        source_anchor = attrs.get("id") or None
+        source_anchor = self._source_anchor(attrs)
         if tag == "img":
-            alt = _compact(attrs.get("alt", "")) or None
+            alt = self._compact_text(attrs.get("alt", "")) or None
             payload = fen + "\0" + (alt or "")
             self._append_block(
                 Diagram(
@@ -464,16 +1278,18 @@ class _SemanticHtmlParser(HTMLParser):
 
     def _nearest_structural_owner_capture(self) -> _Capture | None:
         """Return the nearest capture whose text may need semantic splitting."""
-        for capture in reversed(self._captures):
-            if capture.kind in {"paragraph", "heading", "list_item", "table_row", "pre"}:
-                return capture
-        return None
+        index = self._find_capture_index(
+            lambda capture: capture.kind in {"paragraph", "heading", "list_item", "table_row", "pre"},
+            reverse=True,
+        )
+        return self._captures[index] if index is not None else None
 
     def _nearest_inline_owner_capture(self) -> _Capture | None:
-        for capture in reversed(self._captures):
-            if capture.kind in {"paragraph", "heading", "list_item", "table_row", "pre"}:
-                return capture
-        return None
+        index = self._find_capture_index(
+            lambda capture: capture.kind in {"paragraph", "heading", "list_item", "table_row", "pre"},
+            reverse=True,
+        )
+        return self._captures[index] if index is not None else None
 
     def _record_inline_semantic(
         self,
@@ -504,6 +1320,12 @@ class _SemanticHtmlParser(HTMLParser):
         )
 
     def handle_starttag(self, tag: str, attrs_list: list[tuple[str, str | None]]) -> None:
+        self._parser_event_checkpoint()
+        if len(tag) > MAX_HTML_MARKUP_NAME_CHARS:
+            raise BookHtmlImportError(
+                "HTML markup name exceeds the supported size",
+                code=BookHtmlImportErrorCode.RESOURCE_LIMIT,
+            )
         tag = tag.lower()
         self._node_count += 1
         if self._node_count > MAX_HTML_BLOCKS * 20:
@@ -529,18 +1351,11 @@ class _SemanticHtmlParser(HTMLParser):
             # insertion mode even when the source omitted </head>. Mirror that
             # deterministic boundary so readable BODY content cannot remain
             # trapped as metadata merely because HTMLParser does not build a DOM.
-            title_index = next(
-                (
-                    index
-                    for index, capture in enumerate(self._captures)
-                    if capture.kind == "title"
-                ),
-                None,
+            title_index = self._find_capture_index(
+                lambda capture: capture.kind == "title"
             )
             if title_index is not None:
-                while len(self._captures) > title_index:
-                    capture = self._captures.pop()
-                    self._finish_capture_and_record_parent(capture, recovered=True)
+                self._recover_capture_tail(title_index)
             self._head_depth = 0
             self._warning("malformed HTML head was implicitly closed by body start")
         if self._head_depth and tag not in {"title", "meta"}:
@@ -549,7 +1364,14 @@ class _SemanticHtmlParser(HTMLParser):
             # must never publish a position/image note or a PGN game.
             return
         attrs: dict[str, str] = {}
-        for name, value in attrs_list:
+        for attr_index, (name, value) in enumerate(attrs_list, start=1):
+            if self.control_checkpoint is not None and attr_index % 128 == 0:
+                self._checkpoint()
+            if len(name) > MAX_HTML_MARKUP_NAME_CHARS:
+                raise BookHtmlImportError(
+                    "HTML attribute name exceeds the supported size",
+                    code=BookHtmlImportErrorCode.RESOURCE_LIMIT,
+                )
             normalized_name = name.lower()
             if normalized_name in attrs:
                 if normalized_name == "data-acs-fen":
@@ -563,12 +1385,27 @@ class _SemanticHtmlParser(HTMLParser):
                 # malformed duplicates change semantic/image/progress metadata.
                 continue
             attrs[normalized_name] = value or ""
-        aria_hidden = attrs.get("aria-hidden", "").strip().casefold()
-        if "hidden" in attrs or aria_hidden == "true":
-            # HTML hidden and ARIA-hidden=true are deterministic boundaries for
-            # this accessibility-first semantic import. Text, image metadata and
-            # explicit chess markers excluded from the rendered/accessibility
-            # surface must not reappear in BookDocument or screen-reader output.
+        raw_aria_value = attrs.get("aria-hidden", "")
+        aria_value = (
+            _controlled_strip(
+                raw_aria_value,
+                self._checkpoint if self.control_checkpoint is not None else None,
+            )
+            if raw_aria_value
+            else ""
+        )
+        aria_hidden = len(aria_value) == 4 and aria_value.casefold() == "true"
+        inline_style_hidden = _inline_style_hides(
+            attrs.get("style", ""),
+            self._checkpoint if self.control_checkpoint is not None else None,
+        )
+        if "hidden" in attrs or "inert" in attrs or aria_hidden or inline_style_hidden:
+            # HTML hidden/inert, ARIA-hidden=true and deterministic inline
+            # display:none are boundaries for this accessibility-first semantic
+            # import. Text,
+            # image metadata and explicit chess markers excluded from the
+            # rendered/accessibility surface must not reappear in BookDocument
+            # or screen-reader output.
             # Track all non-void descendants so malformed nesting stays
             # fail-closed instead of resuming ingestion too early.
             if tag not in _VOID_TAGS:
@@ -580,12 +1417,21 @@ class _SemanticHtmlParser(HTMLParser):
             # directly containing semantic capture so adjacent words cannot collapse.
             self._append_text_boundary()
         if tag == "html" and not self.language:
-            lang = _compact(attrs.get("lang", ""))
+            lang = self._compact_text(attrs.get("lang", ""))
             if lang:
                 self.language = lang
         if tag == "meta":
-            name = (attrs.get("name") or attrs.get("property") or "").strip().lower()
-            content = _compact(attrs.get("content", ""))
+            raw_name_value = attrs.get("name") or attrs.get("property") or ""
+            raw_name = (
+                _controlled_strip(
+                    raw_name_value,
+                    self._checkpoint if self.control_checkpoint is not None else None,
+                )
+                if raw_name_value
+                else ""
+            )
+            name = raw_name.lower() if len(raw_name) <= 64 else ""
+            content = self._compact_text(attrs.get("content", ""))
             if content and name in {"author", "dc.creator", "dcterms.creator"} and not self.author:
                 self.author = content
             if content and name in {"language", "dc.language", "dcterms.language"} and not self.language:
@@ -596,11 +1442,22 @@ class _SemanticHtmlParser(HTMLParser):
                     "HTML book contains too many image references",
                     code=BookHtmlImportErrorCode.RESOURCE_LIMIT,
                 )
-            src = attrs.get("src", "").strip()
-            alt = _compact(attrs.get("alt", ""))
+            raw_src = attrs.get("src", "")
+            src = (
+                _controlled_strip(
+                    raw_src,
+                    self._checkpoint if self.control_checkpoint is not None else None,
+                )
+                if raw_src
+                else ""
+            )
+            alt = self._compact_text(attrs.get("alt", ""))
             if src:
                 self.image_references.append(src)
-                local_name = _asset_name(src)
+                local_name = _asset_name(
+                    src,
+                    self._checkpoint if self.control_checkpoint is not None else None,
+                )
                 if self.available_assets is not None and local_name and local_name not in self.available_assets:
                     self.missing_assets.add(local_name)
             block_count = len(self.blocks)
@@ -612,7 +1469,7 @@ class _SemanticHtmlParser(HTMLParser):
                         text=alt,
                         note_type="image",
                         block_id=self._block_id("ImageNote", src + "\0" + alt),
-                        source_anchor=attrs.get("id") or None,
+                        source_anchor=self._source_anchor(attrs),
                     )
                 )
             else:
@@ -626,7 +1483,9 @@ class _SemanticHtmlParser(HTMLParser):
                 self._record_inline_semantic(self.blocks[-1])
 
         if tag in {"ol", "ul"} and self._lists:
-            for capture in self._captures:
+            for capture_index, capture in enumerate(self._captures, start=1):
+                if self.control_checkpoint is not None and capture_index % 128 == 0:
+                    self._checkpoint()
                 if capture.kind == "list_item" and capture.list_depth == len(self._lists):
                     capture.parts.append(" ")
 
@@ -655,7 +1514,9 @@ class _SemanticHtmlParser(HTMLParser):
                 self._lists[-1].unsupported = True
                 self._lists[-1].structural_unsupported = True
             if kind == "list_item" and self._lists:
-                for capture in self._captures:
+                for capture_index, capture in enumerate(self._captures, start=1):
+                    if self.control_checkpoint is not None and capture_index % 128 == 0:
+                        self._checkpoint()
                     if capture.kind == "list_item" and capture.list_depth < len(self._lists):
                         capture.parts.append(" ")
             parent_inline_owner = self._nearest_structural_owner_capture()
@@ -679,10 +1540,16 @@ class _SemanticHtmlParser(HTMLParser):
 
     def handle_startendtag(self, tag: str, attrs_list: list[tuple[str, str | None]]) -> None:
         self.handle_starttag(tag, attrs_list)
-        if tag.lower() not in {"img", "meta", "br", "hr", "input", "link"}:
+        if tag.lower() not in _VOID_TAGS:
             self.handle_endtag(tag)
 
     def handle_endtag(self, tag: str) -> None:
+        self._parser_event_checkpoint()
+        if len(tag) > MAX_HTML_MARKUP_NAME_CHARS:
+            raise BookHtmlImportError(
+                "HTML markup name exceeds the supported size",
+                code=BookHtmlImportErrorCode.RESOURCE_LIMIT,
+            )
         tag = tag.lower()
         if tag in _SUPPRESSED_TAGS:
             if self._suppressed_depth:
@@ -708,30 +1575,19 @@ class _SemanticHtmlParser(HTMLParser):
             # A malformed unclosed <title> must not survive the explicit end of
             # metadata. Otherwise handle_data() keeps treating later BODY text as
             # title metadata and omits it from the semantic document.
-            title_index = next(
-                (
-                    index
-                    for index, capture in enumerate(self._captures)
-                    if capture.kind == "title"
-                ),
-                None,
+            title_index = self._find_capture_index(
+                lambda capture: capture.kind == "title"
             )
             if title_index is not None:
-                while len(self._captures) > title_index:
-                    capture = self._captures.pop()
-                    self._finish_capture_and_record_parent(capture, recovered=True)
+                self._recover_capture_tail(title_index)
             if self._head_depth:
                 self._head_depth -= 1
             return
         if self._head_depth and tag not in {"title", "meta"}:
             return
-        matching_capture_index = next(
-            (
-                index
-                for index in range(len(self._captures) - 1, -1, -1)
-                if self._captures[index].tag == tag
-            ),
-            None,
+        matching_capture_index = self._find_capture_index(
+            lambda capture: capture.tag == tag,
+            reverse=True,
         )
         if matching_capture_index is not None:
             # HTMLParser reports source tags but does not repair malformed
@@ -739,9 +1595,7 @@ class _SemanticHtmlParser(HTMLParser):
             # recover any still-open semantic descendants first, then honor the
             # explicit close. Leaving the ancestor live until EOF would let
             # following source text leak into a region the source already closed.
-            while len(self._captures) - 1 > matching_capture_index:
-                capture = self._captures.pop()
-                self._finish_capture_and_record_parent(capture, recovered=True)
+            self._recover_capture_tail(matching_capture_index + 1)
             capture = self._captures.pop()
             self._finish_capture_and_record_parent(capture)
         if tag in {"ol", "ul"} and self._lists and self._lists[-1].tag == tag:
@@ -752,22 +1606,20 @@ class _SemanticHtmlParser(HTMLParser):
             # fanning out into the stale item capture until EOF and be
             # misattributed to the already-closed list.
             list_depth = len(self._lists)
-            open_item_index = next(
-                (
-                    index
-                    for index in range(len(self._captures) - 1, -1, -1)
-                    if self._captures[index].kind == "list_item"
-                    and self._captures[index].list_depth == list_depth
+            open_item_index = self._find_capture_index(
+                lambda capture: (
+                    capture.kind == "list_item"
+                    and capture.list_depth == list_depth
                 ),
-                None,
+                reverse=True,
             )
             if open_item_index is not None:
-                while len(self._captures) > open_item_index:
-                    capture = self._captures.pop()
-                    self._finish_capture_and_record_parent(capture, recovered=True)
+                self._recover_capture_tail(open_item_index)
             captured = self._lists.pop()
             if captured.nested:
-                for capture in self._captures:
+                for capture_index, capture in enumerate(self._captures, start=1):
+                    if self.control_checkpoint is not None and capture_index % 128 == 0:
+                        self._checkpoint()
                     if capture.kind == "list_item" and capture.list_depth == len(self._lists):
                         capture.parts.append(" ")
                 # Text from a nested list is already retained by the enclosing
@@ -784,19 +1636,34 @@ class _SemanticHtmlParser(HTMLParser):
             self._append_text_boundary()
 
     def handle_data(self, data: str) -> None:
+        self._parser_event_checkpoint()
         if self._suppressed_depth or self._hidden_tags:
             return
-        if self._head_depth or any(capture.kind == "title" for capture in self._captures):
+        title_capture_present = False
+        if self._head_depth:
+            title_capture_present = True
+        else:
+            for capture_index, capture in enumerate(self._captures, start=1):
+                if self.control_checkpoint is not None and capture_index % 128 == 0:
+                    self._checkpoint()
+                if capture.kind == "title":
+                    title_capture_present = True
+                    break
+        if title_capture_present:
             # HTML title still supplies the book title; it and all other
             # non-rendered HEAD text are excluded from the visible stream that
             # owns explicit {PGN N} markers. Do not fan metadata into an
             # unclosed outer Paragraph/Heading capture either.
-            for capture in self._captures:
+            for capture_index, capture in enumerate(self._captures, start=1):
+                if self.control_checkpoint is not None and capture_index % 128 == 0:
+                    self._checkpoint()
                 if capture.kind == "title":
                     capture.parts.append(data)
             return
         self._append_visible(data)
-        for capture in self._captures:
+        for capture_index, capture in enumerate(self._captures, start=1):
+            if self.control_checkpoint is not None and capture_index % 128 == 0:
+                self._checkpoint()
             pending_boundaries = self._text_boundary_count - capture.boundary_count
             if pending_boundaries > 0:
                 capture.parts.append("\n" * pending_boundaries)
@@ -813,7 +1680,9 @@ class _SemanticHtmlParser(HTMLParser):
         """Project inline semantics in source order without losing progress IDs."""
         cursor = 0
         legacy_identity_available = True
-        for event in capture.inline_semantics:
+        for event_index, event in enumerate(capture.inline_semantics, start=1):
+            if self.control_checkpoint is not None and event_index % 128 == 0:
+                self._checkpoint()
             resume_part_index = (
                 event.resume_part_index
                 if event.resume_part_index is not None
@@ -829,7 +1698,7 @@ class _SemanticHtmlParser(HTMLParser):
                     "HTML inline semantic boundary is invalid",
                     code=BookHtmlImportErrorCode.INVALID_ARGUMENT,
                 )
-            segment = _compact("".join(capture.parts[cursor:event.part_index]))
+            segment = self._compact_text("".join(capture.parts[cursor:event.part_index]))
             if segment:
                 identity_text = legacy_text if legacy_identity_available else segment
                 identity_kind = "Paragraph" if legacy_identity_available else "ParagraphInlineFragment"
@@ -842,7 +1711,7 @@ class _SemanticHtmlParser(HTMLParser):
                 legacy_identity_available = False
             cursor = resume_part_index
 
-        trailing = _compact("".join(capture.parts[cursor:]))
+        trailing = self._compact_text("".join(capture.parts[cursor:]))
         if trailing:
             identity_text = legacy_text if legacy_identity_available else trailing
             identity_kind = "Paragraph" if legacy_identity_available else "ParagraphInlineFragment"
@@ -889,7 +1758,9 @@ class _SemanticHtmlParser(HTMLParser):
                 source_anchor=None,
             )
 
-        for event in capture.inline_semantics:
+        for event_index, event in enumerate(capture.inline_semantics, start=1):
+            if self.control_checkpoint is not None and event_index % 128 == 0:
+                self._checkpoint()
             resume_part_index = (
                 event.resume_part_index
                 if event.resume_part_index is not None
@@ -905,7 +1776,7 @@ class _SemanticHtmlParser(HTMLParser):
                     "HTML inline semantic boundary is invalid",
                     code=BookHtmlImportErrorCode.INVALID_ARGUMENT,
                 )
-            segment = _compact("".join(capture.parts[cursor:event.part_index]))
+            segment = self._compact_text("".join(capture.parts[cursor:event.part_index]))
             if segment:
                 self._insert_block(
                     self._block_identity_index(event.block),
@@ -913,7 +1784,7 @@ class _SemanticHtmlParser(HTMLParser):
                 )
             cursor = resume_part_index
 
-        trailing = _compact("".join(capture.parts[cursor:]))
+        trailing = self._compact_text("".join(capture.parts[cursor:]))
         if trailing:
             self._append_block(heading_or_fragment(trailing))
 
@@ -925,16 +1796,14 @@ class _SemanticHtmlParser(HTMLParser):
         source_anchor: str | None,
     ) -> None:
         """Flatten one rich list item without reordering its semantic blocks."""
-        events = list(capture.inline_semantics)
-        if not any((not event.structural) or event.forces_split for event in events):
-            return
+        events = capture.inline_semantics
 
         self._list_warning(
             "HTML list items containing inline semantic content cannot be represented by the flat canonical List block and were preserved as readable bullet text around semantic blocks"
         )
 
         if captured_list is not None:
-            logical_text = _compact("".join(capture.parts))
+            logical_text = self._compact_text("".join(capture.parts))
             if logical_text:
                 captured_list.identity_items.append(logical_text)
             captured_list.unsupported = True
@@ -944,12 +1813,14 @@ class _SemanticHtmlParser(HTMLParser):
             # semantic event so an already-emitted image/position cannot jump
             # ahead of earlier list content.
             first_event = events[0]
-            for item in [item for item in captured_list.items if item]:
+            for item_index, item in enumerate((item for item in captured_list.items if item), start=1):
+                if self.control_checkpoint is not None and item_index % 128 == 0:
+                    self._checkpoint()
                 fallback_text = f"• {item}"
                 fallback = Paragraph(
                     text=fallback_text,
                     block_id=self._block_id("ListFallbackItem", fallback_text),
-                    source_anchor=captured_list.attrs.get("id") or None,
+                    source_anchor=self._source_anchor(captured_list.attrs),
                 )
                 self._insert_block(
                     self._block_identity_index(first_event.block),
@@ -961,7 +1832,9 @@ class _SemanticHtmlParser(HTMLParser):
 
         cursor = 0
         item_text_started = False
-        for event in events:
+        for event_index, event in enumerate(events, start=1):
+            if self.control_checkpoint is not None and event_index % 128 == 0:
+                self._checkpoint()
             resume_part_index = (
                 event.resume_part_index
                 if event.resume_part_index is not None
@@ -977,7 +1850,7 @@ class _SemanticHtmlParser(HTMLParser):
                     "HTML inline semantic boundary is invalid",
                     code=BookHtmlImportErrorCode.INVALID_ARGUMENT,
                 )
-            segment = _compact("".join(capture.parts[cursor:event.part_index]))
+            segment = self._compact_text("".join(capture.parts[cursor:event.part_index]))
             if segment:
                 projected = f"• {segment}" if not item_text_started else segment
                 identity_kind = (
@@ -1021,7 +1894,7 @@ class _SemanticHtmlParser(HTMLParser):
                 item_text_started = True
             cursor = resume_part_index
 
-        trailing = _compact("".join(capture.parts[cursor:]))
+        trailing = self._compact_text("".join(capture.parts[cursor:]))
         if trailing:
             projected = f"• {trailing}" if not item_text_started else trailing
             identity_kind = (
@@ -1041,18 +1914,15 @@ class _SemanticHtmlParser(HTMLParser):
 
     def _finish_capture(self, capture: _Capture, *, recovered: bool = False) -> None:
         raw = "".join(capture.parts)
-        text = _compact(raw)
+        text = self._compact_text(raw)
         if recovered:
             self._warning(f"malformed HTML left an unclosed {capture.tag} element; readable text was recovered")
         if capture.kind == "title":
             if text and not self.title:
                 self.title = text
             return
-        source_anchor = capture.attrs.get("id") or None
-        requires_semantic_split = any(
-            (not event.structural) or event.forces_split
-            for event in capture.inline_semantics
-        )
+        source_anchor = self._source_anchor(capture.attrs)
+        requires_semantic_split = self._inline_requires_split(capture)
         if capture.kind == "list_item" and requires_semantic_split:
             active_list = (
                 self._lists[-1]
@@ -1101,7 +1971,10 @@ class _SemanticHtmlParser(HTMLParser):
         if (
             capture.kind == "pre"
             and requires_semantic_split
-            and not _explicit_pgn_pre(raw)
+            and not _explicit_pgn_pre(
+                raw,
+                self._checkpoint if self.control_checkpoint is not None else None,
+            )
         ):
             self._finish_inline_paragraph(
                 capture,
@@ -1122,12 +1995,18 @@ class _SemanticHtmlParser(HTMLParser):
             if not self._warned_table_flatten:
                 self._warning("HTML table structure is preserved as row text because BookDocument has no table block kind")
                 self._warned_table_flatten = True
-        elif capture.kind == "pre" and _explicit_pgn_pre(raw):
+        elif capture.kind == "pre" and _explicit_pgn_pre(
+            raw,
+            self._checkpoint if self.control_checkpoint is not None else None,
+        ):
             # Keep a bounded placeholder at the exact semantic source location.
             # Canonical PGN validation still happens only after parsing through
             # the existing D06 round-trip authority; rejected candidates remain
             # readable prose at this location, never guessed chess content.
-            for candidate in _pgn_candidates(raw):
+            for candidate in _pgn_candidates(
+                raw,
+                self._checkpoint if self.control_checkpoint is not None else None,
+            ):
                 self._append_block(
                     _PgnSlot(
                         candidate=_PgnCandidate(
@@ -1160,7 +2039,7 @@ class _SemanticHtmlParser(HTMLParser):
         if (
             parent is None
             or part_index is None
-            or not any(candidate is parent for candidate in self._captures)
+            or self._find_capture_index(lambda candidate: candidate is parent) is None
             or len(self.blocks) <= capture.block_start_index
         ):
             return
@@ -1169,12 +2048,9 @@ class _SemanticHtmlParser(HTMLParser):
         # A child that itself had to split around rich semantics propagates that
         # requirement upward; otherwise its already-published subtree would be
         # duplicated by a parent's flat text projection.
-        child_forces_split = any(
-            (not event.structural) or event.forces_split
-            for event in capture.inline_semantics
-        ) or any(
-            isinstance(block, _PgnSlot)
-            for block in self.blocks[capture.block_start_index:]
+        child_forces_split = (
+            self._inline_requires_split(capture)
+            or self._blocks_have_pgn_slot_from(capture.block_start_index)
         )
         self._record_inline_semantic(
             self.blocks[capture.block_start_index],
@@ -1209,57 +2085,67 @@ class _SemanticHtmlParser(HTMLParser):
                 "malformed HTML left hidden content unclosed; subsequent readable text may have been omitted"
             )
             self._hidden_tags.clear()
-        while self._captures:
-            capture = self._captures.pop()
-            self._finish_capture_and_record_parent(capture, recovered=True)
+        self._recover_capture_tail(0)
+        recovered_lists = 0
         while self._lists:
+            if self.control_checkpoint is not None and recovered_lists % 128 == 0:
+                self._checkpoint()
             captured = self._lists.pop()
             captured.unsupported = True
             captured.structural_unsupported = True
             self._emit_list(captured)
+            recovered_lists += 1
 
 
-def _pgn_candidates(visible_text: str) -> list[_PgnCandidate]:
+def _pgn_candidates(
+    visible_text: str,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> list[_PgnCandidate]:
     """Return explicitly marked PGN regions with stable source offsets."""
-    lines: list[tuple[int, str]] = []
-    line_start = 0
-    cursor = 0
-    while cursor < len(visible_text):
-        character = visible_text[cursor]
-        if character == "\r":
-            lines.append((line_start, visible_text[line_start:cursor]))
-            cursor += 2 if cursor + 1 < len(visible_text) and visible_text[cursor + 1] == "\n" else 1
-            line_start = cursor
-            continue
-        if character == "\n":
-            lines.append((line_start, visible_text[line_start:cursor]))
-            cursor += 1
-            line_start = cursor
-            continue
-        cursor += 1
-    lines.append((line_start, visible_text[line_start:]))
+    lines = list(_iter_text_lines(visible_text, control_checkpoint))
 
     candidates: list[_PgnCandidate] = []
     for marker_index, (marker_offset, line) in enumerate(lines):
-        if _PGN_MARKER_RE.fullmatch(line.strip()) is None:
+        if control_checkpoint is not None and marker_index % 128 == 0:
+            control_checkpoint()
+        if _PGN_MARKER_RE.fullmatch(_controlled_strip(line, control_checkpoint)) is None:
             continue
 
         start = marker_index + 1
-        while start < len(lines) and not lines[start][1].strip():
+        skipped_blank_lines = 0
+        while start < len(lines) and not _controlled_strip(lines[start][1], control_checkpoint):
+            skipped_blank_lines += 1
+            if control_checkpoint is not None and skipped_blank_lines % 128 == 0:
+                control_checkpoint()
             start += 1
-        if start >= len(lines) or _PGN_EVENT_RE.match(lines[start][1].strip()) is None:
+        if start >= len(lines) or _PGN_EVENT_RE.match(_controlled_strip(lines[start][1], control_checkpoint)) is None:
             continue
 
         chunk_lines: list[str] = []
-        for _, candidate_line in lines[start:]:
-            stripped = candidate_line.strip()
+        for candidate_line_index in range(start, len(lines)):
+            if control_checkpoint is not None and (candidate_line_index - start) % 128 == 0:
+                control_checkpoint()
+            candidate_line = lines[candidate_line_index][1]
+            stripped = _controlled_strip(candidate_line, control_checkpoint)
             if chunk_lines and (_PGN_MARKER_RE.fullmatch(stripped) or _END_PGN_RE.fullmatch(stripped)):
                 break
-            chunk_lines.append(candidate_line.rstrip())
-        while chunk_lines and not chunk_lines[-1].strip():
+            chunk_lines.append(_controlled_rstrip(candidate_line, control_checkpoint))
+        trimmed_blank_lines = 0
+        while chunk_lines and not _controlled_strip(chunk_lines[-1], control_checkpoint):
+            trimmed_blank_lines += 1
+            if control_checkpoint is not None and trimmed_blank_lines % 128 == 0:
+                control_checkpoint()
             chunk_lines.pop()
-        candidate = "\n".join(chunk_lines).strip()
+        candidate = _controlled_strip(
+            _controlled_join_strings(chunk_lines, "\n", control_checkpoint),
+            control_checkpoint,
+        )
         if candidate:
+            if len(candidates) >= MAX_HTML_PGN_CANDIDATES:
+                raise BookHtmlImportError(
+                    "HTML book contains too many explicitly marked PGN regions",
+                    code=BookHtmlImportErrorCode.RESOURCE_LIMIT,
+                )
             candidates.append(
                 _PgnCandidate(
                     text=candidate,
@@ -1276,17 +2162,36 @@ def _canonical_pgn_games(
 ) -> list[tuple[_PgnCandidate, Game]]:
     games: list[tuple[_PgnCandidate, Game]] = []
     identities: dict[str, int] = {}
-    for candidate_index, candidate_record in enumerate(candidates, start=1):
-        if control_checkpoint is not None:
+    control_failure: BaseException | None = None
+
+    def guarded_control() -> None:
+        nonlocal control_failure
+        if control_checkpoint is None:
+            return
+        try:
             control_checkpoint()
+        except BaseException as exc:
+            control_failure = exc
+            raise
+
+    effective_control = guarded_control if control_checkpoint is not None else None
+    for candidate_index, candidate_record in enumerate(candidates, start=1):
+        if effective_control is not None:
+            effective_control()
         candidate = candidate_record.text
         if len(candidate) > MAX_HTML_PGN_CHARS:
             if len(warnings) < MAX_HTML_WARNINGS:
                 warnings.append(f"PGN candidate {candidate_index} exceeded the per-game limit and was ignored")
             continue
         try:
-            parsed = parse_pgn_text(candidate, strict=False)
-        except (PgnRoundTripError, RecursionError, ValueError):
+            parsed = parse_pgn_text(
+                candidate,
+                strict=False,
+                control_checkpoint=effective_control,
+            )
+        except (PgnRoundTripError, RecursionError, ValueError) as exc:
+            if control_failure is exc:
+                raise
             if len(warnings) < MAX_HTML_WARNINGS:
                 warnings.append(f"PGN candidate {candidate_index} could not be represented canonically and was ignored")
             continue
@@ -1304,8 +2209,22 @@ def _canonical_pgn_games(
         # every branch/comment/tag remains attached to its owning game. Prepare
         # the entire region before publication; never publish a partial split.
         try:
-            sources = [candidate] if len(parsed) == 1 else [serialize_game(game) for game in parsed]
-        except (GameTreeSerializationError, RecursionError, ValueError):
+            if len(parsed) == 1:
+                sources = [candidate]
+            else:
+                sources = []
+                for parsed_game in parsed:
+                    if effective_control is not None:
+                        effective_control()
+                    sources.append(
+                        serialize_game(
+                            parsed_game,
+                            control_checkpoint=effective_control,
+                        )
+                    )
+        except (GameTreeSerializationError, RecursionError, ValueError) as exc:
+            if control_failure is exc:
+                raise
             if len(warnings) < MAX_HTML_WARNINGS:
                 warnings.append(f"PGN candidate {candidate_index} could not be split canonically and was ignored")
             continue
@@ -1314,8 +2233,8 @@ def _canonical_pgn_games(
                 f"PGN candidate {candidate_index}: collection split into {len(parsed)} canonical games; source formatting normalized"
             )
         for game_index, (game, game_source) in enumerate(zip(parsed, sources), start=1):
-            if control_checkpoint is not None:
-                control_checkpoint()
+            if effective_control is not None:
+                effective_control()
             # Recovery is useful for reading damaged historical sources, but it
             # is not lossless conversion. Preserve canonical diagnostics.
             for warning in game.warnings:
@@ -1328,7 +2247,10 @@ def _canonical_pgn_games(
             title = " — ".join(
                 part for part in (game.tags.get("White"), game.tags.get("Black")) if part and part != "?"
             ) or game.tags.get("Event") or f"Embedded game {candidate_index}.{game_index}"
-            digest = sha256(game_source.encode("utf-8")).hexdigest()[:20]
+            digest = _sha256_text_hex(
+                game_source,
+                control_checkpoint,
+            )[:20]
             occurrence = identities.get(digest, 0) + 1
             identities[digest] = occurrence
             games.append(
@@ -1344,35 +2266,67 @@ def _canonical_pgn_games(
             )
     return games
 
-def _asset_set(available_assets: object) -> frozenset[str] | None:
+def _asset_set(
+    available_assets: object,
+    control_checkpoint: Callable[[], None] | None = None,
+) -> frozenset[str] | None:
     if available_assets is None:
         return None
-    if not isinstance(available_assets, (set, frozenset, tuple, list)):
+    # Exact built-ins only: container subclasses can override __len__/__iter__
+    # and execute arbitrary provider code during an otherwise bounded import.
+    if type(available_assets) not in {set, frozenset, tuple, list}:
         raise BookHtmlImportError(
-            "available_assets must be a finite collection of relative asset names",
+            "available_assets must be a finite built-in collection of relative asset names",
             code=BookHtmlImportErrorCode.INVALID_ARGUMENT,
         )
-    normalized: set[str] = set()
     if len(available_assets) > MAX_HTML_IMAGES * 2:
         raise BookHtmlImportError(
             "available_assets contains too many entries",
             code=BookHtmlImportErrorCode.RESOURCE_LIMIT,
         )
-    for item in available_assets:
-        if type(item) is not str or not item.strip():
+    if control_checkpoint is not None:
+        control_checkpoint()
+    normalized: set[str] = set()
+    total_chars = 0
+    for item_index, item in enumerate(available_assets, start=1):
+        if control_checkpoint is not None and item_index % 128 == 1:
+            control_checkpoint()
+        if type(item) is not str:
             raise BookHtmlImportError(
                 "available_assets entries must be non-empty text",
                 code=BookHtmlImportErrorCode.INVALID_ARGUMENT,
             )
-        name = _asset_name(item)
+        # Bound exact host strings before strip/url parsing. A single asset name
+        # longer than the maximum source cannot be referenced by a valid source,
+        # and the aggregate budget prevents a finite inventory from multiplying
+        # parser work far beyond the bounded HTML source envelope.
+        item_chars = len(item)
+        if item_chars > MAX_HTML_SOURCE_BYTES:
+            raise BookHtmlImportError(
+                "available_assets entry exceeds the supported asset-name size",
+                code=BookHtmlImportErrorCode.RESOURCE_LIMIT,
+            )
+        total_chars += item_chars
+        if total_chars > MAX_HTML_AVAILABLE_ASSET_TOTAL_CHARS:
+            raise BookHtmlImportError(
+                "available_assets exceeds the supported aggregate name size",
+                code=BookHtmlImportErrorCode.RESOURCE_LIMIT,
+            )
+        if not _controlled_strip(item, control_checkpoint):
+            raise BookHtmlImportError(
+                "available_assets entries must be non-empty text",
+                code=BookHtmlImportErrorCode.INVALID_ARGUMENT,
+            )
+        name = _asset_name(item, control_checkpoint)
         if not name:
             raise BookHtmlImportError(
                 "available_assets entries must be relative asset names",
                 code=BookHtmlImportErrorCode.INVALID_ARGUMENT,
             )
         normalized.add(name)
+    if control_checkpoint is not None:
+        control_checkpoint()
     return frozenset(normalized)
-
 
 def import_html_book(
     source: str | bytes,
@@ -1399,14 +2353,25 @@ def import_html_book(
         if not callable(control_checkpoint):
             raise TypeError("control_checkpoint must be callable")
         control_checkpoint()
-    display_source = _text(source_name, "source_name")
-    override_title = _text(title, "title", optional=True)
-    override_author = _text(author, "author", optional=True)
-    override_language = _text(language, "language", optional=True)
-    text, raw, legacy_windows_1251 = _source_text(source)
-    assets = _asset_set(available_assets)
+    display_source = _text(
+        source_name, "source_name", control_checkpoint=control_checkpoint
+    )
+    override_title = _text(
+        title, "title", optional=True, control_checkpoint=control_checkpoint
+    )
+    override_author = _text(
+        author, "author", optional=True, control_checkpoint=control_checkpoint
+    )
+    override_language = _text(
+        language, "language", optional=True, control_checkpoint=control_checkpoint
+    )
+    text, raw, legacy_windows_1251 = _source_text(source, control_checkpoint)
+    assets = _asset_set(available_assets, control_checkpoint)
 
-    parser = _SemanticHtmlParser(available_assets=assets)
+    parser = _SemanticHtmlParser(
+        available_assets=assets,
+        control_checkpoint=control_checkpoint,
+    )
     # Keep trusted host control outside parser exception translation. A cancelled
     # import must propagate to its transaction owner, never become damaged prose.
     chunks = (text,) if control_checkpoint is None else (
@@ -1420,6 +2385,8 @@ def import_html_book(
         except BookHtmlImportError:
             raise
         except Exception as exc:
+            if parser._control_failure is exc:
+                raise
             raise BookHtmlImportError(
                 "HTML book could not be parsed safely",
                 code=BookHtmlImportErrorCode.INVALID_ARGUMENT,
@@ -1431,6 +2398,8 @@ def import_html_book(
     except BookHtmlImportError:
         raise
     except Exception as exc:
+        if parser._control_failure is exc:
+            raise
         raise BookHtmlImportError(
             "HTML book could not be parsed safely",
             code=BookHtmlImportErrorCode.INVALID_ARGUMENT,
@@ -1438,19 +2407,27 @@ def import_html_book(
     if control_checkpoint is not None:
         control_checkpoint()
 
-    visible_text = "".join(parser.visible_parts)
+    visible_text = _controlled_join_strings(parser.visible_parts, "", control_checkpoint)
     warnings = list(parser.warnings)
     if legacy_windows_1251:
-        warnings.append("Legacy Windows-1251 HTML was decoded losslessly.")
+        _append_bounded_import_warning(
+            warnings,
+            "Legacy Windows-1251 HTML was decoded losslessly.",
+        )
     # The global visible-text scan preserves historical marker acceptance,
     # including markers outside a semantic capture. Exact marked <pre> captures
     # override the same marker offset with their bounded local candidate so text
     # after </pre> can never be swallowed into that game's canonicalization.
-    candidates_by_marker = {
-        candidate.marker_offset: candidate
-        for candidate in _pgn_candidates(visible_text)
-    }
-    for block in parser.blocks:
+    candidates_by_marker: dict[int, _PgnCandidate] = {}
+    for candidate_index, candidate in enumerate(
+        _pgn_candidates(visible_text, control_checkpoint), start=1
+    ):
+        if control_checkpoint is not None and candidate_index % 128 == 1:
+            control_checkpoint()
+        candidates_by_marker[candidate.marker_offset] = candidate
+    for block_index, block in enumerate(parser.blocks, start=1):
+        if control_checkpoint is not None and block_index % 128 == 1:
+            control_checkpoint()
         if isinstance(block, _PgnSlot):
             candidates_by_marker[block.candidate.marker_offset] = block.candidate
     canonical_games = _canonical_pgn_games(
@@ -1459,11 +2436,15 @@ def import_html_book(
         control_checkpoint,
     )
     games_by_marker: dict[int, list[Game]] = {}
-    for candidate, game in canonical_games:
+    for game_index, (candidate, game) in enumerate(canonical_games, start=1):
+        if control_checkpoint is not None and game_index % 128 == 1:
+            control_checkpoint()
         games_by_marker.setdefault(candidate.marker_offset, []).append(game)
     consumed_markers: set[int] = set()
     ordered_blocks = []
-    for block in parser.blocks:
+    for block_index, block in enumerate(parser.blocks, start=1):
+        if control_checkpoint is not None and block_index % 128 == 1:
+            control_checkpoint()
         if isinstance(block, _PgnSlot):
             marker_offset = block.candidate.marker_offset
             region_games = games_by_marker.get(marker_offset)
@@ -1476,7 +2457,10 @@ def import_html_book(
                 # between surrounding paragraphs. Preserve it without a Game
                 # role or a Board action, under the existing prose limits.
                 candidate = block.candidate
-                digest = sha256(candidate.text.encode("utf-8")).hexdigest()[:20]
+                digest = _sha256_text_hex(
+                    candidate.text,
+                    control_checkpoint,
+                )[:20]
                 ordered_blocks.append(
                     Paragraph(
                         text=candidate.text,
@@ -1497,14 +2481,18 @@ def import_html_book(
             "HTML book contains too many semantic blocks",
             code=BookHtmlImportErrorCode.RESOURCE_LIMIT,
         )
-    for candidate, game in canonical_games:
+    for game_index, (candidate, game) in enumerate(canonical_games, start=1):
+        if control_checkpoint is not None and game_index % 128 == 1:
+            control_checkpoint()
         if candidate.marker_offset not in consumed_markers:
             parser._append_block(game)
     embedded_games = [game for _, game in canonical_games]
 
     resolved_title = override_title or parser.title
     if not resolved_title:
-        for block in parser.blocks:
+        for block_index, block in enumerate(parser.blocks, start=1):
+            if control_checkpoint is not None and block_index % 128 == 1:
+                control_checkpoint()
             if isinstance(block, Heading):
                 resolved_title = block.text
                 break
@@ -1519,21 +2507,30 @@ def import_html_book(
 
     missing = tuple(sorted(parser.missing_assets))
     if missing:
-        room = max(0, MAX_HTML_WARNINGS - len(warnings))
-        for name in missing[:room]:
-            warnings.append(f"referenced asset is unavailable: {name}")
-        if len(missing) > room and len(warnings) < MAX_HTML_WARNINGS + 1:
-            warnings.append("additional missing asset warnings were suppressed")
+        for missing_index, name in enumerate(missing, start=1):
+            if control_checkpoint is not None and missing_index % 128 == 1:
+                control_checkpoint()
+            if not _append_bounded_import_warning(
+                warnings,
+                f"referenced asset is unavailable: {name}",
+            ):
+                break
 
-    document = BookDocument(
-        title=resolved_title,
-        author=override_author or parser.author,
-        language=override_language or parser.language,
-        source_name=display_source,
-        blocks=list(parser.blocks),
-        warnings=list(warnings),
-    )
-    digest = sha256(raw).hexdigest()
+    try:
+        document = BookDocument(
+            title=resolved_title,
+            author=override_author or parser.author,
+            language=override_language or parser.language,
+            source_name=display_source,
+            blocks=list(parser.blocks),
+            warnings=list(warnings),
+        )
+    except BookDocumentError as exc:
+        raise BookHtmlImportError(
+            "HTML semantic projection exceeds canonical BookDocument limits",
+            code=BookHtmlImportErrorCode.RESOURCE_LIMIT,
+        ) from exc
+    digest = _sha256_bytes_hex(raw, control_checkpoint)
     return BookHtmlImportResult(
         document=document,
         source_sha256=digest,

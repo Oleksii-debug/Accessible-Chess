@@ -197,7 +197,15 @@ def _validate_timestamp(value: object) -> str:
 
 
 def _validate_scenarios(value: object) -> dict[str, str]:
-    if type(value) is not dict or set(value) != set(REQUIRED_SCENARIOS):
+    if type(value) is not dict:
+        _fail("scenario_results must contain every required physical scenario exactly once")
+    # The mapping itself is exact, but Python dict keys may still be active
+    # subclasses. Snapshot references passively, reject non-built-in text, and
+    # only then perform hashing/equality for the canonical key-set comparison.
+    keys = tuple(value.keys())
+    if any(type(name) is not str for name in keys):
+        _fail("scenario_results keys must be exact text")
+    if len(keys) != len(REQUIRED_SCENARIOS) or set(keys) != set(REQUIRED_SCENARIOS):
         _fail("scenario_results must contain every required physical scenario exactly once")
     normalized: dict[str, str] = {}
     for name in REQUIRED_SCENARIOS:
@@ -355,11 +363,62 @@ def _same_file_identity(left: os.stat_result, right: os.stat_result) -> bool:
         return left_identity == right_identity
 
 
+def _stable_change_metadata(info: os.stat_result) -> tuple[int, ...] | None:
+    """Return platform-reliable mutation metadata for one acceptance snapshot."""
+
+    mtime_ns = getattr(info, "st_mtime_ns", None)
+    if type(mtime_ns) is not int or mtime_ns < 0:
+        return None
+    if os.name == "nt":
+        return (mtime_ns,)
+
+    ctime_ns = getattr(info, "st_ctime_ns", None)
+    if type(ctime_ns) is not int or ctime_ns < 0:
+        return None
+    return mtime_ns, ctime_ns
+
+
 def _same_file_snapshot(left: os.stat_result, right: os.stat_result) -> bool:
-    return bool(
-        _same_file_identity(left, right)
-        and int(left.st_size) == int(right.st_size)
-        and getattr(left, "st_mtime_ns", None) == getattr(right, "st_mtime_ns", None)
+    if not _same_file_identity(left, right):
+        return False
+    left_size = getattr(left, "st_size", None)
+    right_size = getattr(right, "st_size", None)
+    if (
+        type(left_size) is not int
+        or type(right_size) is not int
+        or left_size < 0
+        or right_size < 0
+        or left_size != right_size
+    ):
+        return False
+    left_change = _stable_change_metadata(left)
+    right_change = _stable_change_metadata(right)
+    return left_change is not None and left_change == right_change
+
+
+def _same_publication_snapshot(left: os.stat_result, right: os.stat_result) -> bool:
+    """Compare content continuity across one hard-link namespace mutation."""
+
+    if not _same_file_identity(left, right):
+        return False
+    left_size = getattr(left, "st_size", None)
+    right_size = getattr(right, "st_size", None)
+    if (
+        type(left_size) is not int
+        or type(right_size) is not int
+        or left_size < 0
+        or right_size < 0
+        or left_size != right_size
+    ):
+        return False
+    left_mtime = getattr(left, "st_mtime_ns", None)
+    right_mtime = getattr(right, "st_mtime_ns", None)
+    return (
+        type(left_mtime) is int
+        and type(right_mtime) is int
+        and left_mtime >= 0
+        and right_mtime >= 0
+        and left_mtime == right_mtime
     )
 
 
@@ -477,7 +536,7 @@ def _publish_exclusive(path: Path, payload: bytes) -> None:
                     cleanup_temporary = False
 
                 if (
-                    not _same_file_snapshot(staged, after_link)
+                    not _same_publication_snapshot(staged, after_link)
                     or not staging_still_owned
                     or not stat.S_ISREG(published.st_mode)
                     or _is_reparse(published)
@@ -562,6 +621,53 @@ def _publish_exclusive(path: Path, payload: bytes) -> None:
             and cleanup_temporary
         ):
             _remove_owned_publication_file(temporary, staging_identity)
+
+    if not publication_accepted or staging_identity is None:
+        _fail("physical acceptance publication did not reach an accepted state")
+
+    # Staging hard-link cleanup mutates the shared inode namespace and can race
+    # with an external writer through the canonical pathname. Revalidate the
+    # exact canonical object and bytes only after cleanup has completed.
+    try:
+        final_before = path.lstat()
+        if (
+            not stat.S_ISREG(final_before.st_mode)
+            or _is_reparse(final_before)
+            or not _same_file_identity(staging_identity, final_before)
+        ):
+            _fail(
+                "physical acceptance canonical pathname changed after staging cleanup"
+            )
+        try:
+            final_readback = _stable_bytes(
+                path,
+                label="physical acceptance record final publication",
+                maximum=MAX_ACCEPTANCE_BYTES,
+            )
+        except Version2PortablePackageError as exc:
+            raise OwnerPhysicalAcceptanceError(
+                "physical acceptance record cannot be read back after staging cleanup"
+            ) from exc
+        if final_readback != payload:
+            _fail("physical acceptance published bytes changed after staging cleanup")
+        final_after = path.lstat()
+        if (
+            not stat.S_ISREG(final_after.st_mode)
+            or _is_reparse(final_after)
+            or not _same_file_snapshot(final_before, final_after)
+            or not _same_file_identity(staging_identity, final_after)
+        ):
+            _fail(
+                "physical acceptance canonical pathname changed after final readback"
+            )
+    except OwnerPhysicalAcceptanceError:
+        _remove_owned_publication_file(path, staging_identity)
+        raise
+    except OSError as exc:
+        _remove_owned_publication_file(path, staging_identity)
+        raise OwnerPhysicalAcceptanceError(
+            "physical acceptance publication cannot be revalidated after staging cleanup"
+        ) from exc
 
 
 def record_owner_physical_acceptance(

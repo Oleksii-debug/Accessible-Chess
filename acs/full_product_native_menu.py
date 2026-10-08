@@ -88,16 +88,19 @@ _TOP_ORDER = (
 _TEXT = {
     UILanguage.EN: {
         "top.file": "&File", "top.game": "&Game", "top.position": "&Position",
-        "top.pgn": "&PGN", "top.library": "&Library", "top.import": "&Import",
-        "top.export": "&Export", "top.engine": "&Engine", "top.analysis": "&Analysis",
+        "top.pgn": "PG&N", "top.library": "Librar&y", "top.import": "&Import",
+        "top.export": "E&xport", "top.engine": "&Engine", "top.analysis": "&Analysis",
         "top.books": "&Books", "top.training": "&Training",
-        "top.teacher": "&Teacher/Classroom", "top.settings": "&Settings", "top.help": "&Help",
+        "top.teacher": "Teacher/&Classroom", "top.settings": "&Settings", "top.help": "&Help",
         "open_pgn": "Open PGN", "cancel_pgn_open": "Cancel PGN Open", "save_pgn": "Save PGN", "save_pgn_as": "Save PGN As", "cancel_pgn_save": "Cancel PGN Save",
         "import_library": "Import into Library", "export_pgn": "Export selected PGN", "exit": "Exit",
         "convert_pgn": "Convert PGN to UTF-8 (new copy)",
         "board_game": "Board and game", "standard": "New standard position",
         "empty": "Empty position", "undo": "Undo", "redo": "Redo",
         "position_tools": "Board and position tools", "move_input": "Move input",
+        "read_fen": "Read current FEN",
+        "copy_fen": "Copy current FEN",
+        "new_pgn_from_position": "Create PGN from current position",
         "history_go": "Go to move", "history_previous": "Previous history position",
         "history_next": "Next history position", "pgn_screen": "PGN and GameTree",
         "previous_game": "Previous game", "next_game": "Next game",
@@ -122,6 +125,8 @@ _TEXT = {
         "teacher_coordinates": "Toggle coordinates", "teacher_orientation": "Toggle orientation",
         "teacher_event": "Read latest student event", "classes_screen": "Classes and students",
         "settings_screen": "Settings", "help_screen": "Keyboard and help",
+        "release_status": "Release and update status", "release_check": "Check for verified updates",
+        "release_apply": "Install verified update",
     },
     UILanguage.UA: {
         "top.file": "&Файл", "top.game": "&Гра", "top.position": "&Позиція",
@@ -135,6 +140,9 @@ _TEXT = {
         "board_game": "Дошка і партія", "standard": "Нова стандартна позиція",
         "empty": "Порожня позиція", "undo": "Скасувати", "redo": "Повторити",
         "position_tools": "Дошка та інструменти позиції", "move_input": "Поле введення ходу",
+        "read_fen": "Прочитати поточний FEN",
+        "copy_fen": "Скопіювати поточний FEN",
+        "new_pgn_from_position": "Створити PGN з поточної позиції",
         "history_go": "Перейти до ходу", "history_previous": "Попередня позиція історії",
         "history_next": "Наступна позиція історії", "pgn_screen": "PGN і дерево партії",
         "previous_game": "Попередня партія", "next_game": "Наступна партія",
@@ -159,6 +167,8 @@ _TEXT = {
         "teacher_coordinates": "Перемкнути координати", "teacher_orientation": "Перевернути дошку",
         "teacher_event": "Прочитати останню дію учня", "classes_screen": "Класи та учні",
         "settings_screen": "Налаштування", "help_screen": "Клавіатура і довідка",
+        "release_status": "Стан випуску та оновлень", "release_check": "Перевірити наявність перевірених оновлень",
+        "release_apply": "Встановити перевірене оновлення",
     },
 }
 
@@ -208,7 +218,7 @@ def build_full_product_menu_spec(
             host_exit,
         ),
         "game": (action("board_game", "screen.board"), action("standard", "move.standard"), action("empty", "move.empty"), separator, action("undo", "edit.undo"), action("redo", "edit.redo")),
-        "position": (action("position_tools", "screen.board"), action("move_input", "board.input"), action("history_go", "history.go_to_move"), action("history_previous", "history.previous"), action("history_next", "history.next")),
+        "position": (action("position_tools", "screen.board"), action("move_input", "board.input"), action("read_fen", "board.read_fen"), action("copy_fen", "position.copy_fen"), action("new_pgn_from_position", "pgn.new_from_position"), action("history_go", "history.go_to_move"), action("history_previous", "history.previous"), action("history_next", "history.next")),
         "pgn": (
             action("pgn_screen", "screen.pgn"),
             action("open_pgn", "pgn.open"),
@@ -234,7 +244,13 @@ def build_full_product_menu_spec(
         "training": (action("training_screen", "screen.training"), action("training_hint", "training.hint"), action("training_reveal", "training.reveal_solution"), action("training_retry", "training.retry"), action("training_reset", "training.reset")),
         "teacher": (action("teacher_screen", "screen.teacher"), action("teacher_pointer_clear", "teacher.pointer_clear"), action("teacher_coordinates", "teacher.coordinates_toggle"), action("teacher_orientation", "teacher.orientation_toggle"), action("teacher_event", "teacher.read_student_event"), action("classes_screen", "screen.classes")),
         "settings": (action("settings_screen", "screen.settings"),),
-        "help": (action("help_screen", "screen.help"),),
+        "help": (
+            action("help_screen", "screen.help"),
+            separator,
+            action("release_status", "release.status"),
+            action("release_check", "release.check_update"),
+            action("release_apply", "release.apply_update"),
+        ),
     }
     return tuple(
         NativeTopMenuSpec(menu_id, text[f"top.{menu_id}"], tuple(rows[menu_id]))

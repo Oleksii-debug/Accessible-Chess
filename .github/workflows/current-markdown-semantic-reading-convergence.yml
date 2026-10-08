@@ -1,0 +1,95 @@
+name: Current Markdown Semantic Reading Convergence
+
+on:
+  pull_request:
+    branches:
+      - converge/d06-strict-pgn-safety-20261006-c2mbezb112
+    paths:
+      - '.github/workflows/current-markdown-semantic-reading-convergence.yml'
+      - 'acs/book_text_import.py'
+      - 'tests/test_markdown_library_journey.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-markdown-semantic-reading-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  BOOK_TEXT_IMPORT_BLOB: 18f26a228022f682c0d0948423282dfe29ab4b54
+  MARKDOWN_JOURNEY_TEST_BLOB: 64b4eb5b5abab87448e9b8d425bd3b451d8722a3
+
+jobs:
+  exact-head:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prove exact geometry and Markdown blobs
+        shell: bash
+        env:
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          expected="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
+          test "$(git rev-parse HEAD)" = "$expected"
+          base_ref="${EVENT_BASE_REF:-converge/d06-strict-pgn-safety-20261006-c2mbezb112}"
+          git fetch --no-tags origin "+refs/heads/$base_ref:refs/remotes/origin/$base_ref"
+          live_base="$(git rev-parse "refs/remotes/origin/$base_ref")"
+          if [ -n "${EVENT_BASE_SHA:-}" ]; then
+            test "$EVENT_BASE_SHA" = "$live_base"
+          fi
+          test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+          git diff --check "$live_base"...HEAD
+          changed="$(git diff --name-only "$live_base"...HEAD | sort)"
+          expected_paths="$(printf '%s\n' \
+            '.github/workflows/current-markdown-semantic-reading-convergence.yml' \
+            'acs/book_text_import.py' \
+            'tests/test_markdown_library_journey.py' | sort)"
+          test "$changed" = "$expected_paths"
+          test "$(git rev-parse HEAD:acs/book_text_import.py)" = "$BOOK_TEXT_IMPORT_BLOB"
+          test "$(git rev-parse HEAD:tests/test_markdown_library_journey.py)" = "$MARKDOWN_JOURNEY_TEST_BLOB"
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile Markdown and durable reader surfaces
+        run: >-
+          python -m compileall -q
+          acs/book_text_import.py
+          acs/bookreader.py
+          tests/test_markdown_library_journey.py
+          tests/test_v2_book_text_import.py
+          tests/test_v2_markdown_semantic_lists.py
+          tests/test_bookdocument.py
+          tests/test_bookreader.py
+          tests/test_v2_book_progress_store.py
+
+      - name: Execute semantic reading and restore regressions
+        run: >-
+          python -m unittest -v
+          tests.test_markdown_library_journey
+          tests.test_v2_book_text_import
+          tests.test_v2_markdown_semantic_lists
+          tests.test_bookdocument
+          tests.test_bookreader
+          tests.test_v2_book_progress_store
+          tests.test_book_presenter_passive_ingress
+
+      - name: Core selftest
+        run: python -m acs.selftest

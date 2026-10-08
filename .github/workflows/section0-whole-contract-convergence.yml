@@ -1,0 +1,180 @@
+name: Section 0 Whole Contract Convergence V3
+
+on:
+  pull_request:
+    branches:
+      - 'converge/section0-whole-contract-v2-20261007-s56'
+    paths:
+      - '.github/workflows/section0-import-batch-exception-isolation.yml'
+      - '.github/workflows/section0-whole-contract-convergence.yml'
+      - 'acs/import_registry.py'
+      - 'docs/automation/SECTION0_CLOSURE_CANDIDATE.md'
+      - 'tests/test_import_registry.py'
+      - 'tests/test_dev4_import_batch_adapter_failure.py'
+      - 'tests/test_epd.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: section0-whole-contract-v3-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  EXPECTED_BASE_SHA: 1bc2b88398d8ba76e43fd823e0693de99b7f06e1
+  FORMAT_IDENTITY_HEAD: f087ee53a1b47faee1a517e52aea79fcacba65e0
+  PREVIOUS_WHOLE_HEAD: e9e0dceb21c1dc002b844c4e60563b3552f72744
+  IMPORT_PARENT_SHA: c80772e40d783694d3931768e66d246236f61aad
+  CAPABILITY_PARENT_SHA: 6f8ae8547dfe7c0f15ed124bc0f44a6c660c0056
+  PREVIOUS_CONVERGENCE_SHA: b1df7ad557d9adf0e1d73f173d05735f0ab8e050
+  DUPLICATE_CONVERGENCE_SHA: 8a39f849950020e59f815b9315b2640dc394ca31
+
+  FORMAT_IDENTITY_WORKFLOW_BLOB: ec13eb5748f515c43955dd6d99ea321c49105861
+  BATCH_ISOLATION_WORKFLOW_BLOB: 949998bedd409390744b58c4c496d43db0241b54
+  AUTHORITY_DOC_BLOB: a1f7680f120c1a397e323dc9e633018a59adc711
+  AUTHORITY_TEST_BLOB: ca8cc57fa0ca5c6888004239100390f136d43ac8
+  IMPORT_CONTRACT_BLOB: d9855d173f8c73440e190482a107299be28949c5
+  REPORT_PATHS_BLOB: fafc8696a846a1b9c96a8ce89a76ce82593fd582
+  IMPORT_REGISTRY_BLOB: 1a95d321d1c965567cd13d53355597b3b9589280
+  IMPORT_CONTRACT_TEST_BLOB: 69439b421e7957caa7262704510b3211110b4e40
+  IMPORT_REGISTRY_TEST_BLOB: e08c5d14e58ed1433aa496477ef0f222546edeee
+  BATCH_QA_TEST_BLOB: f0f1256f38fe32756f16f5fff748c5ed36a11a50
+  EPD_TEST_BLOB: e170377a57f0680bd73f275012d40843509b92a2
+  CAPABILITY_BLOB: c3fb75120d71b7cf26b71f22961e9caa82a55b3c
+  CAPABILITY_DOC_BLOB: 965eff8a7f9d24094318b7e14680d42ff9098cb7
+  CAPABILITY_TEST_BLOB: 852aba2d3d8ba62064289f7dc76bc6430ac2e5b8
+  CLOSURE_DOC_BLOB: bc0cebf87585be86d4a6ee8cb04d30013e7efa0e
+
+  CHESSCORE_BLOB: e04982c2de52394c2c9f5e5725d6267cbc55ce3d
+  POSITION_EDITOR_BLOB: fd48b517c4489fe70e4ecb102e2615027be8f098
+  EPD_BLOB: 06b47a2a30cbd7b97095424a6f146bd175ea185a
+  GAMETREE_BLOB: 565afa84260d5b8dc2ee8979bb0538b495516f97
+  PGN_ROUNDTRIP_BLOB: 76e10f5035e55cc413632dcb3829f698a70b41ca
+  LIBRARY_IMPORT_BLOB: 3ff7dfa63e8d587d5688daed21bdbfce30664c1a
+  GAME_IDENTITY_BLOB: 4cfc738084a99ee12c4397c71c846cac4426754d
+
+jobs:
+  whole-section:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 55
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Prove exact successor topology and geometry
+        shell: bash
+        env:
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          expected_head="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
+          test "$(git rev-parse HEAD)" = "$expected_head"
+          if [ -n "${EVENT_BASE_REF:-}" ]; then
+            test "$EVENT_BASE_REF" = "converge/section0-whole-contract-v2-20261007-s56"
+            test "$EVENT_BASE_SHA" = "$EXPECTED_BASE_SHA"
+          fi
+          test "$(git merge-base "$EXPECTED_BASE_SHA" HEAD)" = "$EXPECTED_BASE_SHA"
+          git merge-base --is-ancestor "$FORMAT_IDENTITY_HEAD" HEAD
+          git merge-base --is-ancestor "$PREVIOUS_WHOLE_HEAD" HEAD
+          git merge-base --is-ancestor "$IMPORT_PARENT_SHA" HEAD
+          git merge-base --is-ancestor "$CAPABILITY_PARENT_SHA" HEAD
+          git merge-base --is-ancestor "$PREVIOUS_CONVERGENCE_SHA" HEAD
+          git merge-base --is-ancestor "$DUPLICATE_CONVERGENCE_SHA" HEAD
+
+          git diff --check "$EXPECTED_BASE_SHA"...HEAD
+          changed="$(git diff --name-only "$EXPECTED_BASE_SHA"...HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/section0-import-batch-exception-isolation.yml' \
+            '.github/workflows/section0-whole-contract-convergence.yml' \
+            'acs/import_registry.py' \
+            'docs/automation/SECTION0_CLOSURE_CANDIDATE.md' \
+            'tests/test_import_registry.py' \
+            'tests/test_dev4_import_batch_adapter_failure.py' \
+            'tests/test_epd.py' | sort)"
+          test "$changed" = "$expected"
+
+      - name: Bind exact Section 0 authorities
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:.github/workflows/section0-import-report-format-identity.yml)" = "$FORMAT_IDENTITY_WORKFLOW_BLOB"
+          test "$(git rev-parse HEAD:.github/workflows/section0-import-batch-exception-isolation.yml)" = "$BATCH_ISOLATION_WORKFLOW_BLOB"
+          test "$(git rev-parse HEAD:docs/FORMAT_AUTHORITY_BOUNDARIES.md)" = "$AUTHORITY_DOC_BLOB"
+          test "$(git rev-parse HEAD:tests/test_section0_format_authority_contract.py)" = "$AUTHORITY_TEST_BLOB"
+          test "$(git rev-parse HEAD:acs/import_contract.py)" = "$IMPORT_CONTRACT_BLOB"
+          test "$(git rev-parse HEAD:acs/report_paths.py)" = "$REPORT_PATHS_BLOB"
+          test "$(git rev-parse HEAD:acs/import_registry.py)" = "$IMPORT_REGISTRY_BLOB"
+          test "$(git rev-parse HEAD:tests/test_import_contract.py)" = "$IMPORT_CONTRACT_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_import_registry.py)" = "$IMPORT_REGISTRY_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_dev4_import_batch_adapter_failure.py)" = "$BATCH_QA_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_epd.py)" = "$EPD_TEST_BLOB"
+          test "$(git rev-parse HEAD:acs/format_capabilities.py)" = "$CAPABILITY_BLOB"
+          test "$(git rev-parse HEAD:docs/automation/CANONICAL_FORMAT_CAPABILITY_MATRIX.md)" = "$CAPABILITY_DOC_BLOB"
+          test "$(git rev-parse HEAD:tests/test_section0_format_capabilities.py)" = "$CAPABILITY_TEST_BLOB"
+          test "$(git rev-parse HEAD:docs/automation/SECTION0_CLOSURE_CANDIDATE.md)" = "$CLOSURE_DOC_BLOB"
+
+          test "$(git rev-parse HEAD:acs/chesscore.py)" = "$CHESSCORE_BLOB"
+          test "$(git rev-parse HEAD:acs/position_editor.py)" = "$POSITION_EDITOR_BLOB"
+          test "$(git rev-parse HEAD:acs/epd.py)" = "$EPD_BLOB"
+          test "$(git rev-parse HEAD:acs/gametree.py)" = "$GAMETREE_BLOB"
+          test "$(git rev-parse HEAD:acs/pgn_roundtrip.py)" = "$PGN_ROUNDTRIP_BLOB"
+          test "$(git rev-parse HEAD:acs/library_import_service.py)" = "$LIBRARY_IMPORT_BLOB"
+          test "$(git rev-parse HEAD:acs/game_identity.py)" = "$GAME_IDENTITY_BLOB"
+
+      - name: Compile Section 0 contract surface
+        run: >-
+          python -m py_compile
+          acs/format_capabilities.py
+          acs/import_contract.py
+          acs/import_registry.py
+          acs/report_paths.py
+          tests/test_section0_format_authority_contract.py
+          tests/test_section0_format_capabilities.py
+          tests/test_import_contract.py
+          tests/test_import_registry.py
+          tests/test_dev4_import_batch_adapter_failure.py
+          tests/test_epd.py
+
+      - name: Section 0.1 through 0.5 executable contracts
+        run: >-
+          python -m unittest -v
+          tests.test_section0_format_authority_contract
+          tests.test_section0_format_capabilities
+          tests.test_import_contract
+          tests.test_import_registry
+          tests.test_dev4_import_batch_adapter_failure
+
+      - name: Retained format authority and source regressions
+        run: >-
+          python -m unittest -v
+          tests.test_position_text_authority
+          tests.test_epd
+          tests.test_d06_pgn_roundtrip
+          tests.test_pgn_open_source_binding
+          tests.test_pgn_open_direct_source
+          tests.test_pgn_streaming_import
+          tests.test_v2_chessbase_capability_manifest
+          tests.test_v2_chessbase_chess960_capability_boundary
+          tests.test_d04_chessbase_integrity_handle_identity
+          tests.test_dev4_chessbase_integrity_atomicity
+          tests.test_dev4_chessbase_integrity_io_observability
+          tests.test_acsdb
+          tests.test_version2_formats_integration
+
+      - name: Core chess selftest
+        run: python -m acs.selftest

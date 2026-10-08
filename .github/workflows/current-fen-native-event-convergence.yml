@@ -1,0 +1,152 @@
+name: Current FEN And Native Event Convergence
+
+on:
+  pull_request:
+    branches:
+      - converge/book-content-bounds-pgn-cancellation-20261006-c2mbezb111
+    paths:
+      - '.github/workflows/current-fen-native-event-convergence.yml'
+      - 'acs/full_product_actions.py'
+      - 'acs/full_product_native_menu.py'
+      - 'acs/keybindings.py'
+      - 'acs/version2_application.py'
+      - 'acs/webapp_keymap.py'
+      - 'tests/test_full_product_native_menu.py'
+      - 'tests/test_version2_application.py'
+      - 'tests/test_version2_release_ui.py'
+      - 'tests/js/version2_final_product_event_drain_serialization_test.js'
+      - 'web/version2_final_product_bootstrap.js'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-fen-native-event-convergence-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  FULL_PRODUCT_ACTIONS_BLOB: ea845346dfaf8fdee3ce8edf7a7b76347ef07251
+  NATIVE_MENU_BLOB: db66652a914156e74d01d263743b0e3f90639714
+  KEYBINDINGS_BLOB: db36897aab2a1f3189f60e5c531f91c318da2d43
+  APPLICATION_BLOB: 41127e23416f2138d2f98c30a159d303cf7a261c
+  WEBAPP_KEYMAP_BLOB: 2b46b11c931bcc314121c54c330189d2ce8ef060
+  NATIVE_MENU_TEST_BLOB: 99c8729b0039a2fb3f604a8c63c4987a53572fea
+  APPLICATION_TEST_BLOB: 872d52687fc31451e9f1bc547e4e792ab69287ca
+  RELEASE_UI_TEST_BLOB: a5e464481f680b3ff9033fa8958e76b90131c837
+  EVENT_DRAIN_TEST_BLOB: ddc9501be4d5d2e332c079d76723604066895c9d
+  FINAL_PRODUCT_BOOTSTRAP_BLOB: 7de1aa152e3a05b1e546744fd8db115777358cf5
+
+jobs:
+  exact-head:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove exact geometry and imported blobs
+        shell: bash
+        env:
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          expected="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
+          test "$(git rev-parse HEAD)" = "$expected"
+
+          base_ref="${EVENT_BASE_REF:-converge/book-content-bounds-pgn-cancellation-20261006-c2mbezb111}"
+          git fetch --no-tags origin "+refs/heads/$base_ref:refs/remotes/origin/$base_ref"
+          live_base="$(git rev-parse "refs/remotes/origin/$base_ref")"
+          if [ -n "${EVENT_BASE_SHA:-}" ]; then
+            test "$EVENT_BASE_SHA" = "$live_base"
+          fi
+          test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+          git diff --check "$live_base"...HEAD
+
+          changed="$(git diff --name-only "$live_base"...HEAD | sort)"
+          expected_paths="$(printf '%s\n' \
+            '.github/workflows/current-fen-native-event-convergence.yml' \
+            'acs/full_product_actions.py' \
+            'acs/full_product_native_menu.py' \
+            'acs/keybindings.py' \
+            'acs/version2_application.py' \
+            'acs/webapp_keymap.py' \
+            'tests/js/version2_final_product_event_drain_serialization_test.js' \
+            'tests/test_full_product_native_menu.py' \
+            'tests/test_version2_application.py' \
+            'tests/test_version2_release_ui.py' \
+            'web/version2_final_product_bootstrap.js' | sort)"
+          test "$changed" = "$expected_paths"
+
+          test "$(git rev-parse HEAD:acs/full_product_actions.py)" = "$FULL_PRODUCT_ACTIONS_BLOB"
+          test "$(git rev-parse HEAD:acs/full_product_native_menu.py)" = "$NATIVE_MENU_BLOB"
+          test "$(git rev-parse HEAD:acs/keybindings.py)" = "$KEYBINDINGS_BLOB"
+          test "$(git rev-parse HEAD:acs/version2_application.py)" = "$APPLICATION_BLOB"
+          test "$(git rev-parse HEAD:acs/webapp_keymap.py)" = "$WEBAPP_KEYMAP_BLOB"
+          test "$(git rev-parse HEAD:tests/test_full_product_native_menu.py)" = "$NATIVE_MENU_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "$APPLICATION_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_version2_release_ui.py)" = "$RELEASE_UI_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/js/version2_final_product_event_drain_serialization_test.js)" = "$EVENT_DRAIN_TEST_BLOB"
+          test "$(git rev-parse HEAD:web/version2_final_product_bootstrap.js)" = "$FINAL_PRODUCT_BOOTSTRAP_BLOB"
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile changed Python surfaces
+        run: >-
+          python -m compileall -q
+          acs/full_product_actions.py
+          acs/full_product_native_menu.py
+          acs/keybindings.py
+          acs/version2_application.py
+          acs/webapp_keymap.py
+          tests/test_full_product_native_menu.py
+          tests/test_version2_application.py
+          tests/test_version2_release_ui.py
+
+      - name: Execute focused FEN user journeys
+        run: >-
+          python -m unittest -v
+          tests.test_version2_release_ui
+          tests.test_version2_application
+          tests.test_full_product_native_menu
+          tests.test_dev2_fen_atomicity
+          tests.test_fen_input_budget_current
+          tests.test_position_editor
+          tests.test_position_text_authority
+          tests.test_pgn_document_new_game_position_integrity
+          tests.test_pgn_document_new_game_position_workflow
+
+      - name: Execute adjacent product composition
+        run: >-
+          python -m unittest -v
+          tests.test_dev1_full_product_webview_adapter
+          tests.test_version2_final_product_composition
+          tests.test_bookreader
+          tests.test_book_presenter_passive_ingress
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: JavaScript syntax
+        run: node --check web/version2_final_product_bootstrap.js
+
+      - name: Native event and focus serialization regressions
+        run: node tests/js/version2_final_product_event_drain_serialization_test.js
+
+      - name: Canonical release presentation regression
+        run: node tests/js/version2_release_bootstrap_dom_test.js
+
+      - name: Core selftest
+        run: python -m acs.selftest

@@ -19,7 +19,14 @@ from .full_product_actions import FullProductActionRouter
 from .full_product_presenters import PgnTreePresenter
 from .full_product_ui_shell import UILanguage
 from .gametree_navigation import GameTreeCursor, VariationStep
-from .pgn_webview_projection import PgnWebViewEvent, PgnWebViewProjection
+from .pgn_webview_projection import PgnWebViewEvent, PgnWebViewProjection, _utf16_units
+from .pgn_workspace import (
+    MAX_PGN_EDIT_TAG_NAME_CHARS,
+    MAX_PGN_EDIT_TAG_VALUE_CHARS,
+    MAX_PGN_MOVE_FRAGMENT_TEXT_UNITS,
+    MAX_PGN_SEARCH_TEXT_UNITS,
+    _contains_unicode_surrogate,
+)
 
 @runtime_checkable
 class PgnWorkspacePort(Protocol):
@@ -371,11 +378,29 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
             "content_revision": identity[4],
         }
         if extra:
-            unknown = set(extra).difference({"text"})
+            unknown = set(extra).difference({"text", "slot", "index"})
             if unknown:
                 raise ValueError("PGN action contains untrusted authority fields")
+            has_slot = "slot" in extra
+            has_index = "index" in extra
+            if has_slot != has_index:
+                raise ValueError("PGN comment target must contain slot and index together")
             if "text" in extra:
                 trusted["text"] = extra["text"]
+            if has_slot:
+                slot = extra["slot"]
+                index = extra["index"]
+                if type(slot) is not str or slot not in {
+                    "before",
+                    "after",
+                    "leading",
+                    "trailing",
+                }:
+                    raise ValueError("PGN comment slot is invalid")
+                if type(index) is not int or index < -1 or index > 255:
+                    raise ValueError("PGN comment index is invalid")
+                trusted["slot"] = slot
+                trusted["index"] = index
         return trusted
 
     def _dispatch_registered(self, action_id: str, payload: Mapping[str, object]) -> Any:
@@ -389,12 +414,22 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
         if type(node_id) is not str:
             raise ValueError("PGN action lacks a presentation node")
         cursor = _node_cursor(node_id)
+        main_line_comment = (
+            action_id in {"pgn.comment_edit", "pgn.comment_delete"}
+            and cursor == GameTreeCursor()
+            and payload.get("slot") in {"leading", "trailing"}
+        )
         trusted = self._trusted_target(
             node_id,
-            require_current=True,
+            require_current=not main_line_comment,
             extra={key: value for key, value in payload.items() if key not in {"game_index", "node_id"}},
         )
-        if action_id in {"pgn.variation_delete", "pgn.variation_promote"}:
+        if action_id in {
+            "pgn.variation_move_up",
+            "pgn.variation_move_down",
+            "pgn.variation_delete",
+            "pgn.variation_promote",
+        }:
             if not cursor.line_path:
                 raise ValueError("main line is not a variation target")
             step = cursor.line_path[-1]
@@ -496,11 +531,124 @@ class PgnWorkspaceWebViewProjection(PgnWebViewProjection):
             return rejected
         return self._operate_and_render(operation)
 
-    def edit_comment(self, text: str) -> PgnWebViewEvent:
-        return self._mutate_and_render(lambda: PgnWebViewProjection.edit_comment(self, text))
+    def edit_tag(self, name: str, value: str) -> PgnWebViewEvent:
+        if (
+            type(name) is not str
+            or not name
+            or _utf16_units(name) > MAX_PGN_EDIT_TAG_NAME_CHARS
+            or "\x00" in name
+            or _contains_unicode_surrogate(name)
+        ):
+            raise ValueError("PGN tag name is invalid")
+        if (
+            type(value) is not str
+            or _utf16_units(value) > MAX_PGN_EDIT_TAG_VALUE_CHARS
+            or "\x00" in value
+            or "\r" in value
+            or "\n" in value
+            or _contains_unicode_surrogate(value)
+        ):
+            raise ValueError("PGN tag value is invalid")
+        return self._mutate_and_render(
+            lambda: self._dispatch_registered(
+                "pgn.tag_edit",
+                {**self._trusted_current_target(), "name": name, "value": value},
+            )
+        )
 
-    def delete_comment(self) -> PgnWebViewEvent:
-        return self._mutate_and_render(super().delete_comment)
+    def delete_tag(self, name: str) -> PgnWebViewEvent:
+        if (
+            type(name) is not str
+            or not name
+            or _utf16_units(name) > MAX_PGN_EDIT_TAG_NAME_CHARS
+            or "\x00" in name
+            or _contains_unicode_surrogate(name)
+        ):
+            raise ValueError("PGN tag name is invalid")
+        return self._mutate_and_render(
+            lambda: self._dispatch_registered(
+                "pgn.tag_delete",
+                {**self._trusted_current_target(), "name": name},
+            )
+        )
+
+    def append_moves(self, text: str) -> PgnWebViewEvent:
+        if (
+            type(text) is not str
+            or not text.strip()
+            or _utf16_units(text) > MAX_PGN_MOVE_FRAGMENT_TEXT_UNITS
+            or "\x00" in text
+            or _contains_unicode_surrogate(text)
+        ):
+            raise ValueError("PGN continuation text is invalid")
+        return self._mutate_and_render(
+            lambda: self._dispatch_registered(
+                "pgn.append_moves",
+                {**self._trusted_current_target(), "text": text},
+            )
+        )
+
+    def search(self, text: str) -> PgnWebViewEvent:
+        if (
+            type(text) is not str
+            or not text.strip()
+            or _utf16_units(text) > MAX_PGN_SEARCH_TEXT_UNITS
+            or "\x00" in text
+            or _contains_unicode_surrogate(text)
+        ):
+            raise ValueError("PGN search text is invalid")
+        return self._mutate_and_render(
+            lambda: self._dispatch_registered(
+                "pgn.search",
+                {**self._trusted_current_target(), "text": text},
+            )
+        )
+
+    def edit_comment(
+        self,
+        text: str,
+        *,
+        slot: str | None = None,
+        index: int | None = None,
+        main: bool = False,
+    ) -> PgnWebViewEvent:
+        return self._mutate_and_render(
+            lambda: PgnWebViewProjection.edit_comment(
+                self,
+                text,
+                slot=slot,
+                index=index,
+                main=main,
+            )
+        )
+
+    def edit_nags(self, text: str) -> PgnWebViewEvent:
+        return self._mutate_and_render(lambda: PgnWebViewProjection.edit_nags(self, text))
+
+    def add_variation(self, text: str) -> PgnWebViewEvent:
+        return self._mutate_and_render(lambda: PgnWebViewProjection.add_variation(self, text))
+
+    def delete_comment(
+        self,
+        *,
+        slot: str | None = None,
+        index: int | None = None,
+        main: bool = False,
+    ) -> PgnWebViewEvent:
+        return self._mutate_and_render(
+            lambda: PgnWebViewProjection.delete_comment(
+                self,
+                slot=slot,
+                index=index,
+                main=main,
+            )
+        )
+
+    def move_variation_up(self) -> PgnWebViewEvent:
+        return self._mutate_and_render(super().move_variation_up)
+
+    def move_variation_down(self) -> PgnWebViewEvent:
+        return self._mutate_and_render(super().move_variation_down)
 
     def delete_variation(self) -> PgnWebViewEvent:
         return self._mutate_and_render(super().delete_variation)

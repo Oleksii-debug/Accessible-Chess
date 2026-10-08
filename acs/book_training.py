@@ -838,17 +838,20 @@ def build_current_book_training_material(reader: BookReader) -> BookTrainingMate
     """Create training from the reader's exact current semantic exercise."""
     if type(reader) is not BookReader:
         raise TypeError("reader must be a BookReader")
-    location = reader.location()
+    # Exact BookReader type alone does not prevent per-instance method shadows.
+    # Dispatch through the canonical class so Book -> Training provenance cannot
+    # execute caller-supplied public reader methods.
+    location = BookReader.location(reader)
     if location.kind != "Exercise":
         raise BookTrainingError(
             "current BookReader location is not an Exercise",
             code=BookTrainingErrorCode.INVALID_TARGET,
         )
-    indexed_document = reader.document_snapshot()
+    indexed_document = BookReader.document_snapshot(reader)
     material = build_book_training_material(indexed_document, location.index)
     # Authoring can change while detached provenance work runs. Recheck the
     # live revision before publication without traversing it outside BookReader.
-    reader.block_snapshot(location.index)
+    BookReader.block_snapshot(reader, location.index)
     return material
 
 
@@ -902,10 +905,10 @@ def return_reader_to_book_training_origin(
         raise TypeError("reader must be a BookReader")
     if type(origin) is not BookTrainingOrigin:
         raise TypeError("origin must be a BookTrainingOrigin")
-    location = resolve_book_training_origin(reader.document_snapshot(), origin)
+    location = resolve_book_training_origin(BookReader.document_snapshot(reader), origin)
     # go_to() rechecks the live authoring revision before moving the canonical
     # reader cursor, so provenance resolution never needs to traverse live state.
-    return reader.go_to(location.index)
+    return BookReader.go_to(reader, location.index)
 
 
 def restore_book_training_material(

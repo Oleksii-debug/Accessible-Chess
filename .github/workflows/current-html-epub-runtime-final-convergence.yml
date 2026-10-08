@@ -1,0 +1,113 @@
+name: Current HTML EPUB Runtime Final Convergence
+
+on:
+  pull_request:
+    branches:
+      - converge/html-epub-cancellation-bounds-20261006-c2mbezb112
+    paths:
+      - '.github/workflows/current-html-epub-runtime-final-convergence.yml'
+      - 'acs/book_html_import.py'
+      - 'acs/book_epub_import.py'
+      - 'tests/test_book_html_runtime_correctness.py'
+      - 'tests/test_book_epub_runtime_correctness.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-html-epub-runtime-final-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  HTML_IMPORT_BLOB: 124c67692742623cc557550cdb48bad1e29d58bf
+  EPUB_IMPORT_BLOB: c6c3144f2582d9e0489ece8ed9c602af40d0956d
+  HTML_RUNTIME_TEST_BLOB: 4bb0d484307f026efb9bdf677f0b97e24ed3caa2
+  EPUB_RUNTIME_TEST_BLOB: 20bed978bd1ab8a7a0d77be24f73a6297e1698db
+
+jobs:
+  exact-head:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 75
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prove exact geometry and runtime blobs
+        shell: bash
+        env:
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          expected="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
+          test "$(git rev-parse HEAD)" = "$expected"
+          base_ref="${EVENT_BASE_REF:-converge/html-epub-cancellation-bounds-20261006-c2mbezb112}"
+          git fetch --no-tags origin "+refs/heads/$base_ref:refs/remotes/origin/$base_ref"
+          live_base="$(git rev-parse "refs/remotes/origin/$base_ref")"
+          if [ -n "${EVENT_BASE_SHA:-}" ]; then
+            test "$EVENT_BASE_SHA" = "$live_base"
+          fi
+          test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+          git diff --check "$live_base"...HEAD
+          changed="$(git diff --name-only "$live_base"...HEAD | sort)"
+          expected_paths="$(printf '%s\n' \
+            '.github/workflows/current-html-epub-runtime-final-convergence.yml' \
+            'acs/book_epub_import.py' \
+            'acs/book_html_import.py' \
+            'tests/test_book_epub_runtime_correctness.py' \
+            'tests/test_book_html_runtime_correctness.py' | sort)"
+          test "$changed" = "$expected_paths"
+          test "$(git rev-parse HEAD:acs/book_html_import.py)" = "$HTML_IMPORT_BLOB"
+          test "$(git rev-parse HEAD:acs/book_epub_import.py)" = "$EPUB_IMPORT_BLOB"
+          test "$(git rev-parse HEAD:tests/test_book_html_runtime_correctness.py)" = "$HTML_RUNTIME_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_book_epub_runtime_correctness.py)" = "$EPUB_RUNTIME_TEST_BLOB"
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile changed runtime surfaces
+        run: >-
+          python -m py_compile
+          acs/book_html_import.py
+          acs/book_epub_import.py
+          tests/test_book_html_runtime_correctness.py
+          tests/test_book_epub_runtime_correctness.py
+
+      - name: Run focused runtime correctness regressions
+        run: >-
+          python -m unittest -v
+          tests.test_book_html_runtime_correctness
+          tests.test_book_epub_runtime_correctness
+
+      - name: Re-run converged HTML EPUB importer authorities
+        run: >-
+          python -m unittest -v
+          tests.test_book_active_import_cancellation
+          tests.test_v2_book_html_import
+          tests.test_v2_book_epub_import
+
+      - name: Run canonical chess-content and reader adjacency
+        run: >-
+          python -m unittest -v
+          tests.test_book_html_pgn_loss_accounting
+          tests.test_gametree
+          tests.test_d06_pgn_roundtrip
+          tests.test_bookdocument
+          tests.test_bookreader
+          tests.test_book_index
+          tests.test_v2_book_library_game_lookup
+          tests.test_book_presenter_passive_ingress
+
+      - name: Core selftest
+        run: python -m acs.selftest

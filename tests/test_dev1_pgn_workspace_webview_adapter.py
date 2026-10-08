@@ -8,6 +8,10 @@ from acs.full_product_ui_shell import AccessibleShellState, UILanguage
 from acs.gametree import parse_games
 from acs.gametree_navigation import GameTreeCursor, VariationStep
 from acs.pgn_webview_bridge import PgnWebViewBridge
+from acs.pgn_workspace import (
+    MAX_PGN_EDIT_TAG_NAME_CHARS,
+    MAX_PGN_EDIT_TAG_VALUE_CHARS,
+)
 from acs.pgn_workspace_webview_adapter import PgnWorkspaceWebViewProjection
 
 
@@ -173,6 +177,101 @@ class PgnWorkspaceWebViewAdapterTests(unittest.TestCase):
         self.assertEqual(0, payload["move_index"])
         self.assertEqual((), payload["line_path"])
         self.assertEqual("a" * 64, payload["expected_record_digest"])
+
+    def test_exact_comment_target_crosses_trusted_workspace_boundary(self) -> None:
+        first = self.projection.snapshot()["tree"][0]
+        self.bridge.dispatch("pgn.select", {"node_id": first["node_id"]})
+
+        edited = self.bridge.dispatch(
+            "pgn.comment_edit",
+            {"text": "Exact note", "slot": "after", "index": -1},
+        )
+        self.assertEqual("selection", edited.kind)
+        action_id, payload = self.calls[-1]
+        self.assertEqual("pgn.comment_edit", action_id)
+        self.assertEqual("Exact note", payload["text"])
+        self.assertEqual("after", payload["slot"])
+        self.assertEqual(-1, payload["index"])
+        self.assertEqual(0, payload["move_index"])
+        self.assertEqual("a" * 64, payload["expected_record_digest"])
+
+        deleted = self.bridge.dispatch(
+            "pgn.comment_delete",
+            {"slot": "after", "index": 0},
+        )
+        self.assertEqual("selection", deleted.kind)
+        action_id, payload = self.calls[-1]
+        self.assertEqual("pgn.comment_delete", action_id)
+        self.assertEqual("after", payload["slot"])
+        self.assertEqual(0, payload["index"])
+        self.assertEqual(0, payload["move_index"])
+
+    def test_workspace_adapter_rejects_utf16_overflow_before_registry_dispatch(self) -> None:
+        before = list(self.calls)
+        for operation in (
+            lambda: self.projection.search("😀" * 2049),
+            lambda: self.projection.append_moves("😀" * 4097),
+            lambda: self.projection.edit_tag("Event", "😀" * 181),
+        ):
+            with self.subTest(operation=operation):
+                with self.assertRaises(ValueError):
+                    operation()
+                self.assertEqual(before, self.calls)
+
+    def test_bridge_rejects_tag_utf16_and_line_breaks_before_projection(self) -> None:
+        def unexpected_projection_call(_name, _value):
+            self.fail("bridge forwarded an invalid PGN tag edit")
+
+        self.projection.edit_tag = unexpected_projection_call
+        invalid_payloads = (
+            {"name": "Event", "value": "😀" * 181},
+            {"name": "😀" * 41, "value": "safe"},
+            {"name": "Event", "value": "line\nbreak"},
+            {"name": "Event", "value": "carriage\rreturn"},
+            {"name": "Event", "value": "\ud800"},
+            {"name": "\udfff", "value": "safe"},
+        )
+        for payload in invalid_payloads:
+            with self.subTest(payload=repr(payload)):
+                event = self.bridge.dispatch("pgn.tag_edit", payload)
+                self.assertEqual("error", event.kind)
+
+    def test_bridge_rejects_surrogate_search_before_projection(self) -> None:
+        before = list(self.calls)
+        event = self.bridge.dispatch("pgn.search", {"text": "\ud800"})
+        self.assertEqual("error", event.kind)
+        self.assertEqual(before, self.calls)
+
+    def test_direct_projection_tag_edit_uses_canonical_bounds_and_rejects_line_breaks(self) -> None:
+        before = len(self.calls)
+        invalid = (
+            ("oversized-name", "X" * (MAX_PGN_EDIT_TAG_NAME_CHARS + 1), "safe"),
+            ("oversized-value", "Event", "x" * (MAX_PGN_EDIT_TAG_VALUE_CHARS + 1)),
+            ("nul-value", "Event", "bad\x00value"),
+            ("lf-value", "Event", "line\nbreak"),
+            ("cr-value", "Event", "carriage\rreturn"),
+            ("surrogate-value", "Event", "\ud800"),
+            ("surrogate-name", "\udfff", "safe"),
+        )
+        for label, name, value in invalid:
+            with self.subTest(label=label):
+                with self.assertRaises(ValueError):
+                    self.projection.edit_tag(name, value)
+                self.assertEqual(before, len(self.calls))
+
+        with self.assertRaises(ValueError):
+            self.projection.delete_tag("X" * (MAX_PGN_EDIT_TAG_NAME_CHARS + 1))
+        self.assertEqual(before, len(self.calls))
+
+        event = self.projection.edit_tag(
+            "X" * MAX_PGN_EDIT_TAG_NAME_CHARS,
+            "v" * MAX_PGN_EDIT_TAG_VALUE_CHARS,
+        )
+        self.assertEqual("selection", event.kind)
+        action_id, payload = self.calls[-1]
+        self.assertEqual("pgn.tag_edit", action_id)
+        self.assertEqual(MAX_PGN_EDIT_TAG_NAME_CHARS, len(payload["name"]))
+        self.assertEqual(MAX_PGN_EDIT_TAG_VALUE_CHARS, len(payload["value"]))
 
     def test_keyboard_and_parent_navigation_cross_real_registry_exactly_once(self) -> None:
         self.projection.snapshot()

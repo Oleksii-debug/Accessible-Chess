@@ -19,7 +19,7 @@ import hashlib
 from typing import Iterable
 
 from .game_identity import identity_for_game
-from .gametree import MoveNode, PgnGame, VariationLine
+from .gametree import MoveNode, PgnGame, VariationLine, RESULTS, TAG_NAME_RE
 from .gametree_annotations import (
     AnnotationEditResult,
     LineAnnotationPatch,
@@ -61,6 +61,26 @@ from .pgn_roundtrip import (
     serialize_pgn_bytes,
     serialize_pgn_text,
 )
+
+
+MAX_PGN_EDIT_TAG_NAME_CHARS = 80
+MAX_PGN_EDIT_TAG_VALUE_CHARS = 360
+MAX_PGN_MOVE_FRAGMENT_TEXT_UNITS = 8192
+MAX_PGN_SEARCH_TEXT_UNITS = 4096
+MAX_PGN_COMMENT_TEXT_UNITS = 8000
+MAX_PGN_NAG_TEXT_UNITS = 512
+
+
+def _pgn_edit_text_units(value: str) -> int:
+    """Return browser-compatible UTF-16 units for bounded PGN edit text."""
+
+    return len(value.encode("utf-16-le", "surrogatepass")) // 2
+
+
+def _contains_unicode_surrogate(value: str) -> bool:
+    """Reject lone UTF-16 surrogate code points before PGN publication."""
+
+    return any(0xD800 <= ord(character) <= 0xDFFF for character in value)
 
 
 class PgnWorkspaceErrorCode(str, Enum):
@@ -131,7 +151,8 @@ def _validate_document(games: Iterable[PgnGame]) -> tuple[list[PgnGame], str]:
     try:
         text = serialize_pgn_text(snapshot)
         reparsed = parse_pgn_text(text, strict=True)
-    except PgnRoundTripError as exc:
+        content_digest = _digest_text(text)
+    except (PgnRoundTripError, UnicodeError) as exc:
         raise _workspace_error(
             "PGN document is not strict round-trip safe",
             PgnWorkspaceErrorCode.INVALID_DOCUMENT,
@@ -141,7 +162,7 @@ def _validate_document(games: Iterable[PgnGame]) -> tuple[list[PgnGame], str]:
             "PGN document changes under canonical round-trip",
             PgnWorkspaceErrorCode.INVALID_DOCUMENT,
         )
-    return list(reparsed), _digest_text(text)
+    return list(reparsed), content_digest
 
 
 def _digest_text(text: str) -> str:
@@ -335,6 +356,22 @@ class PgnWorkspace:
         self._cursor = GameTreeCursor()
         return self.view()
 
+    def select_game_cursor(self, index: object, cursor: GameTreeCursor) -> PgnWorkspaceView:
+        """Select one game and one validated cursor atomically without editing PGN."""
+        game_index = self._require_game_index(index)
+        if not isinstance(cursor, GameTreeCursor):
+            raise TypeError("PGN search cursor must be GameTreeCursor")
+        try:
+            validated_cursor = validate_cursor(self._games[game_index], cursor)
+        except (TypeError, GameTreeNavigationError) as exc:
+            raise _workspace_error(
+                "cursor is not valid in the selected game",
+                PgnWorkspaceErrorCode.CURSOR,
+            ) from exc
+        self._selected_game_index = game_index
+        self._cursor = validated_cursor
+        return self.view()
+
     def next_game(self) -> PgnWorkspaceView:
         if self._selected_game_index + 1 >= len(self._games):
             raise _workspace_error(
@@ -484,6 +521,43 @@ class PgnWorkspace:
         self._dirty = self._content_digest != self._baseline_digest
         return self.view()
 
+    def edit_tag(self, name: str, value: str | None) -> PgnWorkspaceView:
+        """Edit or delete one PGN tag atomically on the selected game."""
+        if (
+            type(name) is not str
+            or _pgn_edit_text_units(name) > MAX_PGN_EDIT_TAG_NAME_CHARS
+            or "\x00" in name
+            or _contains_unicode_surrogate(name)
+            or TAG_NAME_RE.fullmatch(name) is None
+        ):
+            raise ValueError("PGN tag name is invalid")
+        if value is not None:
+            if type(value) is not str:
+                raise TypeError("PGN tag value must be text or None")
+            if (
+                _pgn_edit_text_units(value) > MAX_PGN_EDIT_TAG_VALUE_CHARS
+                or "\x00" in value
+                or "\r" in value
+                or "\n" in value
+                or _contains_unicode_surrogate(value)
+            ):
+                raise ValueError("PGN tag value is invalid")
+        if name in {"SetUp", "FEN"}:
+            raise ValueError("SetUp/FEN tags are edited through the position workflow")
+        if name == "Result":
+            if value is None or value not in RESULTS:
+                raise ValueError("PGN Result must be a canonical result token")
+        edited = deepcopy(self._current_game_ref())
+        if value is None:
+            if name == "Result":
+                raise ValueError("PGN Result cannot be deleted")
+            edited.tags.pop(name, None)
+        else:
+            edited.tags[name] = value
+            if name == "Result":
+                edited.line.result = value
+        return self._commit_current_game(edited)
+
     def edit_move_annotations(
         self,
         target: MoveAnnotationTarget,
@@ -501,6 +575,31 @@ class PgnWorkspace:
         result = edit_line_annotations(self._current_game_ref(), target, patch)
         self._commit_current_game(result.game)
         return result
+
+    def append_moves(self, line_fragment: VariationLine) -> PgnWorkspaceView:
+        """Append a detached legal line fragment at the current line end."""
+        if not isinstance(line_fragment, VariationLine) or not line_fragment.moves:
+            raise ValueError("PGN append requires at least one move")
+        current = resolve_line(self._current_game_ref(), self._cursor.line_path)
+        if self._cursor.next_move_index != len(current.moves):
+            raise _workspace_error(
+                "move insertion requires the end of the current line",
+                PgnWorkspaceErrorCode.CURSOR,
+            )
+        edited = deepcopy(self._current_game_ref())
+        target_line = resolve_line(edited, self._cursor.line_path)
+        fragment = deepcopy(line_fragment)
+        if fragment.leading_comments:
+            fragment.moves[0].comments_before = (
+                list(fragment.leading_comments) + list(fragment.moves[0].comments_before)
+            )
+        target_line.moves.extend(fragment.moves)
+        target_line.trailing_comments.extend(fragment.trailing_comments)
+        next_cursor = GameTreeCursor(
+            self._cursor.line_path,
+            len(target_line.moves),
+        )
+        return self._commit_current_game(edited, cursor=next_cursor)
 
     def add_variation(
         self,

@@ -122,7 +122,7 @@ jobs:
             }
           done <<'LOCKS'
           acs/settings.py=838e9b3d765bd115e20fab09534353b4b0c444b9
-          acs/book_progress_store.py=3c51f524a1e2702903914a2dd9c37c0ed8ebf87b
+          acs/book_progress_store.py=f110939f4cfda4bb24a76d01ea35ffbba7ad2b79
           acs/gametree_resume.py=e22a406a8f4c1f00c3d36390109d53f3088d332b
           acs/version2_release_app.py=426355896fc3d18c143e245876291d6ae01dec4f
           acs/version2_application.py=300c0e71d1d714a51722ca4d517235be282bf9ae

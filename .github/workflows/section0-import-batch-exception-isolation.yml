@@ -1,0 +1,107 @@
+name: Section 0 Import Batch Exception Isolation
+
+on:
+  pull_request:
+    branches:
+      - 'converge/section0-whole-contract-v2-20261007-s56'
+    paths:
+      - '.github/workflows/section0-import-batch-exception-isolation.yml'
+      - 'acs/import_registry.py'
+      - 'tests/test_import_registry.py'
+      - 'tests/test_dev4_import_batch_adapter_failure.py'
+      - 'tests/test_epd.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: section0-import-batch-exception-isolation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  EXPECTED_BASE_SHA: 1bc2b88398d8ba76e43fd823e0693de99b7f06e1
+  REGISTRY_BLOB: 1a95d321d1c965567cd13d53355597b3b9589280
+  REGISTRY_TEST_BLOB: e08c5d14e58ed1433aa496477ef0f222546edeee
+  BATCH_QA_TEST_BLOB: f0f1256f38fe32756f16f5fff748c5ed36a11a50
+  EPD_TEST_BLOB: e170377a57f0680bd73f275012d40843509b92a2
+  IMPORT_CONTRACT_BLOB: d9855d173f8c73440e190482a107299be28949c5
+  REPORT_PATHS_BLOB: fafc8696a846a1b9c96a8ce89a76ce82593fd582
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Prove exact successor geometry
+        shell: bash
+        env:
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
+          if [ -n "${EVENT_BASE_REF:-}" ]; then
+            test "$EVENT_BASE_REF" = "converge/section0-whole-contract-v2-20261007-s56"
+            test "$EVENT_BASE_SHA" = "$EXPECTED_BASE_SHA"
+          fi
+          test "$(git merge-base "$EXPECTED_BASE_SHA" HEAD)" = "$EXPECTED_BASE_SHA"
+          git diff --check "$EXPECTED_BASE_SHA"...HEAD
+          changed="$(git diff --name-only "$EXPECTED_BASE_SHA"...HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/section0-import-batch-exception-isolation.yml' \
+            '.github/workflows/section0-whole-contract-convergence.yml' \
+            'acs/import_registry.py' \
+            'docs/automation/SECTION0_CLOSURE_CANDIDATE.md' \
+            'tests/test_import_registry.py' \
+            'tests/test_dev4_import_batch_adapter_failure.py' \
+            'tests/test_epd.py' | sort)"
+          test "$changed" = "$expected"
+
+      - name: Bind exact shared import authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:acs/import_registry.py)" = "$REGISTRY_BLOB"
+          test "$(git rev-parse HEAD:tests/test_import_registry.py)" = "$REGISTRY_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_dev4_import_batch_adapter_failure.py)" = "$BATCH_QA_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_epd.py)" = "$EPD_TEST_BLOB"
+          test "$(git rev-parse HEAD:acs/import_contract.py)" = "$IMPORT_CONTRACT_BLOB"
+          test "$(git rev-parse HEAD:acs/report_paths.py)" = "$REPORT_PATHS_BLOB"
+
+      - name: Compile repaired batch boundary
+        run: >-
+          python -m py_compile
+          acs/import_registry.py
+          acs/report_paths.py
+          tests/test_import_registry.py
+          tests/test_dev4_import_batch_adapter_failure.py
+          tests/test_epd.py
+
+      - name: Execute import and Section 0 regressions
+        run: >-
+          python -m unittest -v
+          tests.test_import_registry
+          tests.test_dev4_import_batch_adapter_failure
+          tests.test_epd
+          tests.test_import_contract
+          tests.test_section0_format_authority_contract
+          tests.test_section0_format_capabilities
+
+      - name: Core chess selftest
+        run: python -m acs.selftest

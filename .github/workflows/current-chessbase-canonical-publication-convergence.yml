@@ -1,0 +1,175 @@
+name: Current ChessBase Canonical Publication Convergence
+
+on:
+  pull_request:
+    branches:
+      - converge/fen-native-event-atomicity-20261006-c2mbezb112
+    paths:
+      - '.github/workflows/current-chessbase-canonical-publication-convergence.yml'
+      - 'acs/chessbase_decoder.py'
+      - 'acs/chessbase_library_import.py'
+      - 'tests/test_chessbase_decoder.py'
+      - 'tests/test_d04_cbh_backend_immutability.py'
+      - 'tests/test_v2_chess960_cbv_runtime_inheritance.py'
+      - 'tests/test_v2_real_cbh_chess960_record_boundary.py'
+      - 'tools/optional/libcbh_json_bridge.cpp'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-chessbase-canonical-publication-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CHESSBASE_DECODER_BLOB: 46a1caea1d64b5221ae743c52de6bf423fcda7ae
+  CHESSBASE_IMPORT_BLOB: f3457885b3fc673d100e9748a8de294e1318158d
+  CHESSBASE_DECODER_TEST_BLOB: 39cbf11aacc98ba96be8949ad4a9328ce3ec50b6
+  BACKEND_IMMUTABILITY_TEST_BLOB: c1021667c2e29a95227eb5c6dd1415638c2181a4
+  CHESS960_INHERITANCE_TEST_BLOB: e07febed13c42c7b8ee0f5e2a6e1ccffeff03024
+  REAL_CHESS960_TEST_BLOB: 3d85b3702339ec18445af57ce7bb10fd94d3cb7c
+  LIBCBH_BRIDGE_BLOB: 9e3c839fddefcac7cc47d4041051f2ce07afe61b
+  LIBCBH_COMMIT: 9641c5c3949d8fb210b17dd9aa54455645843696
+
+jobs:
+  exact-head:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 75
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove exact geometry and source blobs
+        shell: bash
+        env:
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          expected="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
+          test "$(git rev-parse HEAD)" = "$expected"
+          base_ref="${EVENT_BASE_REF:-converge/fen-native-event-atomicity-20261006-c2mbezb112}"
+          git fetch --no-tags origin "+refs/heads/$base_ref:refs/remotes/origin/$base_ref"
+          live_base="$(git rev-parse "refs/remotes/origin/$base_ref")"
+          if [ -n "${EVENT_BASE_SHA:-}" ]; then
+            test "$EVENT_BASE_SHA" = "$live_base"
+          fi
+          test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+          git diff --check "$live_base"...HEAD
+          changed="$(git diff --name-only "$live_base"...HEAD | sort)"
+          expected_paths="$(printf '%s\n' \
+            '.github/workflows/current-chessbase-canonical-publication-convergence.yml' \
+            'acs/chessbase_decoder.py' \
+            'acs/chessbase_library_import.py' \
+            'tests/test_chessbase_decoder.py' \
+            'tests/test_d04_cbh_backend_immutability.py' \
+            'tests/test_v2_chess960_cbv_runtime_inheritance.py' \
+            'tests/test_v2_real_cbh_chess960_record_boundary.py' \
+            'tools/optional/libcbh_json_bridge.cpp' | sort)"
+          test "$changed" = "$expected_paths"
+          test "$(git rev-parse HEAD:acs/chessbase_decoder.py)" = "$CHESSBASE_DECODER_BLOB"
+          test "$(git rev-parse HEAD:acs/chessbase_library_import.py)" = "$CHESSBASE_IMPORT_BLOB"
+          test "$(git rev-parse HEAD:tests/test_chessbase_decoder.py)" = "$CHESSBASE_DECODER_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_d04_cbh_backend_immutability.py)" = "$BACKEND_IMMUTABILITY_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_v2_chess960_cbv_runtime_inheritance.py)" = "$CHESS960_INHERITANCE_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_v2_real_cbh_chess960_record_boundary.py)" = "$REAL_CHESS960_TEST_BLOB"
+          test "$(git rev-parse HEAD:tools/optional/libcbh_json_bridge.cpp)" = "$LIBCBH_BRIDGE_BLOB"
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile converged ChessBase surfaces
+        run: >-
+          python -m compileall -q
+          acs/chessbase_decoder.py
+          acs/chessbase_library_import.py
+          tests/test_chessbase_decoder.py
+          tests/test_d04_cbh_backend_immutability.py
+          tests/test_v2_chess960_cbv_runtime_inheritance.py
+          tests/test_v2_real_cbh_chess960_record_boundary.py
+
+      - name: Canonical publication and capability regressions
+        run: >-
+          python -m unittest -v
+          tests.test_chessbase_decoder
+          tests.test_d04_cbh_backend_immutability
+          tests.test_v2_chess960_cbv_runtime_inheritance
+          tests.test_chessbase_active_import_cancellation
+          tests.test_chessbase_integrity
+          tests.test_cbv_extractor
+          tests.test_v2_chessbase_chess960_capability_boundary
+          tests.test_version2_formats_integration
+          tests.test_library_import_ui_integration
+          tests.test_gametree
+
+      - name: Core selftest
+        run: python -m acs.selftest
+
+  real-corpus:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout exact product candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          path: product
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Checkout pinned legal libcbh corpus
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: rolandlo/libcbh
+          ref: 9641c5c3949d8fb210b17dd9aa54455645843696
+          path: upstream/libcbh
+          fetch-depth: 1
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Build pinned libcbh bridge
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S upstream/libcbh -B upstream/libcbh/build -DCMAKE_BUILD_TYPE=Release -DGTEST=OFF
+          cmake --build upstream/libcbh/build --config Release --parallel 2
+          mkdir -p product/build/libcbh
+          c++ -std=c++20 -O2 \
+            -DLIBCBH_SOURCE_COMMIT="$LIBCBH_COMMIT" \
+            -I upstream/libcbh/include \
+            product/tools/optional/libcbh_json_bridge.cpp \
+            -L upstream/libcbh/build -lcbh \
+            -Wl,-rpath,'$ORIGIN' \
+            -o product/build/libcbh/libcbh-json-bridge
+          cp -a upstream/libcbh/build/libcbh.so* product/build/libcbh/
+          test -x product/build/libcbh/libcbh-json-bridge
+
+      - name: Strict real mixed Standard plus Chess960 corpus
+        working-directory: product
+        shell: bash
+        env:
+          LIBCBH_BRIDGE: ${{ github.workspace }}/product/build/libcbh/libcbh-json-bridge
+          LIBCBH_CHESS960_BIEL_DIR: ${{ github.workspace }}/upstream/libcbh/gtest/Chess960Biel
+        run: |
+          set -euo pipefail
+          python -m unittest -v tests.test_v2_real_cbh_chess960_record_boundary
+
+      - name: Default source tree remains free of optional backend binaries
+        working-directory: product
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e libcbh-json-bridge
+          test ! -e libcbh.so
+          test -z "$(git status --porcelain --untracked-files=no)"

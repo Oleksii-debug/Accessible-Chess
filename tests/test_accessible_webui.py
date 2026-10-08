@@ -92,53 +92,50 @@ class AccessibleWebUiTests(unittest.TestCase):
         self.assertNotIn("Конфліктів немає", self.html)
         self.assertNotIn("No conflicts.", self.html)
 
-    def test_move_submit_uses_canonical_remappable_action_and_preserves_input_contract(self):
+    def test_move_enter_success_clears_and_refocuses_input(self):
         self.assertIn("const r=await apiAction('make_move',v)", self.html)
         self.assertIn("if(r&&r.ok){input.value='';input.focus()}", self.html)
         self.assertIn("else{input.focus();input.select()}", self.html)
         self.assertIn("el('move-input').addEventListener('keydown'", self.html)
-        self.assertIn("candidate=keymapActionForEvent(e,'move_entry')", self.html)
-        self.assertIn("if(candidate!=='move.submit')return", self.html)
-        self.assertIn("e.preventDefault();e.stopPropagation()", self.html)
-        self.assertIn("resolveBinding(chord,'move_entry','move-entry')", self.html)
-        self.assertIn("if(a&&a.actionId===candidate)executeAction(a.actionId)", self.html)
+        self.assertIn("if(e.key==='Enter')", self.html)
 
     def test_copy_and_selection_are_not_hijacked(self):
         self.assertIn("String(e.key).toLowerCase()==='c'", self.html)
         self.assertIn("selection&&selection.toString()", self.html)
-        self.assertIn("['INPUT','TEXTAREA','SELECT'].includes(node.tagName)", self.html)
         self.assertIn("function editableShortcutTarget(node)", self.html)
+        self.assertIn("['INPUT','TEXTAREA','SELECT'].includes(node.tagName)", self.html)
 
-    def test_analysis_hotkeys_claim_sync_then_validate_canonical_action(self):
-        self.assertIn("function projectedOwnedAction(e,contexts)", self.html)
-        self.assertIn("function claimOwnedKey(e){e.preventDefault();e.stopPropagation()}", self.html)
-        self.assertIn("if(editable){const projectedHelp=projectedOwnedAction(e,['global'])", self.html)
-        self.assertIn("if(!e.altKey)return", self.html)
-        self.assertIn("const projectedAnalysis=projectedOwnedAction(e,['analysis'])", self.html)
-        self.assertIn("claimOwnedKey(e);const analysis=await resolveBinding(chord,'analysis','analysis')", self.html)
-        self.assertIn("analysis.actionId===projectedAnalysis", self.html)
-        self.assertIn("analysis.context==='analysis'||String(analysis.actionId||'').startsWith('analysis.')", self.html)
-        self.assertIn("const projectedAction=projectedOwnedAction(e,['analysis','global','history','document'])", self.html)
+    def test_analysis_hotkeys_remain_available_in_editable_controls(self):
+        self.assertIn("function editableShortcutTarget(node)", self.html)
+        self.assertIn("if(editable&&!e.altKey)return", self.html)
         self.assertIn("let a=await resolveBinding(chord,'analysis','analysis')", self.html)
-        self.assertIn("if(!a)a=await resolveBinding(chord,'history','document')", self.html)
-        self.assertIn("if(!a)a=await resolveBinding(chord,'document','document')", self.html)
+        self.assertIn(
+            "if(editable&&a&&a.context!=='analysis'&&!String(a.actionId||'').startsWith('analysis.'))a=null",
+            self.html,
+        )
+        self.assertIn("if(!editable&&!a)a=await resolveBinding(chord,'history','document')", self.html)
+        self.assertIn("if(!editable&&!a)a=await resolveBinding(chord,'document','document')", self.html)
+        self.assertIn("e.stopPropagation();executeAction(a.actionId)", self.html)
 
-    def test_board_dispatch_uses_canonical_board_analysis_global_precedence(self):
+    def test_modified_board_and_pgn_tree_chords_reach_central_keymap(self):
         board_start = self.html.index("async function onBoardKey(e)")
         board_end = self.html.index("function focusHistoryJump(", board_start)
         board = self.html[board_start:board_end]
-        self.assertIn("for(const context of ['board','analysis','global'])", board)
-        self.assertIn("const projected=keymapActionForEvent(e,context)", board)
-        self.assertIn("if(projected===null)return", board)
-        self.assertIn("if(projected){candidate=projected;break}", board)
-        self.assertIn("if(!candidate)return", board)
-        self.assertIn("e.preventDefault();e.stopPropagation()", board)
-        self.assertIn("const a=await resolveBinding(chord,'board','board')", board)
-        self.assertIn("if(a&&a.actionId===candidate)executeAction(a.actionId)", board)
-        self.assertLess(
-            board.index("e.preventDefault();e.stopPropagation()"),
-            board.index("await resolveBinding(chord,'board','board')"),
+        self.assertIn(
+            "modified=e.altKey||e.ctrlKey||e.shiftKey||e.metaKey",
+            board,
         )
+        self.assertIn(
+            "if(modified){const mapped=await resolveBinding(eventChord(e),'board','board')",
+            board,
+        )
+        self.assertLess(
+            board.index("if(modified){const mapped=await resolveBinding"),
+            board.index("if(!modified&&key==='Escape')"),
+        )
+        self.assertIn("if(!modified&&key==='ArrowUp')", board)
+        self.assertIn("if(!modified&&key==='ArrowDown')", board)
+        self.assertIn("e.stopPropagation();executeAction(mapped.actionId)", board)
 
         modifier_guard = (
             'if (event.altKey || event.ctrlKey || event.shiftKey || event.metaKey) return;'

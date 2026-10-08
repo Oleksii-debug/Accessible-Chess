@@ -280,6 +280,146 @@ class ChildCoachingRotationTests(unittest.TestCase):
             )
 
 
+    def test_from_record_rejects_noncanonical_aliases_even_with_canonical_digest(self) -> None:
+        plan = default_group_rotation(self.lesson(), rotation_id="rotation-canonical-record")
+        plan_record = plan.to_record()
+        plan_record["rounds"][0]["title"] = " " + plan_record["rounds"][0]["title"] + " "
+        with self.assertRaisesRegex(
+            ChildCoachingRotationError,
+            "record is not canonical",
+        ):
+            RotationPlan.from_record(plan_record)
+
+        state = start_rotation(plan)
+        state_record = state.to_record()
+        state_record["phase"] = RotationPhase.ACTIVE
+        with self.assertRaisesRegex(
+            ChildCoachingRotationError,
+            "record is not canonical",
+        ):
+            RotationState.from_record(state_record)
+
+    def test_from_record_rejects_active_non_string_key_without_rehashing_it(self) -> None:
+        plan = default_group_rotation(self.lesson(), rotation_id="rotation-active-key")
+
+        class ArmedKey:
+            armed = False
+
+            def __hash__(self):
+                if self.armed:
+                    raise AssertionError("active key hash executed during validation")
+                return hash("version")
+
+            def __eq__(self, other):
+                if self.armed:
+                    raise AssertionError("active key equality executed during validation")
+                return other == "version"
+
+        key = ArmedKey()
+        record = plan.to_record()
+        version = record.pop("version")
+        record[key] = version
+        key.armed = True
+
+        with self.assertRaisesRegex(
+            ChildCoachingRotationError,
+            "fields are not canonical",
+        ):
+            RotationPlan.from_record(record)
+
+    def test_from_record_rejects_active_mapping_and_enum_subclasses_passively(self) -> None:
+        plan = default_group_rotation(self.lesson(), rotation_id="rotation-passive-record")
+
+        class ActiveDict(dict):
+            def __iter__(self):
+                raise AssertionError("active mapping iteration executed")
+
+            def __getitem__(self, key):
+                raise AssertionError("active mapping lookup executed")
+
+        with self.assertRaisesRegex(
+            ChildCoachingRotationError,
+            "built-in object",
+        ):
+            RotationPlan.from_record(ActiveDict(plan.to_record()))
+
+        class ActiveText(str):
+            def __hash__(self):
+                raise AssertionError("active enum text hash executed")
+
+            def __eq__(self, other):
+                raise AssertionError("active enum text equality executed")
+
+        round_record = plan.rounds[0].to_record()
+        round_record["activity"] = ActiveText(round_record["activity"])
+        with self.assertRaisesRegex(
+            ChildCoachingRotationError,
+            "record is not canonical",
+        ):
+            RotationRound.from_record(round_record)
+
+    def test_rotation_state_constructor_enforces_exact_wire_revision_bound(self) -> None:
+        plan = default_group_rotation(self.lesson(), rotation_id="rotation-wire-revision")
+        with self.assertRaisesRegex(
+            ChildCoachingRotationError,
+            "exact wire bounds",
+        ):
+            RotationState(
+                rotation_id=plan.rotation_id,
+                plan_digest=plan.digest,
+                phase=RotationPhase.ACTIVE,
+                round_index=0,
+                revision=(1 << 53),
+            )
+
+        exact = RotationState(
+            rotation_id=plan.rotation_id,
+            plan_digest=plan.digest,
+            phase=RotationPhase.ACTIVE,
+            round_index=0,
+            revision=(1 << 53) - 1,
+        )
+        self.assertEqual(exact, RotationState.from_json(exact.to_json()))
+
+    def test_rotation_plan_constructor_enforces_wire_size_limit(self) -> None:
+        target_ids = tuple(
+            f"s{index:04d}" + ("x" * 122)
+            for index in range(2000)
+        )
+        rounds = tuple(
+            RotationRound(
+                f"large-{index}",
+                RotationActivity.REVIEW,
+                "Large bounded round",
+                1,
+                RotationTarget.GROUP,
+                target_ids,
+            )
+            for index in range(2)
+        )
+        with self.assertRaisesRegex(
+            ChildCoachingRotationError,
+            "rotation JSON exceeds size limit",
+        ):
+            RotationPlan(
+                rotation_id="oversized-rotation",
+                lesson_session_id="oversized-session",
+                lesson_plan_digest="0" * 64,
+                rounds=rounds,
+            )
+
+    def test_rotation_round_rejects_unpaired_surrogate_title(self) -> None:
+        with self.assertRaisesRegex(
+            ChildCoachingRotationError,
+            "valid UTF-8 text",
+        ):
+            RotationRound(
+                "surrogate-title",
+                RotationActivity.REVIEW,
+                "\ud800",
+                5,
+            )
+
     def test_plan_and_state_json_are_closed_world_and_tamper_evident(self) -> None:
         plan = default_group_rotation(self.lesson(), rotation_id="rotation-json")
         state = start_rotation(plan)
@@ -332,6 +472,51 @@ class ChildCoachingRotationTests(unittest.TestCase):
                     state,
                     expected_revision=first_revision,
                 )
+
+    def test_store_rejects_semantically_equivalent_noncanonical_wire_bytes(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "rotation.json"
+            store = ChildCoachingRotationStore(path)
+            plan = default_group_rotation(
+                self.lesson(),
+                rotation_id="rotation-store-canonical-bytes",
+            )
+            state = RotationState(
+                rotation_id=plan.rotation_id,
+                plan_digest=plan.digest,
+            )
+            revision = store.save(plan, state, expected_revision=None)
+            canonical = path.read_bytes()
+            self.assertEqual(revision, store.load().revision)
+
+            payload = json.loads(canonical.decode("utf-8"))
+            pretty = json.dumps(
+                payload,
+                ensure_ascii=False,
+                sort_keys=False,
+                indent=2,
+            ).encode("utf-8")
+            self.assertNotEqual(canonical, pretty)
+            path.write_bytes(pretty)
+            with self.assertRaisesRegex(
+                ChildCoachingRotationStoreError,
+                "bytes are not canonical",
+            ):
+                store.load()
+
+            path.write_bytes(canonical)
+            negative_zero = canonical.replace(
+                b'"revision":0',
+                b'"revision":-0',
+                1,
+            )
+            self.assertNotEqual(canonical, negative_zero)
+            path.write_bytes(negative_zero)
+            with self.assertRaisesRegex(
+                ChildCoachingRotationStoreError,
+                "bytes are not canonical",
+            ):
+                store.load()
 
     def test_rotation_store_maps_shared_lock_contention_to_rotation_busy_error(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

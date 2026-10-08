@@ -124,7 +124,7 @@ class Dev1ReleaseUiRegressionTests(unittest.TestCase):
         help_resolution = "resolveBinding(chord,'global','document')"
         editable_alt_gate = "if(!e.altKey)return;"
         analysis_resolution = "resolveBinding(chord,'analysis','analysis')"
-        claim = "claimOwnedKey(e)"
+        claim = "{claimOwnedKey(e);"
 
         self.assertIn(editable_helper, handler)
         self.assertIn(plain_copy_guard, handler)

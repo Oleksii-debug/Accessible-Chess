@@ -46,6 +46,7 @@ _CP1251_CYRILLIC_BYTES = frozenset(
         0xBF,
     )
 )
+_UTF8_BOM = b"\xef\xbb\xbf"
 _UTF16_BOMS = (b"\xff\xfe", b"\xfe\xff")
 _UTF32_BOMS = (b"\xff\xfe\x00\x00", b"\x00\x00\xfe\xff")
 _HTML_ANCHORS = (
@@ -154,9 +155,19 @@ def decode_book_text_bytes(payload: bytes, *, html: bool = False) -> DecodedLega
             raise LegacyTextEncodingError(
                 "BOM-declared UTF-16 source is malformed"
             ) from utf16_error
+    if payload.startswith(_UTF8_BOM):
+        try:
+            return DecodedLegacyText(
+                payload.decode("utf-8-sig", errors="strict"),
+                "utf-8",
+            )
+        except UnicodeDecodeError as utf8_bom_error:
+            raise LegacyTextEncodingError(
+                "BOM-declared UTF-8 source is malformed"
+            ) from utf8_bom_error
     try:
         return DecodedLegacyText(
-            payload.decode("utf-8-sig", errors="strict"),
+            payload.decode("utf-8", errors="strict"),
             "utf-8",
         )
     except UnicodeDecodeError as utf8_error:

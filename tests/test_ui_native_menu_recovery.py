@@ -6,6 +6,8 @@ from types import SimpleNamespace
 
 from acs import webapp_keymap
 from acs.ui_native_menu import (
+    _MNEMONIC,
+    _labels,
     _resolve_windows_host_form,
     _same_managed_object,
     install_windows_native_menu,
@@ -92,6 +94,25 @@ def _settings_actions(menus):
 def _game_actions(menus):
     game = next(menu for menu in menus if menu.title in {"Гра", "Game"})
     return [item for item in game.items if isinstance(item, FakeMenuAction)]
+
+
+def test_top_level_native_menu_mnemonics_are_unique_and_preserve_labels() -> None:
+    keys = ("file", "game", "board", "analysis", "settings", "help")
+
+    for lang in ("uk", "en"):
+        labels = _labels(lang)
+        captions = _MNEMONIC[lang]
+        mnemonic_keys: list[str] = []
+
+        for key in keys:
+            caption = captions[key]
+            assert caption.count("&") == 1
+            marker = caption.index("&")
+            assert marker + 1 < len(caption)
+            mnemonic_keys.append(caption[marker + 1].casefold())
+            assert caption.replace("&", "") == labels[key]
+
+        assert len(mnemonic_keys) == len(set(mnemonic_keys))
 
 
 def test_native_settings_menu_exposes_non_remappable_recovery_action() -> None:

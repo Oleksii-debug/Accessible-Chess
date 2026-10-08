@@ -152,6 +152,31 @@ class BookLibraryGameLookupTests(unittest.TestCase):
                     rendered = "".join(traceback.format_exception(caught.exception))
                     self.assertNotIn(payload, rendered)
 
+    def test_warning_json_value_error_is_sanitized_before_pgn_dispatch(self) -> None:
+        with AcsDatabase() as database:
+            game_id = self._stored_game(database)
+            lookup = AcsdbBookGameLookup(database)
+
+            with mock.patch(
+                "acs.book_library_game_lookup.json.loads",
+                side_effect=ValueError("decimal conversion limit reached"),
+            ), mock.patch(
+                "acs.book_library_game_lookup.parse_pgn_text",
+            ) as parser:
+                with self.assertRaises(BookLibraryGameLookupError) as caught:
+                    lookup.load_book_game(game_id)
+
+            self.assertEqual(
+                str(caught.exception),
+                "stored book game warnings are invalid",
+            )
+            self.assertIsNone(caught.exception.__cause__)
+            self.assertNotIn(
+                "decimal conversion limit reached",
+                "".join(traceback.format_exception(caught.exception)),
+            )
+            parser.assert_not_called()
+
     def test_warning_metadata_respects_canonical_pgn_resource_bounds(self) -> None:
         cases = (
             ("MAX_PGN_TEXT_CHARS", 4, '["x"]'),
@@ -180,6 +205,60 @@ class BookLibraryGameLookupTests(unittest.TestCase):
                         "stored book game warnings are invalid",
                     )
                     self.assertIsNone(caught.exception.__cause__)
+
+    def test_merged_warning_provenance_cannot_exceed_canonical_token_budget(self) -> None:
+        with AcsDatabase() as database:
+            game_id = self._stored_game(database)
+            with database.conn:
+                database.conn.execute(
+                    "UPDATE games SET warnings_json=? WHERE id=?",
+                    (json.dumps(["persisted warning"]), game_id),
+                )
+
+            reparsed = parse_pgn_text(REALISTIC_PGN, strict=False)[0]
+            reparsed.warnings = ["reparsed warning one", "reparsed warning two"]
+
+            with mock.patch(
+                "acs.book_library_game_lookup.MAX_PGN_LEXICAL_TOKENS",
+                2,
+            ), mock.patch(
+                "acs.book_library_game_lookup.parse_pgn_text",
+                return_value=[reparsed],
+            ), mock.patch(
+                "acs.book_library_game_lookup.serialize_game",
+            ) as serializer:
+                with self.assertRaises(BookLibraryGameLookupError) as caught:
+                    AcsdbBookGameLookup(database).load_book_game(game_id)
+
+            self.assertEqual(
+                str(caught.exception),
+                "stored book game warnings exceed the canonical resource limit",
+            )
+            self.assertIsNone(caught.exception.__cause__)
+            serializer.assert_not_called()
+
+    def test_merged_warning_provenance_allows_exact_budget_and_deduplicates(self) -> None:
+        with AcsDatabase() as database:
+            game_id = self._stored_game(database)
+            with database.conn:
+                database.conn.execute(
+                    "UPDATE games SET warnings_json=? WHERE id=?",
+                    (json.dumps(["shared warning"]), game_id),
+                )
+
+            reparsed = parse_pgn_text(REALISTIC_PGN, strict=False)[0]
+            reparsed.warnings = ["shared warning", "new warning"]
+
+            with mock.patch(
+                "acs.book_library_game_lookup.MAX_PGN_LEXICAL_TOKENS",
+                2,
+            ), mock.patch(
+                "acs.book_library_game_lookup.parse_pgn_text",
+                return_value=[reparsed],
+            ):
+                loaded = AcsdbBookGameLookup(database).load_book_game(game_id)
+
+            self.assertEqual(loaded.warnings, ["shared warning", "new warning"])
 
     def test_empty_nul_and_whitespace_warning_metadata_fail_closed(self) -> None:
         malformed = (
@@ -269,6 +348,31 @@ class BookLibraryGameLookupTests(unittest.TestCase):
                 lookup.load_book_game(game_id)
             self.assertEqual(str(empty.exception), "stored book game is not canonical")
 
+    def test_stored_pgn_raw_length_is_bounded_before_parser_dispatch(self) -> None:
+        with AcsDatabase() as database:
+            game_id = self._stored_game(database)
+            with database.conn:
+                database.conn.execute(
+                    "UPDATE games SET pgn_text=? WHERE id=?",
+                    ("x" * 5, game_id),
+                )
+
+            with mock.patch(
+                "acs.book_library_game_lookup.MAX_PGN_TEXT_CHARS",
+                4,
+            ), mock.patch(
+                "acs.book_library_game_lookup.json.loads",
+            ) as warning_decoder, mock.patch(
+                "acs.book_library_game_lookup.parse_pgn_text",
+            ) as parser:
+                with self.assertRaises(BookLibraryGameLookupError) as caught:
+                    AcsdbBookGameLookup(database).load_book_game(game_id)
+
+            self.assertEqual(str(caught.exception), "stored book game is not canonical")
+            self.assertIsNone(caught.exception.__cause__)
+            warning_decoder.assert_not_called()
+            parser.assert_not_called()
+
     def test_corrupt_stored_pgn_parser_failure_has_no_internal_cause(self) -> None:
         with AcsDatabase() as database:
             game_id = self._stored_game(database)
@@ -329,6 +433,29 @@ class BookLibraryGameLookupTests(unittest.TestCase):
         self.assertIn('upstream="$live_product"', workflow)
         self.assertNotIn("CURRENT_PRODUCT_BASE:", workflow)
 
+    def test_resource_fence_gate_late_binds_live_shipping_base(self) -> None:
+        workflow = (
+            Path(__file__).resolve().parents[1]
+            / ".github"
+            / "workflows"
+            / "current-book-library-lookup-resource-fences.yml"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn('base_ref="${{ github.base_ref }}"', workflow)
+        self.assertIn(
+            'git fetch --no-tags origin "refs/heads/$base_ref:refs/remotes/origin/$base_ref"',
+            workflow,
+        )
+        self.assertIn(
+            'upstream="$(git rev-parse "refs/remotes/origin/$base_ref")"',
+            workflow,
+        )
+        self.assertIn(
+            'git merge-base --is-ancestor "$event_base" "$upstream"',
+            workflow,
+        )
+        self.assertNotIn("PINNED_BASE_SHA", workflow)
+
     def test_windows_blob_readback_tracks_current_head_instead_of_stale_stage1_digests(self) -> None:
         workflow = (
             Path(__file__).resolve().parents[1]
@@ -346,6 +473,32 @@ class BookLibraryGameLookupTests(unittest.TestCase):
     def test_constructor_rejects_noncanonical_database_adapter(self) -> None:
         with self.assertRaises(TypeError):
             AcsdbBookGameLookup(object())  # type: ignore[arg-type]
+
+    def test_instance_get_game_shadow_cannot_replace_concrete_acsdb_boundary(self) -> None:
+        with AcsDatabase() as database:
+            game_id = self._stored_game(database)
+
+            def poisoned_get_game(_game_id: int):
+                raise AssertionError("instance get_game shadow executed")
+
+            database.get_game = poisoned_get_game  # type: ignore[method-assign]
+            loaded = AcsdbBookGameLookup(database).load_book_game(game_id)
+
+            self.assertEqual(loaded.source_index, 37)
+            self.assertEqual(loaded.line.moves[0].san, "e4")
+
+    def test_constructor_rejects_acsdb_subclass_before_provider_dispatch(self) -> None:
+        class ProviderDatabase(AcsDatabase):
+            def get_game(self, game_id: int):  # pragma: no cover - must never dispatch
+                raise AssertionError("provider-defined get_game executed")
+
+        database = ProviderDatabase()
+        try:
+            with self.assertRaises(TypeError) as caught:
+                AcsdbBookGameLookup(database)
+            self.assertEqual(str(caught.exception), "database must be an AcsDatabase")
+        finally:
+            database.close()
 
 
 if __name__ == "__main__":

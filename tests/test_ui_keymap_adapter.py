@@ -24,6 +24,23 @@ def test_ui_keymap_uses_exact_central_action_ids_and_defaults():
         assert row["defaultAlias"] == definition.default_alias
 
 
+def test_fen_user_actions_are_bilingual_and_remappable():
+    rows = _by_id(build_web_keymap(build_full_product_action_registry()))
+    expected = {
+        "board.read_fen": ("Прочитати поточний FEN", "Read current FEN"),
+        "position.copy_fen": ("Скопіювати поточний FEN", "Copy current FEN"),
+        "pgn.new_from_position": (
+            "Створити PGN з поточної позиції",
+            "Create PGN from current position",
+        ),
+    }
+    for action_id, labels in expected.items():
+        row = rows[action_id]
+        assert (row["labelUk"], row["labelEn"]) == labels
+        assert row["registryContext"] == "board"
+        assert row["defaultBinding"] is None
+
+
 def test_ui_keymap_has_no_legacy_parallel_action_ids():
     rows = _by_id(build_web_keymap())
     forbidden = {

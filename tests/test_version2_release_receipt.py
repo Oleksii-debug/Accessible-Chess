@@ -4,6 +4,7 @@ import hashlib
 import json
 from pathlib import Path
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 import zipfile
@@ -14,6 +15,7 @@ from acs.version2_release_receipt import (
     CANONICAL_W5_WORKFLOW,
     RELEASE_RECEIPT_SCHEMA_VERSION,
     REPOSITORY_FULL_NAME,
+    Version2ReleaseReceipt,
     Version2ReleaseReceiptError,
     build_version2_release_receipt,
     main,
@@ -95,11 +97,72 @@ class Version2ReleaseReceiptTests(unittest.TestCase):
             self.assertGreater(receipt.inventory_files, 0)
             self.assertGreater(receipt.total_bytes, 0)
             self.assertGreater(receipt.checksums_verified, 0)
+            self.assertEqual(receipt.checksums_verified, receipt.inventory_files - 1)
             self.assertRegex(receipt.inventory_sha256, r"^[0-9a-f]{64}$")
 
             payload = json.loads(receipt.to_json())
             self.assertEqual(payload["package_sha256"], receipt.package_sha256)
             self.assertNotIn(str(archive), receipt.to_json())
+
+    def test_builder_rejects_impossible_checksum_coverage_from_preflight(self):
+        report = SimpleNamespace(
+            archive_sha256="a" * 64,
+            inventory=("manifest.json", "payload.bin"),
+            integration_sha=_SHA,
+            total_bytes=10,
+            checksums_verified=7,
+        )
+        with patch.object(
+            release_receipt_module,
+            "validate_version2_package_zip",
+            return_value=report,
+        ):
+            with self.assertRaisesRegex(
+                Version2ReleaseReceiptError,
+                "checksum coverage does not match inventory",
+            ):
+                _build(Path("ignored.zip"))
+
+    def test_receipt_paths_reject_active_pathlike_before_hooks(self):
+        touched: list[str] = []
+
+        class ActivePath:
+            def __fspath__(self):
+                touched.append("fspath")
+                raise AssertionError("active path hook executed")
+
+        active = ActivePath()
+        valid = Version2ReleaseReceipt(
+            schema_version=RELEASE_RECEIPT_SCHEMA_VERSION,
+            product="Accessible Chess",
+            repository=REPOSITORY_FULL_NAME,
+            workflow_path=CANONICAL_W5_WORKFLOW,
+            workflow_run_id=1,
+            workflow_run_attempt=1,
+            qualification_head_sha=_HEAD_SHA,
+            artifact_id=1,
+            artifact_name="artifact",
+            integration_sha=_SHA,
+            package_sha256="a" * 64,
+            inventory_sha256="b" * 64,
+            inventory_files=2,
+            total_bytes=1,
+            checksums_verified=1,
+        )
+
+        with patch.object(
+            release_receipt_module,
+            "_safe_receipt_lstat",
+            side_effect=AssertionError("receipt filesystem work must not start"),
+        ) as lstat:
+            with self.assertRaisesRegex(TypeError, "exact str or platform Path"):
+                read_version2_release_receipt(active)
+            lstat.assert_not_called()
+
+        with self.assertRaisesRegex(TypeError, "exact str or platform Path"):
+            write_version2_release_receipt(active, valid)
+
+        self.assertEqual(touched, [])
 
     def test_receipt_reuses_canonical_zip_preflight_and_rejects_corruption(self):
         with tempfile.TemporaryDirectory() as td:
@@ -189,6 +252,171 @@ class Version2ReleaseReceiptTests(unittest.TestCase):
                 ):
                     read_version2_release_receipt(output)
 
+    def test_receipt_identity_fallback_rejects_unknown_and_boolean_ids(self):
+        valid = SimpleNamespace(st_dev=11, st_ino=22)
+        same = SimpleNamespace(st_dev=11, st_ino=22)
+        invalid_pairs = (
+            (
+                SimpleNamespace(st_dev=0, st_ino=0),
+                SimpleNamespace(st_dev=0, st_ino=0),
+            ),
+            (
+                SimpleNamespace(st_dev=None, st_ino=None),
+                SimpleNamespace(st_dev=None, st_ino=None),
+            ),
+            (
+                SimpleNamespace(st_dev=True, st_ino=22),
+                SimpleNamespace(st_dev=True, st_ino=22),
+            ),
+            (
+                SimpleNamespace(st_dev=11, st_ino=False),
+                SimpleNamespace(st_dev=11, st_ino=False),
+            ),
+        )
+        with patch.object(
+            release_receipt_module.os.path,
+            "samestat",
+            side_effect=OSError("identity unavailable"),
+        ):
+            self.assertTrue(
+                release_receipt_module._same_file_identity(valid, same)
+            )
+            for left, right in invalid_pairs:
+                with self.subTest(left=left, right=right):
+                    self.assertFalse(
+                        release_receipt_module._same_file_identity(left, right)
+                    )
+
+    def test_receipt_snapshot_metadata_is_platform_fail_closed(self):
+        base = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=123,
+            st_ctime_ns=456,
+        )
+        ctime_drift = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=123,
+            st_ctime_ns=999,
+        )
+        missing_mtime = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_ctime_ns=456,
+        )
+        missing_ctime = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=123,
+        )
+        bool_size = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=True,
+            st_mtime_ns=123,
+            st_ctime_ns=456,
+        )
+
+        with patch.object(
+            release_receipt_module,
+            "_same_file_identity",
+            return_value=True,
+        ):
+            with patch.object(release_receipt_module.os, "name", "nt"):
+                self.assertTrue(
+                    release_receipt_module._same_file_snapshot(
+                        base,
+                        ctime_drift,
+                    )
+                )
+                self.assertFalse(
+                    release_receipt_module._same_file_snapshot(
+                        base,
+                        missing_mtime,
+                    )
+                )
+
+            with patch.object(release_receipt_module.os, "name", "posix"):
+                self.assertTrue(
+                    release_receipt_module._same_file_snapshot(base, base)
+                )
+                self.assertFalse(
+                    release_receipt_module._same_file_snapshot(
+                        base,
+                        ctime_drift,
+                    )
+                )
+                self.assertFalse(
+                    release_receipt_module._same_file_snapshot(
+                        base,
+                        missing_ctime,
+                    )
+                )
+                self.assertFalse(
+                    release_receipt_module._same_file_snapshot(
+                        base,
+                        bool_size,
+                    )
+                )
+
+    def test_receipt_publication_snapshot_ignores_ctime_but_requires_mtime(self):
+        base = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=123,
+            st_ctime_ns=456,
+        )
+        ctime_drift = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=123,
+            st_ctime_ns=999,
+        )
+        mtime_drift = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=124,
+            st_ctime_ns=456,
+        )
+        missing_mtime = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_ctime_ns=456,
+        )
+
+        with patch.object(
+            release_receipt_module,
+            "_same_file_identity",
+            return_value=True,
+        ):
+            self.assertTrue(
+                release_receipt_module._same_publication_snapshot(
+                    base,
+                    ctime_drift,
+                )
+            )
+            self.assertFalse(
+                release_receipt_module._same_publication_snapshot(
+                    base,
+                    mtime_drift,
+                )
+            )
+            self.assertFalse(
+                release_receipt_module._same_publication_snapshot(
+                    base,
+                    missing_mtime,
+                )
+            )
+
     def test_receipt_write_fsyncs_and_rechecks_staging_identity(self):
         with tempfile.TemporaryDirectory() as td:
             _root, archive = _fixture(td)
@@ -239,6 +467,85 @@ class Version2ReleaseReceiptTests(unittest.TestCase):
             args, kwargs = namespace_sync.call_args
             self.assertEqual(Path(args[0]), output)
             self.assertIn("expected", kwargs)
+            self.assertEqual(read_version2_release_receipt(output), receipt)
+
+    def test_post_staging_cleanup_mutation_rejects_owned_receipt_and_allows_retry(self):
+        with tempfile.TemporaryDirectory() as td:
+            _root, archive = _fixture(td)
+            receipt = _build(archive)
+            output = Path(td) / "receipt.json"
+            real_remove = release_receipt_module._remove_private_staging_file
+            injected = False
+
+            def remove_then_mutate(path, expected_identity):
+                nonlocal injected
+                candidate = Path(path)
+                real_remove(candidate, expected_identity)
+                if candidate != output and not injected:
+                    payload = json.loads(receipt.to_json())
+                    payload["artifact_id"] = int(payload["artifact_id"]) + 1
+                    output.write_text(
+                        json.dumps(
+                            payload,
+                            ensure_ascii=False,
+                            sort_keys=True,
+                            separators=(",", ":"),
+                        )
+                        + "\n",
+                        encoding="utf-8",
+                        newline="\n",
+                    )
+                    injected = True
+
+            with patch(
+                "acs.version2_release_receipt._remove_private_staging_file",
+                side_effect=remove_then_mutate,
+            ):
+                with self.assertRaisesRegex(
+                    Version2ReleaseReceiptError,
+                    "bytes changed after staging cleanup",
+                ):
+                    write_version2_release_receipt(output, receipt)
+
+            self.assertTrue(injected)
+            self.assertFalse(output.exists())
+
+            write_version2_release_receipt(output, receipt)
+            self.assertEqual(read_version2_release_receipt(output), receipt)
+
+    def test_final_readback_in_place_mutation_is_rejected_and_retry_succeeds(self):
+        with tempfile.TemporaryDirectory() as td:
+            _root, archive = _fixture(td)
+            receipt = _build(archive)
+            output = Path(td) / "receipt.json"
+            real_read = release_receipt_module.read_version2_release_receipt
+            injected = False
+
+            def read_then_mutate(path):
+                nonlocal injected
+                value = real_read(path)
+                candidate = Path(path)
+                if candidate == output and not injected:
+                    with candidate.open("ab") as handle:
+                        handle.write(b" ")
+                        handle.flush()
+                    injected = True
+                return value
+
+            with patch(
+                "acs.version2_release_receipt.read_version2_release_receipt",
+                side_effect=read_then_mutate,
+            ):
+                with self.assertRaisesRegex(
+                    Version2ReleaseReceiptError,
+                    "changed after final readback",
+                ):
+                    write_version2_release_receipt(output, receipt)
+
+            self.assertTrue(injected)
+            self.assertFalse(output.exists())
+
+            write_version2_release_receipt(output, receipt)
             self.assertEqual(read_version2_release_receipt(output), receipt)
 
     def test_post_link_durability_failure_cleans_owned_receipt_and_retry_succeeds(self):
@@ -606,6 +913,168 @@ class Version2ReleaseReceiptTests(unittest.TestCase):
                 read_version2_release_receipt(output),
             )
 
+
+
+    def test_direct_json_serialization_rejects_impossible_checksum_coverage(self):
+        receipt = Version2ReleaseReceipt(
+            schema_version=RELEASE_RECEIPT_SCHEMA_VERSION,
+            product="Accessible Chess",
+            repository=REPOSITORY_FULL_NAME,
+            workflow_path=CANONICAL_W5_WORKFLOW,
+            workflow_run_id=1,
+            workflow_run_attempt=1,
+            qualification_head_sha=_HEAD_SHA,
+            artifact_id=1,
+            artifact_name="artifact",
+            integration_sha=_SHA,
+            package_sha256="a" * 64,
+            inventory_sha256="b" * 64,
+            inventory_files=3,
+            total_bytes=1,
+            checksums_verified=1,
+        )
+
+        with self.assertRaisesRegex(
+            Version2ReleaseReceiptError,
+            "checksum coverage does not match inventory",
+        ):
+            receipt.to_json()
+
+    def test_checksum_coverage_must_match_inventory_before_publication(self):
+        with tempfile.TemporaryDirectory() as td:
+            _root, archive = _fixture(td)
+            receipt = _build(archive)
+            output = Path(td) / "receipt.json"
+
+            object.__setattr__(
+                receipt,
+                "checksums_verified",
+                receipt.checksums_verified - 1,
+            )
+            with self.assertRaisesRegex(
+                Version2ReleaseReceiptError,
+                "checksum coverage does not match inventory",
+            ):
+                write_version2_release_receipt(output, receipt)
+
+            self.assertFalse(output.exists())
+            self.assertEqual(
+                list(Path(td).glob(".receipt.json.receipt-*.tmp")),
+                [],
+            )
+
+    def test_readback_rejects_impossible_checksum_coverage(self):
+        with tempfile.TemporaryDirectory() as td:
+            _root, archive = _fixture(td)
+            receipt = _build(archive)
+            output = Path(td) / "receipt.json"
+            payload = json.loads(receipt.to_json())
+            payload["checksums_verified"] = payload["checksums_verified"] - 1
+            output.write_text(_canonical_json(payload), encoding="utf-8")
+
+            with self.assertRaisesRegex(
+                Version2ReleaseReceiptError,
+                "checksum coverage does not match inventory",
+            ):
+                read_version2_release_receipt(output)
+
+    def test_writer_revalidates_direct_receipt_instances_before_io(self):
+        with tempfile.TemporaryDirectory() as td:
+            _root, archive = _fixture(td)
+            receipt = _build(archive)
+            payload = json.loads(receipt.to_json())
+            output = Path(td) / "receipt.json"
+
+            payload["workflow_run_id"] = True
+            malformed = Version2ReleaseReceipt(**payload)
+            with self.assertRaisesRegex(
+                Version2ReleaseReceiptError,
+                "workflow_run_id must be a positive signed 64-bit integer",
+            ):
+                write_version2_release_receipt(output, malformed)
+            self.assertFalse(output.exists())
+            self.assertEqual(
+                list(Path(td).glob(".receipt.json.receipt-*.tmp")),
+                [],
+            )
+
+            class ActiveReceipt(Version2ReleaseReceipt):
+                def to_json(self):
+                    raise AssertionError("subclass method must not execute")
+
+            active = ActiveReceipt(**json.loads(receipt.to_json()))
+            with self.assertRaisesRegex(
+                TypeError,
+                "exact Version2ReleaseReceipt",
+            ):
+                write_version2_release_receipt(output, active)
+            self.assertFalse(output.exists())
+
+    def test_readback_rejects_nonfinite_json_and_contains_parser_recursion(self):
+        with tempfile.TemporaryDirectory() as td:
+            _root, archive = _fixture(td)
+            receipt = _build(archive)
+            output = Path(td) / "receipt.json"
+            canonical = receipt.to_json()
+            needle = '"workflow_run_id":37139145605'
+            self.assertIn(needle, canonical)
+
+            for constant in ("NaN", "Infinity", "-Infinity"):
+                with self.subTest(constant=constant):
+                    raw = canonical.replace(
+                        needle,
+                        f'"workflow_run_id":{constant}',
+                        1,
+                    )
+                    output.write_text(raw, encoding="utf-8")
+                    with self.assertRaisesRegex(
+                        Version2ReleaseReceiptError,
+                        "non-finite JSON number",
+                    ):
+                        read_version2_release_receipt(output)
+
+            output.write_text(canonical, encoding="utf-8")
+            with patch(
+                "acs.version2_release_receipt.json.loads",
+                side_effect=RecursionError("simulated parser depth exhaustion"),
+            ):
+                with self.assertRaisesRegex(
+                    Version2ReleaseReceiptError,
+                    "not valid JSON",
+                ):
+                    read_version2_release_receipt(output)
+
+
+    def test_write_rejects_active_mutated_scalar_without_comparison_or_create(self):
+        with tempfile.TemporaryDirectory() as td:
+            _root, archive = _fixture(td)
+            receipt = _build(archive)
+            touched: list[str] = []
+
+            class ActiveRepository(str):
+                def __eq__(self, other):
+                    touched.append("eq")
+                    raise AssertionError("active receipt scalar comparison executed")
+
+                def __ne__(self, other):
+                    touched.append("ne")
+                    raise AssertionError("active receipt scalar comparison executed")
+
+            object.__setattr__(
+                receipt,
+                "repository",
+                ActiveRepository(REPOSITORY_FULL_NAME),
+            )
+            output = Path(td) / "receipt.json"
+
+            with self.assertRaisesRegex(
+                Version2ReleaseReceiptError,
+                "repository identity mismatch",
+            ):
+                write_version2_release_receipt(output, receipt)
+
+            self.assertEqual(touched, [])
+            self.assertFalse(output.exists())
 
 if __name__ == "__main__":
     unittest.main()

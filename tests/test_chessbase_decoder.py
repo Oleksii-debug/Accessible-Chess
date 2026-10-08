@@ -164,6 +164,39 @@ class ChessBaseExternalDecoderTests(unittest.TestCase):
         self.assertIn("[%cbh-square yellow e4]", after)
         self.assertEqual(node.nags, ["$1", "$14", "$36"])
 
+    def test_unrepresentable_decoded_game_fails_before_publication(self) -> None:
+        cases = (
+            decoded_game(
+                0,
+                [move(12, 28)],
+                event="line one\nline two",
+            ),
+            decoded_game(
+                0,
+                [
+                    move(
+                        12,
+                        28,
+                        comments=[
+                            {
+                                "kind": "text_after",
+                                "lang": 0,
+                                "text": "cannot } become a brace comment",
+                            }
+                        ],
+                    )
+                ],
+            ),
+        )
+        for record in cases:
+            with self.subTest(record=record):
+                with self.assertRaises(ChessBaseDecodeError) as caught:
+                    self.decode(payload([record]))
+                self.assertEqual(
+                    caught.exception.code,
+                    ChessBaseDecodeCode.INVALID_GAME,
+                )
+
     def test_illegal_backend_move_fails_closed_instead_of_becoming_game_data(self) -> None:
         with self.assertRaises(ChessBaseDecodeError) as caught:
             self.decode(payload([decoded_game(0, [move(12, 44)])]))
@@ -203,6 +236,21 @@ class ChessBaseExternalDecoderTests(unittest.TestCase):
         self.assertEqual(result.warnings[0].game_index, 0)
         self.assertEqual(result.warnings[0].code, "backend_record_skipped")
 
+    def test_unrepresentable_backend_tags_fail_canonical_game_gate(self) -> None:
+        invalid_tags = (
+            [{"name": "Bad Tag", "value": "value"}],
+            [{"name": "Event", "value": "line one\nline two"}],
+            [{"name": "Site", "value": "line one\rline two"}],
+        )
+        for tags in invalid_tags:
+            with self.subTest(tags=tags):
+                with self.assertRaises(ChessBaseDecodeError) as caught:
+                    self.decode(payload([decoded_game(0, [move(12, 28)], tags=tags)]))
+                self.assertEqual(
+                    caught.exception.code,
+                    ChessBaseDecodeCode.INVALID_GAME,
+                )
+
     def test_duplicate_json_keys_are_rejected(self) -> None:
         raw = (
             '{"protocol":"accessible-chess-libcbh-v1",'
@@ -238,17 +286,45 @@ class ChessBaseExternalDecoderTests(unittest.TestCase):
             decode_chessbase_external(cbv, self.config)
         self.assertEqual(caught.exception.code, ChessBaseDecodeCode.UNSUPPORTED_SOURCE)
 
-    def test_nonstandard_start_position_is_preserved_as_setup_fen(self) -> None:
+    def test_standard_start_position_rejects_conflicting_backend_setup_tags(self) -> None:
+        conflicting_fen = "4k3/8/8/8/8/8/4P3/4K3 w - - 0 1"
+        record = decoded_game(
+            0,
+            [move(12, 28)],
+            tags=[
+                {"name": "SetUp", "value": "1"},
+                {"name": "FEN", "value": conflicting_fen},
+                {"name": "Source", "value": "Pinned external oracle"},
+            ],
+        )
+
+        game = self.decode(payload([record])).games[0]
+
+        self.assertNotIn("SetUp", game.tags)
+        self.assertNotIn("FEN", game.tags)
+        self.assertEqual(game.tags["Source"], "Pinned external oracle")
+        self.assertEqual(game.line.moves[0].san, "e4")
+
+    def test_nonstandard_start_position_overrides_conflicting_backend_setup_tags(self) -> None:
         fen = "4k3/8/8/8/8/8/4P3/4K3 w - - 0 1"
+        conflicting_fen = "8/8/8/8/8/8/8/K6k w - - 0 1"
         record = decoded_game(
             0,
             [move(12, 20)],
             start_fen=fen,
             result=0,
+            tags=[
+                {"name": "SetUp", "value": "0"},
+                {"name": "FEN", "value": conflicting_fen},
+                {"name": "Source", "value": "Pinned external oracle"},
+            ],
         )
+
         game = self.decode(payload([record])).games[0]
+
         self.assertEqual(game.tags["SetUp"], "1")
         self.assertEqual(game.tags["FEN"], fen)
+        self.assertEqual(game.tags["Source"], "Pinned external oracle")
         self.assertEqual(game.line.moves[0].san, "e3")
         self.assertEqual(game.line.result, "*")
 

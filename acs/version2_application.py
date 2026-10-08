@@ -23,9 +23,11 @@ from .book_progress_store import (
     BookProgressStore,
     BookProgressStoreError,
     BookProgressStoreErrorCode,
+    _book_key as _validate_book_progress_key,
 )
-from .bookdocument import BookDocument
+from .bookdocument import BookDocument, MAX_BOOK_DOCUMENT_WARNINGS
 from .bookreader import BookReader
+from .chesscore import Board
 from .engine_assisted_workflows import EngineAssistedWorkflowService
 from .full_product_ui_shell import UILanguage, concise_user_error
 from .input_limits import MAX_FEN_CHARS
@@ -33,12 +35,14 @@ from .import_contract import SourceReadCancelledError, read_source_snapshot
 from .library_export_service import LibraryExportService
 from .library_export_workspace import build_library_export_webview
 from .library_import_service import LibraryImportProgress, LibraryImportResult, LibraryImportService
-from .library_webview_projection import LibraryImportPhase
+from .library_webview_projection import LibraryImportPhase, LibraryWebViewEvent
 from .pgn_document import PgnDocumentSession
+from .position_editor import PositionState
 from .pgn_workspace import PgnWorkspace
 from .pgn_webview_bridge import PgnWebViewBridge
 from .pgn_workspace_webview_adapter import PgnWorkspaceWebViewProjection
 from .report_paths import report_safe_name
+from .release_update_center import ReleaseUpdateCenter, ReleaseUpdateError
 from .search_service import GameSearchQuery
 from .version2_book_workspace import build_version2_book_webview
 from .version2_pgn_commands import Version2PgnCommands
@@ -51,7 +55,43 @@ from .version2_windows_book_open_worker import (
     Version2BookOpenWorker,
 )
 from .version2_windows_file_workflows import FileWorkflowEvent, FileWorkflowEventKind, Version2ImportWorkerServices
+from .version2_windows_library_export import LibraryExportHostEvent
 from .version2_windows_library_import_observer import Version2ObservedImportServicesFactory
+
+
+_SQLITE_INTEGER_MAX = (1 << 63) - 1
+
+
+class _BoundedApplicationEventQueue(deque):
+    """Bounded event FIFO that records actual truncation, not mere fullness."""
+
+    def __init__(self, *, maxlen: int) -> None:
+        if type(maxlen) is not int or maxlen <= 0:
+            raise ValueError("event queue maxlen must be a positive integer")
+        super().__init__(maxlen=maxlen)
+        self.overflowed = False
+
+    def append(self, value) -> None:
+        if self.maxlen is not None and len(self) >= self.maxlen:
+            self.overflowed = True
+        super().append(value)
+
+    def appendleft(self, value) -> None:
+        if self.maxlen is not None and len(self) >= self.maxlen:
+            self.overflowed = True
+        super().appendleft(value)
+
+    def extend(self, values) -> None:
+        for value in values:
+            self.append(value)
+
+    def extendleft(self, values) -> None:
+        for value in values:
+            self.appendleft(value)
+
+    def clear(self) -> None:
+        super().clear()
+        self.overflowed = False
 
 
 class _BookBrowserLeaseRejected(ValueError):
@@ -72,11 +112,16 @@ class PreparedBookOpen:
 
 
 class Version2Application:
-    # Some canonical shutdown/recovery tests deliberately construct a minimal
-    # application via __new__ instead of __init__. Keep optional Training state
-    # absent-safe on those valid pre-Training construction paths.
+    # Some canonical shutdown/recovery paths deliberately construct a minimal
+    # application via __new__ instead of __init__. Keep optional native owners and
+    # Training state absent-safe on those valid pre-composition construction paths.
     training_workspace = None
     training = None
+    _files = None
+    _user_data_portability = None
+    _book_open_worker = None
+    _pending_shell_publication = None
+    _pending_shell_publication_restore = None
     _pgn_browser_lease_required = False
     _book_browser_lease_required = False
     _book_browser_dispatch_token = None
@@ -126,24 +171,41 @@ class Version2Application:
     def __init__(self, database: AcsDatabase, *, progress_store: BookProgressStore,
                  engine_assistance: EngineAssistedWorkflowService, board_dispatch,
                  board_position_projector=None, copy_text=lambda _: None,
-                 language=UILanguage.UA):
+                 language=UILanguage.UA, release_update_center=None,
+                 security_action_guard=None):
         self._thread = threading.get_ident()
         self.database = database
         self.progress_store = progress_store
         self.training_progress_root = progress_store.path.parent / "training-progress"
         self.engine_assistance = engine_assistance
         self._board_dispatch = board_dispatch
+        if not callable(copy_text):
+            raise TypeError("copy_text must be callable")
+        self._copy_text = copy_text
+        if release_update_center is not None and not isinstance(release_update_center, ReleaseUpdateCenter):
+            raise TypeError("release_update_center must be ReleaseUpdateCenter or None")
+        if security_action_guard is not None and not callable(security_action_guard):
+            raise TypeError("security_action_guard must be callable or None")
+        self.release_update_center = release_update_center
+        self._security_action_guard = security_action_guard
         if board_position_projector is not None and not callable(board_position_projector):
             raise TypeError("board_position_projector must be callable or None")
         self._board_position_projector = board_position_projector
-        self._events = deque(maxlen=64)
+        self._events = _BoundedApplicationEventQueue(maxlen=64)
+        # Refused-close diagnostics are presentation-independent. Keep them
+        # separate from route/domain events so a failure of the pending shell
+        # publication transaction cannot suppress the accessible explanation
+        # for why the native Form stayed open.
+        self._urgent_events = deque(maxlen=8)
         self._observation_lock = threading.Lock()
         self._progress = self._result = None
         self._files = None
+        self._user_data_portability = None
         self._book_open_worker: Version2BookOpenWorker | None = None
         self._focus = ""
         self._shell_publication_sequence = 0
         self._pending_shell_publication = None
+        self._pending_shell_publication_restore = None
         self._last_shell_publication_resolution = None
         self.session = None
         self.pgn_board_active = False
@@ -154,7 +216,11 @@ class Version2Application:
         self.reader = self.book_key = self.book_workflow = self.book_delegate = self.books = None
         self.training_workspace = self.training = None
         self.shell = build_version2_shell(language=language)
-        self.router = build_version2_router(self.shell, self._delegate)
+        self.router = build_version2_router(
+            self.shell,
+            self._delegate,
+            security_guard=security_action_guard,
+        )
         self.adapter = build_version2_webview_adapter(self.shell, self.router)
         self.pgn_commands = Version2PgnCommands(lambda: self.session, copy_text=copy_text)
         self.library_export = LibraryExportService(database)
@@ -166,6 +232,20 @@ class Version2Application:
         # and non-Windows compositions fail closed by default.
         self.confirm_book_progress_recovery = lambda: False
         self.open_book_dialog = lambda: None
+
+    def _dispatch_tactile_action(self, action_id, payload):
+        """Dispatch tactile input only through visible canonical Board commands."""
+        self._assert_thread()
+        if self.shell.current_route.route_id != "board":
+            raise ValueError("tactile board input requires the visible Board")
+        if self.shell.active_dialog_id is not None:
+            raise ValueError("close the active dialog before tactile board input")
+        result = self.router.dispatch(
+            action_id,
+            payload,
+            current_focus_id=self._focus,
+        )
+        return result.value
 
     def _assert_thread(self):
         if threading.get_ident() != self._thread:
@@ -184,12 +264,50 @@ class Version2Application:
             raise ValueError("invalid shell publication acknowledgement")
         return token
 
+    @staticmethod
+    def _passive_browser_payload_keys(payload):
+        """Return exact text keys without executing caller-controlled key hooks."""
+        if type(payload) is not dict:
+            return None
+        keys = tuple(payload)
+        if any(type(key) is not str for key in keys):
+            raise ValueError("browser payload keys must be exact text")
+        return keys
+
+    @staticmethod
+    def _shell_publication_request_id(payload):
+        """Validate one exact browser publication-start request."""
+        if type(payload) is not dict or len(payload) != 2:
+            raise ValueError("invalid shell publication request")
+        keys = tuple(payload)
+        if (
+            any(type(key) is not str for key in keys)
+            or "publication_protocol" not in payload
+            or "request_id" not in payload
+        ):
+            raise ValueError("invalid shell publication request")
+        protocol = payload["publication_protocol"]
+        if type(protocol) is not str or protocol != "ack-v1":
+            raise ValueError("unsupported shell publication protocol")
+        request_id = payload["request_id"]
+        if (
+            type(request_id) is not int
+            or request_id <= 0
+            or request_id > 9007199254740991
+        ):
+            raise ValueError("invalid shell publication request")
+        return request_id
+
     def _finish_shell_publication(self, token: int, *, commit: bool):
         """Commit or roll back one browser route only after DOM publication."""
         pending = self._pending_shell_publication
         if pending is None:
             last = self._last_shell_publication_resolution
-            if last is not None and last == (token, commit):
+            if (
+                last is not None
+                and last[0] == token
+                and last[1] is commit
+            ):
                 if commit:
                     return {
                         "kind": "presentation-commit",
@@ -199,17 +317,23 @@ class Version2Application:
                     "kind": "presentation-rollback",
                     "payload": {
                         "token": token,
-                        "route_id": self.shell.current_route.route_id,
-                        "focus_target": self._focus,
+                        "route_id": last[2],
+                        "focus_target": last[3],
                     },
                 }
             raise ValueError("stale shell publication acknowledgement")
         if pending[0] != token:
             raise ValueError("stale shell publication acknowledgement")
-        self._pending_shell_publication = None
+
+        publication_restore = self._pending_shell_publication_restore
         if commit:
+            # Retain both transaction authorities until the shell has actually
+            # released its publication hold. A transient host failure remains
+            # replayable with the same acknowledgement token.
             self.shell._end_publication_hold()
-            self._last_shell_publication_resolution = (token, True)
+            self._pending_shell_publication = None
+            self._pending_shell_publication_restore = None
+            self._last_shell_publication_resolution = (token, True, "", "")
             return {
                 "kind": "presentation-commit",
                 "payload": {"token": token},
@@ -225,18 +349,43 @@ class Version2Application:
             prior_training_workspace,
             prior_training,
         ) = pending
-        self.shell._restore_presentation_state(shell_state)
+        # Rollback is a transaction too. Restore independent application/domain
+        # owners before the fallible shell restore seam. If shell restoration
+        # transiently fails, the old Library DOM stays fenced by the publication
+        # hold and cannot sit over a newly published PGN owner while the exact
+        # acknowledgement remains retryable.
         self._focus = prior_focus
         self.training_workspace = prior_training_workspace
         self.training = prior_training
+        if publication_restore is not None:
+            (
+                prior_session,
+                prior_pgn,
+                prior_pgn_board_active,
+                prior_pgn_browser_lease_required,
+            ) = publication_restore
+            self.session = prior_session
+            self.pgn = prior_pgn
+            self.pgn_board_active = prior_pgn_board_active
+            self._pgn_browser_lease_required = prior_pgn_browser_lease_required
+        self.shell._restore_presentation_state(shell_state)
         self.shell._end_publication_hold()
-        self._last_shell_publication_resolution = (token, False)
+        self._pending_shell_publication = None
+        self._pending_shell_publication_restore = None
+        rollback_route = self.shell.current_route.route_id
+        rollback_focus = self._focus
+        self._last_shell_publication_resolution = (
+            token,
+            False,
+            rollback_route,
+            rollback_focus,
+        )
         return {
             "kind": "presentation-rollback",
             "payload": {
                 "token": token,
-                "route_id": self.shell.current_route.route_id,
-                "focus_target": self._focus,
+                "route_id": rollback_route,
+                "focus_target": rollback_focus,
             },
         }
 
@@ -309,8 +458,11 @@ class Version2Application:
         return projected
 
     def _authorize_book_browser_payload(self, payload):
-        token_present = type(payload) is dict and "presentation_token" in payload
-        if type(payload) is dict:
+        payload_keys = self._passive_browser_payload_keys(payload)
+        token_present = (
+            payload_keys is not None and "presentation_token" in payload_keys
+        )
+        if payload_keys is not None:
             forwarded = dict(payload)
             token = forwarded.pop("presentation_token", None)
         else:
@@ -374,6 +526,15 @@ class Version2Application:
         self._assert_thread()
         self._files = runtime
 
+    def bind_user_data_portability(self, handler) -> None:
+        """Bind the trusted host for Section 37 backup/restore/export/import actions."""
+        self._assert_thread()
+        if not callable(handler):
+            raise TypeError("user-data portability handler must be callable")
+        if self._user_data_portability is not None and self._user_data_portability is not handler:
+            raise RuntimeError("user-data portability handler is already bound")
+        self._user_data_portability = handler
+
     def bind_book_open_worker(self, worker: Version2BookOpenWorker) -> None:
         self._assert_thread()
         if not isinstance(worker, Version2BookOpenWorker):
@@ -382,9 +543,19 @@ class Version2Application:
             raise RuntimeError("Book Open worker is already bound")
         self._book_open_worker = worker
 
+    def unbind_book_open_worker(self, worker: Version2BookOpenWorker) -> bool:
+        """Release only the exact unpublished Book worker owned by startup."""
+        self._assert_thread()
+        if not isinstance(worker, Version2BookOpenWorker):
+            raise TypeError("Book Open worker must be Version2BookOpenWorker")
+        if self._book_open_worker is not worker:
+            return False
+        self._book_open_worker = None
+        return True
+
     def _book_open_event(self, event: BookOpenWorkerEvent) -> BookOpenWorkerEvent:
         self._assert_thread()
-        if not isinstance(event, BookOpenWorkerEvent):
+        if type(event) is not BookOpenWorkerEvent:
             raise TypeError("invalid Book Open worker event")
         english = self.shell.language is UILanguage.EN
         messages = {
@@ -423,12 +594,30 @@ class Version2Application:
         return event
 
     def observe_progress(self, value: LibraryImportProgress):
-        if type(value) is not LibraryImportProgress: raise TypeError("invalid import progress")
-        with self._observation_lock: self._progress = value
+        if type(value) is not LibraryImportProgress:
+            raise TypeError("invalid import progress")
+        canonical = LibraryImportProgress(
+            value.attempt_id,
+            value.processed_games,
+            value.total_games,
+        )
+        with self._observation_lock:
+            self._progress = canonical
 
     def observe_result(self, value: LibraryImportResult):
-        if type(value) is not LibraryImportResult: raise TypeError("invalid import result")
-        with self._observation_lock: self._result = value
+        if type(value) is not LibraryImportResult:
+            raise TypeError("invalid import result")
+        canonical = LibraryImportResult(
+            value.attempt_id,
+            value.source_id,
+            value.game_count,
+            value.warning_count,
+            value.first_game_id,
+            value.last_game_id,
+            value.reused,
+        )
+        with self._observation_lock:
+            self._result = canonical
 
     def worker_factory(self, database_path, *, chessbase_factory=None):
         def create():
@@ -449,6 +638,7 @@ class Version2Application:
 
     def set_document(self, session):
         self._assert_thread()
+        self.shell._assert_action_dispatch_ready()
         if type(session) is not PgnDocumentSession: raise TypeError("invalid PGN document")
         # Library/native domain actions can reach this seam without a shell route
         # action. Reject before publishing a new PGN session while modal focus is
@@ -472,12 +662,19 @@ class Version2Application:
         # until the shell has accepted the PGN route. open_route() can partially
         # write its route before a focus-restore tail fails, so recover from the
         # actual shell state.
-        origin_route = self.shell.current_route.route_id
+        shell_checkpoint = self.shell._capture_presentation_state()
+        focus_checkpoint = self._focus
         try:
             route_focus = self.shell.open_route("pgn")
         except BaseException:
-            if self.shell.current_route.route_id != origin_route:
-                self._focus = self.shell.open_route(origin_route)
+            # Restore both presentation authorities exactly. Rollback is
+            # best-effort so a secondary rollback abort cannot replace the
+            # primary route/publication failure.
+            self._focus = focus_checkpoint
+            try:
+                self.shell._restore_presentation_state(shell_checkpoint)
+            except BaseException:
+                pass
             raise
         self.session, self.pgn = session, bridge
         self.pgn_board_active = False
@@ -563,6 +760,11 @@ class Version2Application:
         """Reject Book owner replacement before source I/O or UI publication."""
 
         self._assert_thread()
+        # Background Book preparation commits outside ActionRouter.dispatch().
+        # Reuse the shell publication fence explicitly so a worker completion
+        # cannot replace route/Book ownership while the browser is still
+        # deciding whether another candidate route is visible.
+        self.shell._assert_action_dispatch_ready()
         if self.shell.active_dialog_id is not None:
             raise ValueError("close the active dialog before opening a book")
         if self.book_workflow is not None and self.book_workflow.active:
@@ -574,13 +776,44 @@ class Version2Application:
         self._assert_book_open_allowed()
         if type(prepared) is not PreparedBookOpen:
             raise TypeError("prepared Book Open result is invalid")
+        # PreparedBookOpen crosses a worker/UI ownership boundary. Its frozen
+        # dataclass shell does not make referenced values canonical: callers can
+        # construct it directly, and object.__setattr__ can mutate frozen fields.
+        # Snapshot and validate warnings before any persistence/route publication
+        # so an active container or element cannot run a hook after the Book has
+        # already become visible and turn a successful open into FAILED.
+        book_key = prepared.book_key
+        document = prepared.document
+        warnings = prepared.warnings
+        if type(book_key) is not str:
+            raise TypeError("prepared Book Open book key is invalid")
+        if type(document) is not BookDocument:
+            raise TypeError("prepared Book Open document is invalid")
+        book_key = _validate_book_progress_key(book_key)
+        if (
+            type(warnings) is not tuple
+            or len(warnings) > MAX_BOOK_DOCUMENT_WARNINGS
+            or any(type(warning) is not str for warning in warnings)
+        ):
+            raise TypeError("prepared Book Open warnings are invalid")
+        # Validate and detach the mutable BookDocument before saving any current
+        # owner state. BookReader.document_snapshot() rechecks the live revision
+        # before and after cloning; bind the candidate reader to that detached
+        # canonical snapshot so later authoring mutation cannot change this Open.
+        validating_reader = BookReader(document)
+        document = validating_reader.document_snapshot()
+        fresh_reader = BookReader(document)
+        canonical_warnings = fresh_reader.document_warnings_snapshot()
+        if warnings != canonical_warnings:
+            raise TypeError("prepared Book Open warnings do not match the document")
+        warning_count = len(canonical_warnings)
 
         self.save_training_progress()
         self.save_book_progress()
         reader = (
-            self.progress_store.restore(prepared.book_key, prepared.document)
-            if self.progress_store.has(prepared.book_key)
-            else BookReader(prepared.document)
+            self.progress_store.restore(book_key, document)
+            if self.progress_store.has(book_key)
+            else fresh_reader
         )
         workflow = BookBoardWorkflow(
             reader,
@@ -601,39 +834,68 @@ class Version2Application:
         bridge.projection.snapshot()
 
         origin_route = self.shell.current_route.route_id
+        shell_checkpoint = self.shell._capture_presentation_state()
+        focus_checkpoint = self._focus
         try:
             route_focus = self.shell.open_route("books")
+            # Focus derived from the Book route is part of candidate publication,
+            # not a post-commit observer. Accept only passive exact text before
+            # inspecting or persisting it: an active str subclass or non-text
+            # host result must not become application/NVDA focus authority.
+            if type(route_focus) is not str:
+                raise TypeError("Book route focus is invalid")
+            # Resolve reader-container/stale-block focus while the candidate owners
+            # are still staged so a host/focus failure rolls the route back and
+            # cannot produce a FAILED terminal after the Book already opened.
+            if (
+                route_focus == "book-reader"
+                or route_focus.startswith("book-block-")
+            ):
+                canonical_focus = f"book-block-{reader.index}"
+                if route_focus != canonical_focus:
+                    self.shell.record_focus(canonical_focus)
+                    route_focus = canonical_focus
             try:
-                self._persist_book_progress(prepared.book_key, reader)
+                self._persist_book_progress(book_key, reader)
             except BookProgressStoreError as error:
                 if error.code != BookProgressStoreErrorCode.DURABILITY_UNKNOWN:
                     raise
                 try:
                     canonical = self.progress_store.restore_primary(
-                        prepared.book_key,
-                        prepared.document,
+                        book_key,
+                        document,
                     )
                     canonical_matches = canonical.snapshot() == reader.snapshot()
                 except Exception:
                     canonical_matches = False
                 if not canonical_matches:
                     raise error
-        except Exception:
-            if self.shell.current_route.route_id != origin_route:
-                self._focus = self.shell.open_route(origin_route)
+        except BaseException:
+            # Candidate Book owners are still staged here. Restore the exact
+            # shell/focus presentation rather than routing back through a second
+            # command that could replace the primary persistence/publication
+            # failure. If exact restoration itself aborts, one best-effort route
+            # recovery may repair the visible shell but never becomes authority.
+            self._focus = focus_checkpoint
+            try:
+                self.shell._restore_presentation_state(shell_checkpoint)
+            except BaseException:
+                try:
+                    self.shell.open_route(origin_route)
+                except BaseException:
+                    pass
+                self._focus = focus_checkpoint
             raise
 
         self.reader, self.book_key, self.book_workflow, self.book_delegate, self.books = (
             reader,
-            prepared.book_key,
+            book_key,
             workflow,
             delegate,
             bridge,
         )
         self.training_workspace = self.training = None
         self._focus = route_focus
-        self._repair_book_block_focus_after_rebind()
-        warning_count = len(prepared.warnings)
         if warning_count:
             announcement = (
                 f"Книгу відкрито з попередженнями імпорту: {warning_count}."
@@ -1211,6 +1473,20 @@ class Version2Application:
     def _error(self):
         return {"kind": "error", "payload": {"message": concise_user_error("", language=self.shell.language)}}
 
+    def announce_shutdown_failure(self) -> None:
+        """Explain a refused native close without exposing internal failure detail."""
+
+        self._assert_thread()
+        message = (
+            "Не вдалося безпечно завершити роботу. Вікно залишено відкритим; "
+            "спробуйте вийти ще раз."
+            if self.shell.language is UILanguage.UA
+            else
+            "Accessible Chess could not close safely. The window remains open; "
+            "try exiting again."
+        )
+        self._urgent_events.append({"kind": "error", "payload": {"message": message}})
+
     def _project_board_position(self, position):
         projector = self._board_position_projector
         if projector is None:
@@ -1276,7 +1552,132 @@ class Version2Application:
                 {"kind": "route", "payload": {"route_id": "books"}}
             )
 
+    def _canonical_visible_fen(self) -> str:
+        if self.shell.current_route.route_id != "board":
+            raise ValueError("FEN readback requires the visible Board")
+        result = self._board_dispatch("board.read_fen", {})
+        if type(result) is not dict or result.get("ok") is not True:
+            raise RuntimeError("canonical visible FEN is unavailable")
+        fen = result.get("fen")
+        if (
+            type(fen) is not str
+            or not fen
+            or len(fen) > MAX_FEN_CHARS
+            or "\x00" in fen
+        ):
+            raise RuntimeError("canonical visible FEN is unavailable")
+        canonical = Board(fen).fen()
+        if canonical != fen:
+            raise RuntimeError("canonical visible FEN is inconsistent")
+        return canonical
+
     def _delegate(self, action, payload):
+        if action in {"data.backup", "data.restore", "data.export", "data.import"}:
+            self._assert_thread()
+            if self.shell.active_dialog_id is not None:
+                raise ValueError("close the active dialog before a user-data operation")
+            if self._user_data_portability is None:
+                raise ValueError("user-data portability service is unavailable")
+            if payload is None:
+                payload = {}
+            if type(payload) is not dict:
+                raise ValueError("user-data portability payload must be an object")
+            if payload:
+                raise ValueError("user-data portability actions accept no browser payload")
+            return self._user_data_portability(action, {})
+
+        if action in {"release.status", "release.check_update", "release.apply_update"}:
+            if payload:
+                raise ValueError("Release update actions accept no payload")
+            language = "en" if self.shell.language is UILanguage.EN else "uk"
+            center = self.release_update_center
+            if action == "release.status":
+                if center is None:
+                    message = (
+                        "Release security is available. This build has no configured update channel."
+                        if language == "en"
+                        else "Захист випуску доступний. Для цієї збірки канал оновлень не налаштовано."
+                    )
+                    result = {
+                        "state": "channel-not-configured",
+                        "current_version": "",
+                        "target_version": None,
+                        "announcement": message,
+                    }
+                else:
+                    result = center.snapshot(language=language).to_mapping()
+            else:
+                if center is None:
+                    raise ValueError(
+                        "The update channel is not configured for this build."
+                        if language == "en"
+                        else "Канал оновлень не налаштовано для цієї збірки."
+                    )
+                try:
+                    snapshot = (
+                        center.check(language=language)
+                        if action == "release.check_update"
+                        else center.apply(language=language)
+                    )
+                except ReleaseUpdateError as exc:
+                    raise ValueError(str(exc)) from None
+                result = snapshot.to_mapping()
+            announcement = result.get("announcement")
+            if type(announcement) is not str or not announcement:
+                raise RuntimeError("release update result has no accessible announcement")
+            self._events.append(
+                {"kind": "status", "payload": {"announcement": announcement}}
+            )
+            return result
+        if action == "board.read_fen":
+            if payload:
+                raise ValueError("Read FEN accepts no payload")
+            canonical = self._canonical_visible_fen()
+            self._events.append(
+                {
+                    "kind": "status",
+                    "payload": {
+                        "announcement": (
+                            "FEN позиції: " + canonical
+                            if self.shell.language is UILanguage.UA
+                            else "Position FEN: " + canonical
+                        )
+                    },
+                }
+            )
+            return {"ok": True, "fen": canonical}
+        if action == "position.copy_fen":
+            if payload:
+                raise ValueError("Copy FEN accepts no payload")
+            canonical = self._canonical_visible_fen()
+            self._copy_text(canonical)
+            self._events.append(
+                {
+                    "kind": "status",
+                    "payload": {
+                        "announcement": (
+                            "Поточний FEN скопійовано."
+                            if self.shell.language is UILanguage.UA
+                            else "Current FEN copied."
+                        )
+                    },
+                }
+            )
+            return {"ok": True, "fen": canonical}
+        if action == "pgn.new_from_position":
+            if payload:
+                raise ValueError("PGN position creation accepts no payload")
+            if self.shell.current_route.route_id != "board":
+                raise ValueError("PGN position creation requires the visible Board")
+            if self.shell.active_dialog_id is not None:
+                raise ValueError("close the active dialog before replacing the PGN document")
+            if self.book_workflow is not None and self.book_workflow.active:
+                raise ValueError("return to the book before replacing the PGN document")
+            canonical = self._canonical_visible_fen()
+            position = PositionState.from_fen(canonical)
+            candidate = PgnDocumentSession.new_game_from_position(position)
+            self.set_document(candidate)
+            return {"ok": True, "fen": canonical}
         # Route-changing delegated PGN actions must respect modal focus before
         # they mutate Board projection or ownership flags. Otherwise open_route()
         # can reject the transition after domain state has already moved.
@@ -1407,21 +1808,114 @@ class Version2Application:
         if action == "pgn.export_selection" and not payload and self.pgn is not None:
             return self.pgn.dispatch(action)
         if action == "library.open_game":
-            if not payload: return self.library.projection.open_selected()
-            if set(payload) != {"game_id", "source_id", "source_index"}: raise ValueError("invalid Library game request")
-            row = self.database.get_game(payload["game_id"])
-            if row is None or (row["source_id"], row["source_index"]) != (payload["source_id"], payload["source_index"]):
+            if self.shell.active_dialog_id is not None:
+                raise ValueError("close the active dialog before opening a Library game")
+            if payload is None or (type(payload) is dict and not payload):
+                return self.library.projection.open_selected()
+            if (
+                type(payload) is not dict
+                or set(payload) != {"game_id", "source_id", "source_index"}
+            ):
+                raise ValueError("invalid Library game request")
+            game_id = payload["game_id"]
+            source_id = payload["source_id"]
+            source_index = payload["source_index"]
+            if (
+                type(game_id) is not int
+                or game_id <= 0
+                or game_id > _SQLITE_INTEGER_MAX
+                or type(source_id) is not int
+                or source_id <= 0
+                or source_id > _SQLITE_INTEGER_MAX
+                or type(source_index) is not int
+                or source_index < 0
+                or source_index > _SQLITE_INTEGER_MAX
+            ):
+                raise ValueError("invalid Library game request")
+            row = self.database.get_game(game_id)
+            if (
+                type(row) is not dict
+                or type(row.get("source_id")) is not int
+                or type(row.get("source_index")) is not int
+                or (row["source_id"], row["source_index"]) != (source_id, source_index)
+            ):
                 raise ValueError("Library selection is stale")
-            game = AcsdbBookGameLookup(self.database).load_book_game(payload["game_id"])
+            game = AcsdbBookGameLookup(self.database).load_book_game(game_id)
             # Opening a detached Library record must not renumber/write its source.
             game.source_index = 0
             self.set_document(PgnDocumentSession(PgnWorkspace((game,))))
             return None
-        if action in {"library.search", "library.reset_filters"}:
-            self._focus = self.shell.open_route("library")
-            return self.library.projection.search(self.library.projection.query) if action.endswith("search") else self.library.projection.reset_filters()
-        if action == "library.next_page": return self.library.projection.next_page()
-        if action == "library.previous_page": return self.library.projection.previous_page()
+        if action in {
+            "library.search",
+            "library.reset_filters",
+            "library.next_page",
+            "library.previous_page",
+        }:
+            if payload is not None and not (type(payload) is dict and not payload):
+                raise ValueError("Library navigation accepts no payload")
+            # Native/global Library actions can originate on another route.
+            # Treat the presenter/query/export-selection mutation and shell route
+            # acquisition as one presentation transaction. A failed render or
+            # route publication must leave the exact prior route and Library
+            # presentation authoritative.
+            if self.shell.active_dialog_id is not None:
+                raise ValueError("close the active dialog before changing Library state")
+            projection = self.library.projection
+            projection_state = projection._capture_native_navigation_state()
+            shell_state = self.shell._capture_presentation_state()
+            prior_focus = self._focus
+            try:
+                if action == "library.search":
+                    result = projection.search(projection.query)
+                elif action == "library.reset_filters":
+                    result = projection.reset_filters()
+                elif action == "library.next_page":
+                    result = projection.next_page()
+                else:
+                    result = projection.previous_page()
+                if type(result) is not LibraryWebViewEvent or result.kind != "render":
+                    raise ValueError("invalid Library projection result")
+                result_payload = result.payload
+                if type(result_payload) is not dict:
+                    raise ValueError("invalid Library projection result")
+                snapshot = result_payload.get("snapshot")
+                if type(snapshot) is not dict:
+                    raise ValueError("invalid Library projection result")
+                status = snapshot.get("status")
+                if type(status) is not str:
+                    raise ValueError("invalid Library projection status")
+                if status == "error":
+                    message = snapshot.get("message")
+                    raise RuntimeError(
+                        message
+                        if type(message) is str and message.strip()
+                        else "Library action failed"
+                    )
+                if status not in {"ready", "empty"}:
+                    raise ValueError("invalid Library projection status")
+                route_focus = self.shell.open_route("library")
+            except BaseException as primary_error:
+                primary_traceback = primary_error.__traceback__
+                rollback_failed = False
+                try:
+                    projection._restore_native_navigation_state(projection_state)
+                except BaseException:
+                    rollback_failed = True
+                try:
+                    self.shell._restore_presentation_state(shell_state)
+                except BaseException:
+                    rollback_failed = True
+                self._focus = prior_focus
+                if rollback_failed:
+                    raise RuntimeError("Library navigation rollback failed") from primary_error
+                raise primary_error.with_traceback(primary_traceback)
+            self._focus = route_focus
+            return result
+        if (
+            action in {"library.import", "library.export"}
+            and self.shell.active_dialog_id is not None
+        ):
+            raise ValueError("close the active dialog before opening a Library file workflow")
         if action == "library.export" and not payload:
             return self.library.projection.request_export_selected()
         if action == "book.cancel_open":
@@ -1429,6 +1923,15 @@ class Version2Application:
                 raise ValueError("Book Open cancellation takes no payload")
             if self._book_open_worker is None:
                 raise ValueError("Book Open worker is unavailable")
+            had_pending_terminal = self._book_open_worker.terminal_pending
+            if had_pending_terminal:
+                self._book_open_worker.flush_pending_terminal()
+                # The accessible surface was still presenting a busy Book Open,
+                # but the retained terminal proves that operation had already
+                # finished. Treat this Cancel as satisfied instead of following
+                # the terminal with a contradictory "no Book Open" error.
+                if not self._book_open_worker.active:
+                    return None
             if not self._book_open_worker.cancel(focus_target=str(self._focus)):
                 raise ValueError("no Book Open is running")
             return None
@@ -1436,8 +1939,17 @@ class Version2Application:
             if payload:
                 raise ValueError("book file selection belongs to the host")
             self._assert_book_open_allowed()
-            if self._book_open_worker is not None and self._book_open_worker.active:
-                raise ValueError("Book Open is already running")
+            if self._book_open_worker is not None:
+                # A completed background Open can retain its exact owner-thread
+                # terminal after BeginInvoke/observer failure. Recover that
+                # accessibility truth before showing another modal file picker;
+                # otherwise a new Open UI can overtake the prior terminal even
+                # though the worker will later refuse the new generation.
+                self._book_open_worker.flush_pending_terminal()
+                if self._book_open_worker.closed:
+                    raise ValueError("Book Open worker is unavailable")
+                if self._book_open_worker.active:
+                    raise ValueError("Book Open is already running")
             source = self.open_book_dialog()
             if source is None:
                 return None
@@ -1663,9 +2175,127 @@ class Version2Application:
             if type(area) is not str or len(area) > 16:
                 raise ValueError("invalid browser surface")
             area_id = area
+            payload_keys = self._passive_browser_payload_keys(payload)
             empty_authority_payload = payload is None or (
-                type(payload) is dict and len(payload) == 0
+                payload_keys is not None and len(payload_keys) == 0
             )
+            # Library Open is a route + PGN-owner transition even though it is
+            # initiated from the Library surface rather than global navigation.
+            # Use the same two-phase browser publication authority as screen.*
+            # so render failure/bridge response loss cannot leave stale Library
+            # DOM visible over a newly published canonical PGN owner.
+            library_open_publication = (
+                area_id == "library"
+                and type(command) is str
+                and command == "library.open_game"
+                and type(payload) is dict
+                and "publication_protocol" in payload
+            )
+            if library_open_publication:
+                publication_request_id = self._shell_publication_request_id(payload)
+                if self._pending_shell_publication is not None:
+                    pending = self._pending_shell_publication
+                    if (
+                        pending[1] == command
+                        and pending[2] == publication_request_id
+                    ):
+                        return pending[3]
+                    raise ValueError("shell publication acknowledgement is pending")
+                if (
+                    self.shell.current_route.route_id != "library"
+                    or self.shell.active_dialog_id is not None
+                ):
+                    raise ValueError("Library game open requires the visible Library")
+                if self._shell_publication_sequence >= 9007199254740990:
+                    raise RuntimeError("shell publication sequence exhausted")
+
+                prior_shell = self.shell._capture_presentation_state()
+                prior_focus = self._focus
+                prior_training_workspace = self.training_workspace
+                prior_training = self.training
+                prior_domain = (
+                    self.session,
+                    self.pgn,
+                    self.pgn_board_active,
+                    self._pgn_browser_lease_required,
+                )
+
+                hold_was_active = self.shell._publication_hold_active
+                if hold_was_active:
+                    raise ValueError("shell presentation publication is pending")
+
+                def restore_rejected_library_open() -> None:
+                    # No browser publication token exists yet, so there is no
+                    # external retry authority if this rejection cleanup fails.
+                    # Restore the independent application/domain owners before
+                    # calling shell cleanup seams that may themselves raise.
+                    self._focus = prior_focus
+                    self.training_workspace = prior_training_workspace
+                    self.training = prior_training
+                    (
+                        self.session,
+                        self.pgn,
+                        self.pgn_board_active,
+                        self._pgn_browser_lease_required,
+                    ) = prior_domain
+
+                    rollback_error: Exception | None = None
+                    if (
+                        not hold_was_active
+                        and self.shell._publication_hold_active
+                    ):
+                        try:
+                            self.shell._end_publication_hold()
+                        except Exception as exc:
+                            rollback_error = exc
+                    try:
+                        self.shell._restore_presentation_state(prior_shell)
+                    except Exception as exc:
+                        if rollback_error is None:
+                            rollback_error = exc
+                    if rollback_error is not None:
+                        raise RuntimeError(
+                            "Library Open rejection rollback failed"
+                        ) from rollback_error
+
+                try:
+                    value = self.library.dispatch(command, {})
+                    projected = asdict(value)
+                    if value.kind == "error":
+                        restore_rejected_library_open()
+                        return projected
+                    projected_payload = projected.get("payload")
+                    if (
+                        value.kind != "delegated"
+                        or type(projected_payload) is not dict
+                        or set(projected_payload) != {"action"}
+                        or projected_payload.get("action") != "library.open_game"
+                        or self.shell.current_route.route_id != "pgn"
+                    ):
+                        raise RuntimeError(
+                            "Library game open did not publish canonical PGN"
+                        )
+
+                    self._shell_publication_sequence += 1
+                    token = self._shell_publication_sequence
+                    self.shell._begin_publication_hold()
+                    projected_payload["publication_token"] = token
+                    self._pending_shell_publication_restore = prior_domain
+                    self._pending_shell_publication = (
+                        token,
+                        command,
+                        publication_request_id,
+                        projected,
+                        prior_shell,
+                        prior_focus,
+                        prior_training_workspace,
+                        prior_training,
+                    )
+                    return projected
+                except Exception:
+                    restore_rejected_library_open()
+                    raise
+
             if (
                 self._pending_shell_publication is not None
                 and area_id != "shell"
@@ -1713,24 +2343,11 @@ class Version2Application:
 
                 publication_protocol = False
                 publication_request_id = None
-                if type(payload) is dict and "publication_protocol" in payload:
-                    keys = tuple(payload)
-                    if (
-                        len(keys) != 2
-                        or any(type(key) is not str for key in keys)
-                        or "request_id" not in payload
-                    ):
-                        raise ValueError("invalid shell publication request")
-                    value = payload["publication_protocol"]
-                    if type(value) is not str or value != "ack-v1":
-                        raise ValueError("unsupported shell publication protocol")
-                    publication_request_id = payload["request_id"]
-                    if (
-                        type(publication_request_id) is not int
-                        or publication_request_id <= 0
-                        or publication_request_id > 9007199254740991
-                    ):
-                        raise ValueError("invalid shell publication request")
+                if (
+                    payload_keys is not None
+                    and "publication_protocol" in payload_keys
+                ):
+                    publication_request_id = self._shell_publication_request_id(payload)
                     publication_protocol = True
 
                 if not empty_authority_payload and not publication_protocol:
@@ -1834,6 +2451,7 @@ class Version2Application:
                             ) = publication_before
                             self.shell._begin_publication_hold()
                             projected_payload["publication_token"] = token
+                            self._pending_shell_publication_restore = None
                             self._pending_shell_publication = (
                                 token,
                                 command,
@@ -1868,6 +2486,20 @@ class Version2Application:
                     # Stale browser intent is a presentation-recovery request only.
                     # Never reinterpret it against the current Book owner.
                     return self._book_browser_recovery_result()
+            if area_id == "library" and command == "library.open_game":
+                raise ValueError("Library game open requires presentation protocol")
+            if (
+                area_id == "library"
+                and (
+                    self.shell.current_route.route_id != "library"
+                    or self.shell.active_dialog_id is not None
+                )
+            ):
+                # A retained Library WebView is not an authority surface after
+                # route departure or while modal focus is owned elsewhere.
+                # Reject before bridge dispatch so a late/stale DOM command
+                # cannot mutate canonical search, selection or export/import state.
+                raise ValueError("Library command requires the visible Library")
             bridge = {"pgn": self.pgn, "library": self.library}.get(area_id)
             if bridge is None: raise ValueError("surface is unavailable")
             pgn_refresh = (
@@ -1894,8 +2526,8 @@ class Version2Application:
                 and not pgn_refresh
                 and self._pgn_browser_lease_required
                 and (
-                    type(payload) is not dict
-                    or "presentation_token" not in payload
+                    payload_keys is None
+                    or "presentation_token" not in payload_keys
                 )
             ):
                 # A rendered PGN surface has an opaque lease. Missing it is
@@ -1906,8 +2538,8 @@ class Version2Application:
             if area_id == "pgn" and (
                 pgn_refresh
                 or (
-                    type(payload) is dict
-                    and "presentation_token" in payload
+                    payload_keys is not None
+                    and "presentation_token" in payload_keys
                 )
             ):
                 self._pgn_browser_lease_required = True
@@ -1944,15 +2576,37 @@ class Version2Application:
 
     def drain_events(self):
         self._assert_thread()
+        # Book Open completion posting can fail transiently after background
+        # preparation finishes. Recover its retained terminal only here, on the
+        # canonical owner/UI thread, so NVDA/browser state cannot remain stuck at
+        # STARTED and no worker thread ever calls presentation code directly.
+        if self._book_open_worker is not None:
+            self._book_open_worker.flush_pending_terminal()
+        urgent = tuple(self._urgent_events)
+        self._urgent_events.clear()
         if self._pending_shell_publication is not None:
             # The browser is rendering a candidate route. Preserve every prior
             # native/domain presentation event in order until that route is
             # either committed or rolled back; applying an event to the
             # unpublished DOM would create a second presentation authority.
-            return ()
+            # Refused-close diagnostics are the exception: they describe the
+            # still-live native owner itself and must reach NVDA even when the
+            # publication transaction is the reason shutdown was refused.
+            return urgent
+        if self._events.overflowed:
+            # Do not publish a truncated causal sequence. Re-read canonical route
+            # state instead, while still delivering presentation-independent
+            # refused-close diagnostics retained by the shipping recovery line.
+            self._events.clear()
+            return (
+                {
+                    "kind": "route",
+                    "payload": {"route_id": self.shell.current_route.route_id},
+                },
+            ) + urgent
         events = tuple(self._events)
         self._events.clear()
-        return events
+        return events + urgent
 
     def native_command(self, value):
         self._assert_thread()
@@ -2210,9 +2864,51 @@ class Version2Application:
                         self._result = None
 
     def _native_file_error_message(self, event):
-        if type(event) is not FileWorkflowEvent:
+        if type(event) not in (FileWorkflowEvent, LibraryExportHostEvent):
             return concise_user_error("", language=self.shell.language)
-        language = self.library.projection.language if event.action_id in {"library.import", "library.cancel_import"} else self.shell.language
+        language = (
+            self.library.projection.language
+            if event.action_id in {"library.import", "library.cancel_import", "library.export"}
+            else self.shell.language
+        )
+        if type(event) is LibraryExportHostEvent:
+            export_messages = {
+                "invalid_export_request": (
+                    "Не вдалося почати експорт: вибір ігор або фільтр більше не є чинними. Оновіть Бібліотеку та повторіть експорт.",
+                    "Export could not start because the game selection or filter is no longer valid. Refresh the Library and retry the export.",
+                ),
+                "library_export_busy": (
+                    "Інша операція експорту Бібліотеки ще завершується. Дочекайтеся завершення або скасуйте її та повторіть дію.",
+                    "Another Library export operation is still finishing. Let it finish or cancel it, then retry.",
+                ),
+                "library_export_unavailable": (
+                    "Експорт Бібліотеки зараз недоступний. Файл не створено. Повторіть дію після завершення поточної файлової операції.",
+                    "Library export is currently unavailable. No file was created. Retry after the current file operation finishes.",
+                ),
+                "file_dialog_failed": (
+                    "Не вдалося відкрити системне вікно вибору файла для експорту. Експорт не розпочато.",
+                    "The system file picker for export could not be opened. Export was not started.",
+                ),
+                "library_export_worker_failed": (
+                    "Не вдалося запустити фоновий експорт Бібліотеки. Файл не опубліковано. Повторіть експорт.",
+                    "Background Library export could not be started. No file was published. Retry the export.",
+                ),
+                "library_export_failed": (
+                    "Не вдалося завершити експорт Бібліотеки. Перевірте поточний вибір або фільтр і повторіть дію.",
+                    "Library export could not be completed. Check the current selection or filter and retry.",
+                ),
+                "no_library_export_running": (
+                    "Експорт Бібліотеки вже завершився або не був розпочатий.",
+                    "Library export has already finished or was not started.",
+                ),
+            }
+            code = event.error_code
+            if type(code) is str and len(code) <= 64:
+                message = export_messages.get(code)
+                if message is not None:
+                    return message[language is UILanguage.EN]
+            return concise_user_error("", language=language)
+
         messages = {
             "unsupported_import_source": (
                 "Імпорт підтримує PGN, EPUB, HTML, Markdown та CBH/CBV з підтримуваним декодером. Інші формати не можна імпортувати.",
@@ -2359,7 +3055,7 @@ class Version2Application:
         return concise_user_error("", language=language)
 
     def _file_event(self, event):
-        if type(event) is not FileWorkflowEvent:
+        if type(event) not in (FileWorkflowEvent, LibraryExportHostEvent):
             self._events.append(
                 {
                     "kind": "error",
@@ -2371,6 +3067,123 @@ class Version2Application:
                 }
             )
             return
+
+        kind = getattr(event.kind, "value", "")
+        action_id = getattr(event, "action_id", "")
+        error_code = getattr(event, "error_code", "")
+        projection = getattr(getattr(self, "library", None), "projection", None)
+        stale_export_cancel = (
+            type(event) is FileWorkflowEvent
+            and kind == "failed"
+            and action_id == "library.cancel_import"
+            and error_code == "no_import_running"
+            and getattr(projection, "export_running", False) is True
+        )
+        library_export = (
+            type(event) is LibraryExportHostEvent
+            or action_id == "library.export"
+            or stale_export_cancel
+        )
+        if library_export:
+            active_worker_failure = (
+                kind == "failed"
+                and error_code in {"library_export_failed", "library_export_worker_failed"}
+            )
+            inactive_host_failure = (
+                kind == "failed"
+                and error_code in {
+                    "file_dialog_failed",
+                    "library_export_unavailable",
+                    "no_library_export_running",
+                }
+            )
+            terminal_export = (
+                kind in {"exported", "dialog_cancelled"}
+                or active_worker_failure
+                or inactive_host_failure
+            )
+            transition_name = {
+                "export_started": "host_export_started",
+                "export_cancelling": "host_export_cancelling",
+            }.get(kind)
+            if terminal_export:
+                transition_name = "host_export_finished"
+            transition = (
+                getattr(projection, transition_name, None)
+                if transition_name
+                else None
+            )
+            if callable(transition):
+                try:
+                    operation_event = transition()
+                    operation_kind = getattr(operation_event, "kind", "")
+                    operation_payload = getattr(operation_event, "payload", None)
+                    if (
+                        operation_kind == "render-import"
+                        and type(operation_payload) is dict
+                    ):
+                        self._events.append(
+                            {
+                                "kind": operation_kind,
+                                "payload": dict(operation_payload),
+                            }
+                        )
+                except Exception:
+                    # Presentation observes host authority and cannot change export
+                    # publication/cancellation truth.
+                    pass
+
+            focus_target = ""
+            if terminal_export:
+                candidate = getattr(event, "focus_target", "")
+                if (
+                    type(candidate) is str
+                    and 0 < len(candidate) <= 160
+                    and all(
+                        char in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+                        for char in candidate
+                    )
+                ):
+                    focus_target = candidate
+
+            if kind == "failed":
+                if stale_export_cancel:
+                    announcement = (
+                        "Операція бібліотеки вже завершилася.",
+                        "The Library operation has already finished.",
+                    )[self.shell.language is UILanguage.EN]
+                    payload = {"announcement": announcement}
+                    if focus_target:
+                        payload["focus_target"] = focus_target
+                    self._events.append({"kind": "status", "payload": payload})
+                    return
+                payload = {"message": self._native_file_error_message(event)}
+                if focus_target:
+                    payload["focus_target"] = focus_target
+                self._events.append({"kind": "error", "payload": payload})
+                return
+
+            export_messages = {
+                "export_started": (
+                    "Експорт розпочато. Операцію можна скасувати.",
+                    "Export started. You can cancel the operation.",
+                ),
+                "export_cancelling": ("Скасовуємо експорт.", "Cancelling export."),
+                "exported": ("Експорт завершено.", "Export completed."),
+                "dialog_cancelled": ("Скасовано.", "Cancelled."),
+            }
+            message = export_messages.get(kind)
+            if message:
+                payload = {
+                    "announcement": message[
+                        self.shell.language is UILanguage.EN
+                    ],
+                }
+                if focus_target:
+                    payload["focus_target"] = focus_target
+                self._events.append({"kind": "status", "payload": payload})
+            return
+
         failed = getattr(event.kind, "value", "") == "failed"
         if failed:
             self._events.append({"kind": "error", "payload": {"message": self._native_file_error_message(event)}})
@@ -2426,6 +3239,56 @@ class Version2Application:
         message = messages.get(kind)
         if message: self._events.append({"kind": "status", "payload": {"announcement": message[self.shell.language is UILanguage.EN]}})
 
+    def _resume_native_workers_after_refused_shutdown(self) -> None:
+        """Restore retired native workers atomically or leave all of them fenced."""
+        recovery_error: BaseException | None = None
+        attempted: list[object] = []
+        for owner in (self._book_open_worker, self._files):
+            if owner is None:
+                continue
+            # Every bound native owner participated in retirement, so every one
+            # must also have an explicit recovery contract before a refused close
+            # can be called recovered. Treating a missing resume method as
+            # success can leave the visible application pointing at a silently
+            # retired owner.
+            attempted.append(owner)
+            resume = getattr(type(owner), "resume_after_refused_shutdown", None)
+            if not callable(resume):
+                if recovery_error is None:
+                    recovery_error = RuntimeError(
+                        "native worker has no refused-shutdown recovery contract"
+                    )
+                continue
+            try:
+                restored = resume(owner)
+            except BaseException as error:
+                if recovery_error is None:
+                    recovery_error = error
+            else:
+                if restored is not True and recovery_error is None:
+                    recovery_error = RuntimeError(
+                        "native worker could not recover after refused shutdown"
+                    )
+
+        if recovery_error is None:
+            # A later successful recovery supersedes any diagnostic left by an
+            # earlier refused close.
+            self._native_shutdown_recovery_error = None
+            return
+
+        # Reopening is one recovery transaction. If any owner cannot resume,
+        # best-effort re-retire every owner we attempted so the visible
+        # application never advertises a mixed live/closed native boundary.
+        for owner in reversed(attempted):
+            shutdown = getattr(type(owner), "shutdown", None)
+            if not callable(shutdown):
+                continue
+            try:
+                shutdown(owner, timeout=0.0)
+            except BaseException:
+                pass
+        self._native_shutdown_recovery_error = recovery_error
+
     def shutdown(self, timeout: float | None = None):
         """Cancel and join native import work before closing shared application state.
 
@@ -2434,17 +3297,35 @@ class Version2Application:
         in-flight SQLite/import transaction on process exit is not an acceptable
         release behaviour.  Tests and recovery callers may supply a bounded
         timeout and retry without closing the database when the worker is still
-        alive. Once worker shutdown succeeds, ACSDB cleanup is attempted even if
-        durable Book progress publication fails, without letting a later close
-        failure replace that first progress failure.
+        alive. Every independent native worker retirement is attempted before a
+        refused/failed close is reported; shared progress and ACSDB remain untouched
+        unless all workers confirm retirement. Once worker shutdown succeeds, both
+        durable progress owners are attempted. Any progress failure keeps ACSDB open
+        so native FormClosing can refuse the close and a later attempt can retry the
+        exact owner state; only successful progress publication permits ACSDB close.
         """
         self._assert_thread()
-        if (
-            self._book_open_worker is not None
-            and not self._book_open_worker.shutdown(timeout=timeout)
-        ):
-            return False
-        if self._files is not None and not self._files.shutdown(timeout=timeout):
+        retirement_complete = True
+        retirement_error: BaseException | None = None
+        retirement_traceback = None
+        for owner in (self._book_open_worker, self._files):
+            if owner is None:
+                continue
+            try:
+                retired = owner.shutdown(timeout=timeout)
+            except BaseException as error:
+                retirement_complete = False
+                if retirement_error is None:
+                    retirement_error = error
+                    retirement_traceback = error.__traceback__
+            else:
+                if retired is not True:
+                    retirement_complete = False
+        if retirement_error is not None:
+            self._resume_native_workers_after_refused_shutdown()
+            raise retirement_error.with_traceback(retirement_traceback)
+        if not retirement_complete:
+            self._resume_native_workers_after_refused_shutdown()
             return False
         if self._pending_shell_publication is not None:
             # Native close/Alt+F4 can race a browser route render. An
@@ -2452,18 +3333,39 @@ class Version2Application:
             # must never become durable merely because shutdown began. Retire
             # workers first so a refused close can keep the pending browser
             # transaction alive; once shutdown may proceed, roll it back before
-            # any Training or Book progress publication.
+            # any Training or Book progress publication. A failed rollback keeps
+            # its exact token retryable and must also keep shared persistence
+            # open because the native close is refused.
             token = self._pending_shell_publication[0]
-            self._finish_shell_publication(token, commit=False)
-        self.save_training_progress()
-        try:
-            self.save_book_progress()
-        except BaseException as progress_error:
-            progress_traceback = progress_error.__traceback__
             try:
-                self.database.close()
+                self._finish_shell_publication(token, commit=False)
             except BaseException:
-                pass
+                self._resume_native_workers_after_refused_shutdown()
+                raise
+        progress_error: BaseException | None = None
+        progress_traceback = None
+        for save_progress in (self.save_training_progress, self.save_book_progress):
+            try:
+                save_progress()
+            except BaseException as error:
+                if progress_error is None:
+                    progress_error = error
+                    progress_traceback = error.__traceback__
+        if progress_error is not None:
+            # Native FormClosing refuses the close when durable progress cannot
+            # be published. Keep ACSDB open and restore only workers that already
+            # proved complete retirement, so the still-visible application does
+            # not become a half-shut-down shell. Recovery errors are diagnostic
+            # and never replace the primary durability failure.
+            self._resume_native_workers_after_refused_shutdown()
             raise progress_error.with_traceback(progress_traceback)
-        self.database.close()
+        try:
+            self.database.close()
+        except BaseException:
+            # A failed ACSDB close leaves native FormClosing in its refused-close
+            # path just like a worker/progress failure. Restore only fully retired
+            # native owners before propagating so a transient database-close error
+            # cannot strand the still-visible application in a half-closed state.
+            self._resume_native_workers_after_refused_shutdown()
+            raise
         return True

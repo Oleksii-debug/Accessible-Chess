@@ -239,10 +239,15 @@ class BookIndex:
         """Search semantic labels and every list item in linear reading order."""
         if type(text) is not str:
             raise TypeError("Search text must be a string")
+        kind_filter: frozenset[BookEntryKind] | None = None
         if kinds is not None:
-            if type(kinds) is not set or not all(
-                isinstance(kind, BookEntryKind) for kind in kinds
-            ):
+            if type(kinds) is not set:
+                raise TypeError("Search kinds must be a set of BookEntryKind values")
+            # The filter is caller-owned mutable state. Snapshot the exact built-in
+            # set before validation/search so one semantic query cannot change
+            # meaning halfway through if another owner mutates its original set.
+            kind_filter = frozenset(kinds.copy())
+            if not all(isinstance(kind, BookEntryKind) for kind in kind_filter):
                 raise TypeError("Search kinds must be a set of BookEntryKind values")
         # Preserve the current raw resource fence before any Unicode
         # normalization/allocation, then delegate semantic query policy to the
@@ -260,7 +265,7 @@ class BookIndex:
         return tuple(
             entry
             for entry in self._entries
-            if (kinds is None or entry.kind in kinds)
+            if (kind_filter is None or entry.kind in kind_filter)
             and (
                 needle in (search_fold(normalize_search_text(entry.label)) or "")
                 or (

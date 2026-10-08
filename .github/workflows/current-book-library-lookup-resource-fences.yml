@@ -1,0 +1,94 @@
+name: Current Book Library Lookup Resource Fences
+
+on:
+  pull_request:
+    branches:
+      - converge/book-reader-search-authority-20261006-c2mbezb111
+    paths:
+      - 'acs/book_library_game_lookup.py'
+      - 'tests/test_v2_book_library_game_lookup.py'
+      - '.github/workflows/current-book-library-lookup-resource-fences.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-book-library-lookup-resource-fences-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    env:
+      PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+
+      - name: Prove exact current shipping base and bounded scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            test -n "$PR_BASE_SHA"
+            test -n "$PR_HEAD_SHA"
+            test "$(git rev-parse HEAD)" = "$PR_HEAD_SHA"
+            base_ref="${{ github.base_ref }}"
+            event_base="$PR_BASE_SHA"
+          else
+            base_ref='converge/book-reader-search-authority-20261006-c2mbezb111'
+            event_base=''
+          fi
+          git fetch --no-tags origin "refs/heads/$base_ref:refs/remotes/origin/$base_ref"
+          upstream="$(git rev-parse "refs/remotes/origin/$base_ref")"
+          if [ -n "$event_base" ]; then
+            git merge-base --is-ancestor "$event_base" "$upstream"
+          fi
+          test "$(git merge-base "$upstream" HEAD)" = "$upstream"
+          git diff --check "$upstream" HEAD
+          changed="$(git diff --name-only "$upstream" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/current-book-library-lookup-resource-fences.yml' \
+            'acs/book_library_game_lookup.py' \
+            'tests/test_v2_book_library_game_lookup.py' | sort)"
+          test "$changed" = "$expected"
+          test "$(git hash-object acs/book_library_game_lookup.py)" = "b5a0544d2883296a1e28a3ad5431937e281faf74"
+          test "$(git hash-object tests/test_v2_book_library_game_lookup.py)" = "72eb202d4dee386ceb6d2f264602bdf741066ea6"
+
+      - name: Compile bounded Books Library lookup change
+        run: >-
+          python -m compileall -q
+          acs/book_library_game_lookup.py
+          tests/test_v2_book_library_game_lookup.py
+
+      - name: Run focused Books Library lookup regressions
+        run: >-
+          python -m unittest -v
+          tests.test_v2_book_library_game_lookup
+          tests.test_v2_book_game_content
+
+      - name: Run canonical ingress and semantic contract regressions
+        run: >-
+          python -m unittest -v
+          tests.test_d06_pgn_roundtrip
+          tests.test_gametree
+          tests.test_bookdocument
+          tests.test_bookreader
+          tests.test_book_index
+
+      - name: Core selftest
+        run: python -m acs.selftest

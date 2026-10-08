@@ -10,16 +10,25 @@ to be consumed by NVDA browse/focus mode rather than by a self-voicing GUI.
 
 from pathlib import Path
 import copy
+import re
 import sys
 from typing import Any
 
 from .chesscore import Board, parse_sq, sq_name, color_of
 from .history import HistoryError, ReviewHistory
-from .input_limits import MAX_FEN_CHARS
+from .epd import looks_like_epd
+from .input_limits import MAX_FEN_CHARS, MAX_SQUARE_TEXT_CHARS
 from .move_entry import MAX_MOVE_ENTRY_CHARS
-from .notation import format_accessible_compact_san
+from .notation import format_accessible_compact_san, format_san
+from .position_editor import PositionState, PositionValidationError
 from .position_text import parse_position_text
 from .ui_review_adapter import ReviewPresentationAdapter
+from .visual_board_contract import (
+    BoardSurface,
+    VisualBoardCell,
+    VisualBoardPreferences,
+    VisualBoardSnapshot,
+)
 
 VERSION = "0.4.0-dev3"
 
@@ -61,6 +70,7 @@ class AccessibleChessAPI:
         self.announcement = self._t("ready")
         self.mode = "analysis"
         self.engine_enabled = False
+        self.visual_preferences = VisualBoardPreferences()
         self.review_history = ReviewHistory(self.start_fen)
         self.review_adapter = ReviewPresentationAdapter(self.review_history, language=self.lang)
         self.live_history_node = self.review_history.cursor_node_id
@@ -75,12 +85,12 @@ class AccessibleChessAPI:
             "ready": "Готово. Документ доступності завантажено.",
             "white_turn": "Хід білих", "black_turn": "Хід чорних",
             "no_moves": "Ходів ще немає", "no_last": "Останнього ходу немає",
-            "selected": "вибрано", "illegal": "Нелегальний хід",
+            "selected": "вибрано", "illegal": "Не вдалося виконати хід",
             "undo_none": "Немає ходу для скасування", "redo_none": "Немає ходу для повторення",
             "setup_incomplete": "Редактор позиції. Додайте рівно по одному білому і чорному королю.",
             "move_text_type": "Текст ходу має бути текстовим значенням.",
             "move_text_too_long": "Текст ходу занадто довгий.",
-            "move_invalid": "Хід не розпізнано або він нелегальний.",
+            "move_invalid": "Не вдалося виконати хід. Перевірте запис і позицію.",
             "square_invalid": "Неправильне поле.",
             "fen_text_type": "FEN має бути текстовим значенням.",
             "fen_text_too_long": "FEN занадто довгий.",
@@ -92,6 +102,8 @@ class AccessibleChessAPI:
             "language_change_failed": "Не вдалося змінити мову інтерфейсу.",
             "move_history_failed": "Не вдалося синхронізувати дошку та історію ходів.",
             "review_position_failed": "Не вдалося підготувати вибрану позицію історії.",
+            "history_metadata_invalid": "Не вдалося прочитати історію ходів.",
+            "history_variation_selected": "Вибрано позицію варіанта. Лінійний перегляд історії тимчасово недоступний.",
             "review_start": "Початкова позиція.",
             "review_end": "Кінець історії.",
             "review_before_move": "Спочатку поверніться в кінець історії, щоб зробити новий хід.",
@@ -101,12 +113,12 @@ class AccessibleChessAPI:
             "ready": "Ready. Accessible document loaded.",
             "white_turn": "White to move", "black_turn": "Black to move",
             "no_moves": "No moves yet", "no_last": "No last move",
-            "selected": "selected", "illegal": "Illegal move",
+            "selected": "selected", "illegal": "Could not make the move",
             "undo_none": "No move to undo", "redo_none": "No move to redo",
             "setup_incomplete": "Position editor. Add exactly one white king and one black king.",
             "move_text_type": "Move text must be a text value.",
             "move_text_too_long": "Move text is too long.",
-            "move_invalid": "Move is unrecognized or illegal.",
+            "move_invalid": "Could not make the move. Check the notation and position.",
             "square_invalid": "Invalid square.",
             "fen_text_type": "FEN must be a text value.",
             "fen_text_too_long": "FEN is too long.",
@@ -118,6 +130,8 @@ class AccessibleChessAPI:
             "language_change_failed": "Could not change interface language.",
             "move_history_failed": "Could not synchronize the board and move history.",
             "review_position_failed": "Could not prepare the selected history position.",
+            "history_metadata_invalid": "Could not read move history.",
+            "history_variation_selected": "A variation position is selected. Linear history review is temporarily unavailable.",
             "review_start": "Initial position.",
             "review_end": "End of history.",
             "review_before_move": "Return to the end of history before playing a new move.",
@@ -141,6 +155,18 @@ class AccessibleChessAPI:
         b = board or self._display_board()
         return b.board.count("K") == 1 and b.board.count("k") == 1
 
+    def _position_playable(self, board: Board | None = None) -> bool:
+        """Ask the canonical Board FEN authority whether gameplay may start."""
+
+        b = board or self._display_board()
+        if not self._position_complete(b):
+            return False
+        try:
+            Board(b.fen())
+        except Exception:
+            return False
+        return True
+
     def square_label(self, square: int | str, board: Board | None = None) -> str:
         b = board or self._display_board()
         # Use the canonical exact-int/exact-text square boundary for both forms.
@@ -160,13 +186,85 @@ class AccessibleChessAPI:
                        if p and p.upper() == typ and color_of(p) == color]
             if squares:
                 lines.append(f"{names[typ]}: {', '.join(squares)}")
-        return "\n".join(lines) if lines else ("фігур немає" if self.lang == "uk" else "no pieces")
+        return "; ".join(lines) if lines else ("фігур немає" if self.lang == "uk" else "no pieces")
+
+    def _history_metadata_valid(self) -> bool:
+        if type(self.sans) is not list or type(self.move_sides) is not list:
+            return False
+        if len(self.sans) != len(self.move_sides):
+            return False
+        for san, side in zip(self.sans, self.move_sides):
+            if type(san) is not str or not san.strip():
+                return False
+            if type(side) is not str or side not in {"w", "b"}:
+                return False
+        return True
+
+    def _redo_metadata_valid(self) -> bool:
+        if type(self.redo_meta) is not list:
+            return False
+        for item in self.redo_meta:
+            if type(item) is not tuple or len(item) != 2:
+                return False
+            san, side = item
+            if type(san) is not str or not san.strip():
+                return False
+            if type(side) is not str or side not in {"w", "b"}:
+                return False
+        return True
+
+    def _validated_history_lineage(self) -> list[int] | None:
+        if not self._history_metadata_valid():
+            return None
+        try:
+            lineage = self._live_line_nodes()
+            records = {
+                record.node_id: record
+                for record in self.review_history.tree_nodes()
+            }
+        except Exception:
+            return None
+        if len(lineage) != len(self.sans) + 1:
+            return None
+        root = records.get(lineage[0])
+        live = records.get(self.live_history_node)
+        if root is None or root.snapshot.fen != self.start_fen:
+            return None
+        if live is None or live.snapshot.fen != self.board.fen():
+            return None
+        for ply, (san, side) in enumerate(
+            zip(self.sans, self.move_sides),
+            start=1,
+        ):
+            record = records.get(lineage[ply])
+            if record is None:
+                return None
+            snapshot = record.snapshot
+            if snapshot.san is not None and snapshot.san != san:
+                return None
+            if snapshot.side is not None and snapshot.side != side:
+                return None
+            if snapshot.last_move is not None and snapshot.last_move != san:
+                return None
+        return lineage
 
     def _visible_ply_count(self) -> int:
-        return min(self.review_adapter.current().ply, len(self.sans))
+        lineage = self._validated_history_lineage()
+        if lineage is None:
+            return 0
+        current_node = self.review_history.cursor_node_id
+        if current_node not in set(lineage):
+            return 0
+        return lineage.index(current_node)
 
     def _moves_text(self) -> str:
-        count = self._visible_ply_count()
+        lineage = self._validated_history_lineage()
+        if lineage is None:
+            return self._t("history_metadata_invalid")
+        current_node = self.review_history.cursor_node_id
+        if current_node not in set(lineage):
+            return self._t("history_variation_selected")
+        count = lineage.index(current_node)
         if count == 0:
             return self._t("no_moves")
         sans = self.sans[:count]
@@ -192,11 +290,50 @@ class AccessibleChessAPI:
                 i += 1
         return "\n".join(out)
 
+    def _history_items(self) -> list[dict[str, Any]]:
+        """Project the immutable live line as a selectable review move list.
+
+        Arrow-key browsing belongs to presentation; each item carries only the
+        canonical ply target that go_to_move already validates before review
+        publication. Review selection never mutates the live Board.
+        """
+        lineage = self._validated_history_lineage()
+        if lineage is None:
+            return []
+        current_node = self.review_history.cursor_node_id
+        if current_node not in set(lineage):
+            return []
+        items: list[dict[str, Any]] = [
+            {
+                "ply": 0,
+                "label": self._t("review_start"),
+                "selected": lineage[0] == current_node,
+                "live": lineage[0] == self.live_history_node,
+            }
+        ]
+        for ply, (san, side) in enumerate(
+            zip(self.sans, self.move_sides),
+            start=1,
+        ):
+            move_number = (ply + 1) // 2
+            prefix = f"{move_number}." if side == "w" else f"{move_number}..."
+            items.append(
+                {
+                    "ply": ply,
+                    "label": f"{prefix} {format_accessible_compact_san(san, self.lang)}",
+                    "selected": ply < len(lineage) and lineage[ply] == current_node,
+                    "live": ply < len(lineage) and lineage[ply] == self.live_history_node,
+                }
+            )
+        return items
+
     def _game_status(self, board: Board | None = None) -> str:
         b = board or self._display_board()
         turn_text = self._t("white_turn") if b.turn == "w" else self._t("black_turn")
         if not self._position_complete(b):
             return f"{self._t('setup_incomplete')} {turn_text}"
+        if not self._position_playable(b):
+            return f"{self._t('position_invalid')} {turn_text}"
         legal = b.legal_moves()
         if legal:
             if b.in_check(b.turn):
@@ -216,10 +353,78 @@ class AccessibleChessAPI:
                 cells.append({
                     "square": sq_name(sq),
                     "label": self.square_label(sq, b),
+                    "piece": b.board[sq] or "",
                     "occupied": bool(b.board[sq]),
                     "selected": (not reviewing) and sq == self.selected_source,
                 })
         return cells
+
+    def _visual_board_snapshot(
+        self,
+        board: Board,
+        cells: list[dict[str, Any]],
+    ) -> VisualBoardSnapshot:
+        """Project canonical chess state into the presentation-only contract."""
+        at_live_end = self._at_history_end()
+        selected_square = (
+            sq_name(self.selected_source)
+            if self.selected_source is not None and at_live_end
+            else None
+        )
+        legal_targets: tuple[str, ...] = ()
+        if (
+            self.selected_source is not None
+            and at_live_end
+            and self._position_playable(board)
+        ):
+            legal_targets = tuple(
+                sorted(
+                    {
+                        sq_name(move.to)
+                        for move in board.legal_moves()
+                        if move.frm == self.selected_source
+                    }
+                )
+            )
+        last_move = None
+        if board.last_move is not None and at_live_end:
+            last_move = (sq_name(board.last_move.frm), sq_name(board.last_move.to))
+        return VisualBoardSnapshot(
+            surface=BoardSurface.ORDINARY_PLAY,
+            preferences=self.visual_preferences,
+            cells=tuple(
+                VisualBoardCell(
+                    square=str(cell["square"]),
+                    piece=str(cell.get("piece") or ""),
+                    accessible_label=str(cell["label"]),
+                )
+                for cell in cells
+            ),
+            selected_square=selected_square,
+            last_move=last_move,
+            legal_targets=legal_targets,
+        )
+
+    def set_visual_preference(
+        self,
+        field: object,
+        value: object,
+    ) -> dict[str, Any]:
+        """Change presentation state only; Board/history remain authoritative."""
+        try:
+            updated = self.visual_preferences.updated(field, value)
+        except (TypeError, ValueError):
+            return self._error(
+                "Некоректне налаштування візуальної дошки."
+                if self.lang == "uk"
+                else "Invalid visual board setting."
+            )
+        self.visual_preferences = updated
+        return self._ok(
+            "Вигляд дошки оновлено."
+            if self.lang == "uk"
+            else "Board appearance updated."
+        )
 
     def _prepare_root_state(
         self,
@@ -347,13 +552,44 @@ class AccessibleChessAPI:
         source = self.review_history if history is None else history
         records = source.tree_nodes()
         by_id = {record.node_id: record for record in records}
+        if len(by_id) != len(records):
+            raise RuntimeError("duplicate review history node")
         lineage: list[int] = []
+        seen: set[int] = set()
         current: int | None = self.live_history_node
         while current is not None:
+            if current in seen:
+                raise RuntimeError("cyclic live review history")
+            record = by_id.get(current)
+            if record is None:
+                raise RuntimeError("live review history node is missing")
+            seen.add(current)
             lineage.append(current)
-            current = by_id[current].parent_id
+            if len(lineage) > len(records):
+                raise RuntimeError("live review history exceeds node inventory")
+            current = record.parent_id
+        if not lineage:
+            raise RuntimeError("live review history is empty")
         lineage.reverse()
         return lineage
+
+    def _reject_off_live_review(
+        self,
+        candidate_history: ReviewHistory,
+        candidate_adapter: ReviewPresentationAdapter,
+    ) -> dict[str, Any]:
+        """Fail closed if History Review tries to expose a GameTree branch.
+
+        ReviewHistory intentionally owns the complete variation tree.  The
+        linear History Review surface, however, is a projection of the current
+        live game only.  Recover its cursor to the canonical live node instead
+        of letting a preserved variation silently become history authority.
+        """
+        candidate_history.select_node(self.live_history_node)
+        live_view = candidate_adapter.current()
+        self._validate_review_view(live_view)
+        self._publish_review_transaction(candidate_history, candidate_adapter)
+        return self._error(self._t("review_invalid"))
 
     def review_previous(self) -> dict[str, Any]:
         try:
@@ -361,6 +597,11 @@ class AccessibleChessAPI:
             result = candidate_adapter.previous()
             if not result.ok:
                 return self._error(result.announcement)
+            if result.view.node_id not in self._live_line_nodes(candidate_history):
+                return self._reject_off_live_review(
+                    candidate_history,
+                    candidate_adapter,
+                )
             self._validate_review_view(result.view)
         except Exception:
             return self._error(self._t("review_position_failed"))
@@ -376,11 +617,10 @@ class AccessibleChessAPI:
             if not result.ok:
                 return self._error(result.announcement)
             if result.view.node_id not in self._live_line_nodes(candidate_history):
-                candidate_history.select_node(self.live_history_node)
-                live_view = candidate_adapter.current()
-                self._validate_review_view(live_view)
-                self._publish_review_transaction(candidate_history, candidate_adapter)
-                return self._error(self._t("review_invalid"))
+                return self._reject_off_live_review(
+                    candidate_history,
+                    candidate_adapter,
+                )
             self._validate_review_view(result.view)
         except Exception:
             return self._error(self._t("review_position_failed"))
@@ -388,8 +628,15 @@ class AccessibleChessAPI:
         return self._ok(result.announcement)
 
     def _select_review_node(self, node_id: int) -> dict[str, Any]:
+        if type(node_id) is not int:
+            return self._error(self._t("review_invalid"))
         try:
             candidate_history, candidate_adapter = self._clone_review_transaction()
+            if node_id not in self._live_line_nodes(candidate_history):
+                return self._reject_off_live_review(
+                    candidate_history,
+                    candidate_adapter,
+                )
             result = candidate_adapter.select_node(node_id)
             if not result.ok:
                 return self._error(result.announcement)
@@ -422,33 +669,121 @@ class AccessibleChessAPI:
     def get_state(self) -> dict[str, Any]:
         display_view = self._display_review()
         display_board = self._display_board()
-        visible = self._visible_ply_count()
-        last = (
-            format_accessible_compact_san(self.sans[visible - 1], self.lang)
-            if visible else self._t("no_last")
+        history_lineage = self._validated_history_lineage()
+        history_source_valid = history_lineage is not None
+        current_node = self.review_history.cursor_node_id
+        cursor_on_live_line = (
+            history_lineage is not None and current_node in set(history_lineage)
         )
+        visible = (
+            history_lineage.index(current_node)
+            if cursor_on_live_line
+            else 0
+        )
+        if not history_source_valid:
+            last = self._t("history_metadata_invalid")
+        elif cursor_on_live_line:
+            last = (
+                format_accessible_compact_san(self.sans[visible - 1], self.lang)
+                if visible else self._t("no_last")
+            )
+        elif type(display_view.last_move) is str and display_view.last_move.strip():
+            try:
+                last = format_accessible_compact_san(display_view.last_move, self.lang)
+            except Exception:
+                last = self._t("history_metadata_invalid")
+        else:
+            last = self._t("no_last")
         status = self._game_status(display_board)
         engine_status = (
             "Stockfish увімкнено." if self.lang == "uk" else "Stockfish enabled."
         ) if self.engine_enabled else (
             "Stockfish вимкнено." if self.lang == "uk" else "Stockfish disabled."
         )
+        try:
+            editor_state = PositionState.from_fen(display_view.fen)
+            editor_projection = {
+                "turn": editor_state.turn,
+                "castling": editor_state.castling,
+                "enPassant": editor_state.en_passant,
+                "halfmove": editor_state.halfmove,
+                "fullmove": editor_state.fullmove,
+                "editable": self._at_history_end(),
+            }
+        except PositionValidationError:
+            editor_projection = {
+                "turn": display_board.turn,
+                "castling": display_board.castling or "-",
+                "enPassant": "-" if display_board.ep is None else sq_name(display_board.ep),
+                "halfmove": display_board.halfmove,
+                "fullmove": display_board.fullmove,
+                "editable": self._at_history_end(),
+            }
+
+        history_items = self._history_items()
+        history_length = len(self.sans) if type(self.sans) is list else 0
+        history_projection_valid = (
+            history_source_valid
+            and cursor_on_live_line
+            and len(history_items) == history_length + 1
+            and sum(bool(item["selected"]) for item in history_items) == 1
+            and sum(bool(item["live"]) for item in history_items) == 1
+        )
+        at_history_end = self._at_history_end()
+        editor_projection["editable"] = bool(
+            editor_projection.get("editable") and history_projection_valid
+        )
+        can_history_previous = (
+            history_projection_valid and display_view.ply > 0
+        )
+        can_history_next = (
+            history_projection_valid and display_view.ply < history_length
+        )
+        can_undo = (
+            history_projection_valid and at_history_end and bool(self.sans)
+        )
+        can_redo = (
+            history_projection_valid
+            and at_history_end
+            and bool(self.redo_meta)
+            and self._redo_metadata_valid()
+        )
+
+        board_cells = self._board_cells(display_board)
+        visual_board = self._visual_board_snapshot(display_board, board_cells).as_dict()
+
         return {
             "version": VERSION, "lang": self.lang, "mode": self.mode,
-            "gameInfo": f"Version: {VERSION}\n{status}",
+            "gameInfo": status,
             "moves": self._moves_text(),
             "whitePieces": self._pieces_text("w", display_board),
             "blackPieces": self._pieces_text("b", display_board),
             "gameStatus": status, "lastMove": last, "announcement": self.announcement,
-            "fen": display_view.fen, "board": self._board_cells(display_board),
+            "fen": display_view.fen, "board": board_cells,
+            "visualBoard": visual_board,
+            "positionEditor": editor_projection,
             "selectedSquare": (
                 sq_name(self.selected_source)
                 if self.selected_source is not None and self._at_history_end() else None
             ),
             "engineEnabled": self.engine_enabled, "engineStatus": engine_status,
-            "positionComplete": self._position_complete(display_board),
-            "reviewCursor": display_view.ply, "historyLength": len(self.sans),
-            "reviewStatus": display_view.status, "atHistoryEnd": self._at_history_end(),
+            "positionComplete": self._position_playable(display_board),
+            "reviewCursor": display_view.ply, "historyLength": history_length,
+            "historyItems": history_items,
+            "reviewStatus": (
+                display_view.status
+                if history_projection_valid
+                else (
+                    self._t("history_variation_selected")
+                    if history_source_valid and not cursor_on_live_line
+                    else self._t("history_metadata_invalid")
+                )
+            ),
+            "atHistoryEnd": at_history_end,
+            "historyProjectionValid": history_projection_valid,
+            "canHistoryPrevious": can_history_previous,
+            "canHistoryNext": can_history_next,
+            "canUndo": can_undo, "canRedo": can_redo,
         }
 
     def _ok(self, message: str) -> dict[str, Any]:
@@ -488,7 +823,126 @@ class AccessibleChessAPI:
         return self._ok("Дошку очищено. Введіть позицію в редакторі." if self.lang == "uk"
                         else "Board cleared. Enter a position in the editor.")
 
+    def _position_state_from_live_board(self) -> PositionState:
+        return PositionState.from_fen(self.board.fen())
+
+    def _commit_position_editor_state(self, state: PositionState, message_uk: str, message_en: str) -> dict[str, Any]:
+        if not self._at_history_end():
+            return self._error(self._t("review_before_move"))
+        if not self._history_metadata_valid():
+            return self._error(self._t("history_metadata_invalid"))
+        try:
+            if len(state.to_fen()) > MAX_FEN_CHARS:
+                return self._error(self._t("fen_text_too_long"))
+            candidate_board = copy.deepcopy(self.board)
+            candidate_board.board = list(state.pieces)
+            candidate_board.turn = state.turn
+            candidate_board.castling = "" if state.castling == "-" else state.castling
+            candidate_board.ep = None if state.en_passant == "-" else parse_sq(state.en_passant)
+            candidate_board.halfmove = state.halfmove
+            candidate_board.fullmove = state.fullmove
+            candidate_board.undo_stack = []
+            candidate_board.redo_stack = []
+            candidate_board.last_move = None
+            prepared = self._prepare_root_state(candidate_board)
+        except Exception:
+            return self._error(self._t("editor_history_failed"))
+        self._publish_root_state(candidate_board, prepared)
+        return self._ok(message_uk if self.lang == "uk" else message_en)
+
+    def edit_position_piece(self, square: str, piece: str) -> dict[str, Any]:
+        if type(square) is not str or type(piece) is not str:
+            return self._error("Неправильне поле або фігура." if self.lang == "uk" else "Invalid square or piece.")
+        if len(square) > MAX_SQUARE_TEXT_CHARS or len(piece) > 1:
+            return self._error("Неправильне поле або фігура." if self.lang == "uk" else "Invalid square or piece.")
+        square = square.strip().lower()
+        if not re.fullmatch(r"[a-h][1-8]", square):
+            return self._error("Неправильне поле." if self.lang == "uk" else "Invalid square.")
+        normalized_piece = None if piece in {"", "-"} else piece
+        try:
+            state = self._position_state_from_live_board().with_piece(square, normalized_piece)
+        except (PositionValidationError, ValueError):
+            return self._error("Неправильна фігура." if self.lang == "uk" else "Invalid piece.")
+        return self._commit_position_editor_state(
+            state,
+            f"Поле {square}: " + ("очищено." if normalized_piece is None else f"встановлено {PIECE_UK[normalized_piece]}."),
+            f"Square {square}: " + ("cleared." if normalized_piece is None else f"set to {PIECE_EN[normalized_piece]}."),
+        )
+
+    def edit_position_metadata(
+        self,
+        turn: str,
+        castling: str,
+        en_passant: str,
+        halfmove_text: str,
+        fullmove_text: str,
+    ) -> dict[str, Any]:
+        values = (turn, castling, en_passant, halfmove_text, fullmove_text)
+        if any(type(value) is not str for value in values):
+            return self._error("Неправильні параметри позиції." if self.lang == "uk" else "Invalid position metadata.")
+        if (
+            len(turn) > 1
+            or len(castling) > MAX_FEN_CHARS
+            or len(en_passant) > MAX_SQUARE_TEXT_CHARS
+            or len(halfmove_text) > MAX_FEN_CHARS
+            or len(fullmove_text) > MAX_FEN_CHARS
+        ):
+            return self._error("Неправильні параметри позиції." if self.lang == "uk" else "Invalid position metadata.")
+        if turn not in {"w", "b"}:
+            return self._error("Неправильний колір." if self.lang == "uk" else "Invalid color.")
+        if not halfmove_text.isascii() or not halfmove_text.isdecimal() or not fullmove_text.isascii() or not fullmove_text.isdecimal():
+            return self._error("Лічильники ходів мають бути цілими невід’ємними числами." if self.lang == "uk" else "Move counters must be unsigned integers.")
+        try:
+            state = self._position_state_from_live_board()
+            normalized_castling = state.with_castling(castling).castling
+            state = PositionState(
+                state.pieces,
+                turn=turn,
+                castling=normalized_castling,
+                en_passant=en_passant.strip().lower() or "-",
+                halfmove=int(halfmove_text),
+                fullmove=int(fullmove_text),
+            )
+        except (PositionValidationError, ValueError):
+            return self._error("Неправильні параметри позиції." if self.lang == "uk" else "Invalid position metadata.")
+        return self._commit_position_editor_state(
+            state,
+            "Параметри позиції оновлено.",
+            "Position metadata updated.",
+        )
+
+    def _localized_position_problem(self, problem: str) -> str:
+        if self.lang != "uk":
+            return problem
+        if problem.startswith("white king count must be 1"):
+            return "має бути рівно один білий король"
+        if problem.startswith("black king count must be 1"):
+            return "має бути рівно один чорний король"
+        if problem.startswith("pawn on invalid first rank at "):
+            return "пішак не може стояти на першій горизонталі: " + problem.rsplit(" ", 1)[-1]
+        if problem.startswith("pawn on invalid eighth rank at "):
+            return "пішак не може стояти на восьмій горизонталі: " + problem.rsplit(" ", 1)[-1]
+        if "castling right inconsistent" in problem:
+            return "права рокіровки не відповідають розташуванню короля і тури"
+        return "структура позиції некоректна"
+
+    def validate_position_editor(self) -> dict[str, Any]:
+        try:
+            state = self._position_state_from_live_board()
+            structural = state.validate_playable()
+            if structural:
+                problems = [self._localized_position_problem(item) for item in structural]
+                return self._error(
+                    ("Позиція ще не готова до гри: " if self.lang == "uk" else "Position is not yet playable: ")
+                    + "; ".join(problems)
+                )
+            Board(state.to_fen())
+        except (PositionValidationError, ValueError):
+            return self._error("Позиція не пройшла перевірку легальності." if self.lang == "uk" else "Position failed legality validation.")
+        return self._ok("Позиція коректна і готова до гри." if self.lang == "uk" else "Position is valid and ready to play.")
+
     def set_position_text(self, text: str, turn: str | None = None) -> dict[str, Any]:
+        epd_input = looks_like_epd(text)
         try:
             side = self.board.turn if turn is None else turn
             fen = parse_position_text(text, side, language=self.lang)
@@ -515,6 +969,9 @@ class AccessibleChessAPI:
             return self._error(self._t("position_history_failed"))
 
         self._publish_root_state(candidate_board, prepared)
+        if epd_input:
+            return self._ok("Позицію EPD завантажено." if self.lang == "uk"
+                            else "EPD position loaded.")
         return self._ok("Позицію завантажено з текстового редактора." if self.lang == "uk"
                         else "Position loaded from text editor.")
 
@@ -533,6 +990,14 @@ class AccessibleChessAPI:
         text = text.strip()
         if not text:
             return self._error("Введіть хід." if self.lang == "uk" else "Enter a move.")
+        if looks_like_epd(text):
+            result = self.set_position_text(text)
+            if not result.get("ok"):
+                # Move-input errors are normally kept out of the global live
+                # region to avoid duplicate speech. EPD is a position import,
+                # so its localized parse failure must be announced explicitly.
+                result["announceMoveErrors"] = True
+            return result
         commands = {
             "u": self.undo, "y": self.redo,
             "l": lambda: self._ok(("Останній хід: " if self.lang == "uk" else "Last move: ") + self.get_state()["lastMove"]),
@@ -543,8 +1008,12 @@ class AccessibleChessAPI:
             return commands[text]()
         if not self._at_history_end():
             return self._error(self._t("review_before_move"))
+        if not self._history_metadata_valid():
+            return self._error(self._t("history_metadata_invalid"))
         if not self._position_complete(self.board):
             return self._error(self._t("setup_incomplete"))
+        if not self._position_playable(self.board):
+            return self._error(self._t("position_invalid"))
         side = self.board.turn
         try:
             candidate_board = copy.deepcopy(self.board)
@@ -553,7 +1022,18 @@ class AccessibleChessAPI:
         try:
             san = candidate_board.push_text(text)
         except ValueError:
-            return self._error(self._t("move_invalid"))
+            # Accept lowercase piece letters at the human-input boundary only.
+            # Try exact SAN first: bxc3 must remain a pawn capture when valid.
+            # PGN/Board parsing and canonical disambiguation stay unchanged.
+            if not re.fullmatch(r"[kqrbn](?:[a-h][1-8]?|[1-8])?x?[a-h][1-8][+#]?", text):
+                return self._error(self._t("move_invalid"))
+            try:
+                candidate_board = copy.deepcopy(self.board)
+                san = candidate_board.push_text(text[0].upper() + text[1:])
+            except ValueError:
+                return self._error(self._t("move_invalid"))
+            except Exception:
+                return self._error(self._t("move_history_failed"))
         except Exception:
             return self._error(self._t("move_history_failed"))
         try:
@@ -587,12 +1067,14 @@ class AccessibleChessAPI:
         )
         return self._ok(
             ("Зіграно: " if self.lang == "uk" else "Played: ")
-            + format_accessible_compact_san(san, self.lang)
+            + format_san(san, "uk_literal" if self.lang == "uk" else "en_literal")
         )
 
     def activate_square(self, square: str) -> dict[str, Any]:
         if not self._at_history_end():
             return self._error(self._t("review_before_move"))
+        if not self._history_metadata_valid():
+            return self._error(self._t("history_metadata_invalid"))
         try:
             target = parse_sq(square)
         except ValueError as exc:
@@ -601,6 +1083,8 @@ class AccessibleChessAPI:
             return self._error(self._t("square_invalid"))
         if not self._position_complete(self.board):
             return self._error(self._t("setup_incomplete"))
+        if not self._position_playable(self.board):
+            return self._error(self._t("position_invalid"))
         p = self.board.board[target]
         if self.selected_source is None:
             if not p:
@@ -663,7 +1147,7 @@ class AccessibleChessAPI:
         )
         return self._ok(
             ("Зіграно: " if self.lang == "uk" else "Played: ")
-            + format_accessible_compact_san(san, self.lang)
+            + format_san(san, "uk_literal" if self.lang == "uk" else "en_literal")
         )
 
     def cancel_selection(self) -> dict[str, Any]:
@@ -673,6 +1157,8 @@ class AccessibleChessAPI:
     def undo(self) -> dict[str, Any]:
         if not self._at_history_end():
             return self._error(self._t("review_before_move"))
+        if not self._history_metadata_valid():
+            return self._error(self._t("history_metadata_invalid"))
         if not self.sans:
             return self._error(self._t("undo_none"))
         try:
@@ -719,12 +1205,16 @@ class AccessibleChessAPI:
         )
         return self._ok(
             ("Скасовано: " if self.lang == "uk" else "Undone: ")
-            + format_accessible_compact_san(san, self.lang)
+            + format_san(san, "uk_literal" if self.lang == "uk" else "en_literal")
         )
 
     def redo(self) -> dict[str, Any]:
         if not self._at_history_end():
             return self._error(self._t("review_before_move"))
+        if not self._history_metadata_valid():
+            return self._error(self._t("history_metadata_invalid"))
+        if not self._redo_metadata_valid():
+            return self._error(self._t("history_metadata_invalid"))
         if not self.redo_meta:
             return self._error(self._t("redo_none"))
         try:
@@ -772,7 +1262,7 @@ class AccessibleChessAPI:
         )
         return self._ok(
             ("Повторено: " if self.lang == "uk" else "Redone: ")
-            + format_accessible_compact_san(meta_san, self.lang)
+            + format_san(meta_san, "uk_literal" if self.lang == "uk" else "en_literal")
         )
 
     def set_turn(self, color: str) -> dict[str, Any]:
@@ -781,15 +1271,18 @@ class AccessibleChessAPI:
         if type(color) is not str or color not in ("w", "b"):
             return self._error("Неправильний колір." if self.lang == "uk" else "Invalid color.")
         try:
-            candidate_board = copy.deepcopy(self.board)
-            candidate_board.turn = color
-            prepared = self._prepare_root_state(candidate_board)
-        except Exception:
-            return self._error(self._t("editor_history_failed"))
-        # Changing side-to-move is an editor operation, so the edited position
-        # becomes a new live root rather than rewriting an immutable history node.
-        self._publish_root_state(candidate_board, prepared)
-        return self._ok(self._t("white_turn") if color == "w" else self._t("black_turn"))
+            # Route manual side-to-move edits through the canonical editable
+            # position transition.  A manually changed turn has no trustworthy
+            # preceding double-pawn move, so stale en-passant state must not
+            # survive the edit.
+            state = self._position_state_from_live_board().with_turn(color)
+        except (PositionValidationError, ValueError):
+            return self._error(self._t("position_invalid"))
+        return self._commit_position_editor_state(
+            state,
+            self._t("white_turn") if color == "w" else self._t("black_turn"),
+            self._t("white_turn") if color == "w" else self._t("black_turn"),
+        )
 
     def set_fen(self, fen: str) -> dict[str, Any]:
         if type(fen) is not str:

@@ -62,7 +62,7 @@ _LABELS_EN = {
 }
 
 _MNEMONIC = {
-    "uk": {"file": "&Файл", "game": "&Гра", "board": "&Дошка", "analysis": "&Аналіз", "settings": "&Налаштування", "help": "&Довідка"},
+    "uk": {"file": "&Файл", "game": "&Гра", "board": "Д&ошка", "analysis": "&Аналіз", "settings": "&Налаштування", "help": "&Довідка"},
     "en": {"file": "&File", "game": "&Game", "board": "&Board", "analysis": "&Analysis", "settings": "&Settings", "help": "&Help"},
 }
 

@@ -12,6 +12,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Callable
 
+from . import __version__ as _product_version
 from .acsdb import AcsDatabase
 from .analysis_service import AnalysisService
 from .book_progress_store import BookProgressStore
@@ -24,6 +25,29 @@ from .engine_play_service import EnginePlayService
 from .full_product_ui_shell import UILanguage
 from .local_profile import LocalProfileStore
 from .release_app import _sound_cache_dir, _sound_variant_provider, _user_root
+from .protection_boundary import (
+    ADVANCED_SECURITY_RUNTIME_API_VERSION,
+    HARDENED_SECURITY_RUNTIME_API_VERSION,
+    ENTITLEMENT_RUNTIME_API_VERSION,
+    ProtectedStartupLocked,
+    ProtectionDecision,
+    ProtectionStartupSession,
+    open_release_protection_session,
+)
+from .protection_hardened_boundary import HardenedReleaseBoundary
+from .protection_license_container_boundary import require_private_license_container
+from .protection_locked_ui import run_locked_security_window
+from .protection_entitlement_lifecycle import ProtectionEntitlementLifecycle
+from .protection_advanced_boundary import (
+    ProtectionAdvancedError,
+    ProtectionCapabilityGate,
+    ProtectionTrustBoundary,
+    ProtectionTrustedTimeSource,
+    ProtectionUpdateChannel,
+    ProtectionUpdateInstaller,
+    ProtectionUpdateSignatureVerifier,
+)
+from .release_update_center import ReleaseUpdateCenter
 from .settings import Settings
 from .sound_runtime import GameSoundRuntime, SoundRuntime, SoundRuntimeSettings
 from .sound_windows import PackagedSoundAssetResolver, WindowsSoundPlaybackAdapter
@@ -31,10 +55,21 @@ from .stockfish_runtime import StockfishRuntime, StockfishRuntimeConfig
 from .student_progress_store import StudentProgressStore
 from .v1_runtime_bridge import V1RuntimeBridgeCoordinator
 from .version2_application import Version2Application
+from .version2_final_product_application import Version2FinalProductApplication
+
+# Mutable release composition seam.  The direct release root defaults to the
+# complete Teacher/Education-capable application, while stacked packaged release
+# wrappers may temporarily replace Version2Application with richer subclasses.
+Version2Application = Version2FinalProductApplication
 from .version2_gametree_resume import Version2GameTreeResumeCoordinator
 from .version2_local_profile_api import Version2ProfileAccessibleChessAPI
 from .version2_release_ui import Version2ReleaseAccessibleChessAPI, run_version2_release_window
 from .version2_upgrade import UserDataLayout, Version2UpgradeCoordinator
+from .user_data_portability import BundleKind
+from .version2_user_data_portability_host import (
+    Version2UserDataPortabilityHost,
+    begin_pending_user_data_operation,
+)
 from .version2_windows_host_runtime import Version2WindowsFileWorkflowRuntime
 from .version2_windows_import_ui_pump import Version2WinFormsUiPoster
 from .version2_windows_book_open_worker import Version2BookOpenWorker
@@ -89,6 +124,48 @@ class _Version2OwnedBookDialogs(Version2OwnedWindowsFileDialogs):
         return result == DialogResult.Yes
 
 
+class _Version2OwnedUserDataArchiveDialogs(_Version2OwnedBookDialogs):
+    """Owner-bound native archive chooser; browser payloads never carry paths."""
+
+    @staticmethod
+    def _archive_filter() -> str:
+        return "Accessible Chess data (*.acdata)|*.acdata|All files (*.*)|*.*"
+
+    def save_archive(self, kind: BundleKind) -> Path | None:
+        DialogResult, _, SaveFileDialog = self._load_forms()
+        dialog = SaveFileDialog()
+        try:
+            dialog.Title = (
+                "Back up Accessible Chess user data"
+                if kind is BundleKind.BACKUP
+                else "Export Accessible Chess user data"
+            )
+            dialog.Filter = self._archive_filter()
+            dialog.DefaultExt = "acdata"
+            dialog.AddExtension = True
+            dialog.OverwritePrompt = True
+            return self._selected(dialog, dialog.ShowDialog(), DialogResult.OK)
+        finally:
+            dialog.Dispose()
+
+    def open_archive(self, kind: BundleKind) -> Path | None:
+        DialogResult, OpenFileDialog, _ = self._load_forms()
+        dialog = OpenFileDialog()
+        try:
+            dialog.Title = (
+                "Restore Accessible Chess user data"
+                if kind is BundleKind.BACKUP
+                else "Import Accessible Chess user data"
+            )
+            dialog.Filter = self._archive_filter()
+            dialog.CheckFileExists = True
+            dialog.CheckPathExists = True
+            dialog.Multiselect = False
+            return self._selected(dialog, dialog.ShowDialog(), DialogResult.OK)
+        finally:
+            dialog.Dispose()
+
+
 def _install_unsaved_pgn_close_guard(
     application: Version2Application,
     owner_control: object,
@@ -132,6 +209,28 @@ def _install_unsaved_pgn_close_guard(
         except BaseException as error:
             raise RuntimeError("Version 2 native close cannot be cancelled") from error
 
+    def announce_close_failure() -> None:
+        reporter = getattr(application, "announce_shutdown_failure", None)
+        if not callable(reporter):
+            return
+        try:
+            reporter()
+        except BaseException:
+            # Presentation is secondary to preserving the live owner and the
+            # original shutdown/resume failure that made FormClosing refuse.
+            pass
+
+    def clear_close_failure_diagnostics() -> None:
+        # Each accepted close attempt owns fresh diagnostic truth. Historical
+        # failure objects must not survive a later successful retry or mask an
+        # incomplete-but-nonexceptional shutdown.
+        for name in ("_native_close_resume_error", "_native_close_shutdown_error"):
+            try:
+                setattr(application, name, None)
+            except BaseException:
+                # Diagnostics are secondary to the close transaction itself.
+                pass
+
     def on_form_closing(_sender: object, event: object) -> None:
         if state["shutdown_complete"]:
             return
@@ -151,17 +250,21 @@ def _install_unsaved_pgn_close_guard(
                 try:
                     discard = confirmation() is True
                 except BaseException:
+                    announce_close_failure()
                     cancel_close(event)
                     return
                 if not discard:
                     cancel_close(event)
                     return
 
+            clear_close_failure_diagnostics()
+
             if before_shutdown is not None:
                 try:
                     before_shutdown(application)
                 except BaseException as error:
                     setattr(application, "_native_close_resume_error", error)
+                    announce_close_failure()
                     cancel_close(event)
                     return
 
@@ -169,9 +272,11 @@ def _install_unsaved_pgn_close_guard(
                 shutdown_complete = shutdown() is True
             except BaseException as error:
                 setattr(application, "_native_close_shutdown_error", error)
+                announce_close_failure()
                 cancel_close(event)
                 return
             if not shutdown_complete:
+                announce_close_failure()
                 cancel_close(event)
                 return
 
@@ -209,19 +314,15 @@ def _install_close_guard_or_shutdown(
             before_shutdown=before_shutdown,
         )
     except BaseException:
-        cleanup_error = None
+        # The close-guard failure is the startup authority. Cleanup is best
+        # effort here; native_runtime_factory performs a second idempotent
+        # retirement attempt before propagating the same primary failure.
         try:
             shutdown_runtime = getattr(file_runtime, "shutdown", None)
-            if not callable(shutdown_runtime) or shutdown_runtime() is not True:
-                cleanup_error = RuntimeError(
-                    "Version 2 unbound native runtime did not shut down"
-                )
-        except BaseException as exc:
-            cleanup_error = exc
-        if cleanup_error is not None:
-            raise RuntimeError(
-                "Version 2 unbound native runtime cleanup failed after close-guard installation failure"
-            ) from cleanup_error
+            if callable(shutdown_runtime):
+                shutdown_runtime()
+        except BaseException:
+            pass
         raise
     return file_runtime
 
@@ -339,21 +440,31 @@ def _prepare_version2_user_data(
     if not callable(bridge_factory):
         raise TypeError("bridge_factory must be callable")
     layout = _version2_user_data_layout(data_root=data_root, settings_path=settings_path)
+    # Section 37 restore/import is published before normal Settings/SQLite writers
+    # open, but remains rollback-capable until the canonical upgrader validates it.
+    portability_transaction = begin_pending_user_data_operation(layout)
+    try:
+        if application_dir is not None:
+            executable = Path(application_dir) / "AccessibleChess.exe"
+            if executable.is_file():
+                bridge = bridge_factory(layout, executable)
+                bridge_run = getattr(bridge, "run", None)
+                if not callable(bridge_run):
+                    raise TypeError("V1 runtime bridge coordinator must expose run()")
+                bridge_run()
 
-    if application_dir is not None:
-        executable = Path(application_dir) / "AccessibleChess.exe"
-        if executable.is_file():
-            bridge = bridge_factory(layout, executable)
-            bridge_run = getattr(bridge, "run", None)
-            if not callable(bridge_run):
-                raise TypeError("V1 runtime bridge coordinator must expose run()")
-            bridge_run()
-
-    coordinator = coordinator_factory(layout)
-    run = getattr(coordinator, "run", None)
-    if not callable(run):
-        raise TypeError("Version 2 upgrade coordinator must expose run()")
-    run()
+        coordinator = coordinator_factory(layout)
+        run = getattr(coordinator, "run", None)
+        if not callable(run):
+            raise TypeError("Version 2 upgrade coordinator must expose run()")
+        run()
+    except BaseException:
+        if portability_transaction is not None:
+            portability_transaction.rollback()
+        raise
+    else:
+        if portability_transaction is not None:
+            portability_transaction.commit()
     return layout
 
 
@@ -386,6 +497,7 @@ def create_version2_release_application(
     data_root: str | Path | None = None,
     copy_text: Callable[[str], Any] = _copy_text_to_windows_clipboard,
     defer_ui: bool = False,
+    protection_authorizer: Callable[..., Any] = open_release_protection_session,
 ):
     """Compose one engine provider plus the persistent V2 application state.
 
@@ -398,6 +510,110 @@ def create_version2_release_application(
     """
 
     app_dir = Path(application_dir) if application_dir is not None else _asset_root()
+    if not callable(protection_authorizer):
+        raise TypeError("protection_authorizer must be callable")
+    protection_state_root = Path(data_root) if data_root is not None else _user_root()
+    # R00-R14 protection is evaluated before any premium engine/database/application
+    # resource is constructed. A locked packaged release therefore cannot reach
+    # Stockfish, Library, Books, Training or other premium composition by accident.
+    protection_result = protection_authorizer(
+        application_dir=app_dir,
+        state_root=protection_state_root,
+    )
+    protection_session: ProtectionStartupSession | None = None
+    if isinstance(protection_result, ProtectionStartupSession):
+        if not protection_result.decision.authorized:
+            raise RuntimeError("authorized startup session contains a locked decision")
+        protection_session = protection_result
+    elif protection_result is not None and not isinstance(protection_result, ProtectionDecision):
+        # Test/integration seams may intentionally return None. Any other
+        # unexpected authority object is rejected instead of silently ignored.
+        raise TypeError("protection authorizer returned an unsupported result")
+
+    capability_gate: ProtectionCapabilityGate | None = None
+    release_update_center: ReleaseUpdateCenter | None = None
+    if (
+        protection_session is not None
+        and protection_session.decision.build_id != "source-development"
+    ):
+        try:
+            runtime_version = protection_session.client.runtime_api_version()
+            if runtime_version >= ENTITLEMENT_RUNTIME_API_VERSION:
+                lifecycle = ProtectionEntitlementLifecycle(
+                    protection_session.client
+                ).synchronize()
+                if not lifecycle.premium_allowed:
+                    raise ProtectedStartupLocked(
+                        ProtectionDecision(
+                            state="locked",
+                            reason=lifecycle.reason,
+                            safe_operations=protection_session.decision.safe_operations,
+                            capabilities=frozenset(),
+                            build_id=protection_session.decision.build_id,
+                        ),
+                        protection_session.client,
+                    )
+            if runtime_version >= ADVANCED_SECURITY_RUNTIME_API_VERSION:
+                trust = ProtectionTrustBoundary(protection_session.client).synchronize()
+                if trust.state != "trusted":
+                    raise ProtectedStartupLocked(
+                        ProtectionDecision(
+                            state="locked",
+                            reason=trust.reason,
+                            safe_operations=protection_session.decision.safe_operations,
+                            capabilities=frozenset(),
+                            build_id=protection_session.decision.build_id,
+                        ),
+                        protection_session.client,
+                    )
+                # Private v5 hardening is independently checked before composing
+                # user data or premium services; v1-v4 remain supported unchanged.
+                if runtime_version >= HARDENED_SECURITY_RUNTIME_API_VERSION:
+                    HardenedReleaseBoundary(protection_session.client).require_all(
+                        build_id=protection_session.decision.build_id
+                    )
+                    # R52: the private container (machine/cloud/hardware/enterprise)
+                    # must be verified via existing R08/R45/R29 authorities.
+                    # Never select a container from public UI, or treat its
+                    # transport response alone as premium authorization.
+                    require_private_license_container(
+                        protection_session.client,
+                        build_id=protection_session.decision.build_id,
+                    )
+                    # R57-R60: separately verified commercial native runtime
+                    # checks MUST run before persistent user data and engine.
+                    # Unimplemented v5 provider methods fail closed, with no
+                    # client-side anti-tamper or secret/issuer duplication.
+                    HardenedReleaseBoundary(
+                        protection_session.client
+                    ).require_commercial_runtime(
+                        build_id=protection_session.decision.build_id
+                    )
+                capability_gate = ProtectionCapabilityGate(protection_session.client)
+                capability_gate.require_surface("licensing.local")
+                capability_gate.require_surface("persistence.local")
+                capability_gate.require_surface("integration.local")
+                release_update_center = ReleaseUpdateCenter(
+                    current_version=_product_version.split("-", 1)[0],
+                    channel=ProtectionUpdateChannel(protection_session.client),
+                    verifier=ProtectionUpdateSignatureVerifier(protection_session.client),
+                    time_source=ProtectionTrustedTimeSource(protection_session.client),
+                    installer=ProtectionUpdateInstaller(protection_session.client),
+                )
+        except ProtectedStartupLocked:
+            raise
+        except Exception:
+            raise ProtectedStartupLocked(
+                ProtectionDecision(
+                    state="locked",
+                    reason="advanced_security_unavailable",
+                    safe_operations=protection_session.decision.safe_operations,
+                    capabilities=frozenset(),
+                    build_id=protection_session.decision.build_id,
+                ),
+                protection_session.client,
+            ) from None
+
     layout = _prepare_version2_user_data(
         data_root=data_root,
         settings_path=settings_path,
@@ -411,6 +627,8 @@ def create_version2_release_application(
     analysis: Any | None = None
     continuous: Any | None = None
     try:
+        if capability_gate is not None:
+            capability_gate.require_surface("engine.local")
         engine_runtime = runtime_factory(StockfishRuntimeConfig(application_dir=app_dir))
         analysis = AnalysisService(engine_runtime.provider, owns_engine=False)
         continuous = ContinuousAnalysisService(analysis)
@@ -438,6 +656,8 @@ def create_version2_release_application(
         )
         game_sounds = GameSoundRuntime(sound_runtime)
 
+        if capability_gate is not None:
+            capability_gate.require_surface("chess.local")
         api = Version2ProfileAccessibleChessAPI(
             continuous_analysis=continuous,
             profile_store=LocalProfileStore(layout.root / "profile.json"),
@@ -448,6 +668,10 @@ def create_version2_release_application(
             engine_play_service=engine_play,
             lang=language.value,
         )
+        # Host-only security state. It is never returned through the pywebview
+        # public method surface; the release host consumes it for periodic R26 checks.
+        api._protection_session = protection_session
+        api._protection_capability_gate = capability_gate
     except BaseException:
         _close_partial_version2_composition(continuous, analysis, engine_runtime)
         raise
@@ -464,6 +688,9 @@ def create_version2_release_application(
             raise RuntimeError("Version 2 application construction previously failed")
         database: Any | None = None
         try:
+            if capability_gate is not None:
+                capability_gate.require_surface("library.local")
+                capability_gate.require_surface("books.training")
             database = AcsDatabase(database_path)
             candidate = Version2Application(
                 database,
@@ -473,9 +700,17 @@ def create_version2_release_application(
                 board_position_projector=api.project_review_fen,
                 copy_text=copy_text,
                 language=language,
+                release_update_center=release_update_center,
+                security_action_guard=(
+                    capability_gate.require_action
+                    if capability_gate is not None
+                    else None
+                ),
             )
             progress_binder = getattr(candidate, "bind_student_progress_store", None)
             if callable(progress_binder):
+                if capability_gate is not None:
+                    capability_gate.require_surface("classroom.local")
                 progress_binder(
                     StudentProgressStore(layout.root / "student-progress.json")
                 )
@@ -522,6 +757,8 @@ def create_version2_release_application(
         build_application()
 
     def native_runtime_factory(owner_control: object) -> Version2WindowsFileWorkflowRuntime:
+        if capability_gate is not None:
+            capability_gate.require_surface("formats.core")
         if owner_control is None:
             raise RuntimeError("Version 2 Windows owner control is unavailable")
         if application is None:
@@ -531,6 +768,15 @@ def create_version2_release_application(
         book_dialogs = _Version2OwnedBookDialogs(
             lambda: owner_control,
             language_provider=dialog_language_provider,
+        )
+        portability_dialogs = _Version2OwnedUserDataArchiveDialogs(
+            lambda: owner_control,
+            language_provider=dialog_language_provider,
+        )
+        portability_host = Version2UserDataPortabilityHost(
+            layout,
+            save_dialog=portability_dialogs.save_archive,
+            open_dialog=portability_dialogs.open_archive,
         )
         file_runtime = Version2WindowsFileWorkflowRuntime(
             owner_control=owner_control,
@@ -544,13 +790,17 @@ def create_version2_release_application(
             current_focus_provider=lambda: str(application._focus),
             dialog_language_provider=dialog_language_provider,
         )
-        book_open_worker = Version2BookOpenWorker(
-            prepare=application.prepare_book_open,
-            commit=application.commit_prepared_book_open,
-            post_to_ui=Version2WinFormsUiPoster(owner_control),
-            event_sink=application._book_open_event,
-        )
+        book_open_worker = None
         try:
+            # File runtime ownership already exists at this point. Keep Book
+            # worker/poster construction inside the same unwind boundary so a
+            # constructor abort cannot orphan the file worker/pump.
+            book_open_worker = Version2BookOpenWorker(
+                prepare=application.prepare_book_open,
+                commit=application.commit_prepared_book_open,
+                post_to_ui=Version2WinFormsUiPoster(owner_control),
+                event_sink=application._book_open_event,
+            )
             application.bind_book_open_worker(book_open_worker)
             file_runtime = _install_close_guard_or_shutdown(
                 file_runtime,
@@ -559,12 +809,27 @@ def create_version2_release_application(
                 book_dialogs,
                 before_shutdown=resume_coordinator.prepare_shutdown,
             )
-        except Exception:
+            # Publish Section-37 filesystem authority only after the real native
+            # owner and shutdown guard are live. Browser/model code gets no path.
+            application.bind_user_data_portability(portability_host)
+        except BaseException:
+            # Startup publication failed before the native runtime became a
+            # usable product owner. Retire every newly acquired native worker,
+            # release only this unpublished Book-worker binding, and preserve
+            # the original startup failure even if cleanup itself aborts.
+            if book_open_worker is not None:
+                try:
+                    book_open_worker.shutdown()
+                except BaseException:
+                    pass
+                try:
+                    application.unbind_book_open_worker(book_open_worker)
+                except BaseException:
+                    pass
             try:
-                book_open_worker.shutdown()
-            finally:
-                if getattr(application, "_book_open_worker", None) is None:
-                    file_runtime.shutdown()
+                file_runtime.shutdown()
+            except BaseException:
+                pass
             raise
         # Publish every owner-bound application callback only after the native
         # runtime and FormClosing guard are both live. Failed startup must leave
@@ -578,7 +843,21 @@ def create_version2_release_application(
 
 
 def main() -> None:
-    api, application, runtime, native_runtime_factory = create_version2_release_application(defer_ui=True)
+    try:
+        api, application, runtime, native_runtime_factory = create_version2_release_application(
+            defer_ui=True
+        )
+    except ProtectedStartupLocked as locked:
+        # The locked shell is the only user-facing surface before authorization.
+        # It can create/import the signed offline entitlement through the private
+        # runtime boundary, then retry. Premium composition is attempted only after
+        # the private runtime returns an authorized decision.
+        if not run_locked_security_window(locked.client, locked.decision):
+            return
+        api, application, runtime, native_runtime_factory = create_version2_release_application(
+            defer_ui=True
+        )
+
     run_version2_release_window(
         api,
         application,

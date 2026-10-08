@@ -2,6 +2,7 @@ import unittest
 
 from acs.board_service import parse_square as board_parse_square
 from acs.chesscore import parse_sq, sq_name
+from acs.input_limits import MAX_SQUARE_TEXT_CHARS
 from acs.position_editor import PositionValidationError, empty_position
 from acs.squares import iter_square_names, normalize_square, parse_square, square_name
 
@@ -44,6 +45,25 @@ class CanonicalSquareTests(unittest.TestCase):
                     parse_square(value)
         with self.assertRaises(ValueError):
             square_name(64)
+
+    def test_oversized_square_text_is_rejected_before_normalization_across_consumers(self):
+        oversized = (" " * MAX_SQUARE_TEXT_CHARS) + "e4"
+        self.assertGreater(len(oversized), MAX_SQUARE_TEXT_CHARS)
+
+        with self.assertRaisesRegex(ValueError, "square text is too long"):
+            parse_square(oversized)
+        with self.assertRaisesRegex(ValueError, "square text is too long"):
+            normalize_square(oversized)
+        with self.assertRaisesRegex(ValueError, "square text is too long"):
+            board_parse_square(oversized)
+        with self.assertRaisesRegex(PositionValidationError, "invalid square"):
+            empty_position().piece_at(oversized)
+
+        # Ordinary whitespace-tolerant keyboard/API input stays compatible.
+        accepted = (" " * ((MAX_SQUARE_TEXT_CHARS - 2) // 2)) + "E4"
+        accepted += " " * (MAX_SQUARE_TEXT_CHARS - len(accepted))
+        self.assertEqual(len(accepted), MAX_SQUARE_TEXT_CHARS)
+        self.assertEqual(parse_square(accepted), 28)
 
     def test_existing_core_and_board_apis_delegate_to_same_identity(self):
         for name in ("a1", "e4", "h8"):

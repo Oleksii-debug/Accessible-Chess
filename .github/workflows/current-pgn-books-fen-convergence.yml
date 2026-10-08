@@ -1,0 +1,172 @@
+name: Current PGN Books FEN Convergence
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/current-pgn-books-fen-convergence.yml'
+      - '.github/workflows/d01-pgn-workspace-webview.yml'
+      - '.github/workflows/pgn-complete-editing-current.yml'
+      - 'acs/full_product_actions.py'
+      - 'acs/full_product_presenters.py'
+      - 'acs/epd.py'
+      - 'acs/move_entry.py'
+      - 'acs/position_text.py'
+      - 'acs/pgn_webview_bridge.py'
+      - 'acs/pgn_webview_projection.py'
+      - 'acs/pgn_workspace.py'
+      - 'acs/pgn_workspace_webview_adapter.py'
+      - 'acs/version2_pgn_commands.py'
+      - 'acs/webapp.py'
+      - 'tests/test_dev1_pgn_webview_projection.py'
+      - 'tests/test_dev1_pgn_workspace_webview_adapter.py'
+      - 'tests/test_epd.py'
+      - 'tests/test_fen_editor_turn_and_visible_status.py'
+      - 'tests/test_pgn_complete_editing_user_flow.py'
+      - 'web/full_product_pgn.js'
+      - 'web/index.html'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-pgn-books-fen-convergence-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      PARENT: 714d39d1a164212ad319a7a5656582d18c087ca3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Prove exact convergence geometry
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$PARENT" HEAD
+          git diff --check "$PARENT" HEAD
+          changed="$(git diff --name-only "$PARENT" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/current-pgn-books-fen-convergence.yml' \
+            '.github/workflows/d01-pgn-workspace-webview.yml' \
+            '.github/workflows/pgn-complete-editing-current.yml' \
+            'acs/full_product_actions.py' \
+            'acs/full_product_presenters.py' \
+            'acs/epd.py' \
+            'acs/move_entry.py' \
+            'acs/position_text.py' \
+            'acs/pgn_webview_bridge.py' \
+            'acs/pgn_webview_projection.py' \
+            'acs/pgn_workspace.py' \
+            'acs/pgn_workspace_webview_adapter.py' \
+            'acs/version2_pgn_commands.py' \
+            'acs/webapp.py' \
+            'tests/test_dev1_pgn_webview_projection.py' \
+            'tests/test_dev1_pgn_workspace_webview_adapter.py' \
+            'tests/test_epd.py' \
+            'tests/test_fen_editor_turn_and_visible_status.py' \
+            'tests/test_pgn_complete_editing_user_flow.py' \
+            'tests/js/pgn_surface_dom_test.js' \
+            'web/full_product_pgn.js' \
+            'web/index.html' | sort)"
+          test "$changed" = "$expected"
+
+      - name: Lock converged authority blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS='=' read -r path expected; do
+            actual="$(git rev-parse "HEAD:$path")"
+            test "$actual" = "$expected" || {
+              printf 'Blob mismatch: %s expected=%s actual=%s\n' "$path" "$expected" "$actual" >&2
+              exit 1
+            }
+          done <<'LOCKS'
+          .github/workflows/d01-pgn-workspace-webview.yml=0d1989a8811c5fd1e12e386f843e9d1c8afcceb9
+          .github/workflows/pgn-complete-editing-current.yml=0008b054ad4b19b4d5e99c996fa9a7dbc156b458
+          acs/full_product_actions.py=3979e7a3b978715fd1ddfbb9e613f5f889675e8c
+          acs/full_product_presenters.py=07c68e56666bcb37f866d91a6317490b83d8a454
+          acs/epd.py=eed2fabbb0b3fd7663ba36dfa1f30adc5b3315c5
+          acs/move_entry.py=30bd6fd478638030d0042a1418b69a3eb600dc66
+          acs/position_text.py=e62dcb2f28f8fca345c163cfaf841aefc38a3bbf
+          acs/pgn_webview_bridge.py=1949082c3eb7e7af4f540daf595ae4be2c404604
+          acs/pgn_webview_projection.py=8562ba21156466a915d1e72ca89e0029cd04fe44
+          acs/pgn_workspace.py=8208afe46c734035db23e66b4f4e9c59d6524cf5
+          acs/pgn_workspace_webview_adapter.py=2819643bfaeb4e14dbb50b14defce3f48e25df17
+          acs/version2_pgn_commands.py=6e2a86ffd7204f601ed21973c7ab4eb00b955d57
+          acs/webapp.py=51cc882511c3a874f7bce3dfa97eda01df1501c6
+          tests/test_dev1_pgn_webview_projection.py=5703b31a7a24f0b3fed605c373e787ad7413bd33
+          tests/test_dev1_pgn_workspace_webview_adapter.py=08a21803696495d12c53bcfaaff294b1b31b8077
+          tests/test_epd.py=2d94011c092e41f91f1ff56419f2d706b6ba575e
+          tests/test_fen_editor_turn_and_visible_status.py=ccea833f59cbca7639aebb5d4c7c682bd7032cf8
+          tests/test_pgn_complete_editing_user_flow.py=18359190f5e4724c6c2ec7a3ba4567039d6f1844
+          tests/js/pgn_surface_dom_test.js=0a630298ff41d86678850ac401eeb763cc28a26a
+          web/full_product_pgn.js=2a81d303d18440f60da7c38ab1eb8668e7f9e92b
+          web/index.html=f70aac53dc60ffaacca222ecccd7799741f480cd
+          LOCKS
+
+      - name: Compile and parse converged surfaces
+        run: >-
+          python -m compileall -q
+          acs/full_product_actions.py
+          acs/full_product_presenters.py
+          acs/epd.py
+          acs/move_entry.py
+          acs/position_text.py
+          acs/pgn_webview_bridge.py
+          acs/pgn_webview_projection.py
+          acs/pgn_workspace.py
+          acs/pgn_workspace_webview_adapter.py
+          acs/version2_pgn_commands.py
+          acs/webapp.py
+          tests/test_dev1_pgn_webview_projection.py
+          tests/test_dev1_pgn_workspace_webview_adapter.py
+          tests/test_epd.py
+          tests/test_fen_editor_turn_and_visible_status.py
+          tests/test_pgn_complete_editing_user_flow.py
+      - name: Parse browser PGN surface
+        run: |
+          node --check web/full_product_pgn.js
+          node --check tests/js/pgn_surface_dom_test.js
+
+      - name: Exercise browser PGN DOM contract
+        run: node tests/js/pgn_surface_dom_test.js
+
+      - name: Exercise PGN editing and retained safety
+        run: >-
+          python -m unittest -v
+          tests.test_pgn_complete_editing_user_flow
+          tests.test_pgn_workspace
+          tests.test_version2_pgn_commands
+          tests.test_dev1_pgn_webview_projection
+          tests.test_dev1_pgn_workspace_webview_adapter
+          tests.test_pgn_document
+          tests.test_d06_pgn_roundtrip
+
+      - name: Exercise FEN and whole-product adjacency
+        run: >-
+          python -m unittest -v
+          tests.test_epd
+          tests.test_fen_editor_turn_and_visible_status
+          tests.test_fen_position_editor_complete_user_flow
+          tests.test_book_html_runtime_correctness
+          tests.test_book_epub_runtime_correctness
+          tests.test_whole_product_user_journey
+          tests.test_version2_release_ui
+
+      - name: Core chess selftest
+        run: python -m acs.selftest

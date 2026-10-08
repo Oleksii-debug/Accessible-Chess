@@ -10,7 +10,11 @@ from acs.chessbase_library_import import (
     ChessBaseLibraryImportReport,
     ChessBaseLibraryImportStatus,
 )
-from acs.library_import_service import LibraryImportProgress, LibraryImportResult
+from acs.library_import_service import (
+    LibraryImportCancelledError,
+    LibraryImportProgress,
+    LibraryImportResult,
+)
 from acs.pgn_document import PgnDocumentSession
 from acs.version2_windows_file_workflows import (
     FileWorkflowEvent,
@@ -578,18 +582,74 @@ class Version2WindowsFileWorkerShutdownFenceTests(unittest.TestCase):
             self.assertEqual(len(owner_events), 1)
             self.assertEqual(owner_events[0].kind, FileWorkflowEventKind.PGN_OPENED)
 
+    def test_import_started_reentrant_cancel_does_not_start_reserved_worker(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "import-cancel-before-start.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            events = []
+            cancel_results = []
+            nested_cancel_results = []
+            holder = {}
+
+            def sink(event):
+                events.append(event)
+                if event.kind is FileWorkflowEventKind.IMPORT_STARTED:
+                    cancel_results.append(
+                        holder["delegate"]("library.cancel_import", {})
+                    )
+                elif event.kind is FileWorkflowEventKind.IMPORT_CANCELLING:
+                    nested_cancel_results.append(
+                        holder["delegate"]("library.cancel_import", {})
+                    )
+
+            delegate = self._delegate(
+                source,
+                event_sink=sink,
+                post_to_ui=lambda callback: None,
+            )
+            holder["delegate"] = delegate
+
+            with mock.patch.object(threading.Thread, "start", autospec=True) as start:
+                result = delegate("library.import", {})
+
+            start.assert_not_called()
+            self.assertEqual(
+                [event.kind for event in cancel_results],
+                [FileWorkflowEventKind.IMPORT_CANCELLING],
+            )
+            self.assertEqual(
+                [event.kind for event in nested_cancel_results],
+                [FileWorkflowEventKind.IMPORT_CANCELLING],
+            )
+            self.assertEqual(result.kind, FileWorkflowEventKind.IMPORT_CANCELLED)
+            self.assertEqual(result.action_id, "library.import")
+            self.assertEqual(result.focus_target, "library-import-file")
+            self.assertEqual(
+                [event.kind for event in events],
+                [
+                    FileWorkflowEventKind.IMPORT_STARTED,
+                    FileWorkflowEventKind.IMPORT_CANCELLING,
+                    FileWorkflowEventKind.IMPORT_CANCELLED,
+                ],
+            )
+            self.assertFalse(delegate.import_running)
+
     def test_import_started_reentrant_shutdown_does_not_start_reserved_worker(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "import-shutdown.pgn"
             source.write_text(PGN_TEXT, encoding="utf-8")
             events = []
             shutdown_results = []
+            reentrant_resume_results = []
             holder = {}
 
             def sink(event):
                 events.append(event)
                 if event.kind is FileWorkflowEventKind.IMPORT_STARTED:
                     shutdown_results.append(holder["delegate"].shutdown(0.0))
+                    reentrant_resume_results.append(
+                        holder["delegate"].resume_after_refused_shutdown()
+                    )
 
             delegate = self._delegate(source, event_sink=sink, post_to_ui=lambda cb: None)
             holder["delegate"] = delegate
@@ -598,6 +658,7 @@ class Version2WindowsFileWorkerShutdownFenceTests(unittest.TestCase):
                 result = delegate("library.import", {})
 
             self.assertEqual(shutdown_results, [False])
+            self.assertEqual(reentrant_resume_results, [False])
             self.assertEqual(start.call_count, 0)
             self.assertEqual(result.kind, FileWorkflowEventKind.FAILED)
             self.assertEqual(result.error_code, "file_workflow_closed")
@@ -606,6 +667,9 @@ class Version2WindowsFileWorkerShutdownFenceTests(unittest.TestCase):
                 [FileWorkflowEventKind.IMPORT_STARTED, FileWorkflowEventKind.FAILED],
             )
             self.assertFalse(delegate.import_running)
+            self.assertTrue(delegate.resume_after_refused_shutdown())
+            resumed = delegate("pgn.save", {})
+            self.assertEqual(resumed.error_code, "no_pgn_document")
 
     def test_import_cleanup_base_exception_releases_shared_worker_slot(self) -> None:
         class CleanupAbort(BaseException):
@@ -1009,12 +1073,218 @@ class Version2WindowsFileWorkerShutdownFenceTests(unittest.TestCase):
             self.assertEqual(events[-1].kind, FileWorkflowEventKind.FAILED)
             self.assertEqual(events[-1].error_code, "pgn_open_ui_post_failed")
 
+    def test_pgn_open_started_reentrant_cancel_does_not_start_reserved_worker(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "open-cancel-before-start.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            events = []
+            cancel_results = []
+            nested_cancel_results = []
+            posted = []
+            holder = {}
+
+            def sink(event):
+                events.append(event)
+                if event.kind is FileWorkflowEventKind.PGN_OPEN_STARTED:
+                    cancel_results.append(
+                        holder["delegate"]("pgn.cancel_open", {})
+                    )
+                elif event.kind is FileWorkflowEventKind.PGN_OPEN_CANCELLING:
+                    nested_cancel_results.append(
+                        holder["delegate"]("pgn.cancel_open", {})
+                    )
+
+            delegate = self._delegate(
+                source,
+                event_sink=sink,
+                post_to_ui=posted.append,
+            )
+            holder["delegate"] = delegate
+
+            with mock.patch.object(threading.Thread, "start", autospec=True) as start:
+                result = delegate("pgn.open", {})
+
+            start.assert_not_called()
+            self.assertEqual(posted, [])
+            self.assertEqual(
+                [event.kind for event in cancel_results],
+                [FileWorkflowEventKind.PGN_OPEN_CANCELLING],
+            )
+            self.assertEqual(
+                [event.kind for event in nested_cancel_results],
+                [FileWorkflowEventKind.PGN_OPEN_CANCELLING],
+            )
+            self.assertEqual(result.kind, FileWorkflowEventKind.PGN_OPEN_CANCELLED)
+            self.assertEqual(result.action_id, "pgn.open")
+            self.assertEqual(result.focus_target, "pgn-tree")
+            self.assertEqual(
+                [event.kind for event in events],
+                [
+                    FileWorkflowEventKind.PGN_OPEN_STARTED,
+                    FileWorkflowEventKind.PGN_OPEN_CANCELLING,
+                    FileWorkflowEventKind.PGN_OPEN_CANCELLED,
+                ],
+            )
+            self.assertFalse(delegate.pgn_open_running)
+
+    def test_pgn_save_started_reentrant_cancel_does_not_start_reserved_worker(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "save-cancel-before-start.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            original = source.read_bytes()
+
+            class SaveDialogs(_Dialogs):
+                def __init__(self, source: Path, destination: Path) -> None:
+                    super().__init__(source)
+                    self.destination = destination
+
+                def save_pgn_as(self, suggested_filename: str = "game.pgn"):
+                    return self.destination
+
+            for action_id in ("pgn.save", "pgn.save_as"):
+                with self.subTest(action_id=action_id):
+                    destination = Path(tmp) / (
+                        "cancelled-save-as.pgn"
+                        if action_id == "pgn.save_as"
+                        else "unused-destination.pgn"
+                    )
+                    session = PgnDocumentSession.open(source)
+                    events = []
+                    cancel_results = []
+                    nested_cancel_results = []
+                    posted = []
+                    holder = {}
+
+                    def sink(event):
+                        events.append(event)
+                        if event.kind is FileWorkflowEventKind.PGN_SAVE_STARTED:
+                            cancel_results.append(
+                                holder["delegate"]("pgn.cancel_save", {})
+                            )
+                        elif event.kind is FileWorkflowEventKind.PGN_SAVE_CANCELLING:
+                            nested_cancel_results.append(
+                                holder["delegate"]("pgn.cancel_save", {})
+                            )
+
+                    delegate = Version2WindowsFileActionDelegate(
+                        dialogs=SaveDialogs(source, destination),
+                        get_pgn_session=lambda: session,
+                        set_pgn_session=lambda value: None,
+                        import_services_factory=lambda: Version2ImportWorkerServices(
+                            _UnusedLibrary(), None, lambda: None
+                        ),
+                        event_sink=sink,
+                        next_delegate=lambda action, payload: None,
+                        current_focus_provider=lambda: "pgn-tree",
+                        post_to_ui=posted.append,
+                    )
+                    holder["delegate"] = delegate
+
+                    with mock.patch.object(
+                        threading.Thread, "start", autospec=True
+                    ) as start:
+                        result = delegate(action_id, {})
+
+                    start.assert_not_called()
+                    self.assertEqual(posted, [])
+                    self.assertEqual(
+                        [event.kind for event in cancel_results],
+                        [FileWorkflowEventKind.PGN_SAVE_CANCELLING],
+                    )
+                    self.assertEqual(
+                        [event.kind for event in nested_cancel_results],
+                        [FileWorkflowEventKind.PGN_SAVE_CANCELLING],
+                    )
+                    self.assertEqual(
+                        result.kind, FileWorkflowEventKind.PGN_SAVE_CANCELLED
+                    )
+                    self.assertEqual(result.action_id, action_id)
+                    self.assertEqual(result.focus_target, "pgn-tree")
+                    self.assertEqual(
+                        [event.kind for event in events],
+                        [
+                            FileWorkflowEventKind.PGN_SAVE_STARTED,
+                            FileWorkflowEventKind.PGN_SAVE_CANCELLING,
+                            FileWorkflowEventKind.PGN_SAVE_CANCELLED,
+                        ],
+                    )
+                    self.assertFalse(delegate.pgn_save_running)
+                    self.assertEqual(source.read_bytes(), original)
+                    self.assertFalse(destination.exists())
+
+    def test_pgn_save_started_reentrant_shutdown_does_not_start_reserved_worker(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "save-shutdown-before-start.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            original = source.read_bytes()
+
+            class SaveDialogs(_Dialogs):
+                def __init__(self, source: Path, destination: Path) -> None:
+                    super().__init__(source)
+                    self.destination = destination
+
+                def save_pgn_as(self, suggested_filename: str = "game.pgn"):
+                    return self.destination
+
+            for action_id in ("pgn.save", "pgn.save_as"):
+                with self.subTest(action_id=action_id):
+                    destination = Path(tmp) / "shutdown-save-as.pgn"
+                    session = PgnDocumentSession.open(source)
+                    events = []
+                    shutdown_results = []
+                    reentrant_resume_results = []
+                    posted = []
+                    holder = {}
+
+                    def sink(event):
+                        events.append(event)
+                        if event.kind is FileWorkflowEventKind.PGN_SAVE_STARTED:
+                            shutdown_results.append(holder["delegate"].shutdown(0.0))
+                            reentrant_resume_results.append(
+                                holder["delegate"].resume_after_refused_shutdown()
+                            )
+
+                    delegate = Version2WindowsFileActionDelegate(
+                        dialogs=SaveDialogs(source, destination),
+                        get_pgn_session=lambda: session,
+                        set_pgn_session=lambda value: None,
+                        import_services_factory=lambda: Version2ImportWorkerServices(
+                            _UnusedLibrary(), None, lambda: None
+                        ),
+                        event_sink=sink,
+                        next_delegate=lambda action, payload: None,
+                        current_focus_provider=lambda: "pgn-tree",
+                        post_to_ui=posted.append,
+                    )
+                    holder["delegate"] = delegate
+
+                    with mock.patch.object(
+                        threading.Thread, "start", autospec=True
+                    ) as start:
+                        result = delegate(action_id, {})
+
+                    self.assertEqual(shutdown_results, [False])
+                    self.assertEqual(reentrant_resume_results, [False])
+                    self.assertEqual(start.call_count, 0)
+                    self.assertEqual(result.kind, FileWorkflowEventKind.FAILED)
+                    self.assertEqual(result.error_code, "file_workflow_closed")
+                    self.assertEqual(posted, [])
+                    self.assertEqual(
+                        [event.kind for event in events],
+                        [FileWorkflowEventKind.PGN_SAVE_STARTED, FileWorkflowEventKind.FAILED],
+                    )
+                    self.assertFalse(delegate.pgn_save_running)
+                    self.assertTrue(delegate.resume_after_refused_shutdown())
+                    self.assertEqual(source.read_bytes(), original)
+                    self.assertFalse(destination.exists())
+
     def test_pgn_open_started_reentrant_shutdown_does_not_start_reserved_worker(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "open-shutdown.pgn"
             source.write_text(PGN_TEXT, encoding="utf-8")
             events = []
             shutdown_results = []
+            pgn_open_reentrant_resume_results = []
             posted = []
             holder = {}
 
@@ -1022,6 +1292,9 @@ class Version2WindowsFileWorkerShutdownFenceTests(unittest.TestCase):
                 events.append(event)
                 if event.kind is FileWorkflowEventKind.PGN_OPEN_STARTED:
                     shutdown_results.append(holder["delegate"].shutdown(0.0))
+                    pgn_open_reentrant_resume_results.append(
+                        holder["delegate"].resume_after_refused_shutdown()
+                    )
 
             delegate = self._delegate(source, event_sink=sink, post_to_ui=posted.append)
             holder["delegate"] = delegate
@@ -1030,6 +1303,7 @@ class Version2WindowsFileWorkerShutdownFenceTests(unittest.TestCase):
                 result = delegate("pgn.open", {})
 
             self.assertEqual(shutdown_results, [False])
+            self.assertEqual(pgn_open_reentrant_resume_results, [False])
             self.assertEqual(start.call_count, 0)
             self.assertEqual(result.kind, FileWorkflowEventKind.FAILED)
             self.assertEqual(result.error_code, "file_workflow_closed")
@@ -1039,6 +1313,9 @@ class Version2WindowsFileWorkerShutdownFenceTests(unittest.TestCase):
                 [FileWorkflowEventKind.PGN_OPEN_STARTED, FileWorkflowEventKind.FAILED],
             )
             self.assertFalse(delegate.pgn_open_running)
+            self.assertTrue(delegate.resume_after_refused_shutdown())
+            resumed = delegate("pgn.save", {})
+            self.assertEqual(resumed.error_code, "no_pgn_document")
 
     def test_direct_file_actions_contain_base_exceptions_without_raw_escape(self) -> None:
         class DirectAbort(BaseException):
@@ -1256,6 +1533,269 @@ class Version2WindowsFileWorkerShutdownFenceTests(unittest.TestCase):
             self.assertEqual(len(events), event_count_at_shutdown)
             self.assertEqual(events, [started])
             self.assertFalse(delegate.pgn_open_running)
+
+
+    def test_recovery_pgn_terminal_reentrant_shutdown_does_not_report_live(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "reentrant-recovery-open.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            events = []
+            posted = []
+            reentrant_shutdown = []
+            holder = {}
+
+            def sink(event):
+                events.append(event)
+                if event.kind is FileWorkflowEventKind.PGN_OPEN_CANCELLED:
+                    reentrant_shutdown.append(holder["delegate"].shutdown())
+
+            delegate = self._delegate(
+                source,
+                event_sink=sink,
+                post_to_ui=posted.append,
+            )
+            holder["delegate"] = delegate
+
+            started = delegate("pgn.open", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.PGN_OPEN_STARTED)
+            self.assertTrue(delegate.wait_for_pgn_open(2.0))
+            self.assertEqual(len(posted), 1)
+            self.assertTrue(delegate.shutdown())
+
+            self.assertFalse(delegate.resume_after_refused_shutdown())
+            self.assertEqual(reentrant_shutdown, [True])
+            self.assertEqual(
+                [event.kind for event in events],
+                [
+                    FileWorkflowEventKind.PGN_OPEN_STARTED,
+                    FileWorkflowEventKind.PGN_OPEN_CANCELLED,
+                ],
+            )
+
+            closed = delegate("pgn.save", {})
+            self.assertEqual(closed.error_code, "file_workflow_closed")
+            posted.pop(0)()
+
+            self.assertTrue(delegate.resume_after_refused_shutdown())
+            reopened = delegate("pgn.save", {})
+            self.assertEqual(reopened.error_code, "no_pgn_document")
+            self.assertTrue(delegate.shutdown())
+    def test_refused_close_reconciles_retired_pending_pgn_open_terminal(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "refused-close-retired-open.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            events = []
+            posted = []
+            delegate = self._delegate(
+                source,
+                event_sink=events.append,
+                post_to_ui=posted.append,
+            )
+
+            started = delegate("pgn.open", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.PGN_OPEN_STARTED)
+            self.assertTrue(delegate.wait_for_pgn_open(2.0))
+            self.assertEqual(len(posted), 1)
+            self.assertTrue(delegate.pgn_open_running)
+
+            self.assertTrue(delegate.shutdown())
+            self.assertFalse(delegate.pgn_open_running)
+            self.assertTrue(delegate.resume_after_refused_shutdown())
+            self.assertEqual(
+                [event.kind for event in events],
+                [
+                    FileWorkflowEventKind.PGN_OPEN_STARTED,
+                    FileWorkflowEventKind.PGN_OPEN_CANCELLED,
+                ],
+            )
+
+            event_count = len(events)
+            posted.pop(0)()
+            self.assertEqual(len(events), event_count)
+            self.assertFalse(delegate.pgn_open_running)
+            reopened = delegate("pgn.save", {})
+            self.assertEqual(reopened.error_code, "no_pgn_document")
+            self.assertTrue(delegate.shutdown())
+    def test_refused_close_preserves_retired_pending_pgn_open_failure_terminal(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "refused-close-failed-open.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            events = []
+            posted = []
+            delegate = self._delegate(
+                source,
+                event_sink=events.append,
+                post_to_ui=posted.append,
+            )
+
+            with mock.patch.object(
+                PgnDocumentSession,
+                "open",
+                side_effect=RuntimeError("fixed preparation failure"),
+            ):
+                started = delegate("pgn.open", {})
+                self.assertEqual(started.kind, FileWorkflowEventKind.PGN_OPEN_STARTED)
+                self.assertTrue(delegate.wait_for_pgn_open(2.0))
+
+            self.assertEqual(len(posted), 1)
+            self.assertTrue(delegate.pgn_open_running)
+
+            self.assertTrue(delegate.shutdown())
+            self.assertFalse(delegate.pgn_open_running)
+            self.assertTrue(delegate.resume_after_refused_shutdown())
+            self.assertEqual(
+                [event.kind for event in events],
+                [
+                    FileWorkflowEventKind.PGN_OPEN_STARTED,
+                    FileWorkflowEventKind.FAILED,
+                ],
+            )
+            self.assertEqual(events[-1].error_code, "pgn_open_failed")
+            self.assertEqual(events[-1].focus_target, "pgn-tree")
+
+            event_count = len(events)
+            posted.pop(0)()
+            self.assertEqual(len(events), event_count)
+            self.assertFalse(delegate.pgn_open_running)
+            self.assertTrue(delegate.shutdown())
+
+    def test_refused_close_reopens_running_cancelled_pgn_open_until_terminal(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "refused-close-running-open.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            events = []
+            posted = []
+            entered = threading.Event()
+            release = threading.Event()
+            real_open = PgnDocumentSession.open
+
+            def blocked_open(path):
+                entered.set()
+                if not release.wait(2.0):
+                    raise AssertionError("test did not release PGN Open")
+                return real_open(path)
+
+            delegate = self._delegate(
+                source,
+                event_sink=events.append,
+                post_to_ui=posted.append,
+            )
+            with mock.patch.object(PgnDocumentSession, "open", side_effect=blocked_open):
+                started = delegate("pgn.open", {})
+                self.assertEqual(started.kind, FileWorkflowEventKind.PGN_OPEN_STARTED)
+                self.assertTrue(entered.wait(2.0))
+
+                self.assertFalse(delegate.shutdown(0.0))
+                self.assertTrue(delegate.resume_after_refused_shutdown())
+                self.assertTrue(delegate.pgn_open_running)
+
+                blocked = delegate("library.import", {})
+                self.assertEqual(blocked.kind, FileWorkflowEventKind.FAILED)
+                self.assertEqual(blocked.error_code, "file_worker_busy")
+
+                release.set()
+                self.assertTrue(delegate.wait_for_pgn_open(2.0))
+                self.assertEqual(len(posted), 1)
+                posted.pop(0)()
+
+            self.assertFalse(delegate.pgn_open_running)
+            self.assertEqual(
+                [event.kind for event in events if event.action_id == "pgn.open"],
+                [
+                    FileWorkflowEventKind.PGN_OPEN_STARTED,
+                    FileWorkflowEventKind.PGN_OPEN_CANCELLED,
+                ],
+            )
+            reopened = delegate("pgn.save", {})
+            self.assertEqual(reopened.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(reopened.error_code, "no_pgn_document")
+            self.assertTrue(delegate.shutdown())
+
+    def test_refused_close_reopens_draining_cancelled_import_without_freeing_busy_slot(self) -> None:
+        class BlockingLibrary:
+            def __init__(self) -> None:
+                self.entered = threading.Event()
+                self.release = threading.Event()
+
+            def import_games(self, *args, **kwargs):
+                progress = kwargs["progress_callback"]
+                cancelled = kwargs["cancel_check"]
+                progress(LibraryImportProgress(1, 0, 1))
+                self.entered.set()
+                if not self.release.wait(2.0):
+                    raise AssertionError("test did not release import worker")
+                if cancelled():
+                    raise LibraryImportCancelledError("cancelled by refused close")
+                progress(LibraryImportProgress(1, 1, 1))
+                return LibraryImportResult(
+                    attempt_id=1,
+                    source_id=1,
+                    game_count=1,
+                    warning_count=0,
+                    first_game_id=1,
+                    last_game_id=1,
+                )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "refused-close-draining-import.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            events = []
+            library = BlockingLibrary()
+            delegate = Version2WindowsFileActionDelegate(
+                dialogs=_Dialogs(source),
+                get_pgn_session=lambda: None,
+                set_pgn_session=lambda _session: None,
+                import_services_factory=lambda: Version2ImportWorkerServices(
+                    library,
+                    None,
+                    lambda: None,
+                ),
+                event_sink=events.append,
+                next_delegate=lambda _action_id, _payload: None,
+                current_focus_provider=lambda: "pgn-tree",
+            )
+
+            started = delegate("library.import", {})
+            self.assertEqual(started.kind, FileWorkflowEventKind.IMPORT_STARTED)
+            self.assertTrue(library.entered.wait(2.0))
+            self.assertTrue(delegate.import_running)
+
+            self.assertFalse(delegate.shutdown(0.0))
+            self.assertTrue(delegate.resume_after_refused_shutdown())
+
+            busy = delegate("pgn.save", {})
+            self.assertEqual(busy.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(busy.error_code, "file_worker_busy")
+            self.assertTrue(delegate.import_running)
+
+            library.release.set()
+            self.assertTrue(delegate.wait_for_import(2.0))
+            self.assertFalse(delegate.import_running)
+            self.assertIn(
+                FileWorkflowEventKind.IMPORT_CANCELLED,
+                [event.kind for event in events],
+            )
+
+            reopened = delegate("pgn.save", {})
+            self.assertEqual(reopened.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(reopened.error_code, "no_pgn_document")
+
+    def test_refused_close_can_reopen_idle_file_workflow(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "refused-close.pgn"
+            source.write_text(PGN_TEXT, encoding="utf-8")
+            delegate = self._delegate(source, event_sink=lambda event: event)
+
+            self.assertTrue(delegate.shutdown())
+            closed = delegate("pgn.save", {})
+            self.assertEqual(closed.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(closed.error_code, "file_workflow_closed")
+
+            self.assertTrue(delegate.resume_after_refused_shutdown())
+            reopened = delegate("pgn.save", {})
+            self.assertEqual(reopened.kind, FileWorkflowEventKind.FAILED)
+            self.assertEqual(reopened.error_code, "no_pgn_document")
+
 
 
 if __name__ == "__main__":

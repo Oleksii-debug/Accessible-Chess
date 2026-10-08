@@ -1,0 +1,70 @@
+name: Current HTML CSS Declaration Partition Apex
+
+on:
+  pull_request:
+    branches:
+      - converge/fen-editor-books-runtime-20261006-sol56z9
+    paths:
+      - '.github/workflows/current-html-css-declaration-partition-apex.yml'
+      - 'acs/book_html_import.py'
+      - 'tests/test_book_active_import_cancellation.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-html-css-declaration-partition-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  HTML_IMPORT_BLOB: 8400a3a90a17e99406b99c60a7af1baefa1f784d
+  ACTIVE_CANCEL_TEST_BLOB: 5bf93cd819eec762df0df65b44ebb7171d39877a
+
+jobs:
+  exact-head:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove exact apex geometry and blobs
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="${{ github.event.pull_request.base.sha }}"
+          test "$(git merge-base "$base" HEAD)" = "$base"
+          git diff --check "$base" HEAD
+          changed="$(git diff --name-only "$base"...HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/current-html-css-declaration-partition-apex.yml' \
+            'acs/book_html_import.py' \
+            'tests/test_book_active_import_cancellation.py' | sort)"
+          test "$changed" = "$expected"
+          test "$(git rev-parse HEAD:acs/book_html_import.py)" = "$HTML_IMPORT_BLOB"
+          test "$(git rev-parse HEAD:tests/test_book_active_import_cancellation.py)" = "$ACTIVE_CANCEL_TEST_BLOB"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Compile changed Python
+        run: python -m py_compile acs/book_html_import.py tests/test_book_active_import_cancellation.py
+
+      - name: Active cancellation regressions
+        run: python -m unittest tests.test_book_active_import_cancellation
+
+      - name: HTML runtime correctness
+        run: python -m unittest tests.test_book_html_runtime_correctness
+
+      - name: V2 HTML importer regression
+        run: python -m unittest tests.test_v2_book_html_import

@@ -59,7 +59,6 @@ function project(en) {
 
 const en = project(true);
 const expectedEnglish = {
-    'skip-link': 'Skip to main content',
     'h-game-info': 'Game information',
     'h-moves': 'Move list',
     'h-history': 'History review',
@@ -123,7 +122,6 @@ assert.strictEqual(en.nodes['board-grid'].aria(), '64 chess-board squares');
 
 const uk = project(false);
 const expectedUkrainian = {
-    'skip-link': 'До основного вмісту',
     'h-game-info': 'Інформація про гру',
     'h-history': 'Перегляд історії',
     'history-prev': 'Попередня позиція',

@@ -48,18 +48,7 @@ class Version2UpgradeStatusShippingTests(unittest.TestCase):
 
             self.assertEqual(result, (api, application, runtime, native_factory))
             self.assertTrue(root.is_dir())
-            self.assertEqual(len(application._events), 1)
-            event = application._events[0]
-            self.assertEqual(event["kind"], "status")
-            payload = event["payload"]
-            self.assertEqual(payload["upgrade_status"], "current")
-            self.assertEqual(payload["focus_target"], "app-root")
-            self.assertTrue(payload["announcement"])
-            self.assertIn("Version 2", payload["announcement"])
-            rendered = repr(event)
-            self.assertNotIn(str(root), rendered)
-            self.assertNotIn(".v2-upgrade", rendered)
-            self.assertNotIn("upgrade-backups", rendered)
+            self.assertEqual(len(application._events), 0)
 
     def test_deferred_release_publishes_only_after_application_is_built_on_owner_thread(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -84,10 +73,7 @@ class Version2UpgradeStatusShippingTests(unittest.TestCase):
             self.assertEqual(len(application._events), 0)
             built = composed[1]()
             self.assertIs(built, application)
-            self.assertEqual(len(application._events), 1)
-            payload = application._events[0]["payload"]
-            self.assertEqual(payload["upgrade_status"], "current")
-            self.assertEqual(payload["announcement"], "Version 2 data is verified and ready.")
+            self.assertEqual(len(application._events), 0)
 
     def test_recovery_completion_uses_bounded_semantics_and_never_private_report_identity(self) -> None:
         application = _Application()

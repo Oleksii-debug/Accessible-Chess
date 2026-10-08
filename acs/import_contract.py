@@ -33,6 +33,33 @@ class SourceFingerprint:
     sha256: str
     suffix: str
 
+    def __post_init__(self) -> None:
+        SourceFingerprint.validate(self)
+
+    def validate(self) -> None:
+        """Prove passive scalar provenance before any path/hash comparison."""
+        if type(self) is not SourceFingerprint:
+            raise TypeError("source fingerprint must be an exact passive SourceFingerprint")
+        if type(self.path) is not str or not self.path or "\x00" in self.path:
+            raise ValueError("source fingerprint path must be non-empty exact text")
+        if type(self.size) is not int or self.size < 0:
+            raise ValueError("source fingerprint size must be a non-negative integer")
+        if (
+            type(self.sha256) is not str
+            or len(self.sha256) != 64
+            or any(character not in "0123456789abcdef" for character in self.sha256)
+        ):
+            raise ValueError("source fingerprint sha256 must be lowercase hexadecimal")
+        if type(self.suffix) is not str:
+            raise TypeError("source fingerprint suffix must be exact text")
+        if self.suffix and (
+            not self.suffix.startswith(".")
+            or self.suffix != self.suffix.lower()
+            or "/" in self.suffix
+            or "\\" in self.suffix
+        ):
+            raise ValueError("source fingerprint suffix must be canonical lowercase text")
+
 
 @dataclass(frozen=True)
 class ImportedRecord:
@@ -42,6 +69,36 @@ class ImportedRecord:
     message: str = ""
     warnings: tuple[str, ...] = ()
 
+    def __post_init__(self) -> None:
+        self.validate()
+
+    def validate(self) -> None:
+        """Revalidate one passive record before report observation/publication."""
+        if type(self) is not ImportedRecord:
+            raise TypeError("imported record must be an exact ImportedRecord")
+        if type(self.source_record_id) is not str or not self.source_record_id.strip():
+            raise ValueError("source_record_id must be non-empty exact text")
+        if type(self.quality) is not ImportQuality:
+            raise TypeError("quality must be an ImportQuality")
+        if self.game_id is not None and (
+            type(self.game_id) is not int or self.game_id < 1
+        ):
+            raise ValueError("game_id must be a positive integer or None")
+        if type(self.message) is not str:
+            raise TypeError("message must be exact text")
+        if type(self.warnings) is not tuple:
+            raise TypeError("warnings must be an exact tuple")
+        if any(type(item) is not str or not item.strip() for item in self.warnings):
+            raise ValueError("warnings must contain non-empty exact text")
+        if (
+            self.quality is not ImportQuality.FULL
+            and not self.message.strip()
+            and not self.warnings
+        ):
+            raise ValueError(
+                "non-full import records must explain loss, damage, or warning evidence"
+            )
+
 
 @dataclass
 class ImportReport:
@@ -50,23 +107,55 @@ class ImportReport:
     records: list[ImportedRecord] = field(default_factory=list)
     global_warnings: list[str] = field(default_factory=list)
 
+    def __post_init__(self) -> None:
+        self.validate()
+
+    def validate(self) -> None:
+        """Fail closed before a format report crosses the shared import boundary."""
+        if type(self) is not ImportReport:
+            raise TypeError("import report must be an exact passive ImportReport")
+        if type(self.source) is not SourceFingerprint:
+            raise TypeError("import report source must be an exact SourceFingerprint")
+        self.source.validate()
+        if type(self.format_name) is not str or not self.format_name.strip():
+            raise ValueError("format_name must be non-empty exact text")
+        if type(self.records) is not list:
+            raise TypeError("import report records must be an exact list")
+        if any(type(record) is not ImportedRecord for record in self.records):
+            raise TypeError("import report records must contain exact ImportedRecord values")
+        for record in tuple(self.records):
+            record.validate()
+        if type(self.global_warnings) is not list:
+            raise TypeError("global_warnings must be an exact list")
+        if any(
+            type(warning) is not str or not warning.strip()
+            for warning in self.global_warnings
+        ):
+            raise ValueError("global_warnings must contain non-empty exact text")
+
     def add(self, record: ImportedRecord) -> None:
+        if type(record) is not ImportedRecord:
+            raise TypeError("record must be an exact ImportedRecord")
+        record.validate()
         self.records.append(record)
 
     @property
     def counts(self) -> dict[str, int]:
+        self.validate()
         result = {quality.value: 0 for quality in ImportQuality}
-        for record in self.records:
+        for record in tuple(self.records):
             result[record.quality.value] += 1
         return result
 
     @property
     def total(self) -> int:
+        self.validate()
         return len(self.records)
 
     @property
     def has_damage(self) -> bool:
-        return any(record.quality is ImportQuality.DAMAGED for record in self.records)
+        self.validate()
+        return any(record.quality is ImportQuality.DAMAGED for record in tuple(self.records))
 
 
 class ReadOnlyImporter(Protocol):
@@ -472,6 +561,9 @@ class UnsupportedChessBaseImporter:
 def summarize_reports(reports: Iterable[ImportReport]) -> dict[str, int]:
     total = {quality.value: 0 for quality in ImportQuality}
     for report in reports:
+        if type(report) is not ImportReport:
+            raise TypeError("reports must contain exact ImportReport values")
+        report.validate()
         for key, value in report.counts.items():
             total[key] += value
     return total

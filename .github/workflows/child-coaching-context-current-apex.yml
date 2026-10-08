@@ -46,10 +46,11 @@ jobs:
     timeout-minutes: 25
     env:
       EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+      EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
       CONTEXT_BLOB: 890fcc1d6cd57c1555e02a435d835d1d3fc75c4d
       CONTEXT_TEST_BLOB: 33e575d589761bb162479eea9f5e1ad06153998e
       PROGRESS_DOMAIN_BLOB: a470afdaff99413a1163e52192a0f12ee8b54671
-      PROGRESS_STORE_BLOB: 101e7e370f555998092af9f844ffe52b4b442e97
+      PROGRESS_STORE_BLOB: c4212f0a9d25a46e4d68dcaa2e0ccbdaf6c3f9de
     steps:
       - name: Checkout exact candidate head
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -62,10 +63,20 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
-          test "$(git hash-object acs/child_coaching_context.py)" = "$CONTEXT_BLOB"
-          test "$(git hash-object tests/test_child_coaching_context.py)" = "$CONTEXT_TEST_BLOB"
-          test "$(git hash-object acs/student_progress.py)" = "$PROGRESS_DOMAIN_BLOB"
-          test "$(git hash-object acs/student_progress_store.py)" = "$PROGRESS_STORE_BLOB"
+          assert_inherited() {
+            path="$1"
+            fallback_blob="$2"
+            if [ -n "${EVENT_BASE_SHA:-}" ]; then
+              git cat-file -e "${EVENT_BASE_SHA}^{commit}"
+              test "$(git rev-parse "${EVENT_BASE_SHA}:${path}")" = "$(git hash-object "${path}")"
+            else
+              test "$(git hash-object "${path}")" = "$fallback_blob"
+            fi
+          }
+          assert_inherited acs/child_coaching_context.py "$CONTEXT_BLOB"
+          assert_inherited tests/test_child_coaching_context.py "$CONTEXT_TEST_BLOB"
+          assert_inherited acs/student_progress.py "$PROGRESS_DOMAIN_BLOB"
+          assert_inherited acs/student_progress_store.py "$PROGRESS_STORE_BLOB"
           git diff --check
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065

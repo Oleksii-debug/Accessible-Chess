@@ -1,0 +1,104 @@
+name: Section 0 ImportReport Passive Revalidation
+
+on:
+  pull_request:
+    branches:
+      - 'section0/import-report-contract-20261007-sol56'
+    paths:
+      - '.github/workflows/section0-import-report-passive-revalidation.yml'
+      - 'acs/import_contract.py'
+      - 'tests/test_import_contract.py'
+      - 'tests/test_import_registry.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: section0-import-report-passive-revalidation-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+env:
+  EXPECTED_BASE_SHA: 633244a659b7998acddd34bef79b5e511d2990a3
+  IMPORT_CONTRACT_BLOB: d9855d173f8c73440e190482a107299be28949c5
+  IMPORT_REGISTRY_BLOB: c8c1e403bc0d46ac520fefb3d403bd66a4a714c2
+  IMPORT_CONTRACT_TEST_BLOB: 69439b421e7957caa7262704510b3211110b4e40
+  IMPORT_REGISTRY_TEST_BLOB: 75affff3489f05ce3157bfa6a5d7ea18f395b9fb
+
+jobs:
+  passive-revalidation:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Prove exact stacked geometry
+        shell: bash
+        env:
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          expected_head="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
+          test "$(git rev-parse HEAD)" = "$expected_head"
+          if [ -n "${EVENT_BASE_SHA:-}" ]; then
+            test "$EVENT_BASE_SHA" = "$EXPECTED_BASE_SHA"
+          fi
+          test "$(git merge-base "$EXPECTED_BASE_SHA" HEAD)" = "$EXPECTED_BASE_SHA"
+          git diff --check "$EXPECTED_BASE_SHA"...HEAD
+          changed="$(git diff --name-only "$EXPECTED_BASE_SHA"...HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/section0-import-report-passive-revalidation.yml' \
+            'acs/import_contract.py' \
+            'tests/test_import_contract.py' \
+            'tests/test_import_registry.py' | sort)"
+          test "$changed" = "$expected"
+
+      - name: Bind exact passive DTO bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:acs/import_contract.py)" = "$IMPORT_CONTRACT_BLOB"
+          test "$(git rev-parse HEAD:acs/import_registry.py)" = "$IMPORT_REGISTRY_BLOB"
+          test "$(git rev-parse HEAD:tests/test_import_contract.py)" = "$IMPORT_CONTRACT_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_import_registry.py)" = "$IMPORT_REGISTRY_TEST_BLOB"
+
+      - name: Compile report boundary
+        run: >-
+          python -m py_compile
+          acs/import_contract.py
+          acs/import_registry.py
+          tests/test_import_contract.py
+          tests/test_import_registry.py
+
+      - name: Run exact ImportReport regressions
+        run: >-
+          python -m unittest -v
+          tests.test_import_contract
+          tests.test_import_registry
+
+      - name: Retain format source/publication regressions
+        run: >-
+          python -m unittest -v
+          tests.test_pgn_open_source_binding
+          tests.test_pgn_open_direct_source
+          tests.test_pgn_streaming_import
+          tests.test_d04_chessbase_integrity_handle_identity
+          tests.test_dev4_chessbase_integrity_atomicity
+          tests.test_dev4_chessbase_integrity_io_observability
+          tests.test_version2_formats_integration
+
+      - name: Core chess selftest
+        run: python -m acs.selftest

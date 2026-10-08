@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 import tempfile
+import threading
+import time
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -13,18 +15,32 @@ from acs.book_progress_store import (
     BookProgressStoreErrorCode,
 )
 from acs.book_text_import import BookTextFormat, import_text_book
-from acs.bookdocument import BookDocument, Exercise
+from acs.bookdocument import BookDocument, Exercise, Paragraph
 from acs.bookreader import BookReader
 from acs.chesscore import Board
 from acs.engine_assisted_workflows import EngineAssistedWorkflowService
 from acs.full_product_ui_shell import UILanguage
-from acs.library_import_service import LibraryImportProgress, LibraryImportResult
+from acs.library_import_service import (
+    LibraryImportCancelledError,
+    LibraryImportProgress,
+    LibraryImportResult,
+)
 from acs.library_webview_projection import LibraryImportPhase
 from acs.pgn_document import PgnDocumentSession
 from acs.pgn_service import open_pgn
 from acs.report_paths import report_safe_name
-from acs.version2_application import Version2Application
-from acs.version2_windows_file_workflows import FileWorkflowEvent, FileWorkflowEventKind, Version2WindowsFileActionDelegate
+from acs.version2_application import PreparedBookOpen, Version2Application
+from acs.version2_windows_book_open_worker import (
+    BookOpenWorkerEvent,
+    BookOpenWorkerEventKind,
+    Version2BookOpenWorker,
+)
+from acs.version2_windows_file_workflows import (
+    FileWorkflowEvent,
+    FileWorkflowEventKind,
+    Version2ImportWorkerServices,
+    Version2WindowsFileActionDelegate,
+)
 from acs.version2_windows_import_event_mailbox import Version2ImportUiEventMailbox
 
 
@@ -59,6 +75,132 @@ class Version2ApplicationTests(unittest.TestCase):
             event_sink=self.mailbox, next_delegate=lambda *_: None)
         self.app.bind_files(self.files)
         self.addCleanup(lambda: self.files.shutdown(timeout=5))
+
+    def test_read_fen_uses_canonical_visible_board_and_publishes_accessible_status(self):
+        fen = "7k/8/8/8/8/8/8/K7 b - - 17 42"
+        calls = []
+
+        def board_dispatch(action, payload):
+            calls.append((action, payload))
+            return {"ok": True, "fen": fen, "announcement": "untrusted board presentation"}
+
+        self.app._board_dispatch = board_dispatch
+        result = self.app._delegate("board.read_fen", {})
+
+        self.assertEqual({"ok": True, "fen": fen}, result)
+        self.assertEqual([("board.read_fen", {})], calls)
+        self.assertEqual([], self.copied)
+        events = self.app.drain_events()
+        self.assertTrue(
+            any(
+                event.get("kind") == "status"
+                and event.get("payload", {}).get("announcement") == "FEN позиції: " + fen
+                for event in events
+            )
+        )
+
+        self.app.shell.set_language(UILanguage.EN)
+        self.app._board_dispatch = lambda *_args: {"ok": True, "fen": fen}
+        self.app._delegate("board.read_fen", {})
+        events = self.app.drain_events()
+        self.assertTrue(
+            any(
+                event.get("kind") == "status"
+                and event.get("payload", {}).get("announcement") == "Position FEN: " + fen
+                for event in events
+            )
+        )
+
+    def test_read_fen_rejects_payload_before_board_readback(self):
+        calls = []
+        self.app._board_dispatch = lambda *_args: calls.append(True)
+
+        with self.assertRaises(ValueError):
+            self.app._delegate("board.read_fen", {"unexpected": True})
+
+        self.assertEqual([], calls)
+        self.assertEqual([], self.copied)
+
+    def test_read_and_copy_fen_reject_hidden_board_before_readback(self):
+        calls = []
+        self.app._board_dispatch = lambda *_args: calls.append(True)
+        self.app.shell.open_route("library")
+
+        for action in ("board.read_fen", "position.copy_fen"):
+            with self.subTest(action=action):
+                with self.assertRaisesRegex(ValueError, "visible Board"):
+                    self.app._delegate(action, {})
+
+        self.assertEqual([], calls)
+        self.assertEqual([], self.copied)
+
+    def test_copy_fen_uses_canonical_visible_board_and_publishes_accessible_status(self):
+        fen = "7k/8/8/8/8/8/8/K7 b - - 17 42"
+        calls = []
+
+        def board_dispatch(action, payload):
+            calls.append((action, payload))
+            self.assertEqual("board.read_fen", action)
+            self.assertEqual({}, payload)
+            return {"ok": True, "fen": fen, "announcement": "ignored presentation text"}
+
+        self.app._board_dispatch = board_dispatch
+        result = self.app._delegate("position.copy_fen", {})
+
+        self.assertEqual({"ok": True, "fen": fen}, result)
+        self.assertEqual([fen], self.copied)
+        self.assertEqual([("board.read_fen", {})], calls)
+        events = self.app.drain_events()
+        self.assertTrue(
+            any(
+                event.get("kind") == "status"
+                and event.get("payload", {}).get("announcement") == "Поточний FEN скопійовано."
+                for event in events
+            )
+        )
+
+    def test_copy_fen_rejects_noncanonical_or_failed_board_readback_before_clipboard(self):
+        for result in (
+            None,
+            {"ok": False},
+            {"ok": True, "fen": "7k/8/8/8/8/8/8/K7 b - -"},
+            {"ok": True, "fen": "not a fen"},
+        ):
+            with self.subTest(result=result):
+                before = list(self.copied)
+                self.app._board_dispatch = lambda *_args, _result=result: _result
+                with self.assertRaises((RuntimeError, ValueError)):
+                    self.app._delegate("position.copy_fen", {})
+                self.assertEqual(before, self.copied)
+
+    def test_new_pgn_from_visible_position_uses_canonical_fen_and_opens_pgn_route(self):
+        fen = "7k/8/8/8/8/8/8/K7 b - - 17 42"
+        self.app._board_dispatch = lambda action, payload: (
+            {"ok": True, "fen": fen}
+            if action == "board.read_fen" and payload == {}
+            else self.fail("unexpected board dispatch")
+        )
+
+        result = self.app._delegate("pgn.new_from_position", {})
+
+        self.assertEqual({"ok": True, "fen": fen}, result)
+        self.assertIsNotNone(self.app.session)
+        self.assertEqual("pgn", self.app.shell.current_route.route_id)
+        game = self.app.session.workspace.games()[0]
+        self.assertEqual("1", game.tags["SetUp"])
+        self.assertEqual(fen, game.tags["FEN"])
+        self.assertTrue(self.app.session.dirty)
+
+    def test_new_pgn_from_position_rejects_hidden_board_before_readback(self):
+        calls = []
+        self.app._board_dispatch = lambda *_args: calls.append(True)
+        self.app.shell.open_route("library")
+
+        with self.assertRaises(ValueError):
+            self.app._delegate("pgn.new_from_position", {})
+
+        self.assertEqual([], calls)
+        self.assertIsNone(self.app.session)
 
     def test_worker_factory_abort_closes_database_without_replacing_primary_failure(self):
         closed = []
@@ -107,6 +249,71 @@ class Version2ApplicationTests(unittest.TestCase):
                     self.app.record_focus(token)
                 self.assertEqual("board-square-e4", self.app._focus)
                 self.assertEqual("board-square-e4", self.app.shell.restore_focus_target())
+
+    def test_shutdown_failure_announcement_bypasses_pending_shell_publication_only(self):
+        held_event = {
+            "kind": "status",
+            "payload": {"announcement": "held-domain-event"},
+        }
+        self.app._events.append(held_event)
+        self.app._pending_shell_publication = (
+            91,
+            "screen.library",
+            17,
+            {"kind": "route"},
+            self.app.shell._capture_presentation_state(),
+            "prior-focus",
+            None,
+            None,
+        )
+
+        self.app.announce_shutdown_failure()
+
+        urgent = self.app.drain_events()
+        self.assertEqual(len(urgent), 1)
+        self.assertEqual(urgent[0]["kind"], "error")
+        self.assertIn("Вікно залишено відкритим", urgent[0]["payload"]["message"])
+        self.assertEqual(tuple(self.app._events), (held_event,))
+        self.assertEqual(self.app.drain_events(), ())
+
+        self.app._pending_shell_publication = None
+        self.assertEqual(self.app.drain_events(), (held_event,))
+
+    def test_shutdown_failure_announcement_is_localized_path_free_and_actionable(self):
+        self.app.announce_shutdown_failure()
+        event = self.app.drain_events()[-1]
+        self.assertEqual(event["kind"], "error")
+        ukrainian = event["payload"]["message"]
+        self.assertIn("Вікно залишено відкритим", ukrainian)
+        self.assertIn("спробуйте вийти ще раз", ukrainian)
+        self.assertNotIn(str(self.root), ukrainian)
+
+        self.app.shell.set_language(UILanguage.EN)
+        self.app.announce_shutdown_failure()
+        event = self.app.drain_events()[-1]
+        self.assertEqual(event["kind"], "error")
+        english = event["payload"]["message"]
+        self.assertIn("window remains open", english)
+        self.assertIn("try exiting again", english)
+        self.assertNotIn(str(self.root), english)
+
+    def test_book_open_event_rejects_derived_event_before_hooks(self):
+        touched = []
+
+        class ActiveEvent(BookOpenWorkerEvent):
+            def __getattribute__(self, name):
+                if name in {"kind", "focus_target"}:
+                    touched.append(name)
+                    raise AssertionError(
+                        "derived Book Open event field must not execute"
+                    )
+                return super().__getattribute__(name)
+
+        with self.assertRaisesRegex(TypeError, "invalid Book Open worker event"):
+            self.app._book_open_event(object.__new__(ActiveEvent))
+
+        self.assertEqual(touched, [])
+        self.assertEqual(self.app.drain_events(), ())
 
     def test_file_event_rejects_derived_event_before_hooks(self):
         touched = []
@@ -166,6 +373,449 @@ class Version2ApplicationTests(unittest.TestCase):
             self.assertIsNone(self.app._progress)
             self.assertIsNone(self.app._result)
 
+    def test_import_observers_store_detached_revalidated_snapshots(self):
+        progress = LibraryImportProgress(91, 1, 2)
+        result = LibraryImportResult(91, 17, 2, 3, 101, 102)
+
+        self.app.observe_progress(progress)
+        self.app.observe_result(result)
+
+        with self.app._observation_lock:
+            stored_progress = self.app._progress
+            stored_result = self.app._result
+
+        self.assertEqual(stored_progress, progress)
+        self.assertEqual(stored_result, result)
+        self.assertIsNot(stored_progress, progress)
+        self.assertIsNot(stored_result, result)
+
+        object.__setattr__(progress, "processed_games", 2)
+        object.__setattr__(result, "warning_count", 99)
+
+        with self.app._observation_lock:
+            self.assertEqual(self.app._progress.processed_games, 1)
+            self.assertEqual(self.app._result.warning_count, 3)
+
+    def test_import_observers_revalidate_mutated_exact_dto_scalars(self):
+        progress = LibraryImportProgress(92, 1, 2)
+        result = LibraryImportResult(92, 18, 2, 0, 201, 202)
+        object.__setattr__(progress, "processed_games", True)
+        object.__setattr__(result, "reused", 1)
+
+        with self.assertRaises(TypeError):
+            self.app.observe_progress(progress)
+        with self.assertRaises(TypeError):
+            self.app.observe_result(result)
+
+        with self.app._observation_lock:
+            self.assertIsNone(self.app._progress)
+            self.assertIsNone(self.app._result)
+
+    def test_book_commit_reentrant_application_shutdown_is_refused_atomically(self):
+        callbacks = []
+        shutdown_results = []
+
+        def commit(_prepared):
+            shutdown_results.append(self.app.shutdown(timeout=0.0))
+            self.assertFalse(worker.closed)
+            self.assertFalse(self.files.shutdown_requested)
+
+        worker = Version2BookOpenWorker(
+            prepare=lambda source, *, cancel_check: "prepared-book",
+            commit=commit,
+            post_to_ui=callbacks.append,
+            event_sink=self.app._book_open_event,
+        )
+        self.app.bind_book_open_worker(worker)
+        self.assertEqual(self.app.drain_events(), ())
+
+        self.assertTrue(worker.start(Path("book.md"), focus_target="book-open"))
+        deadline = time.monotonic() + 2.0
+        while not callbacks and time.monotonic() < deadline:
+            time.sleep(0.005)
+        self.assertEqual(len(callbacks), 1)
+
+        callbacks.pop(0)()
+
+        self.assertEqual(shutdown_results, [False])
+        self.assertFalse(worker.closed)
+        self.assertFalse(worker.active)
+        self.assertFalse(self.files.shutdown_requested)
+        delivered = self.app.drain_events()
+        self.assertEqual([event["kind"] for event in delivered], ["status", "status"])
+        self.assertTrue(delivered[0]["payload"]["book_open_busy"])
+        self.assertFalse(delivered[1]["payload"]["book_open_busy"])
+
+        self.assertTrue(self.app.unbind_book_open_worker(worker))
+        self.assertTrue(worker.shutdown(timeout=0.0))
+
+    def test_book_open_worker_exact_unbind_makes_failed_startup_retryable(self):
+        worker = Version2BookOpenWorker(
+            prepare=lambda *_args, **_kwargs: object(),
+            commit=lambda _prepared: None,
+            post_to_ui=lambda callback: callback(),
+            event_sink=lambda _event: None,
+        )
+        self.addCleanup(worker.shutdown)
+
+        self.app.bind_book_open_worker(worker)
+        self.assertIs(self.app._book_open_worker, worker)
+        self.assertTrue(self.app.unbind_book_open_worker(worker))
+        self.assertIsNone(self.app._book_open_worker)
+        self.assertFalse(self.app.unbind_book_open_worker(worker))
+
+    def test_book_cancel_recovers_retained_terminal_without_no_running_error(self):
+        def reject_post(_callback):
+            raise RuntimeError("owner temporarily unavailable")
+
+        worker = Version2BookOpenWorker(
+            prepare=lambda source, *, cancel_check: "prepared-book",
+            commit=lambda _prepared: self.fail("post failure must not commit Book"),
+            post_to_ui=reject_post,
+            event_sink=self.app._book_open_event,
+        )
+        self.app.bind_book_open_worker(worker)
+        self.assertEqual(self.app.drain_events(), ())
+
+        self.assertTrue(worker.start(Path("book.md"), focus_target="book-open"))
+        deadline = time.monotonic() + 2.0
+        while worker.active and time.monotonic() < deadline:
+            time.sleep(0.005)
+        self.assertFalse(worker.active)
+        self.assertTrue(worker.terminal_pending)
+
+        self.assertIsNone(self.app._delegate("book.cancel_open", {}))
+
+        self.assertFalse(worker.terminal_pending)
+        delivered = self.app.drain_events()
+        self.assertEqual([event["kind"] for event in delivered], ["status", "error"])
+        self.assertTrue(delivered[0]["payload"]["book_open_busy"])
+        self.assertFalse(delivered[1]["payload"]["book_open_busy"])
+
+        self.assertTrue(self.app.unbind_book_open_worker(worker))
+        self.assertTrue(worker.shutdown())
+
+    def test_book_cancel_without_active_or_retained_open_still_fails(self):
+        worker = Version2BookOpenWorker(
+            prepare=lambda source, *, cancel_check: "prepared-book",
+            commit=lambda _prepared: None,
+            post_to_ui=lambda callback: callback(),
+            event_sink=self.app._book_open_event,
+        )
+        self.app.bind_book_open_worker(worker)
+
+        with self.assertRaisesRegex(ValueError, "no Book Open is running"):
+            self.app._delegate("book.cancel_open", {})
+
+        self.assertTrue(self.app.unbind_book_open_worker(worker))
+        self.assertTrue(worker.shutdown())
+
+    def test_new_book_open_recovers_retained_terminal_before_file_picker(self):
+        def reject_post(_callback):
+            raise RuntimeError("owner temporarily unavailable")
+
+        worker = Version2BookOpenWorker(
+            prepare=lambda source, *, cancel_check: "prepared-book",
+            commit=lambda _prepared: self.fail("post failure must not commit Book"),
+            post_to_ui=reject_post,
+            event_sink=self.app._book_open_event,
+        )
+        self.app.bind_book_open_worker(worker)
+        self.assertEqual(self.app.drain_events(), ())
+
+        self.assertTrue(worker.start(Path("book.md"), focus_target="book-open"))
+        deadline = time.monotonic() + 2.0
+        while worker.active and time.monotonic() < deadline:
+            time.sleep(0.005)
+        self.assertFalse(worker.active)
+
+        observed_busy = []
+
+        def picker():
+            observed_busy.extend(
+                event["payload"].get("book_open_busy")
+                for event in self.app._events
+                if "book_open_busy" in event.get("payload", {})
+            )
+            return None
+
+        with mock.patch.object(self.app, "open_book_dialog", side_effect=picker) as dialog:
+            self.assertIsNone(self.app._delegate("book.open", {}))
+            dialog.assert_called_once_with()
+
+        self.assertEqual(observed_busy, [True, False])
+        delivered = self.app.drain_events()
+        self.assertEqual([event["kind"] for event in delivered], ["status", "error"])
+        self.assertTrue(delivered[0]["payload"]["book_open_busy"])
+        self.assertFalse(delivered[1]["payload"]["book_open_busy"])
+
+        self.assertTrue(self.app.unbind_book_open_worker(worker))
+        self.assertTrue(worker.shutdown())
+
+    def test_failed_retained_book_terminal_blocks_file_picker_until_retry(self):
+        fail_terminal_once = [True]
+
+        def reject_post(_callback):
+            raise RuntimeError("owner temporarily unavailable")
+
+        def sink(event):
+            if (
+                event.kind is BookOpenWorkerEventKind.FAILED
+                and fail_terminal_once[0]
+            ):
+                fail_terminal_once[0] = False
+                raise RuntimeError("terminal presentation unavailable")
+            return self.app._book_open_event(event)
+
+        worker = Version2BookOpenWorker(
+            prepare=lambda source, *, cancel_check: "prepared-book",
+            commit=lambda _prepared: self.fail("post failure must not commit Book"),
+            post_to_ui=reject_post,
+            event_sink=sink,
+        )
+        self.app.bind_book_open_worker(worker)
+        self.assertEqual(self.app.drain_events(), ())
+
+        self.assertTrue(worker.start(Path("book.md"), focus_target="book-open"))
+        deadline = time.monotonic() + 2.0
+        while worker.active and time.monotonic() < deadline:
+            time.sleep(0.005)
+        self.assertFalse(worker.active)
+
+        with mock.patch.object(
+            self.app,
+            "open_book_dialog",
+            return_value=None,
+        ) as dialog:
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "terminal presentation unavailable",
+            ):
+                self.app._delegate("book.open", {})
+            dialog.assert_not_called()
+
+            self.assertIsNone(self.app._delegate("book.open", {}))
+            dialog.assert_called_once_with()
+
+        delivered = self.app.drain_events()
+        self.assertEqual([event["kind"] for event in delivered], ["status", "error"])
+
+        self.assertTrue(self.app.unbind_book_open_worker(worker))
+        self.assertTrue(worker.shutdown())
+
+    def test_event_drain_recovers_book_terminal_after_ui_post_failure(self):
+        def reject_post(_callback):
+            raise RuntimeError("owner temporarily unavailable")
+
+        worker = Version2BookOpenWorker(
+            prepare=lambda source, *, cancel_check: "prepared-book",
+            commit=lambda _prepared: self.fail("post failure must not commit Book"),
+            post_to_ui=reject_post,
+            event_sink=self.app._book_open_event,
+        )
+        self.app.bind_book_open_worker(worker)
+
+        self.assertTrue(worker.start(Path("book.md"), focus_target="book-open"))
+        deadline = time.monotonic() + 2.0
+        while worker.active and time.monotonic() < deadline:
+            time.sleep(0.005)
+        self.assertFalse(worker.active)
+
+        delivered = self.app.drain_events()
+        self.assertEqual([event["kind"] for event in delivered], ["status", "error"])
+        self.assertTrue(delivered[0]["payload"]["book_open_busy"])
+        self.assertFalse(delivered[1]["payload"]["book_open_busy"])
+        self.assertEqual(delivered[1]["payload"]["focus_target"], "book-open")
+        self.assertEqual(self.app.drain_events(), ())
+
+        self.assertTrue(self.app.unbind_book_open_worker(worker))
+        self.assertTrue(worker.shutdown())
+
+    def test_event_drain_recovers_book_terminal_after_observer_failure(self):
+        callbacks = []
+        fail_terminal_once = [True]
+
+        def sink(event):
+            if (
+                event.kind is BookOpenWorkerEventKind.COMPLETED
+                and fail_terminal_once[0]
+            ):
+                fail_terminal_once[0] = False
+                raise RuntimeError("transient Book terminal observer failure")
+            return self.app._book_open_event(event)
+
+        worker = Version2BookOpenWorker(
+            prepare=lambda source, *, cancel_check: "prepared-book",
+            commit=lambda _prepared: None,
+            post_to_ui=callbacks.append,
+            event_sink=sink,
+        )
+        self.app.bind_book_open_worker(worker)
+
+        self.assertTrue(worker.start(Path("book.md"), focus_target="book-open"))
+        deadline = time.monotonic() + 2.0
+        while not callbacks and time.monotonic() < deadline:
+            time.sleep(0.005)
+        self.assertEqual(len(callbacks), 1)
+
+        with self.assertRaisesRegex(RuntimeError, "terminal observer failure"):
+            callbacks.pop(0)()
+        self.assertFalse(worker.active)
+
+        delivered = self.app.drain_events()
+        self.assertEqual([event["kind"] for event in delivered], ["status", "status"])
+        self.assertTrue(delivered[0]["payload"]["book_open_busy"])
+        self.assertFalse(delivered[1]["payload"]["book_open_busy"])
+        self.assertEqual(delivered[1]["payload"]["focus_target"], "book-open")
+        self.assertEqual(self.app.drain_events(), ())
+
+        self.assertTrue(self.app.unbind_book_open_worker(worker))
+        self.assertTrue(worker.shutdown())
+
+    def test_set_document_route_abort_restores_exact_application_focus_checkpoint(self):
+        candidate = PgnDocumentSession.open(self.source)
+        self.app.shell.open_route("library")
+        self.app._focus = "native-library-result-focus"
+        before_focus = self.app._focus
+        before_route = self.app.shell.current_route.route_id
+        original_open_route = self.app.shell.open_route
+
+        class RouteAbort(BaseException):
+            pass
+
+        def open_then_abort(route_id):
+            original_open_route(route_id)
+            raise RouteAbort("route publication aborted")
+
+        with patch.object(self.app.shell, "open_route", side_effect=open_then_abort):
+            with self.assertRaises(RouteAbort):
+                self.app.set_document(candidate)
+
+        self.assertEqual(self.app.shell.current_route.route_id, before_route)
+        self.assertEqual(self.app._focus, before_focus)
+
+    def test_shell_publication_rollback_failure_keeps_exact_retry_authority(self):
+        token = 73
+        prior_shell = self.app.shell._capture_presentation_state()
+        prior_focus = "native-before-publication"
+        prior_training_workspace = object()
+        prior_training = object()
+
+        self.app.shell.open_route("library")
+        self.app._focus = "candidate-focus"
+        self.app.training_workspace = object()
+        self.app.training = object()
+        self.app.shell._begin_publication_hold()
+        self.app._pending_shell_publication = (
+            token,
+            "shell.open_library",
+            11,
+            {"kind": "route"},
+            prior_shell,
+            prior_focus,
+            prior_training_workspace,
+            prior_training,
+        )
+
+        class RollbackAbort(BaseException):
+            pass
+
+        with patch.object(
+            self.app.shell,
+            "_restore_presentation_state",
+            side_effect=RollbackAbort("rollback aborted"),
+        ):
+            with self.assertRaises(RollbackAbort):
+                self.app._finish_shell_publication(token, commit=False)
+
+        self.assertIsNotNone(self.app._pending_shell_publication)
+        self.assertTrue(self.app.shell._publication_hold_active)
+
+        result = self.app._finish_shell_publication(token, commit=False)
+
+        self.assertEqual(result["kind"], "presentation-rollback")
+        self.assertIsNone(self.app._pending_shell_publication)
+        self.assertFalse(self.app.shell._publication_hold_active)
+        self.assertEqual(
+            self.app.shell.current_route.route_id,
+            prior_shell.route_id,
+        )
+        self.assertEqual(self.app._focus, prior_focus)
+        self.assertIs(self.app.training_workspace, prior_training_workspace)
+        self.assertIs(self.app.training, prior_training)
+
+    def test_shell_publication_rollback_replay_uses_exact_resolved_checkpoint(self):
+        token = 75
+        prior_shell = self.app.shell._capture_presentation_state()
+        prior_focus = "native-before-publication"
+
+        self.app.shell.open_route("library")
+        self.app._focus = "candidate-focus"
+        self.app.shell._begin_publication_hold()
+        self.app._pending_shell_publication = (
+            token,
+            "screen.library",
+            13,
+            {"kind": "route"},
+            prior_shell,
+            prior_focus,
+            None,
+            None,
+        )
+
+        first = self.app._finish_shell_publication(token, commit=False)
+        self.assertEqual(first["kind"], "presentation-rollback")
+        resolved_route = first["payload"]["route_id"]
+        resolved_focus = first["payload"]["focus_target"]
+
+        # An unrelated later native route/focus change must not rewrite the
+        # semantic result of the already-resolved publication token.
+        self.app.shell.open_route("library")
+        self.app._focus = "library-search-player"
+        replay = self.app._finish_shell_publication(token, commit=False)
+
+        self.assertEqual(replay, first)
+        self.assertEqual(replay["payload"]["route_id"], resolved_route)
+        self.assertEqual(replay["payload"]["focus_target"], resolved_focus)
+        self.assertEqual(self.app.shell.current_route.route_id, "library")
+        self.assertEqual(self.app._focus, "library-search-player")
+
+    def test_shell_publication_commit_failure_keeps_exact_retry_authority(self):
+        token = 74
+        prior_shell = self.app.shell._capture_presentation_state()
+        self.app.shell.open_route("library")
+        self.app.shell._begin_publication_hold()
+        self.app._pending_shell_publication = (
+            token,
+            "shell.open_library",
+            12,
+            {"kind": "route"},
+            prior_shell,
+            "prior-focus",
+            None,
+            None,
+        )
+
+        class CommitAbort(BaseException):
+            pass
+
+        with patch.object(
+            self.app.shell,
+            "_end_publication_hold",
+            side_effect=CommitAbort("commit aborted"),
+        ):
+            with self.assertRaises(CommitAbort):
+                self.app._finish_shell_publication(token, commit=True)
+
+        self.assertIsNotNone(self.app._pending_shell_publication)
+        self.assertTrue(self.app.shell._publication_hold_active)
+
+        result = self.app._finish_shell_publication(token, commit=True)
+
+        self.assertEqual(result["kind"], "presentation-commit")
+        self.assertIsNone(self.app._pending_shell_publication)
+        self.assertFalse(self.app.shell._publication_hold_active)
+
     def test_set_document_rejects_active_session_subclass_before_hooks(self):
         touched = []
 
@@ -210,7 +860,7 @@ class Version2ApplicationTests(unittest.TestCase):
             with self.assertRaises(RouteAbort):
                 self.app.set_document(candidate)
 
-        self.assertEqual(calls, ["pgn", "library"])
+        self.assertEqual(calls, ["pgn"])
         self.assertEqual(self.app.shell.current_route.route_id, before_route)
         self.assertEqual(self.app._focus, before_focus)
         self.assertIs(self.app.session, before_session)
@@ -275,6 +925,48 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertIn("Запит на скасування", announcement)
         self.assertIn("ще не опубліковано", announcement)
         self.assertNotIn("Скасовую", announcement)
+
+    def test_sync_late_cancel_terminal_is_announced_once_by_dispatcher(self):
+        cases = (
+            (
+                "pgn.cancel_open",
+                FileWorkflowEvent(
+                    kind=FileWorkflowEventKind.PGN_OPEN_CANCELLED,
+                    action_id="pgn.open",
+                    focus_target="pgn-game-list",
+                ),
+                "Відкриття PGN скасовано",
+            ),
+            (
+                "pgn.cancel_save",
+                FileWorkflowEvent(
+                    kind=FileWorkflowEventKind.PGN_SAVED,
+                    action_id="pgn.save",
+                    focus_target="pgn-game-list",
+                    game_count=1,
+                ),
+                "PGN збережено",
+            ),
+        )
+        for action, terminal, expected in cases:
+            with self.subTest(action=action):
+                calls = []
+
+                def files(action_id, payload):
+                    calls.append((action_id, dict(payload)))
+                    return terminal
+
+                self.app.bind_files(files)
+                self.app.drain_events()
+
+                result = self.app._delegate(action, {})
+
+                self.assertIs(result, terminal)
+                self.assertEqual(calls, [(action, {})])
+                events = self.app.drain_events()
+                statuses = [event for event in events if event["kind"] == "status"]
+                self.assertEqual(len(statuses), 1)
+                self.assertIn(expected, statuses[0]["payload"]["announcement"])
 
     def test_pgn_save_preflight_and_postpublication_stale_messages_are_truthful(self):
         preflight = FileWorkflowEvent(
@@ -607,6 +1299,72 @@ class Version2ApplicationTests(unittest.TestCase):
         self.app.import_ui_ready(self.mailbox)
         self.assertEqual(ui.phase, LibraryImportPhase.COMPLETED)
 
+    def test_refused_close_reconciles_cooperatively_cancelled_import_ui(self):
+        class CancellableLibrary:
+            def __init__(self):
+                self.entered = threading.Event()
+                self.calls = 0
+
+            def import_games(self, *args, **kwargs):
+                self.calls += 1
+                if self.calls == 1:
+                    self.entered.set()
+                    cancel_check = kwargs["cancel_check"]
+                    while not cancel_check():
+                        threading.Event().wait(0.005)
+                raise LibraryImportCancelledError("cancelled for refused-close recovery")
+
+        library = CancellableLibrary()
+        recovered_files = Version2WindowsFileActionDelegate(
+            dialogs=self.dialogs,
+            get_pgn_session=lambda: self.app.session,
+            set_pgn_session=self.app.set_document,
+            import_services_factory=lambda: Version2ImportWorkerServices(
+                library,
+                None,
+                lambda: None,
+            ),
+            event_sink=self.mailbox,
+            next_delegate=lambda *_: None,
+        )
+        self.app._files = recovered_files
+        self.addCleanup(lambda: recovered_files.shutdown(timeout=5))
+
+        self.app.browser_command("library", "library.import")
+        self.assertTrue(library.entered.wait(2.0))
+        ui = self.app.library.projection.import_projection
+        self.assertEqual(ui.phase, LibraryImportPhase.RUNNING)
+
+        primary = OSError("training progress unavailable")
+        with patch.object(
+            self.app,
+            "save_training_progress",
+            side_effect=primary,
+        ):
+            with self.assertRaises(OSError) as caught:
+                self.app.shutdown(timeout=2.0)
+
+        self.assertIs(caught.exception, primary)
+        self.assertFalse(recovered_files.import_running)
+        self.assertGreater(self.mailbox.pending_count, 0)
+        self.assertEqual(ui.phase, LibraryImportPhase.RUNNING)
+        self.assertEqual(tuple(self.database.conn.execute("SELECT 1").fetchone()), (1,))
+
+        # Production recovery re-opens the UI pump and drains this retained
+        # mailbox terminal. Model that owner-thread delivery here: it must clear
+        # the stale RUNNING state instead of leaving future imports blocked.
+        self.app.import_ui_ready(self.mailbox)
+        self.assertEqual(ui.phase, LibraryImportPhase.CANCELLED)
+        self.assertEqual(self.mailbox.pending_count, 0)
+
+        retry = self.app._delegate("library.import", {})
+        self.assertIsInstance(retry, FileWorkflowEvent)
+        self.assertEqual(retry.kind, FileWorkflowEventKind.IMPORT_STARTED)
+        self.assertNotEqual(retry.error_code, "import_already_running")
+        self.assertTrue(recovered_files.wait_for_import(2.0))
+        self.app.import_ui_ready(self.mailbox)
+        self.assertEqual(ui.phase, LibraryImportPhase.CANCELLED)
+
     def test_failed_terminal_retires_structurally_valid_stale_observers(self):
         ui = self.app.library.projection.import_projection
         ui.prepare()
@@ -662,8 +1420,10 @@ class Version2ApplicationTests(unittest.TestCase):
         self.assertEqual(ui.snapshot(), before)
         self.assertEqual(self.mailbox.pending_count, 1)
         with self.app._observation_lock:
-            self.assertIs(self.app._progress, stale_progress)
-            self.assertIs(self.app._result, stale_result)
+            self.assertEqual(self.app._progress, stale_progress)
+            self.assertEqual(self.app._result, stale_result)
+            self.assertIsNot(self.app._progress, stale_progress)
+            self.assertIsNot(self.app._result, stale_result)
 
         self.app.import_ui_ready(self.mailbox)
 
@@ -1107,6 +1867,336 @@ class Version2ApplicationTests(unittest.TestCase):
         persisted = store.restore(key, self.app.reader.document)
         self.assertEqual(persisted.snapshot(), before)
         self.assertEqual(self.app.shell.current_route.route_id, "books")
+
+    def test_prepared_book_open_snapshots_roots_before_current_progress_writes(self):
+        candidate = self.root / "book-open-root-validation.md"
+        candidate.write_text("# Candidate\n\nRoot validation.\n", encoding="utf-8")
+        trusted = self.app.prepare_book_open(candidate)
+
+        class ActiveBookKey(str):
+            touched = False
+
+            def strip(self, *_args, **_kwargs):
+                type(self).touched = True
+                raise AssertionError("active Book key hook must not execute")
+
+        with patch.object(self.app, "save_training_progress") as save_training, patch.object(
+            self.app, "save_book_progress"
+        ) as save_book:
+            prepared = PreparedBookOpen(
+                ActiveBookKey(trusted.book_key),
+                trusted.document,
+                trusted.warnings,
+            )
+            with self.assertRaisesRegex(TypeError, "book key is invalid"):
+                self.app.commit_prepared_book_open(prepared)
+            save_training.assert_not_called()
+            save_book.assert_not_called()
+        self.assertFalse(ActiveBookKey.touched)
+
+        class ActiveDocument(BookDocument):
+            touched = False
+
+            def as_dict(self):
+                type(self).touched = True
+                raise AssertionError("active BookDocument hook must not execute")
+
+        active_document = ActiveDocument(title="Hostile candidate")
+        with patch.object(self.app, "save_training_progress") as save_training, patch.object(
+            self.app, "save_book_progress"
+        ) as save_book:
+            prepared = PreparedBookOpen(
+                trusted.book_key,
+                active_document,
+                trusted.warnings,
+            )
+            with self.assertRaisesRegex(TypeError, "document is invalid"):
+                self.app.commit_prepared_book_open(prepared)
+            save_training.assert_not_called()
+            save_book.assert_not_called()
+        self.assertFalse(ActiveDocument.touched)
+
+    def test_prepared_book_open_detaches_document_before_current_progress_writes(self):
+        candidate = self.root / "book-open-detached-document.md"
+        candidate.write_text("# Candidate\n\nStable source revision.\n", encoding="utf-8")
+        prepared = self.app.prepare_book_open(candidate)
+        source_document = prepared.document
+        original_blocks = len(source_document.blocks)
+
+        original_save_training = self.app.save_training_progress
+
+        def mutate_source_after_snapshot():
+            source_document.blocks.append(
+                Paragraph(
+                    text="Late authoring mutation",
+                    block_id="late-authoring-mutation",
+                    source_anchor="test:late",
+                )
+            )
+            return original_save_training()
+
+        with patch.object(
+            self.app,
+            "save_training_progress",
+            side_effect=mutate_source_after_snapshot,
+        ):
+            self.app.commit_prepared_book_open(prepared)
+
+        self.assertEqual(len(source_document.blocks), original_blocks + 1)
+        self.assertIsNot(self.app.reader.document, source_document)
+        self.assertEqual(len(self.app.reader.document.blocks), original_blocks)
+        self.assertEqual(self.app.book_key, prepared.book_key)
+        self.assertEqual(self.app.shell.current_route.route_id, "books")
+
+    def test_prepared_book_open_rejects_active_warnings_before_publication(self):
+        candidate = self.root / "book-open-active-warnings.md"
+        candidate.write_text("# Candidate\n\nSafe warning boundary.\n", encoding="utf-8")
+        trusted = self.app.prepare_book_open(candidate)
+        origin_route = self.app.shell.current_route.route_id
+        origin_focus = self.app._focus
+        origin_reader = self.app.reader
+        origin_books = self.app.books
+
+        class ActiveWarnings(tuple):
+            touched = False
+
+            def __len__(self):
+                type(self).touched = True
+                raise AssertionError("active warning container hook must not execute")
+
+            def __iter__(self):
+                type(self).touched = True
+                raise AssertionError("active warning container hook must not execute")
+
+        prepared = PreparedBookOpen(
+            trusted.book_key,
+            trusted.document,
+            ActiveWarnings(("warning",)),
+        )
+        with self.assertRaisesRegex(TypeError, "warnings are invalid"):
+            self.app.commit_prepared_book_open(prepared)
+
+        self.assertFalse(ActiveWarnings.touched)
+        self.assertEqual(self.app.shell.current_route.route_id, origin_route)
+        self.assertEqual(self.app._focus, origin_focus)
+        self.assertIs(self.app.reader, origin_reader)
+        self.assertIs(self.app.books, origin_books)
+        self.assertFalse(self.app.progress_store.has(trusted.book_key))
+
+        class ActiveWarning(str):
+            touched = False
+
+            def strip(self, *_args, **_kwargs):
+                type(self).touched = True
+                raise AssertionError("active warning text hook must not execute")
+
+        prepared = PreparedBookOpen(
+            trusted.book_key,
+            trusted.document,
+            (ActiveWarning("warning"),),
+        )
+        with self.assertRaisesRegex(TypeError, "warnings are invalid"):
+            self.app.commit_prepared_book_open(prepared)
+        self.assertFalse(ActiveWarning.touched)
+        self.assertFalse(self.app.progress_store.has(trusted.book_key))
+
+        forged = PreparedBookOpen(
+            trusted.book_key,
+            trusted.document,
+            ("forged warning",),
+        )
+        with patch.object(self.app, "save_training_progress") as save_training, patch.object(
+            self.app, "save_book_progress"
+        ) as save_book:
+            with self.assertRaisesRegex(TypeError, "warnings do not match"):
+                self.app.commit_prepared_book_open(forged)
+            save_training.assert_not_called()
+            save_book.assert_not_called()
+        self.assertFalse(self.app.progress_store.has(trusted.book_key))
+
+    def test_book_open_rejects_active_route_focus_before_candidate_publication(self):
+        candidate = self.root / "book-open-active-route-focus.md"
+        candidate.write_text(
+            "# Candidate\n\nRoute focus must be passive exact text.\n",
+            encoding="utf-8",
+        )
+        prepared = self.app.prepare_book_open(candidate)
+        self.app.shell.open_route("library")
+        self.app._focus = "library-search-player"
+        origin_route = self.app.shell.current_route.route_id
+        origin_focus = self.app._focus
+        origin_reader = self.app.reader
+        origin_key = self.app.book_key
+        origin_workflow = self.app.book_workflow
+        origin_delegate = self.app.book_delegate
+        origin_books = self.app.books
+        original_open_route = self.app.shell.open_route
+
+        class ActiveFocus(str):
+            touched = False
+
+            def __eq__(self, _other):
+                type(self).touched = True
+                raise AssertionError("active focus equality must not execute")
+
+            def startswith(self, *_args, **_kwargs):
+                type(self).touched = True
+                raise AssertionError("active focus prefix hook must not execute")
+
+        def open_with_active_focus(route_id):
+            original_open_route(route_id)
+            return ActiveFocus("book-reader")
+
+        with patch.object(
+            self.app.shell,
+            "open_route",
+            side_effect=open_with_active_focus,
+        ), patch.object(self.app, "_persist_book_progress") as persist_candidate:
+            with self.assertRaisesRegex(TypeError, "Book route focus is invalid"):
+                self.app.commit_prepared_book_open(prepared)
+
+        persist_candidate.assert_not_called()
+        self.assertFalse(ActiveFocus.touched)
+        self.assertEqual(self.app.shell.current_route.route_id, origin_route)
+        self.assertEqual(self.app._focus, origin_focus)
+        self.assertIs(self.app.reader, origin_reader)
+        self.assertEqual(self.app.book_key, origin_key)
+        self.assertIs(self.app.book_workflow, origin_workflow)
+        self.assertIs(self.app.book_delegate, origin_delegate)
+        self.assertIs(self.app.books, origin_books)
+        self.assertFalse(self.app.progress_store.has(prepared.book_key))
+
+    def test_book_open_rejects_nontext_route_focus_before_candidate_publication(self):
+        candidate = self.root / "book-open-nontext-route-focus.md"
+        candidate.write_text(
+            "# Candidate\n\nNon-text focus must not publish.\n",
+            encoding="utf-8",
+        )
+        prepared = self.app.prepare_book_open(candidate)
+        self.app.shell.open_route("library")
+        self.app._focus = "library-search-player"
+        origin_route = self.app.shell.current_route.route_id
+        origin_focus = self.app._focus
+        origin_reader = self.app.reader
+        origin_books = self.app.books
+        original_open_route = self.app.shell.open_route
+
+        def open_with_nontext_focus(route_id):
+            original_open_route(route_id)
+            return object()
+
+        with patch.object(
+            self.app.shell,
+            "open_route",
+            side_effect=open_with_nontext_focus,
+        ), patch.object(self.app, "_persist_book_progress") as persist_candidate:
+            with self.assertRaisesRegex(TypeError, "Book route focus is invalid"):
+                self.app.commit_prepared_book_open(prepared)
+
+        persist_candidate.assert_not_called()
+        self.assertEqual(self.app.shell.current_route.route_id, origin_route)
+        self.assertEqual(self.app._focus, origin_focus)
+        self.assertIs(self.app.reader, origin_reader)
+        self.assertIs(self.app.books, origin_books)
+        self.assertFalse(self.app.progress_store.has(prepared.book_key))
+
+    def test_book_open_focus_failure_rolls_back_before_owner_or_progress_publication(self):
+        candidate = self.root / "book-open-focus-failure.md"
+        candidate.write_text(
+            "# Candidate\n\nFocus publication must remain transactional.\n",
+            encoding="utf-8",
+        )
+        prepared = self.app.prepare_book_open(candidate)
+        self.app.shell.open_route("library")
+        self.app._focus = "library-search-player"
+        origin_route = self.app.shell.current_route.route_id
+        origin_focus = self.app._focus
+        origin_reader = self.app.reader
+        origin_key = self.app.book_key
+        origin_workflow = self.app.book_workflow
+        origin_delegate = self.app.book_delegate
+        origin_books = self.app.books
+
+        class FocusAbort(BaseException):
+            pass
+
+        primary = FocusAbort("PRIMARY_BOOK_FOCUS_PUBLICATION")
+        original_record_focus = self.app.shell.record_focus
+
+        def reject_candidate_focus(focus_id):
+            if focus_id == "book-block-0":
+                raise primary
+            return original_record_focus(focus_id)
+
+        with patch.object(
+            self.app.shell,
+            "record_focus",
+            side_effect=reject_candidate_focus,
+        ):
+            with self.assertRaises(FocusAbort) as caught:
+                self.app.commit_prepared_book_open(prepared)
+
+        self.assertIs(caught.exception, primary)
+        self.assertEqual(self.app.shell.current_route.route_id, origin_route)
+        self.assertEqual(self.app._focus, origin_focus)
+        self.assertIs(self.app.reader, origin_reader)
+        self.assertEqual(self.app.book_key, origin_key)
+        self.assertIs(self.app.book_workflow, origin_workflow)
+        self.assertIs(self.app.book_delegate, origin_delegate)
+        self.assertIs(self.app.books, origin_books)
+        self.assertFalse(self.app.progress_store.has(prepared.book_key))
+
+    def test_book_open_persistence_failure_keeps_primary_when_route_rollback_aborts(self):
+        candidate = self.root / "book-open-primary-failure.md"
+        candidate.write_text(
+            "# Candidate\n\nThis candidate must remain staged on failure.\n",
+            encoding="utf-8",
+        )
+        prepared = self.app.prepare_book_open(candidate)
+        self.app.shell.open_route("library")
+        self.app._focus = "library-search-player"
+        origin_route = self.app.shell.current_route.route_id
+        origin_focus = self.app._focus
+        origin_reader = self.app.reader
+        origin_books = self.app.books
+        primary = OSError("PRIMARY_BOOK_PROGRESS_PUBLICATION")
+        original_open_route = self.app.shell.open_route
+
+        class RollbackAbort(BaseException):
+            pass
+
+        def route_then_abort_rollback(route_id):
+            if route_id == "books":
+                return original_open_route(route_id)
+            if route_id == origin_route:
+                raise RollbackAbort("SECONDARY_ROUTE_ROLLBACK")
+            return original_open_route(route_id)
+
+        with (
+            patch.object(
+                self.app,
+                "_persist_book_progress",
+                side_effect=primary,
+            ),
+            patch.object(
+                self.app.shell,
+                "open_route",
+                side_effect=route_then_abort_rollback,
+            ),
+            patch.object(
+                self.app.shell,
+                "_restore_presentation_state",
+                side_effect=RollbackAbort("SECONDARY_CHECKPOINT_ROLLBACK"),
+            ),
+        ):
+            with self.assertRaises(OSError) as caught:
+                self.app.commit_prepared_book_open(prepared)
+
+        self.assertIs(caught.exception, primary)
+        self.assertIs(self.app.reader, origin_reader)
+        self.assertIs(self.app.books, origin_books)
+        self.assertEqual(self.app._focus, origin_focus)
+        self.assertFalse(self.app.progress_store.has(prepared.book_key))
 
     def test_book_open_binds_native_focus_to_rendered_current_block(self):
         book = self.root / "initial-book-focus.md"
@@ -2714,6 +3804,50 @@ class Version2ApplicationTests(unittest.TestCase):
             ],
             [{"kind": "route", "payload": {"route_id": "books"}}],
         )
+
+    def test_browser_command_rejects_active_payload_key_before_lookup_hooks(self):
+        class ActiveKey(str):
+            touched = False
+
+            def __hash__(self):
+                type(self).touched = True
+                return super().__hash__()
+
+            def __eq__(self, other):
+                type(self).touched = True
+                return super().__eq__(other)
+
+        key = ActiveKey("publication_protocol")
+        payload = {key: "ack-v1", "request_id": 1}
+        ActiveKey.touched = False
+        route_before = self.app.shell.current_route.route_id
+
+        result = self.app.browser_command("shell", "screen.library", payload)
+
+        self.assertEqual(result["kind"], "error")
+        self.assertFalse(ActiveKey.touched)
+        self.assertEqual(self.app.shell.current_route.route_id, route_before)
+
+    def test_book_payload_authorization_rejects_active_key_before_lookup_hooks(self):
+        class ActiveKey(str):
+            touched = False
+
+            def __hash__(self):
+                type(self).touched = True
+                return super().__hash__()
+
+            def __eq__(self, other):
+                type(self).touched = True
+                return super().__eq__(other)
+
+        key = ActiveKey("presentation_token")
+        payload = {key: "0" * 64}
+        ActiveKey.touched = False
+
+        with self.assertRaisesRegex(ValueError, "payload keys must be exact text"):
+            self.app._authorize_book_browser_payload(payload)
+
+        self.assertFalse(ActiveKey.touched)
 
     def test_browser_path_payload_rejected_before_native_picker(self):
         self.dialogs.open_pgn = lambda: self.fail("must not open dialog")

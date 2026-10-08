@@ -2,10 +2,16 @@ name: Current Launcher Report and Data Identity
 
 on:
   pull_request:
+    branches:
+      - converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
     paths:
       - 'packaging/portable_launcher.c'
       - 'tests/test_portable_launcher_contract.py'
+      - 'tests/test_portable_launcher_window_readiness.py'
+      - 'tests/test_portable_launcher_core_guard.py'
+      - '.github/workflows/p0-user-oneclick-portable-launcher.yml'
       - '.github/workflows/current-launcher-report-data-identity.yml'
+      - '.github/workflows/portable-launch-report-reparse-safety.yml'
   workflow_dispatch:
 
 permissions:
@@ -16,10 +22,11 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  CURRENT_PRODUCT: e8d745bf2db4a47a30114037de310f4e98c1b0c0
-  CURRENT_PRODUCT_REF: converge/current-gametree-resume-discard-recovery-20261005-ooxple7
-  LAUNCHER_BLOB: 8089546cbc73cb35e3e8e50a4f28e7c9f175d15c
-  CONTRACT_TEST_BLOB: a2ddfc7980cd8be2797f978bbbef9cb660b635ce
+  CURRENT_PRODUCT_REF: converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
+  LAUNCHER_BLOB: 1a1365c7c5bab6f6463414c9ff9c2aa2f1037e06
+  CONTRACT_TEST_BLOB: 3cdd10f060e2713639210ce246524c0c2b448a19
+  P0_LAUNCHER_WORKFLOW_BLOB: 00b8dfb79dcd5e9457bef6934303a2a8e145600f
+  WINDOW_READINESS_TEST_BLOB: ee81983f4a94f6bec5e246c2ebac638b4eff5d10
   CORE_GUARD_TEST_BLOB: 410fddf296caf40e273c9916c078cc22a193876f
 
 jobs:
@@ -36,6 +43,7 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Reject superseded pull-request candidate
         if: ${{ github.event_name == 'pull_request' }}
@@ -55,23 +63,29 @@ jobs:
         env:
           EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
           EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          git fetch --no-tags origin "refs/heads/$CURRENT_PRODUCT_REF"
+          live_product_base="$(git rev-parse FETCH_HEAD)"
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             test "$EVENT_BASE_REF" = "$CURRENT_PRODUCT_REF"
+            test "$EVENT_BASE_SHA" = "$live_product_base" || {
+              printf 'LAUNCHER_PARENT_MOVED event=%s live=%s\n' "$EVENT_BASE_SHA" "$live_product_base" >&2
+              exit 1
+            }
           fi
-          git fetch --no-tags origin "refs/heads/$CURRENT_PRODUCT_REF"
-          live_product="$(git rev-parse FETCH_HEAD)"
-          test "$live_product" = "$CURRENT_PRODUCT" || {
-            printf 'CURRENT_LAUNCHER_PRODUCT_MOVED expected=%s live=%s\n' "$CURRENT_PRODUCT" "$live_product" >&2
-            exit 1
-          }
-          test "$(git merge-base "$CURRENT_PRODUCT" HEAD)" = "$CURRENT_PRODUCT"
-          git diff --check "$CURRENT_PRODUCT"...HEAD
-          changed="$(git diff --name-only "$CURRENT_PRODUCT"...HEAD | sort)"
+          product_base="$live_product_base"
+          test -n "$product_base"
+          git merge-base --is-ancestor "$product_base" HEAD
+          test "$(git merge-base "$product_base" HEAD)" = "$product_base"
+          git diff --check "$product_base"...HEAD
+          changed="$(git diff --name-only "$product_base"...HEAD | sort)"
           expected="$(printf '%s\n' \
             '.github/workflows/current-launcher-report-data-identity.yml' \
+            '.github/workflows/p0-user-oneclick-portable-launcher.yml' \
+            '.github/workflows/portable-launch-report-reparse-safety.yml' \
             'packaging/portable_launcher.c' \
             'tests/test_portable_launcher_contract.py' | sort)"
           test "$changed" = "$expected" || {
@@ -80,6 +94,8 @@ jobs:
           }
           test "$(git rev-parse HEAD:packaging/portable_launcher.c)" = "$LAUNCHER_BLOB"
           test "$(git rev-parse HEAD:tests/test_portable_launcher_contract.py)" = "$CONTRACT_TEST_BLOB"
+          test "$(git rev-parse HEAD:.github/workflows/p0-user-oneclick-portable-launcher.yml)" = "$P0_LAUNCHER_WORKFLOW_BLOB"
+          test "$(git rev-parse HEAD:tests/test_portable_launcher_window_readiness.py)" = "$WINDOW_READINESS_TEST_BLOB"
           test "$(git rev-parse HEAD:tests/test_portable_launcher_core_guard.py)" = "$CORE_GUARD_TEST_BLOB"
           echo 'CURRENT_LAUNCHER_IDENTITY_GEOMETRY=PASS'
 
@@ -106,22 +122,34 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Prove exact live Product parent
         shell: bash
         env:
           EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
           EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          git fetch --no-tags origin "refs/heads/$CURRENT_PRODUCT_REF"
+          live_product_base="$(git rev-parse FETCH_HEAD)"
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             test "$EVENT_BASE_REF" = "$CURRENT_PRODUCT_REF"
+            test "$EVENT_BASE_SHA" = "$live_product_base" || {
+              printf 'LAUNCHER_PARENT_MOVED event=%s live=%s\n' "$EVENT_BASE_SHA" "$live_product_base" >&2
+              exit 1
+            }
           fi
-          git fetch --no-tags origin "refs/heads/$CURRENT_PRODUCT_REF"
-          test "$(git rev-parse FETCH_HEAD)" = "$CURRENT_PRODUCT"
+          product_base="$live_product_base"
+          test -n "$product_base"
+          git merge-base --is-ancestor "$product_base" HEAD
+          test "$(git merge-base "$product_base" HEAD)" = "$product_base"
           test "$(git rev-parse HEAD:packaging/portable_launcher.c)" = "$LAUNCHER_BLOB"
           test "$(git rev-parse HEAD:tests/test_portable_launcher_contract.py)" = "$CONTRACT_TEST_BLOB"
+          test "$(git rev-parse HEAD:.github/workflows/p0-user-oneclick-portable-launcher.yml)" = "$P0_LAUNCHER_WORKFLOW_BLOB"
+          test "$(git rev-parse HEAD:tests/test_portable_launcher_window_readiness.py)" = "$WINDOW_READINESS_TEST_BLOB"
 
       - name: Build native x64 launcher without CRT
         shell: cmd

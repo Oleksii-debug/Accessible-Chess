@@ -218,6 +218,7 @@ DEFAULT_ACTIONS: tuple[ActionDefinition, ...] = (
     ActionDefinition("board.activate_alternative", BindingContext.BOARD, "Activate board square alternative", "Space"),
     ActionDefinition("board.exit", BindingContext.BOARD, "Exit board interaction", "Escape"),
     ActionDefinition("board.current", BindingContext.BOARD, "Current square", "O"),
+    ActionDefinition("board.read_fen", BindingContext.BOARD, "Read current FEN"),
     ActionDefinition("board.last_captured", BindingContext.BOARD, "Last captured piece", "C"),
     ActionDefinition("board.last_move", BindingContext.BOARD, "Last move", "L"),
     ActionDefinition("board.my_clock", BindingContext.BOARD, "My clock", "T"),

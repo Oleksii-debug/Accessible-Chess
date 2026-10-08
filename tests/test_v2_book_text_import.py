@@ -520,6 +520,479 @@ Starting board
             import_text_book("text", source_name="book.rtf", source_format="rtf")
         self.assertEqual(format_error.exception.code, BookTextImportErrorCode.UNSUPPORTED_FORMAT)
 
+    def test_markdown_list_inline_image_keeps_list_semantics_and_alt_text(self) -> None:
+        result = import_text_book(
+            "- Before ![Board](images/board.png) after\n- Plain item\n",
+            source_name="list-image.md",
+            source_format="markdown",
+        )
+        lists = [
+            block for block in result.document.blocks
+            if isinstance(block, ListBlock)
+        ]
+        self.assertEqual(len(lists), 1)
+        self.assertEqual(lists[0].items, ["Before Board after", "Plain item"])
+        self.assertFalse(
+            any(
+                isinstance(block, Note) and block.note_type == "image"
+                for block in result.document.blocks
+            )
+        )
+        self.assertTrue(
+            any(
+                "image inside a list item" in warning
+                and "accessible list-item text" in warning
+                for warning in result.warnings
+            )
+        )
+
+    def test_markdown_invalid_raw_destination_space_stays_literal(self) -> None:
+        source = "Before ![Board](foo bar) after\n"
+        result = import_text_book(
+            source,
+            source_name="invalid-space-image-destination.md",
+            source_format="markdown",
+        )
+        paragraphs = [
+            block.text
+            for block in result.document.blocks
+            if isinstance(block, Paragraph)
+        ]
+        self.assertEqual(paragraphs, [source.strip()])
+        self.assertFalse(
+            any(
+                isinstance(block, Note) and block.note_type == "image"
+                for block in result.document.blocks
+            )
+        )
+
+    def test_markdown_quoted_image_title_may_contain_closing_parenthesis(self) -> None:
+        result = import_text_book(
+            'Before ![Board](asset.png "study ) title") after\n',
+            source_name="quoted-title-image.md",
+            source_format="markdown",
+        )
+        paragraphs = [
+            block.text
+            for block in result.document.blocks
+            if isinstance(block, Paragraph)
+        ]
+        notes = [
+            block.text
+            for block in result.document.blocks
+            if isinstance(block, Note) and block.note_type == "image"
+        ]
+        self.assertEqual(paragraphs, ["Before", "after"])
+        self.assertEqual(notes, ["Board"])
+        self.assertNotIn("title", " ".join(paragraphs))
+
+    def test_markdown_angle_destination_may_contain_space_and_parenthesis(self) -> None:
+        result = import_text_book(
+            "Before ![Board](<assets/study ) board.png>) after\n",
+            source_name="angle-image-destination.md",
+            source_format="markdown",
+        )
+        paragraphs = [
+            block.text
+            for block in result.document.blocks
+            if isinstance(block, Paragraph)
+        ]
+        notes = [
+            block.text
+            for block in result.document.blocks
+            if isinstance(block, Note) and block.note_type == "image"
+        ]
+        self.assertEqual(paragraphs, ["Before", "after"])
+        self.assertEqual(notes, ["Board"])
+
+    def test_markdown_empty_image_destination_keeps_accessible_alt_text(self) -> None:
+        result = import_text_book(
+            "Before ![Board]() after\n",
+            source_name="empty-image-destination.md",
+            source_format="markdown",
+        )
+        paragraphs = [
+            block.text
+            for block in result.document.blocks
+            if isinstance(block, Paragraph)
+        ]
+        notes = [
+            block.text
+            for block in result.document.blocks
+            if isinstance(block, Note) and block.note_type == "image"
+        ]
+        self.assertEqual(paragraphs, ["Before", "after"])
+        self.assertEqual(notes, ["Board"])
+
+    def test_markdown_empty_image_destination_in_list_keeps_list_semantics(self) -> None:
+        result = import_text_book(
+            "- Before ![Board]() after\n- Plain\n",
+            source_name="empty-image-list-destination.md",
+            source_format="markdown",
+        )
+        lists = [
+            block
+            for block in result.document.blocks
+            if isinstance(block, ListBlock)
+        ]
+        self.assertEqual(len(lists), 1)
+        self.assertEqual(lists[0].items, ["Before Board after", "Plain"])
+        self.assertTrue(
+            any("image inside a list item" in warning for warning in result.warnings)
+        )
+
+    def test_markdown_decorative_empty_image_destination_does_not_leak_markup(self) -> None:
+        result = import_text_book(
+            "Before ![]() after\n",
+            source_name="empty-decorative-image-destination.md",
+            source_format="markdown",
+        )
+        paragraphs = [
+            block.text
+            for block in result.document.blocks
+            if isinstance(block, Paragraph)
+        ]
+        self.assertEqual(paragraphs, ["Before", "after"])
+        self.assertFalse(
+            any(
+                isinstance(block, Note) and block.note_type == "image"
+                for block in result.document.blocks
+            )
+        )
+
+    def test_markdown_inline_image_balanced_destination_does_not_leak_url_text(self) -> None:
+        result = import_text_book(
+            "Before ![Board](images/(study)/board.png) after\n",
+            source_name="balanced-image.md",
+            source_format="markdown",
+        )
+        paragraphs = [
+            block.text for block in result.document.blocks
+            if isinstance(block, Paragraph)
+        ]
+        notes = [
+            block for block in result.document.blocks
+            if isinstance(block, Note) and block.note_type == "image"
+        ]
+        self.assertEqual(paragraphs, ["Before", "after"])
+        self.assertEqual([block.text for block in notes], ["Board"])
+        self.assertFalse(
+            any(
+                "images/" in block.text
+                for block in result.document.blocks
+                if hasattr(block, "text")
+            )
+        )
+
+    def test_markdown_list_image_balanced_destination_keeps_only_alt_text(self) -> None:
+        result = import_text_book(
+            "- Before ![Board](images/(study)/board.png) after\n"
+            "- ![Escaped](images/board\\).png) tail\n",
+            source_name="balanced-list-image.md",
+            source_format="markdown",
+        )
+        lists = [
+            block for block in result.document.blocks
+            if isinstance(block, ListBlock)
+        ]
+        self.assertEqual(len(lists), 1)
+        self.assertEqual(
+            lists[0].items,
+            ["Before Board after", "Escaped tail"],
+        )
+        self.assertTrue(
+            any("image inside a list item" in warning for warning in result.warnings)
+        )
+
+    def test_markdown_balanced_image_destination_does_not_change_reading_identity(self) -> None:
+        first = import_text_book(
+            "Before ![Board](images/(study-a)/board.png) after\n",
+            source_name="identity-a.md",
+            source_format="markdown",
+        )
+        second = import_text_book(
+            "Before ![Board](other/(study-b)/board.png) after\n",
+            source_name="identity-b.md",
+            source_format="markdown",
+        )
+        first_blocks = [
+            block for block in first.document.blocks
+            if isinstance(block, (Paragraph, Note))
+        ]
+        second_blocks = [
+            block for block in second.document.blocks
+            if isinstance(block, (Paragraph, Note))
+        ]
+        self.assertEqual(
+            [(type(block).__name__, block.text, block.block_id) for block in first_blocks],
+            [(type(block).__name__, block.text, block.block_id) for block in second_blocks],
+        )
+
+    def test_markdown_escaped_closing_bracket_in_image_alt_stays_accessible(self) -> None:
+        result = import_text_book(
+            "Before ![Board \\] study](assets/(round)/board.png) after\n",
+            source_name="escaped-alt.md",
+            source_format="markdown",
+        )
+        paragraphs = [
+            block.text for block in result.document.blocks
+            if isinstance(block, Paragraph)
+        ]
+        notes = [
+            block.text for block in result.document.blocks
+            if isinstance(block, Note) and block.note_type == "image"
+        ]
+        self.assertEqual(paragraphs, ["Before", "after"])
+        self.assertEqual(notes, ["Board ] study"])
+        self.assertNotIn("assets/", " ".join(paragraphs + notes))
+
+    def test_markdown_list_escaped_bracket_alt_preserves_list_semantics(self) -> None:
+        result = import_text_book(
+            "- Study ![File \\] rank](assets/board.png) now\n",
+            source_name="escaped-alt-list.md",
+            source_format="markdown",
+        )
+        lists = [
+            block for block in result.document.blocks
+            if isinstance(block, ListBlock)
+        ]
+        self.assertEqual(len(lists), 1)
+        self.assertEqual(lists[0].items, ["Study File ] rank now"])
+
+    def test_markdown_unclosed_balanced_image_destination_stays_literal(self) -> None:
+        source = "Before ![Board](images/(study)/board.png after\n"
+        result = import_text_book(
+            source,
+            source_name="unclosed-image.md",
+            source_format="markdown",
+        )
+        paragraphs = [
+            block.text for block in result.document.blocks
+            if isinstance(block, Paragraph)
+        ]
+        self.assertEqual(paragraphs, [source.strip()])
+        self.assertFalse(
+            any(
+                isinstance(block, Note) and block.note_type == "image"
+                for block in result.document.blocks
+            )
+        )
+
+    def test_markdown_ordered_list_inline_images_keep_one_canonical_list(self) -> None:
+        result = import_text_book(
+            "3. ![First board](one.png) opening\n"
+            "9. middle ![Second board](two.png)\n"
+            "1. final\n",
+            source_name="ordered-list-images.md",
+            source_format="markdown",
+        )
+        lists = [
+            block for block in result.document.blocks
+            if isinstance(block, ListBlock)
+        ]
+        self.assertEqual(len(lists), 1)
+        self.assertTrue(lists[0].ordered)
+        self.assertEqual(lists[0].start, 3)
+        self.assertEqual(
+            lists[0].items,
+            ["First board opening", "middle Second board", "final"],
+        )
+
+    def test_markdown_list_literal_image_syntax_stays_literal(self) -> None:
+        result = import_text_book(
+            "- \\![escaped](asset.png) stays literal\n"
+            "- `![code](asset.png)` stays code text\n",
+            source_name="literal-list-images.md",
+            source_format="markdown",
+        )
+        lists = [
+            block for block in result.document.blocks
+            if isinstance(block, ListBlock)
+        ]
+        self.assertEqual(len(lists), 1)
+        self.assertEqual(
+            lists[0].items,
+            [
+                "\\![escaped](asset.png) stays literal",
+                "`![code](asset.png)` stays code text",
+            ],
+        )
+        self.assertFalse(
+            any("image inside a list item" in warning for warning in result.warnings)
+        )
+
+    def test_markdown_ordered_list_uses_first_marker_as_canonical_start(self) -> None:
+        result = import_text_book(
+            "3. Third item\n9. Fourth item\n0. Fifth item\n",
+            source_name="authored-numbering.md",
+            source_format="markdown",
+        )
+        lists = [
+            block for block in result.document.blocks
+            if isinstance(block, ListBlock)
+        ]
+        self.assertEqual(len(lists), 1)
+        self.assertTrue(lists[0].ordered)
+        self.assertEqual(lists[0].start, 3)
+        self.assertEqual(
+            lists[0].items,
+            ["Third item", "Fourth item", "Fifth item"],
+        )
+
+    def test_markdown_ordered_list_parenthesis_delimiter_preserves_one_list(self) -> None:
+        result = import_text_book(
+            "7) Seven\n1) Eight\n99) Nine\n",
+            source_name="parenthesized-numbering.md",
+            source_format="markdown",
+        )
+        lists = [
+            block for block in result.document.blocks
+            if isinstance(block, ListBlock)
+        ]
+        self.assertEqual(len(lists), 1)
+        self.assertEqual(lists[0].start, 7)
+        self.assertEqual(lists[0].items, ["Seven", "Eight", "Nine"])
+
+    def test_markdown_ordered_delimiter_change_starts_new_semantic_list(self) -> None:
+        result = import_text_book(
+            "1. First\n9. Second\n3) Third\n8) Fourth\n",
+            source_name="ordered-delimiter-boundary.md",
+            source_format="markdown",
+        )
+        lists = [
+            block for block in result.document.blocks
+            if isinstance(block, ListBlock)
+        ]
+        self.assertEqual(
+            [(block.start, block.items) for block in lists],
+            [
+                (1, ["First", "Second"]),
+                (3, ["Third", "Fourth"]),
+            ],
+        )
+
+    def test_markdown_unordered_marker_change_starts_new_semantic_list(self) -> None:
+        result = import_text_book(
+            "- Dash one\n- Dash two\n+ Plus one\n+ Plus two\n* Star one\n",
+            source_name="unordered-marker-boundary.md",
+            source_format="markdown",
+        )
+        lists = [
+            block for block in result.document.blocks
+            if isinstance(block, ListBlock)
+        ]
+        self.assertEqual(
+            [block.items for block in lists],
+            [
+                ["Dash one", "Dash two"],
+                ["Plus one", "Plus two"],
+                ["Star one"],
+            ],
+        )
+        self.assertTrue(all(not block.ordered for block in lists))
+
+    def test_markdown_nonpositive_first_ordered_marker_remains_readable_fallback(self) -> None:
+        result = import_text_book(
+            "0. Cannot be canonical start\n1. Valid list start\n",
+            source_name="nonpositive-first-marker.md",
+            source_format="markdown",
+        )
+        paragraphs = [
+            block.text for block in result.document.blocks
+            if isinstance(block, Paragraph)
+        ]
+        lists = [
+            block for block in result.document.blocks
+            if isinstance(block, ListBlock)
+        ]
+        self.assertEqual(paragraphs, ["0. Cannot be canonical start"])
+        self.assertEqual(len(lists), 1)
+        self.assertEqual(lists[0].start, 1)
+        self.assertEqual(lists[0].items, ["Valid list start"])
+        self.assertTrue(
+            any("non-positive start" in warning for warning in result.warnings)
+        )
+
+    def test_markdown_nonpositive_ordered_fallback_keeps_image_alt_only(self) -> None:
+        result = import_text_book(
+            "0. Before ![Board](secret/position.png) after\n"
+            "1. Valid list item\n",
+            source_name="nonpositive-image-list.md",
+            source_format="markdown",
+        )
+        paragraphs = [
+            block.text for block in result.document.blocks
+            if isinstance(block, Paragraph)
+        ]
+        lists = [
+            block for block in result.document.blocks
+            if isinstance(block, ListBlock)
+        ]
+        self.assertEqual(paragraphs, ["0. Before Board after"])
+        self.assertNotIn("secret/position.png", " ".join(paragraphs))
+        self.assertEqual(len(lists), 1)
+        self.assertEqual(lists[0].start, 1)
+        self.assertEqual(lists[0].items, ["Valid list item"])
+        self.assertTrue(
+            any(
+                "unrepresentable list item" in warning
+                for warning in result.warnings
+            )
+        )
+    def test_markdown_ordered_list_reimport_keeps_stable_semantic_target(self) -> None:
+        source = "4. Alpha\n40. Beta\n2. Gamma\n"
+        first = import_text_book(
+            source,
+            source_name="ordered-progress.md",
+            source_format="markdown",
+        )
+        second = import_text_book(
+            source,
+            source_name="ordered-progress.md",
+            source_format="markdown",
+        )
+        first_list = next(
+            block for block in first.document.blocks
+            if isinstance(block, ListBlock)
+        )
+        second_list = next(
+            block for block in second.document.blocks
+            if isinstance(block, ListBlock)
+        )
+        self.assertEqual(first_list.block_id, second_list.block_id)
+        self.assertEqual(first_list.start, 4)
+        self.assertEqual(first_list.items, ["Alpha", "Beta", "Gamma"])
+
+    def test_markdown_ordered_list_progress_restores_after_reimport(self) -> None:
+        source = "4. Alpha\n40. Beta\n2. Gamma\n"
+        first = import_text_book(
+            source,
+            source_name="ordered-progress-restore.md",
+            source_format="markdown",
+        )
+        first_index = next(
+            index
+            for index, block in enumerate(first.document.blocks)
+            if isinstance(block, ListBlock)
+        )
+        first_reader = BookReader(first.document)
+        first_reader.go_to(first_index)
+        snapshot = first_reader.snapshot()
+
+        second = import_text_book(
+            source,
+            source_name="ordered-progress-restore.md",
+            source_format="markdown",
+        )
+        restored = BookReader.restore_snapshot(second.document, snapshot)
+        location = restored.location()
+        restored_block = second.document.blocks[location.index]
+
+        self.assertIsInstance(restored_block, ListBlock)
+        self.assertEqual(location.block_id, restored_block.block_id)
+        self.assertEqual(restored_block.start, 4)
+        self.assertEqual(restored_block.items, ["Alpha", "Beta", "Gamma"])
+
     def test_markdown_lists_keep_semantics_with_up_to_three_leading_spaces(self) -> None:
         cases = (
             (" - First item\n - Second item\n", False, None, ["First item", "Second item"]),
@@ -602,6 +1075,122 @@ Starting board
                     any("list indentation" in warning for warning in result.warnings)
                 )
 
+    def test_markdown_nested_list_image_fallback_keeps_alt_not_destination(self) -> None:
+        result = import_text_book(
+            "- Parent\n"
+            "  - Child ![Board position](private/board.png) after\n"
+            "- Sibling\n",
+            source_name="nested-image-list.md",
+            source_format="markdown",
+        )
+        lists = [
+            block for block in result.document.blocks
+            if isinstance(block, ListBlock)
+        ]
+        paragraphs = [
+            block.text for block in result.document.blocks
+            if isinstance(block, Paragraph)
+        ]
+        self.assertEqual(
+            [(block.items, block.ordered, block.start) for block in lists],
+            [(["Parent"], False, None), (["Sibling"], False, None)],
+        )
+        self.assertEqual(paragraphs, ["- Child Board position after"])
+        self.assertNotIn("private/board.png", " ".join(paragraphs))
+        self.assertTrue(
+            any(
+                "unrepresentable list item" in warning
+                and "accessible text" in warning
+                for warning in result.warnings
+            )
+        )
+
+    def test_markdown_deep_indented_list_image_fallback_keeps_marker_and_alt(self) -> None:
+        for prefix in ("    ", "\t"):
+            with self.subTest(prefix=repr(prefix)):
+                result = import_text_book(
+                    f"{prefix}4) Before ![Tactic](assets/tactic.svg) after\n",
+                    source_name="deep-image-list.md",
+                    source_format="markdown",
+                )
+                self.assertFalse(
+                    any(isinstance(block, ListBlock) for block in result.document.blocks)
+                )
+                paragraphs = [
+                    block.text
+                    for block in result.document.blocks
+                    if isinstance(block, Paragraph)
+                ]
+                self.assertEqual(paragraphs, ["4) Before Tactic after"])
+                self.assertNotIn("assets/tactic.svg", " ".join(paragraphs))
+                self.assertTrue(
+                    any("list indentation" in warning for warning in result.warnings)
+                )
+                self.assertTrue(
+                    any(
+                        "unrepresentable list item" in warning
+                        for warning in result.warnings
+                    )
+                )
+
+    def test_markdown_decorative_image_in_list_does_not_leak_destination(self) -> None:
+        result = import_text_book(
+            "- Before ![](private/decorative.png) after\n",
+            source_name="decorative-list-image.md",
+            source_format="markdown",
+        )
+        lists = [
+            block for block in result.document.blocks
+            if isinstance(block, ListBlock)
+        ]
+        self.assertEqual(len(lists), 1)
+        self.assertEqual(lists[0].items, ["Before after"])
+        self.assertNotIn("private/decorative.png", lists[0].items[0])
+        self.assertTrue(
+            any(
+                "image inside a list item" in warning
+                for warning in result.warnings
+            )
+        )
+
+    def test_markdown_decorative_image_in_prose_does_not_leak_destination(self) -> None:
+        result = import_text_book(
+            "Before ![](private/decorative.png) after\n",
+            source_name="decorative-prose-image.md",
+            source_format="markdown",
+        )
+        paragraphs = [
+            block.text for block in result.document.blocks
+            if isinstance(block, Paragraph)
+        ]
+        self.assertEqual(paragraphs, ["Before", "after"])
+        self.assertNotIn("private/decorative.png", " ".join(paragraphs))
+        self.assertFalse(
+            any(
+                isinstance(block, Note) and block.note_type == "image"
+                for block in result.document.blocks
+            )
+        )
+    def test_markdown_list_fallback_does_not_invent_images_from_literals(self) -> None:
+        result = import_text_book(
+            "    - \\![escaped](asset.png) and `![code](asset.png)`\n",
+            source_name="deep-literal-image-list.md",
+            source_format="markdown",
+        )
+        paragraphs = [
+            block.text for block in result.document.blocks
+            if isinstance(block, Paragraph)
+        ]
+        self.assertEqual(
+            paragraphs,
+            ["- \\![escaped](asset.png) and `![code](asset.png)`"],
+        )
+        self.assertFalse(
+            any(
+                "unrepresentable list item" in warning
+                for warning in result.warnings
+            )
+        )
     def test_markdown_lists_are_semantic_while_block_quote_loss_remains_explicit(self) -> None:
         source = '''# Notes
 

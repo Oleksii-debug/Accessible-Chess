@@ -1,0 +1,95 @@
+name: Current Final Product Presentation Safety
+
+on:
+  pull_request:
+    branches:
+      - converge/book-reader-malformed-library-authority-20261006-c2mbezb111
+    paths:
+      - 'web/version2_final_product_bootstrap.js'
+      - 'tests/js/version2_final_product_event_drain_serialization_test.js'
+      - '.github/workflows/current-final-product-event-drain-parity.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-final-product-presentation-safety-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  FINAL_PRODUCT_BOOTSTRAP_BLOB: 2df923a90e65ce95cf0e9b764a48a487ee4868f9
+  EVENT_DRAIN_TEST_BLOB: c661c871bd45b707f1241b51fb37dd933af2e057
+
+jobs:
+  presentation-safety:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove exact serial geometry and blobs
+        shell: bash
+        env:
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          expected="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
+          test "$(git rev-parse HEAD)" = "$expected"
+
+          base_ref="${EVENT_BASE_REF:-converge/book-reader-malformed-library-authority-20261006-c2mbezb111}"
+          git fetch --no-tags origin "+refs/heads/$base_ref:refs/remotes/origin/$base_ref"
+          live_base="$(git rev-parse "refs/remotes/origin/$base_ref")"
+          if [ -n "${EVENT_BASE_SHA:-}" ]; then
+            test "$EVENT_BASE_SHA" = "$live_base"
+          fi
+          test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+          git diff --check "$live_base"...HEAD
+
+          changed="$(git diff --name-only "$live_base"...HEAD | sort)"
+          expected_paths="$(printf '%s\n' \
+            '.github/workflows/current-final-product-event-drain-parity.yml' \
+            'tests/js/version2_final_product_event_drain_serialization_test.js' \
+            'web/version2_final_product_bootstrap.js' | sort)"
+          test "$changed" = "$expected_paths"
+          test "$(git hash-object web/version2_final_product_bootstrap.js)" = "$FINAL_PRODUCT_BOOTSTRAP_BLOB"
+          test "$(git hash-object tests/js/version2_final_product_event_drain_serialization_test.js)" = "$EVENT_DRAIN_TEST_BLOB"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: JavaScript syntax
+        run: node --check web/version2_final_product_bootstrap.js
+
+      - name: Canonical release presentation regression
+        run: node tests/js/version2_release_bootstrap_dom_test.js
+
+      - name: Final-product presentation safety regression
+        run: node tests/js/version2_final_product_event_drain_serialization_test.js
+
+      - name: Semantic selection executable
+        run: node tests/p0_semantic_document_copy_executable.js
+
+      - name: Semantic copy and Books presenter contracts
+        run: >-
+          python -m unittest -v
+          tests.test_p0_semantic_document_copy
+          tests.test_book_presenter_passive_ingress
+
+      - name: Core selftest
+        run: python -m acs.selftest

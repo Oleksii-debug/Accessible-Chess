@@ -44,6 +44,7 @@ FULL_PRODUCT_ACTIONS: tuple[ActionDefinition, ...] = (
     _action("pgn.cancel_open", BindingContext.DOCUMENT, "Cancel PGN Open"),
     _action("pgn.save", BindingContext.DOCUMENT, "Save PGN"),
     _action("pgn.save_as", BindingContext.DOCUMENT, "Save PGN As"),
+    _action("pgn.new_from_position", BindingContext.BOARD, "Create PGN from current position"),
     _action("pgn.cancel_save", BindingContext.DOCUMENT, "Cancel PGN Save"),
     _action("pgn.open_on_board", BindingContext.DOCUMENT, "Review PGN on board"),
     _action("pgn.return", BindingContext.DOCUMENT, "Return to PGN"),
@@ -54,6 +55,10 @@ FULL_PRODUCT_ACTIONS: tuple[ActionDefinition, ...] = (
     _action("pgn.select_item", BindingContext.DOCUMENT, "Select GameTree item"),
     _action("pgn.previous_game", BindingContext.DOCUMENT, "Previous PGN game"),
     _action("pgn.next_game", BindingContext.DOCUMENT, "Next PGN game"),
+    _action("pgn.search", BindingContext.DOCUMENT, "Search PGN"),
+    _action("pgn.append_moves", BindingContext.DOCUMENT, "Continue current PGN line"),
+    _action("pgn.tag_edit", BindingContext.DOCUMENT, "Edit PGN tag"),
+    _action("pgn.tag_delete", BindingContext.DOCUMENT, "Delete PGN tag"),
     _action("pgn.previous_item", BindingContext.PGN_TREE, "Previous GameTree item", "Up"),
     _action("pgn.next_item", BindingContext.PGN_TREE, "Next GameTree item", "Down"),
     _action("pgn.parent_variation", BindingContext.PGN_TREE, "Return to parent variation", "Left"),
@@ -62,19 +67,31 @@ FULL_PRODUCT_ACTIONS: tuple[ActionDefinition, ...] = (
     _action("pgn.last_item", BindingContext.PGN_TREE, "Last GameTree item", "End"),
     _action("pgn.comment_edit", BindingContext.DOCUMENT, "Add or edit GameTree comment"),
     _action("pgn.comment_delete", BindingContext.DOCUMENT, "Delete GameTree comment"),
+    _action("pgn.nag_edit", BindingContext.DOCUMENT, "Edit move NAG annotations"),
+    _action("pgn.variation_add", BindingContext.DOCUMENT, "Add variation or subvariation"),
+    _action("pgn.variation_move_up", BindingContext.DOCUMENT, "Move variation earlier"),
+    _action("pgn.variation_move_down", BindingContext.DOCUMENT, "Move variation later"),
     _action("pgn.variation_delete", BindingContext.DOCUMENT, "Delete variation"),
     _action("pgn.variation_promote", BindingContext.DOCUMENT, "Promote variation"),
     _action("pgn.copy_selection", BindingContext.DOCUMENT, "Copy selected game or variation"),
     _action("pgn.export_selection", BindingContext.DOCUMENT, "Export selected game or variation"),
+    _action("position.copy_fen", BindingContext.BOARD, "Copy current FEN"),
     _action("library.search", BindingContext.DATABASE, "Search library"),
     _action("library.reset_filters", BindingContext.DATABASE, "Reset library filters"),
     _action("library.next_page", BindingContext.DATABASE, "Next library page"),
     _action("library.previous_page", BindingContext.DATABASE, "Previous library page"),
     _action("library.previous_result", BindingContext.LIBRARY_RESULTS, "Previous library result", "Up"),
     _action("library.next_result", BindingContext.LIBRARY_RESULTS, "Next library result", "Down"),
+    _action("library.first_result", BindingContext.LIBRARY_RESULTS, "First library result", "Home"),
+    _action("library.last_result", BindingContext.LIBRARY_RESULTS, "Last library result", "End"),
     _action("library.open_game", BindingContext.LIBRARY_RESULTS, "Open selected library game", "Enter"),
     _action("library.import", BindingContext.DATABASE, "Import into library"),
-    _action("library.cancel_import", BindingContext.DATABASE, "Cancel library import"),
+    _action(
+        "library.cancel_import",
+        BindingContext.GLOBAL,
+        "Cancel library operation",
+        "Ctrl+Shift+X",
+    ),
     _action("library.export", BindingContext.DATABASE, "Export from library"),
     _action("book.open", BindingContext.BOOK_READER, "Open book"),
     _action("book.cancel_open", BindingContext.BOOK_READER, "Cancel book open"),
@@ -160,6 +177,10 @@ FULL_PRODUCT_ACTIONS: tuple[ActionDefinition, ...] = (
     _action("toolbar.first_control", BindingContext.TOOLBAR, "First toolbar control", "Home"),
     _action("toolbar.last_control", BindingContext.TOOLBAR, "Last toolbar control", "End"),
     _action("profile.save_name", BindingContext.PROFILE_DIALOG, "Save local profile name", "Enter"),
+    _action("data.backup", BindingContext.GLOBAL, "Back up user data"),
+    _action("data.restore", BindingContext.GLOBAL, "Restore user-data backup"),
+    _action("data.export", BindingContext.GLOBAL, "Export my user data"),
+    _action("data.import", BindingContext.GLOBAL, "Import my user data"),
     _action("classes.new", BindingContext.DOCUMENT, "New class"),
     _action("classes.open", BindingContext.DOCUMENT, "Open class"),
     _action("classes.student_open", BindingContext.DOCUMENT, "Open student"),
@@ -168,6 +189,9 @@ FULL_PRODUCT_ACTIONS: tuple[ActionDefinition, ...] = (
     _action("remote.connect", BindingContext.DOCUMENT, "Connect shared lesson"),
     _action("remote.reconnect", BindingContext.DOCUMENT, "Reconnect shared lesson"),
     _action("remote.leave", BindingContext.DOCUMENT, "Leave shared lesson"),
+    _action("release.status", BindingContext.GLOBAL, "Release and update status"),
+    _action("release.check_update", BindingContext.GLOBAL, "Check for verified updates"),
+    _action("release.apply_update", BindingContext.GLOBAL, "Install verified update"),
 )
 
 
@@ -219,12 +243,16 @@ class FullProductActionRouter:
         delegate: Callable[[str, Mapping[str, object]], Any],
         *,
         registry: ActionRegistry | None = None,
+        security_guard: Callable[[str], None] | None = None,
     ) -> None:
         if not callable(delegate):
             raise TypeError("full-product action delegate must be callable")
+        if security_guard is not None and not callable(security_guard):
+            raise TypeError("security_guard must be callable or None")
         self._shell = shell
         self._delegate = delegate
         self._registry = registry or build_full_product_action_registry()
+        self._security_guard = security_guard
 
     @property
     def registry(self) -> ActionRegistry:
@@ -237,6 +265,8 @@ class FullProductActionRouter:
         *,
         current_focus_id: str = "",
     ) -> ActionDispatchResult:
+        if self._security_guard is not None:
+            self._security_guard(action_id)
         self._registry.definition(action_id)
         self._shell._assert_action_dispatch_ready()
         route_id = _ROUTE_BY_ACTION.get(action_id)

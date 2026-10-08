@@ -1,0 +1,118 @@
+name: Current FEN Direct Read Convergence
+
+on:
+  pull_request:
+    branches:
+      - converge/markdown-semantic-reading-20261006-c2mbezb112
+    paths:
+      - '.github/workflows/current-fen-direct-read-convergence.yml'
+      - 'acs/full_product_native_menu.py'
+      - 'acs/ui_keymap_adapter.py'
+      - 'acs/version2_application.py'
+      - 'tests/test_full_product_native_menu.py'
+      - 'tests/test_ui_keymap_adapter.py'
+      - 'tests/test_version2_application.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-fen-direct-read-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  NATIVE_MENU_BLOB: d355af240c264908a87af05754c305d255b4bdcc
+  UI_KEYMAP_BLOB: a88af4361a4b51b2e51a570b8e11c48fe2a709a9
+  APPLICATION_BLOB: 1e5633e8e9fd6b68dfa667ed01eaf8def4ec5a52
+  NATIVE_MENU_TEST_BLOB: be12ad69f1a483b07437572c0b7e6ec9de78a72b
+  UI_KEYMAP_TEST_BLOB: 01274c078075fe721d38c446712bcafb59b88de7
+  APPLICATION_TEST_BLOB: f271a2eab104b083bc5d005b0e2334735b4eb558
+
+jobs:
+  exact-head:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prove exact geometry and latest FEN blobs
+        shell: bash
+        env:
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          expected="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
+          test "$(git rev-parse HEAD)" = "$expected"
+          base_ref="${EVENT_BASE_REF:-converge/markdown-semantic-reading-20261006-c2mbezb112}"
+          git fetch --no-tags origin "+refs/heads/$base_ref:refs/remotes/origin/$base_ref"
+          live_base="$(git rev-parse "refs/remotes/origin/$base_ref")"
+          if [ -n "${EVENT_BASE_SHA:-}" ]; then
+            test "$EVENT_BASE_SHA" = "$live_base"
+          fi
+          test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+          git diff --check "$live_base"...HEAD
+          changed="$(git diff --name-only "$live_base"...HEAD | sort)"
+          expected_paths="$(printf '%s\n' \
+            '.github/workflows/current-fen-direct-read-convergence.yml' \
+            'acs/full_product_native_menu.py' \
+            'acs/ui_keymap_adapter.py' \
+            'acs/version2_application.py' \
+            'tests/test_full_product_native_menu.py' \
+            'tests/test_ui_keymap_adapter.py' \
+            'tests/test_version2_application.py' | sort)"
+          test "$changed" = "$expected_paths"
+          test "$(git rev-parse HEAD:acs/full_product_native_menu.py)" = "$NATIVE_MENU_BLOB"
+          test "$(git rev-parse HEAD:acs/ui_keymap_adapter.py)" = "$UI_KEYMAP_BLOB"
+          test "$(git rev-parse HEAD:acs/version2_application.py)" = "$APPLICATION_BLOB"
+          test "$(git rev-parse HEAD:tests/test_full_product_native_menu.py)" = "$NATIVE_MENU_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_ui_keymap_adapter.py)" = "$UI_KEYMAP_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "$APPLICATION_TEST_BLOB"
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile FEN direct-read surfaces
+        run: >-
+          python -m compileall -q
+          acs/full_product_native_menu.py
+          acs/ui_keymap_adapter.py
+          acs/version2_application.py
+          tests/test_full_product_native_menu.py
+          tests/test_ui_keymap_adapter.py
+          tests/test_version2_application.py
+
+      - name: Execute direct-read, copy and PGN-from-position journeys
+        run: >-
+          python -m unittest -v
+          tests.test_version2_application
+          tests.test_full_product_native_menu
+          tests.test_ui_keymap_adapter
+          tests.test_version2_release_ui
+          tests.test_dev2_fen_atomicity
+          tests.test_fen_input_budget_current
+          tests.test_position_editor
+          tests.test_position_text_authority
+          tests.test_pgn_document_new_game_position_integrity
+          tests.test_pgn_document_new_game_position_workflow
+
+      - name: Execute adjacent whole-product composition
+        run: >-
+          python -m unittest -v
+          tests.test_dev1_full_product_webview_adapter
+          tests.test_version2_final_product_composition
+
+      - name: Core selftest
+        run: python -m acs.selftest

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from enum import Enum
 import re
 
+from .epd import looks_like_epd, parse_epd
 from .keybindings import ActionRegistry, BindingContext
 from .position_editor import (
     MAX_COORDINATE_POSITION_CHARS,
@@ -61,6 +62,13 @@ def parse_move_entry(
             MoveEntryKind.POSITION,
             raw,
             position=parse_piece_coordinate_position(stripped, turn=position_turn),
+        )
+
+    if looks_like_epd(stripped):
+        return MoveEntryIntent(
+            MoveEntryKind.POSITION,
+            raw,
+            position=parse_epd(stripped).position,
         )
 
     actions = ActionRegistry() if registry is None else registry

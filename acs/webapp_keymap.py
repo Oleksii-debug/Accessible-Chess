@@ -261,6 +261,11 @@ class KeymapAwareAccessibleChessAPI(_BaseKeymapAwareAccessibleChessAPI):
         board = self._board_query_board()
         service = self._board_query_service()
 
+        if action == "board.read_fen":
+            fen = board.fen()
+            result = self._ok(("FEN позиції: " if self.lang == "uk" else "Position FEN: ") + fen)
+            result["fen"] = fen
+            return result
         if action == "board.material":
             return self._ok(self._material_message(service))
         if action == "board.last_move":

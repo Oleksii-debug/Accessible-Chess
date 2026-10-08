@@ -337,6 +337,108 @@ class W5NativeFormClosingDirtyPgnTests(unittest.TestCase):
         self.assertEqual(trace.count("import-cancel-join"), 1)
         self.assertEqual(trace.count("database-close"), 1)
 
+    def test_progress_failure_refuses_form_close_recovers_workers_and_retry_closes(self) -> None:
+        class RecoverableLifecycleFiles(_LifecycleFiles):
+            def __init__(self, trace) -> None:
+                super().__init__(trace)
+                self.closed = False
+                self.resume_calls = 0
+
+            def shutdown(self, timeout=None):
+                result = super().shutdown(timeout=timeout)
+                if result is True:
+                    self.closed = True
+                return result
+
+            def resume_after_refused_shutdown(self):
+                self.resume_calls += 1
+                if not self.closed:
+                    return False
+                self.closed = False
+                return True
+
+        class RetryProgress:
+            def __init__(self, trace) -> None:
+                self.trace = trace
+                self.calls = 0
+
+            def save(self, key, reader) -> None:
+                self.calls += 1
+                self.trace.append(("book-progress-save", key, reader))
+                if self.calls == 1:
+                    raise OSError("FIRST_PROGRESS_FAILURE")
+
+        application, trace = _lifecycle_application(dirty=False)
+        files = RecoverableLifecycleFiles(trace)
+        progress = RetryProgress(trace)
+        application._files = files
+        application.progress_store = progress
+        owner = _OwnerForm()
+        dialogs = _Dialogs(True)
+        _install_unsaved_pgn_close_guard(application, owner, dialogs)
+
+        first = owner.request_close("first-progress-failure")
+
+        self.assertTrue(first.Cancel)
+        self.assertEqual(dialogs.calls, 0)
+        self.assertEqual(files.timeouts, [None])
+        self.assertEqual(files.resume_calls, 1)
+        self.assertFalse(files.closed)
+        self.assertEqual(progress.calls, 1)
+        self.assertEqual(application.database.closed, 0)
+        self.assertFalse(
+            getattr(application, "_native_close_shutdown_complete", False)
+        )
+        self.assertIsInstance(application._native_close_shutdown_error, OSError)
+
+        second = owner.request_close("retry-after-progress-recovery")
+
+        self.assertFalse(second.Cancel)
+        self.assertEqual(dialogs.calls, 0)
+        self.assertEqual(files.timeouts, [None, None])
+        self.assertEqual(files.resume_calls, 1)
+        self.assertTrue(files.closed)
+        self.assertEqual(progress.calls, 2)
+        self.assertEqual(application.database.closed, 1)
+        self.assertEqual(trace.count("import-cancel-join"), 2)
+        self.assertEqual(trace.count("database-close"), 1)
+        self.assertTrue(application._native_close_shutdown_complete)
+        self.assertIsNone(application._native_close_shutdown_error)
+        self.assertIsNone(application._native_close_resume_error)
+
+    def test_pre_shutdown_failure_diagnostic_is_cleared_by_successful_retry(self) -> None:
+        application, trace = _lifecycle_application(dirty=False)
+        owner = _OwnerForm()
+        dialogs = _Dialogs(True)
+        attempts = []
+
+        def before_shutdown(_application):
+            attempts.append("prepare")
+            if len(attempts) == 1:
+                raise RuntimeError("FIRST_RESUME_PUBLICATION_FAILURE")
+
+        _install_unsaved_pgn_close_guard(
+            application,
+            owner,
+            dialogs,
+            before_shutdown=before_shutdown,
+        )
+
+        first = owner.request_close("first-resume-publication-failure")
+        self.assertTrue(first.Cancel)
+        self.assertEqual(trace, [])
+        self.assertIsInstance(application._native_close_resume_error, RuntimeError)
+        self.assertIsNone(application._native_close_shutdown_error)
+
+        second = owner.request_close("second-resume-publication-success")
+        self.assertFalse(second.Cancel)
+        self.assertEqual(attempts, ["prepare", "prepare"])
+        self.assertEqual(trace.count("import-cancel-join"), 1)
+        self.assertEqual(trace.count("database-close"), 1)
+        self.assertIsNone(application._native_close_resume_error)
+        self.assertIsNone(application._native_close_shutdown_error)
+        self.assertTrue(application._native_close_shutdown_complete)
+
     def test_duplicate_guard_installation_is_rejected(self) -> None:
         application, _ = _lifecycle_application(dirty=False)
         owner = _OwnerForm()

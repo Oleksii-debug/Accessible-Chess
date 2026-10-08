@@ -28,6 +28,7 @@ ROTATION_STORE_SCHEMA_VERSION = 1
 MAX_ROTATION_STORE_BYTES = 1_000_000
 MAX_WIRE_INTEGER = (1 << 53) - 1
 _ENVELOPE_FIELDS = frozenset({"schema_version", "plan", "state"})
+_PLATFORM_PATH_TYPE = type(Path())
 
 
 class ChildCoachingRotationStoreError(ValueError):
@@ -91,6 +92,39 @@ def _canonical_bytes(plan: RotationPlan, state: RotationState) -> bytes:
     return data
 
 
+def _reachable_revision(plan: RotationPlan, state: RotationState) -> int:
+    """Return the only revision reachable through the canonical transition API."""
+
+    if state.phase is RotationPhase.PLANNED:
+        return 0
+
+    # start_rotation() publishes ACTIVE round zero at revision 1. Every completed
+    # prior round contributes one advance, while every prior pair-play round also
+    # contributes its mandatory bind before that advance.
+    expected = 1 + state.round_index
+    expected += sum(
+        1
+        for item in plan.rounds[: state.round_index]
+        if item.activity is RotationActivity.PAIR_PLAY
+    )
+
+    item = plan.rounds[state.round_index]
+    if state.phase is RotationPhase.COMPLETED:
+        # Completion is the final round's advance. A final pair-play round must
+        # also have been bound before that advance, even though completion clears
+        # the opaque batch reference from durable state.
+        expected += 1
+        if item.activity is RotationActivity.PAIR_PLAY:
+            expected += 1
+    elif (
+        item.activity is RotationActivity.PAIR_PLAY
+        and state.pair_play_batch_ref is not None
+    ):
+        # The current pair-play binding is itself one canonical transition.
+        expected += 1
+    return expected
+
+
 def _validate_pair(plan: RotationPlan, state: RotationState) -> None:
     if type(plan) is not RotationPlan or type(state) is not RotationState:
         raise TypeError("rotation store requires RotationPlan and RotationState")
@@ -110,9 +144,14 @@ def _validate_pair(plan: RotationPlan, state: RotationState) -> None:
             raise ChildCoachingRotationStoreError(
                 "pair-play reference is attached to a non-pair-play round"
             )
-    elif state.round_index >= len(plan.rounds):
+    elif state.round_index != len(plan.rounds) - 1:
         raise ChildCoachingRotationStoreError(
-            "completed rotation round index is outside plan bounds"
+            "completed rotation must reference the final plan round"
+        )
+
+    if state.revision != _reachable_revision(plan, state):
+        raise ChildCoachingRotationStoreError(
+            "rotation state revision is unreachable for the plan"
         )
 
 
@@ -151,9 +190,13 @@ class ChildCoachingRotationStore:
     """Atomic file store with exact file-level compare-and-swap."""
 
     def __init__(self, path: str | Path) -> None:
-        if not isinstance(path, (str, Path)):
-            raise TypeError("path must be a filesystem path")
-        self.path = Path(path).expanduser()
+        if type(path) is str:
+            candidate = Path(path)
+        elif type(path) is _PLATFORM_PATH_TYPE:
+            candidate = path
+        else:
+            raise TypeError("path must be built-in text or an exact platform Path")
+        self.path = candidate.expanduser()
         if str(self.path) in {"", "."}:
             raise ValueError("path must identify a rotation session file")
         self._lock_path = self.path.with_name(f".{self.path.name}.lock")
@@ -200,6 +243,15 @@ class ChildCoachingRotationStore:
                 "invalid rotation plan/state payload"
             ) from exc
         _validate_pair(plan, state)
+        canonical = _canonical_bytes(plan, state)
+        if data != canonical:
+            # Durable file revision is the SHA-256 of the exact bytes. Accepting
+            # semantically equivalent alternate JSON encodings would create more
+            # than one CAS generation for the same logical rotation state and
+            # let lexical aliases bypass the canonical wire contract.
+            raise ChildCoachingRotationStoreError(
+                "rotation store bytes are not canonical"
+            )
         return LoadedRotationSession(
             plan=plan,
             state=state,
@@ -246,6 +298,18 @@ class ChildCoachingRotationStore:
                         temporary = None
                         raise
 
+                    # The lock coordinates canonical writers, but the file can
+                    # still be changed by a non-cooperating process while this
+                    # writer prepares/fsyncs its private temp. Re-check the exact
+                    # target generation immediately before publication so stale
+                    # prepared state never silently replaces a newer/foreign one.
+                    latest = self._read_current()
+                    latest_revision = None if latest is None else _revision(latest)
+                    if latest_revision != expected:
+                        raise ChildCoachingRotationStoreConflictError(
+                            "rotation session changed since the caller last observed it"
+                        )
+
                     os.replace(temporary, self.path)
                     temporary = None
                     _sync_directory(self.path.parent)
@@ -257,4 +321,3 @@ class ChildCoachingRotationStore:
             raise ChildCoachingRotationStoreBusyError(
                 "rotation store is busy"
             ) from exc
-

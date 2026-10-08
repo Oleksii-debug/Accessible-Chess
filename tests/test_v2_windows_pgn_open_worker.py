@@ -661,8 +661,11 @@ class Version2WindowsPgnOpenWorkerTests(unittest.TestCase):
                 encoding="utf-8",
             )
             previous = PgnDocumentSession.open(previous_path)
+            owner_async_events: list[FileWorkflowEvent] = []
             controller, _, poster, events, session_box, publications = self._controller(
-                source, previous=previous
+                source,
+                previous=previous,
+                owner_async_events=owner_async_events,
             )
 
             with mock.patch(
@@ -680,13 +683,16 @@ class Version2WindowsPgnOpenWorkerTests(unittest.TestCase):
                     FileWorkflowEventKind.PGN_OPEN_CANCELLING,
                     [event.kind for event in events],
                 )
-                event_count = len(events)
+                self.assertEqual(events, [started])
+                self.assertEqual(owner_async_events, [])
                 poster.drain()
-                self.assertEqual(len(events), event_count)
+                self.assertEqual(events, [started])
+                self.assertEqual(owner_async_events, [])
 
             self.assertIs(session_box["value"], previous)
             self.assertEqual(publications, [])
-            self.assertEqual(events[-1], terminal)
+            self.assertEqual(events, [started])
+            self.assertEqual(owner_async_events, [])
             self.assertFalse(controller.pgn_open_running)
 
     def test_late_cancel_after_worker_success_resolves_before_owner_drain(self) -> None:
@@ -699,8 +705,11 @@ class Version2WindowsPgnOpenWorkerTests(unittest.TestCase):
                 encoding="utf-8",
             )
             previous = PgnDocumentSession.open(previous_path)
+            owner_async_events: list[FileWorkflowEvent] = []
             controller, _, poster, events, session_box, publications = self._controller(
-                source, previous=previous
+                source,
+                previous=previous,
+                owner_async_events=owner_async_events,
             )
 
             started = controller("pgn.open", {})
@@ -719,9 +728,11 @@ class Version2WindowsPgnOpenWorkerTests(unittest.TestCase):
             self.assertEqual(publications, [])
             self.assertFalse(controller.pgn_open_running)
 
-            event_count = len(events)
+            self.assertEqual(events, [started])
+            self.assertEqual(owner_async_events, [])
             poster.drain()
-            self.assertEqual(len(events), event_count)
+            self.assertEqual(events, [started])
+            self.assertEqual(owner_async_events, [])
             self.assertIs(session_box["value"], previous)
 
     def test_import_cannot_overlap_pgn_open_worker(self) -> None:

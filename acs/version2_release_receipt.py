@@ -33,6 +33,7 @@ _SHA40_RE = re.compile(r"^[0-9a-f]{40}$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _SAFE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._ -]{0,255}$")
 _MAX_ID = (1 << 63) - 1
+_PLATFORM_PATH_TYPE = type(Path())
 _RECEIPT_FIELDS = frozenset(
     {
         "schema_version",
@@ -77,12 +78,23 @@ class Version2ReleaseReceipt:
     checksums_verified: int
 
     def to_json(self) -> str:
+        validated = _validated_receipt_instance(self)
         return json.dumps(
-            asdict(self),
+            asdict(validated),
             ensure_ascii=False,
             sort_keys=True,
             separators=(",", ":"),
         ) + "\n"
+
+
+def _passive_receipt_path(value: str | Path, *, label: str) -> Path:
+    """Accept only passive path controls before receipt filesystem work."""
+
+    if type(value) is _PLATFORM_PATH_TYPE:
+        return value
+    if type(value) is str:
+        return Path(value)
+    raise TypeError(f"{label} must be exact str or platform Path")
 
 
 def _positive_id(value: int, *, label: str) -> int:
@@ -143,17 +155,69 @@ def _same_file_identity(left: os.stat_result, right: os.stat_result) -> bool:
             getattr(right, "st_ino", None),
         )
         values = left_identity + right_identity
-        if any(value in (None, 0) for value in values):
+        if not all(type(value) is int and value > 0 for value in values):
             return False
         return left_identity == right_identity
 
 
+def _stable_change_metadata(info: os.stat_result) -> tuple[int, ...] | None:
+    """Return platform-reliable mutation metadata for one receipt snapshot."""
+
+    mtime_ns = getattr(info, "st_mtime_ns", None)
+    if type(mtime_ns) is not int or mtime_ns < 0:
+        return None
+    if os.name == "nt":
+        return (mtime_ns,)
+
+    ctime_ns = getattr(info, "st_ctime_ns", None)
+    if type(ctime_ns) is not int or ctime_ns < 0:
+        return None
+    return mtime_ns, ctime_ns
+
+
 def _same_file_snapshot(left: os.stat_result, right: os.stat_result) -> bool:
-    """Compare path/handle identity plus content-relevant receipt metadata."""
-    return bool(
-        _same_file_identity(left, right)
-        and int(left.st_size) == int(right.st_size)
-        and getattr(left, "st_mtime_ns", None) == getattr(right, "st_mtime_ns", None)
+    """Compare one stable receipt snapshot without accepting missing metadata."""
+
+    if not _same_file_identity(left, right):
+        return False
+    left_size = getattr(left, "st_size", None)
+    right_size = getattr(right, "st_size", None)
+    if (
+        type(left_size) is not int
+        or type(right_size) is not int
+        or left_size < 0
+        or right_size < 0
+        or left_size != right_size
+    ):
+        return False
+    left_change = _stable_change_metadata(left)
+    right_change = _stable_change_metadata(right)
+    return left_change is not None and left_change == right_change
+
+
+def _same_publication_snapshot(left: os.stat_result, right: os.stat_result) -> bool:
+    """Compare receipt content continuity across one hard-link namespace change."""
+
+    if not _same_file_identity(left, right):
+        return False
+    left_size = getattr(left, "st_size", None)
+    right_size = getattr(right, "st_size", None)
+    if (
+        type(left_size) is not int
+        or type(right_size) is not int
+        or left_size < 0
+        or right_size < 0
+        or left_size != right_size
+    ):
+        return False
+    left_mtime = getattr(left, "st_mtime_ns", None)
+    right_mtime = getattr(right, "st_mtime_ns", None)
+    return (
+        type(left_mtime) is int
+        and type(right_mtime) is int
+        and left_mtime >= 0
+        and right_mtime >= 0
+        and left_mtime == right_mtime
     )
 
 
@@ -207,6 +271,15 @@ def _receipt_from_mapping(payload: object) -> Version2ReleaseReceipt:
     if type(payload["workflow_path"]) is not str or payload["workflow_path"] != CANONICAL_W5_WORKFLOW:
         raise Version2ReleaseReceiptError("release receipt workflow identity mismatch")
 
+    inventory_files = _positive_id(payload["inventory_files"], label="inventory_files")
+    checksums_verified = _positive_id(
+        payload["checksums_verified"], label="checksums_verified"
+    )
+    if checksums_verified != inventory_files - 1:
+        raise Version2ReleaseReceiptError(
+            "release receipt checksum coverage does not match inventory"
+        )
+
     return Version2ReleaseReceipt(
         schema_version=RELEASE_RECEIPT_SCHEMA_VERSION,
         product="Accessible Chess",
@@ -224,11 +297,9 @@ def _receipt_from_mapping(payload: object) -> Version2ReleaseReceipt:
         integration_sha=_sha40(payload["integration_sha"], label="integration_sha"),
         package_sha256=_sha256(payload["package_sha256"], label="package_sha256"),
         inventory_sha256=_sha256(payload["inventory_sha256"], label="inventory_sha256"),
-        inventory_files=_positive_id(payload["inventory_files"], label="inventory_files"),
+        inventory_files=inventory_files,
         total_bytes=_positive_id(payload["total_bytes"], label="total_bytes"),
-        checksums_verified=_positive_id(
-            payload["checksums_verified"], label="checksums_verified"
-        ),
+        checksums_verified=checksums_verified,
     )
 
 
@@ -265,7 +336,7 @@ def read_version2_release_receipt(
 ) -> Version2ReleaseReceipt:
     """Read one bounded, byte-canonical receipt from one stable file identity."""
 
-    path = Path(receipt_path)
+    path = _passive_receipt_path(receipt_path, label="receipt_path")
     before = _safe_receipt_lstat(path)
     if not stat.S_ISREG(before.st_mode):
         raise Version2ReleaseReceiptError("release receipt must be a regular file")
@@ -357,22 +428,24 @@ def build_version2_release_receipt(
             "canonical package preflight returned an empty inventory"
         )
 
-    return Version2ReleaseReceipt(
-        schema_version=RELEASE_RECEIPT_SCHEMA_VERSION,
-        product="Accessible Chess",
-        repository=REPOSITORY_FULL_NAME,
-        workflow_path=CANONICAL_W5_WORKFLOW,
-        workflow_run_id=run_id,
-        workflow_run_attempt=run_attempt,
-        qualification_head_sha=head_sha,
-        artifact_id=action_artifact_id,
-        artifact_name=safe_artifact_name,
-        integration_sha=report.integration_sha,
-        package_sha256=report.archive_sha256,
-        inventory_sha256=_inventory_digest(report.inventory),
-        inventory_files=len(report.inventory),
-        total_bytes=report.total_bytes,
-        checksums_verified=report.checksums_verified,
+    return _validated_receipt_instance(
+        Version2ReleaseReceipt(
+            schema_version=RELEASE_RECEIPT_SCHEMA_VERSION,
+            product="Accessible Chess",
+            repository=REPOSITORY_FULL_NAME,
+            workflow_path=CANONICAL_W5_WORKFLOW,
+            workflow_run_id=run_id,
+            workflow_run_attempt=run_attempt,
+            qualification_head_sha=head_sha,
+            artifact_id=action_artifact_id,
+            artifact_name=safe_artifact_name,
+            integration_sha=report.integration_sha,
+            package_sha256=report.archive_sha256,
+            inventory_sha256=_inventory_digest(report.inventory),
+            inventory_files=len(report.inventory),
+            total_bytes=report.total_bytes,
+            checksums_verified=report.checksums_verified,
+        )
     )
 
 
@@ -438,7 +511,7 @@ def write_version2_release_receipt(
     """
 
     validated_receipt = _validated_receipt_instance(receipt)
-    path = Path(output_path)
+    path = _passive_receipt_path(output_path, label="output_path")
     if path.name in {"", ".", ".."}:
         raise Version2ReleaseReceiptError("output_path must name a file")
 
@@ -524,7 +597,7 @@ def write_version2_release_receipt(
                     cleanup_staging = False
 
                 if (
-                    not _same_file_snapshot(staged, after_link_handle)
+                    not _same_publication_snapshot(staged, after_link_handle)
                     or not staging_still_owned
                     or not stat.S_ISREG(published_info.st_mode)
                     or _is_reparse(published_info)
@@ -583,6 +656,38 @@ def write_version2_release_receipt(
             and cleanup_staging
         ):
             _remove_private_staging_file(staging, staging_identity)
+
+    if not publication_accepted or staging_identity is None:
+        raise Version2ReleaseReceiptError(
+            "release receipt publication did not reach an accepted state"
+        )
+
+    # Staging cleanup happens after the durability barrier and can race with a
+    # concurrent writer through the shared canonical inode. Re-read the exact
+    # canonical pathname only after cleanup, require that it still identifies
+    # this invocation's filesystem object, and require exact semantic bytes.
+    try:
+        final_info = _safe_receipt_lstat(path)
+        if (
+            not stat.S_ISREG(final_info.st_mode)
+            or _is_reparse(final_info)
+            or not _same_file_identity(staging_identity, final_info)
+        ):
+            raise Version2ReleaseReceiptError(
+                "release receipt canonical pathname changed after staging cleanup"
+            )
+        if read_version2_release_receipt(path) != validated_receipt:
+            raise Version2ReleaseReceiptError(
+                "release receipt bytes changed after staging cleanup"
+            )
+        final_after = _safe_receipt_lstat(path)
+        if not _same_file_snapshot(final_info, final_after):
+            raise Version2ReleaseReceiptError(
+                "release receipt changed after final readback"
+            )
+    except Version2ReleaseReceiptError:
+        _remove_private_staging_file(path, staging_identity)
+        raise
 
 
 def _parser() -> argparse.ArgumentParser:

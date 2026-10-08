@@ -37,7 +37,7 @@ jobs:
     timeout-minutes: 20
     env:
       EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
-      SETTINGS_BLOB: 838e9b3d765bd115e20fab09534353b4b0c444b9
+      SETTINGS_BLOB: 81d7d7e2d05b87552aadbda476eb3618ffa4fff1
       TEST_BLOB: d80b10a647d7d57f621c32c06efd52250fb69124
     steps:
       - name: Checkout exact candidate head

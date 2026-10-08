@@ -4,7 +4,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from acs.book_progress_store import BookProgressStore
+from acs.book_progress_store import (
+    BookProgressStore,
+    BookProgressStoreError,
+    BookProgressStoreErrorCode,
+    _snapshot_copy,
+    _validate_payload,
+)
 from acs.bookdocument import BookDocument, Heading
 from acs.bookreader import BookReader
 
@@ -69,6 +75,172 @@ class BookProgressPassiveIngressCurrentTests(unittest.TestCase):
                     operation("book:hostile-document", document)
                 self.assertFalse(HostileDocument.touched)
                 self.assertFalse(self.root.exists())
+
+    def test_persisted_mapping_ingress_rejects_active_objects_without_hooks(self) -> None:
+        class ActiveMapping(dict):
+            def __init__(self, *args, **kwargs) -> None:
+                dict.__init__(self, *args, **kwargs)
+                self.touched = False
+
+            def _touch(self):
+                self.touched = True
+                raise AssertionError("rejected mapping hook must not execute")
+
+            def __iter__(self):
+                return self._touch()
+
+            def __len__(self):
+                return self._touch()
+
+            def __contains__(self, key):
+                return self._touch()
+
+            def __getitem__(self, key):
+                return self._touch()
+
+            def items(self):
+                return self._touch()
+
+        snapshot = ActiveMapping(
+            {
+                "schema_version": 2,
+                "current_target": "block:chapter",
+                "return_points": {},
+                "fallback_digests": {},
+            }
+        )
+        with self.assertRaises(BookProgressStoreError) as snapshot_error:
+            _snapshot_copy(snapshot)
+        self.assertEqual(
+            snapshot_error.exception.code,
+            BookProgressStoreErrorCode.CORRUPT_STORE,
+        )
+        self.assertFalse(snapshot.touched)
+
+        root = ActiveMapping(
+            {"schema_version": 2, "generation": 0, "entries": {}}
+        )
+        with self.assertRaises(BookProgressStoreError) as root_error:
+            _validate_payload(root)
+        self.assertEqual(
+            root_error.exception.code,
+            BookProgressStoreErrorCode.CORRUPT_STORE,
+        )
+        self.assertFalse(root.touched)
+
+        entries = ActiveMapping({})
+        with self.assertRaises(BookProgressStoreError) as entries_error:
+            _validate_payload(
+                {"schema_version": 2, "generation": 0, "entries": entries}
+            )
+        self.assertEqual(
+            entries_error.exception.code,
+            BookProgressStoreErrorCode.CORRUPT_STORE,
+        )
+        self.assertFalse(entries.touched)
+
+    def test_active_progress_field_keys_are_rejected_before_hash_or_equality(self) -> None:
+        touched: list[str] = []
+
+        class ActiveKey(str):
+            def __hash__(self):
+                touched.append("hash")
+                return str.__hash__(self)
+
+            def __eq__(self, other):
+                touched.append("eq")
+                return str.__eq__(self, other)
+
+        snapshot_key = ActiveKey("schema_version")
+        snapshot = {
+            snapshot_key: 2,
+            "current_target": "block:chapter",
+            "return_points": {},
+            "fallback_digests": {},
+        }
+        touched.clear()
+        with self.assertRaises(BookProgressStoreError) as snapshot_error:
+            _snapshot_copy(snapshot)
+        self.assertEqual(
+            snapshot_error.exception.code,
+            BookProgressStoreErrorCode.CORRUPT_STORE,
+        )
+        self.assertEqual(touched, [])
+
+        root_key = ActiveKey("schema_version")
+        root = {root_key: 2, "generation": 0, "entries": {}}
+        touched.clear()
+        with self.assertRaises(BookProgressStoreError) as root_error:
+            _validate_payload(root)
+        self.assertEqual(
+            root_error.exception.code,
+            BookProgressStoreErrorCode.CORRUPT_STORE,
+        )
+        self.assertEqual(touched, [])
+
+    def test_v2_payload_missing_generation_fails_closed_with_store_error(self) -> None:
+        with self.assertRaises(BookProgressStoreError) as raised:
+            _validate_payload({"schema_version": 2, "entries": {}})
+
+        self.assertEqual(
+            raised.exception.code,
+            BookProgressStoreErrorCode.CORRUPT_STORE,
+        )
+        self.assertIn("generation is missing", str(raised.exception))
+
+    def test_persisted_v2_missing_generation_never_leaks_key_error(self) -> None:
+        self.root.mkdir(parents=True)
+        (self.root / "book-progress.json").write_text(
+            '{"schema_version":2,"entries":{}}',
+            encoding="utf-8",
+        )
+
+        with self.assertRaises(BookProgressStoreError) as raised:
+            self.store.restore("book:missing-generation", self._document())
+
+        self.assertEqual(
+            raised.exception.code,
+            BookProgressStoreErrorCode.CORRUPT_STORE,
+        )
+        self.assertIn("generation is missing", str(raised.exception))
+
+    def test_snapshot_nested_active_mappings_are_rejected_before_json_hooks(self) -> None:
+        class ActiveNestedDict(dict):
+            touched = False
+
+            def _touch(self):
+                type(self).touched = True
+                raise AssertionError("nested mapping JSON hook must not execute")
+
+            def items(self):
+                return self._touch()
+
+            def __iter__(self):
+                return self._touch()
+
+            def __len__(self):
+                return self._touch()
+
+            def __getitem__(self, key):
+                return self._touch()
+
+        for field in ("return_points", "fallback_digests"):
+            with self.subTest(field=field):
+                ActiveNestedDict.touched = False
+                snapshot = {
+                    "schema_version": 2,
+                    "current_target": "block:chapter",
+                    "return_points": {},
+                    "fallback_digests": {},
+                }
+                snapshot[field] = ActiveNestedDict({})
+                with self.assertRaises(BookProgressStoreError) as raised:
+                    _snapshot_copy(snapshot)
+                self.assertEqual(
+                    raised.exception.code,
+                    BookProgressStoreErrorCode.CORRUPT_STORE,
+                )
+                self.assertFalse(ActiveNestedDict.touched)
 
     def test_exact_reader_and_document_keep_round_trip_semantics(self) -> None:
         document = self._document()

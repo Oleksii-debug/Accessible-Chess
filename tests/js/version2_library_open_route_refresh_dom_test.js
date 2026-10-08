@@ -58,6 +58,8 @@ let currentRoute = "library";
 let snapshotCalls = 0;
 let intervalCallback = null;
 let pgnRenderCalls = 0;
+let pendingPublication = null;
+let nextPublicationToken = 1;
 function navigation(route) { return ["board", "pgn", "library", "books"].map((routeId) => ({ route_id: routeId, label: routeId.toUpperCase(), action_id: "screen." + routeId, current: routeId === route })); }
 const LIBRARY_GAME_DOM_ID = "library-game-00000000000000000001";
 function libraryImportSnapshot() {
@@ -129,7 +131,7 @@ function librarySnapshot() {
 }
 function snapshot(route) {
   const screenFocus = route === "library" ? LIBRARY_GAME_DOM_ID : route === "pgn" ? "pgn-game-list" : "move-input";
-  return { document: { lang: "en", title: route.toUpperCase() }, navigation: navigation(route), screen: { route_id: route, heading: route.toUpperCase(), focus_target: screenFocus }, library: librarySnapshot(), pgn: route === "pgn" ? { focus_target: "pgn-game-list" } : null, books: null };
+  return { shell_publication_token: pendingPublication === null ? 0 : pendingPublication.token, document: { lang: "en", title: route.toUpperCase() }, navigation: navigation(route), screen: { route_id: route, heading: route.toUpperCase(), focus_target: screenFocus }, library: librarySnapshot(), pgn: route === "pgn" ? { focus_target: "pgn-game-list" } : null, books: null };
 }
 
 const windowObject = {
@@ -139,7 +141,52 @@ const windowObject = {
   pywebview: { api: {
     v2_snapshot: () => { snapshotCalls += 1; return Promise.resolve(snapshot(currentRoute)); },
     v2_browser_command: (area, command, payload) => {
-      if (area === "library" && command === "library.open_game" && payload && Object.keys(payload).length === 0) { currentRoute = "pgn"; return Promise.resolve({ kind: "delegated", payload: { action_id: "library.open_game" } }); }
+      if (area === "library" && command === "library.open_game" && payload &&
+          payload.publication_protocol === "ack-v1" &&
+          Number.isSafeInteger(payload.request_id) && payload.request_id > 0) {
+        if (pendingPublication !== null) {
+          if (pendingPublication.requestId !== payload.request_id) {
+            return Promise.reject(new Error("publication already pending"));
+          }
+          return Promise.resolve({
+            kind: "delegated",
+            payload: {
+              action_id: "library.open_game",
+              publication_token: pendingPublication.token
+            }
+          });
+        }
+        const token = nextPublicationToken++;
+        pendingPublication = {
+          token: token,
+          requestId: payload.request_id,
+          previousRoute: currentRoute
+        };
+        currentRoute = "pgn";
+        return Promise.resolve({
+          kind: "delegated",
+          payload: {
+            action_id: "library.open_game",
+            publication_token: token
+          }
+        });
+      }
+      if (area === "shell" &&
+          (command === "shell.presentation_commit" ||
+           command === "shell.presentation_rollback") &&
+          payload && Number.isSafeInteger(payload.token) && payload.token > 0) {
+        if (pendingPublication === null || pendingPublication.token !== payload.token) {
+          return Promise.reject(new Error("stale publication acknowledgement"));
+        }
+        const pending = pendingPublication;
+        pendingPublication = null;
+        const commit = command === "shell.presentation_commit";
+        if (!commit) currentRoute = pending.previousRoute;
+        return Promise.resolve({
+          kind: commit ? "presentation-commit" : "presentation-rollback",
+          payload: { token: payload.token }
+        });
+      }
       return Promise.reject(new Error("unexpected browser command"));
     },
     v2_drain_events: () => Promise.resolve([]),

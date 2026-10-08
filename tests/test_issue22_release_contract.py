@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -8,6 +9,9 @@ from acs.webapp_keymap import KeymapAwareAccessibleChessAPI, _asset_root
 
 
 HTML = (_asset_root() / "web" / "index.html").read_text(encoding="utf-8")
+KEYBINDINGS = json.loads(
+    (_asset_root() / "web" / "keybindings.json").read_text(encoding="utf-8")
+)
 
 
 class Issue22ReleaseContractTests(unittest.TestCase):
@@ -25,15 +29,31 @@ class Issue22ReleaseContractTests(unittest.TestCase):
     def test_passive_no_conflict_state_is_not_a_live_announcement(self):
         self.assertNotIn("Конфліктів немає", HTML)
         self.assertNotIn("No conflicts.", HTML)
-        self.assertEqual(HTML.count('aria-live="polite"'), 1)
         self.assertIn('id="live" role="status" aria-live="polite"', HTML)
+        self.assertIn('aria-describedby="key-recovery-status"', HTML)
+        self.assertIn('id="key-recovery-status" class="block"', HTML)
+        self.assertIn(
+            "function renderKeymapRecovery(snapshot,announceNow=false)",
+            HTML,
+        )
+        self.assertIn("if(announceNow&&message)announce(message)", HTML)
 
     def test_move_entry_enter_contract_clears_only_on_success_and_refocuses(self):
         self.assertIn("const r=await apiAction('make_move',v)", HTML)
         self.assertIn("if(r&&r.ok){input.value='';input.focus()}", HTML)
         self.assertIn("else{input.focus();input.select()}", HTML)
         self.assertIn("el('move-input').addEventListener('keydown'", HTML)
-        self.assertIn("if(e.key==='Enter')", HTML)
+        self.assertIn("keymapActionForEvent(e,'move_entry')", HTML)
+        self.assertIn("if(candidate!=='move.submit')return", HTML)
+        self.assertIn("resolveBinding(chord,'move_entry','move-entry')", HTML)
+        self.assertIn("if(a&&a.actionId===candidate)executeAction(a.actionId)", HTML)
+
+        move_submit = next(
+            item for item in KEYBINDINGS["actions"] if item["id"] == "move.submit"
+        )
+        self.assertEqual("move_entry", move_submit["registryContext"])
+        self.assertEqual("Enter", move_submit["defaultBinding"])
+        self.assertEqual("Enter", move_submit["binding"])
 
     def test_real_move_entry_e4_changes_core_state(self):
         with TemporaryDirectory() as temp:

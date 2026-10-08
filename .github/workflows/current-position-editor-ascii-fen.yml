@@ -1,0 +1,84 @@
+name: Current Position Editor ASCII FEN Contract
+
+on:
+  pull_request:
+    branches:
+      - converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
+    paths:
+      - "acs/position_editor.py"
+      - "tests/test_position_editor.py"
+      - ".github/workflows/current-position-editor-ascii-fen.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-position-editor-ascii-fen-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    name: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12.10"
+
+      - name: Prove exact bounded child scope
+        shell: bash
+        env:
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
+          test "${EVENT_BASE_REF:-converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb}" = "converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb"
+          base_sha="${EVENT_BASE_SHA}"
+          test -n "$base_sha"
+          git cat-file -e "$base_sha^{commit}"
+          test "$(git merge-base "$base_sha" HEAD)" = "$base_sha"
+          git diff --check "$base_sha"...HEAD
+          changed="$(git diff --name-only "$base_sha"...HEAD | sort)"
+          expected="$(printf '%s\n'             '.github/workflows/current-position-editor-ascii-fen.yml'             'acs/position_editor.py'             'tests/test_position_editor.py' | sort)"
+          test "$changed" = "$expected" || {
+            printf 'Unexpected Position editor FEN scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
+
+      - name: Bind exact parser authority bytes
+        shell: bash
+        env:
+          POSITION_EDITOR_BLOB: 94f067e5f74f307025caf4fd303dd19843201c0e
+          POSITION_TEST_BLOB: 53d03f9daa249ca013af2feb67f889794b172235
+          CANONICAL_BOARD_BLOB: e04982c2de52394c2c9f5e5725d6267cbc55ce3d
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:acs/position_editor.py)" = "$POSITION_EDITOR_BLOB"
+          test "$(git rev-parse HEAD:tests/test_position_editor.py)" = "$POSITION_TEST_BLOB"
+          test "$(git rev-parse HEAD:acs/chesscore.py)" = "$CANONICAL_BOARD_BLOB"
+
+      - name: Compile exact semantic slice
+        run: python -m py_compile acs/chesscore.py acs/position_editor.py tests/test_position_editor.py
+
+      - name: Run focused position and FEN regressions
+        run: >-
+          python -m unittest -v
+          tests.test_position_editor
+          tests.test_position_editor_passive_boundary
+          tests.test_position_text_authority
+          tests.test_fen_input_budget_current
+          tests.test_dev2_fen_atomicity

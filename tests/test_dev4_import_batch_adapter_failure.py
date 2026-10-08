@@ -13,7 +13,7 @@ class RuntimeFailingImporter:
     suffixes = (".boom",)
 
     def inspect(self, path: Path) -> ImportReport:
-        raise RuntimeError("decoder/provider runtime failure")
+        raise RuntimeError(r"C:\\PrivateUser\\decoder\\provider runtime failure")
 
 
 class HealthyImporter:
@@ -54,7 +54,12 @@ class Dev4ImportBatchAdapterFailureTests(unittest.TestCase):
 
             self.assertEqual([item.path for item in batch.items], [failing, healthy])
             self.assertEqual([item.ok for item in batch.items], [False, True])
-            self.assertIn("runtime failure", batch.items[0].error.lower())
+            self.assertEqual(
+                batch.items[0].error,
+                "Importer rejected source: first.boom",
+            )
+            self.assertNotIn("PrivateUser", batch.items[0].error)
+            self.assertNotIn("runtime failure", batch.items[0].error.lower())
             self.assertEqual(len(batch.reports), 1)
             self.assertEqual(batch.reports[0].source.sha256, fingerprint(healthy).sha256)
 

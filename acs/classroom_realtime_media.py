@@ -12,7 +12,7 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from enum import Enum
 import re
-from typing import Protocol
+from typing import Callable, Protocol
 
 
 MAX_JOIN_TTL_SECONDS = 15 * 60
@@ -267,9 +267,13 @@ class ClassroomMediaController:
         local_participant_id: str,
         roster: ClassroomRosterPort,
         media: RealtimeMediaPort,
+        product_security_guard: Callable[[str], None] | None = None,
     ) -> None:
+        if product_security_guard is not None and not callable(product_security_guard):
+            raise TypeError("product_security_guard must be callable or None")
         self._local_participant_id = _id(local_participant_id, "local participant id")
         self._roster = roster
+        self._product_security_guard = product_security_guard
         self._media = media
         self._policies: dict[str, tuple[SourcePolicy, ...]] = {}
         self._removed: set[str] = set()
@@ -280,6 +284,13 @@ class ClassroomMediaController:
             connected=False,
             desired_sources=frozenset(),
         )
+
+    def _require_remote_media_security(self) -> None:
+        if self._product_security_guard is None:
+            return
+        self._product_security_guard("BND.AC-S18-LIVE-BROADCAST")
+        self._product_security_guard("BND.AC-S20-MEDIA-SERVER-WF")
+        self._product_security_guard("BND.AC-S32-REMOTE-CLASSROOM")
 
     @property
     def state(self) -> LocalMediaState:
@@ -302,6 +313,7 @@ class ClassroomMediaController:
         )
 
     def join(self, credential: JoinCredential, *, now: datetime) -> LocalMediaState:
+        self._require_remote_media_security()
         if type(credential) is not JoinCredential:
             raise ClassroomMediaError("join requires JoinCredential")
         if credential.participant_id != self._local_participant_id:
@@ -335,6 +347,7 @@ class ClassroomMediaController:
         return self._state
 
     def reconnect(self, credential: JoinCredential, *, now: datetime) -> LocalMediaState:
+        self._require_remote_media_security()
         if type(credential) is not JoinCredential:
             raise ClassroomMediaError("reconnect requires JoinCredential")
         if self._state.room_id is None:
@@ -366,6 +379,7 @@ class ClassroomMediaController:
         return self._state
 
     def leave(self) -> LocalMediaState:
+        self._require_remote_media_security()
         if self._state.room_id is None:
             return self._state
         if self._state.connected:
@@ -384,6 +398,7 @@ class ClassroomMediaController:
         source: MediaSource | str,
         enabled: bool,
     ) -> LocalMediaState:
+        self._require_remote_media_security()
         wanted = _enum(source, MediaSource, "media source")
         if type(enabled) is not bool:
             raise ClassroomMediaError("local media enabled flag must be boolean")
@@ -427,6 +442,7 @@ class ClassroomMediaController:
         allowed: bool,
         operation_id: str,
     ) -> ParticipantMediaPolicy:
+        self._require_remote_media_security()
         wanted = _enum(source, MediaSource, "media source")
         if type(allowed) is not bool:
             raise ClassroomMediaError("publish permission must be boolean")
@@ -453,6 +469,7 @@ class ClassroomMediaController:
         muted: bool,
         operation_id: str,
     ) -> ParticipantMediaPolicy:
+        self._require_remote_media_security()
         if type(muted) is not bool:
             raise ClassroomMediaError("soft mute flag must be boolean")
         actor, target = self._moderation_pair(actor_id, target_id)
@@ -478,6 +495,7 @@ class ClassroomMediaController:
         allowed: bool,
         operation_id: str,
     ) -> tuple[ParticipantMediaPolicy, ...]:
+        self._require_remote_media_security()
         wanted = _enum(source, MediaSource, "media source")
         if type(allowed) is not bool:
             raise ClassroomMediaError("publish permission must be boolean")
@@ -510,6 +528,7 @@ class ClassroomMediaController:
         muted: bool,
         operation_id: str,
     ) -> tuple[ParticipantMediaPolicy, ...]:
+        self._require_remote_media_security()
         if type(muted) is not bool:
             raise ClassroomMediaError("soft mute flag must be boolean")
         actor = _id(actor_id, "moderation actor id")
@@ -545,6 +564,7 @@ class ClassroomMediaController:
         block: bool,
         operation_id: str,
     ) -> ParticipantMediaPolicy:
+        self._require_remote_media_security()
         if type(block) is not bool:
             raise ClassroomMediaError("block flag must be boolean")
         actor, target = self._moderation_pair(actor_id, target_id)
@@ -578,6 +598,7 @@ class ClassroomMediaController:
         kind: MediaDeviceKind | str,
         device_id: str,
     ) -> LocalMediaState:
+        self._require_remote_media_security()
         wanted = _enum(kind, MediaDeviceKind, "media device kind")
         device = _device_id(device_id)
         self._require_connected()

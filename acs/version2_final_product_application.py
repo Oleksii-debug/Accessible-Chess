@@ -32,6 +32,7 @@ from .child_coaching_rotation import (
     RotationPhase,
     RotationPlan,
     RotationState,
+    RotationTarget,
     advance_rotation,
     bind_pair_play_batch,
     current_round,
@@ -39,10 +40,7 @@ from .child_coaching_rotation import (
     start_rotation,
     validate_rotation_scope,
 )
-from .child_coaching_rotation_store import (
-    ChildCoachingRotationStore,
-    ChildCoachingRotationStoreConflictError,
-)
+from .child_coaching_rotation_store import ChildCoachingRotationStore
 from .classroom_prepared_position_deployment import (
     DeploymentTarget,
     PreparedPositionDeploymentBatch,
@@ -201,6 +199,60 @@ class Version2FinalProductApplication(Version2Application):
         )
         self.education = EducationWebViewBridge(projection)
 
+    def _preflight_education_workspace_replacement(
+        self,
+        workspace: EducationWorkspace,
+    ) -> None:
+        """Keep active teaching/rotation ownership valid across D10 replacement."""
+
+        lesson = self._teaching_plan
+        state = self._teaching_state
+        if type(lesson) is not LessonSession or type(state) is not TeachingSessionState:
+            return
+        validate_lesson_session_scope(lesson, workspace.classroom)
+
+        plan = self._rotation_plan
+        rotation_state = self._rotation_state
+        if (
+            self._rotation_load_error
+            or type(plan) is not RotationPlan
+            or type(rotation_state) is not RotationState
+            or rotation_state.phase is RotationPhase.COMPLETED
+        ):
+            return
+        validate_rotation_scope(plan, lesson)
+        try:
+            self._validate_rotation_group_scope(
+                plan,
+                lesson,
+                workspace.classroom,
+            )
+        except ChildCoachingRotationError as exc:
+            raise RuntimeError(
+                "Education workspace would invalidate the active group rotation"
+            ) from exc
+
+        current = self._education_workspace
+        if type(current) is not EducationWorkspace:
+            raise RuntimeError("Education workspace is unavailable")
+        for item in plan.rounds:
+            if item.target is not RotationTarget.GROUP:
+                continue
+            before = self._rotation_group_target_students(
+                item,
+                lesson,
+                current.classroom,
+            )
+            after = self._rotation_group_target_students(
+                item,
+                lesson,
+                workspace.classroom,
+            )
+            if before != after:
+                raise RuntimeError(
+                    "Education workspace would change active group rotation membership"
+                )
+
     def replace_education_workspace(
         self,
         workspace: EducationWorkspace,
@@ -210,6 +262,9 @@ class Version2FinalProductApplication(Version2Application):
         """Trusted CAS publication seam for a canonical editor owner."""
 
         self._assert_thread()
+        if type(workspace) is not EducationWorkspace:
+            raise TypeError("workspace must be EducationWorkspace")
+        self._preflight_education_workspace_replacement(workspace)
         revision = self.education_store.save(
             workspace,
             expected_revision=expected_revision,
@@ -334,6 +389,7 @@ class Version2FinalProductApplication(Version2Application):
         self._rotation_plan = None
         self._rotation_state = None
         self._rotation_store_revision = None
+        self._refresh_rotation_recovery_for_lesson(plan)
         return state
 
     def stop_teaching_session(self) -> None:
@@ -521,6 +577,61 @@ class Version2FinalProductApplication(Version2Application):
             workspace,
         )
 
+    @staticmethod
+    def _rotation_group_target_students(
+        item,
+        lesson: LessonSession,
+        classroom: cd.ClassroomSnapshot,
+    ) -> set[str]:
+        """Resolve one GROUP target through canonical classroom/cohort ownership."""
+
+        if item.target is not RotationTarget.GROUP:
+            raise ChildCoachingRotationError("rotation target is not group-scoped")
+        lesson_record = next(
+            (
+                candidate
+                for candidate in classroom.lessons
+                if candidate.lesson_id == lesson.lesson_id
+            ),
+            None,
+        )
+        if lesson_record is None:
+            raise ChildCoachingRotationError(
+                "rotation group target cannot resolve an unknown classroom lesson"
+            )
+        known_groups = {candidate.group_id for candidate in classroom.groups}
+        lesson_students = set(lesson.student_ids)
+        resolved: set[str] = set()
+        for group_id in item.target_ids:
+            if group_id not in known_groups:
+                raise ChildCoachingRotationError(
+                    "rotation group target is outside the current classroom"
+                )
+            members = {
+                student_id
+                for cohort in classroom.cohorts
+                if cohort.course_id == lesson_record.course_id
+                and cohort.group_id == group_id
+                for student_id in cohort.student_ids
+                if student_id in lesson_students
+            }
+            if not members:
+                raise ChildCoachingRotationError(
+                    "rotation group target has no students in the lesson session"
+                )
+            resolved.update(members)
+        return resolved
+
+    def _validate_rotation_group_scope(
+        self,
+        plan: RotationPlan,
+        lesson: LessonSession,
+        classroom: cd.ClassroomSnapshot,
+    ) -> None:
+        for item in plan.rounds:
+            if item.target is RotationTarget.GROUP:
+                self._rotation_group_target_students(item, lesson, classroom)
+
     def bind_child_coaching_rotation_store(
         self,
         store: ChildCoachingRotationStore,
@@ -533,11 +644,95 @@ class Version2FinalProductApplication(Version2Application):
         if self._rotation_store is not None and self._rotation_store is not store:
             raise RuntimeError("Child coaching rotation store is already bound")
         self._rotation_store = store
+        try:
+            loaded = store.load()
+        except Exception:
+            # Binding never adopts durable lesson state, but malformed or
+            # unreadable storage is already recovery-relevant product truth.
+            self._rotation_load_error = True
+            return
+
+        # Binding can occur after a Teacher session is already active (the
+        # composition seam is intentionally reusable in tests/hosts). A valid
+        # but unfinished foreign durable owner is already a recovery condition;
+        # do not announce "not started" until Start/Resume discovers it.
+        # This probe is read-only and may only raise the recovery fence. A
+        # successful probe must never clear an existing stale-memory fence.
+        lesson = self._teaching_plan
+        if (
+            not self._rotation_load_error
+            and type(lesson) is LessonSession
+            and loaded is not None
+        ):
+            try:
+                validate_rotation_scope(loaded.plan, lesson)
+            except ChildCoachingRotationError:
+                if loaded.state.phase is not RotationPhase.COMPLETED:
+                    self._rotation_load_error = True
+            else:
+                if loaded.state.phase is not RotationPhase.COMPLETED:
+                    workspace = self._education_workspace
+                    if type(workspace) is not EducationWorkspace:
+                        self._rotation_load_error = True
+                    else:
+                        try:
+                            self._validate_rotation_group_scope(
+                                loaded.plan,
+                                lesson,
+                                workspace.classroom,
+                            )
+                        except ChildCoachingRotationError:
+                            self._rotation_load_error = True
+
+    def _refresh_rotation_recovery_for_lesson(self, lesson: LessonSession) -> None:
+        """Refresh read-only durable recovery truth for a newly owned lesson."""
+
+        store = self._rotation_store
+        if store is None:
+            self._rotation_load_error = False
+            return
+        try:
+            loaded = store.load()
+        except Exception:
+            self._rotation_load_error = True
+            return
+        if loaded is None:
+            self._rotation_load_error = False
+            return
+        try:
+            validate_rotation_scope(loaded.plan, lesson)
+        except ChildCoachingRotationError:
+            # A completed foreign lesson can be retired atomically by
+            # begin_or_resume; an incomplete foreign owner must remain visible
+            # as recovery-required before any keyboard mutation is attempted.
+            self._rotation_load_error = loaded.state.phase is not RotationPhase.COMPLETED
+        else:
+            if loaded.state.phase is RotationPhase.COMPLETED:
+                self._rotation_load_error = False
+                return
+            workspace = self._education_workspace
+            if type(workspace) is not EducationWorkspace:
+                self._rotation_load_error = True
+                return
+            try:
+                self._validate_rotation_group_scope(
+                    loaded.plan,
+                    lesson,
+                    workspace.classroom,
+                )
+            except ChildCoachingRotationError:
+                self._rotation_load_error = True
+            else:
+                self._rotation_load_error = False
 
     def _rotation_authorities(
         self,
     ) -> tuple[LessonSession, RotationPlan, RotationState, ChildCoachingRotationStore]:
-        lesson, _workspace = self._classroom_orchestration_authorities()
+        try:
+            lesson, workspace = self._classroom_orchestration_authorities()
+        except Exception:
+            self._rotation_load_error = True
+            raise RuntimeError("Group rotation requires recovery") from None
         plan = self._rotation_plan
         state = self._rotation_state
         store = self._rotation_store
@@ -545,7 +740,17 @@ class Version2FinalProductApplication(Version2Application):
             raise RuntimeError("No group rotation is active")
         if store is None:
             raise RuntimeError("Group rotation store is unavailable")
-        validate_rotation_scope(plan, lesson)
+        try:
+            validate_rotation_scope(plan, lesson)
+            if state.phase is not RotationPhase.COMPLETED:
+                self._validate_rotation_group_scope(
+                    plan,
+                    lesson,
+                    workspace.classroom,
+                )
+        except ChildCoachingRotationError:
+            self._rotation_load_error = True
+            raise RuntimeError("Group rotation requires recovery") from None
         return lesson, plan, state, store
 
     def begin_or_resume_default_group_rotation(
@@ -555,7 +760,7 @@ class Version2FinalProductApplication(Version2Application):
         """Create one default rotation or resume the exact durable live-lesson plan."""
 
         self._assert_thread()
-        lesson, _workspace = self._classroom_orchestration_authorities()
+        lesson, workspace = self._classroom_orchestration_authorities()
         store = self._rotation_store
         if store is None:
             raise RuntimeError("Group rotation store is unavailable")
@@ -566,6 +771,16 @@ class Version2FinalProductApplication(Version2Application):
             raise RuntimeError("Group rotation requires recovery") from None
 
         if loaded is None:
+            if (
+                self._rotation_store_revision is not None
+                or self._rotation_plan is not None
+                or self._rotation_state is not None
+            ):
+                # This process previously owned a concrete durable generation.
+                # A now-missing slot is data loss/drift, not a pristine first
+                # start. Never silently reset the teacher to revision 1.
+                self._rotation_load_error = True
+                raise RuntimeError("Group rotation requires recovery")
             plan = default_group_rotation(lesson, rotation_id=rotation_id)
             state = start_rotation(plan)
             try:
@@ -577,17 +792,48 @@ class Version2FinalProductApplication(Version2Application):
             try:
                 validate_rotation_scope(loaded.plan, lesson)
             except ChildCoachingRotationError as exc:
-                self._rotation_load_error = True
-                raise RuntimeError(
-                    "Stored group rotation belongs to a different teaching session"
-                ) from exc
-            if loaded.plan.rotation_id != rotation_id:
-                raise RuntimeError(
-                    "A different durable group rotation already exists"
-                )
-            plan = loaded.plan
-            state = loaded.state
-            revision = loaded.revision
+                if loaded.state.phase is not RotationPhase.COMPLETED:
+                    self._rotation_load_error = True
+                    raise RuntimeError(
+                        "Stored group rotation belongs to a different teaching session"
+                    ) from exc
+                # The release composition owns one durable rotation slot for
+                # all lessons. A completed prior lesson is terminal and may be
+                # retired atomically, but an active foreign lesson must never
+                # be overwritten. Reuse the observed file revision as CAS
+                # authority so a concurrent writer still wins safely.
+                plan = default_group_rotation(lesson, rotation_id=rotation_id)
+                state = start_rotation(plan)
+                try:
+                    revision = store.save(
+                        plan,
+                        state,
+                        expected_revision=loaded.revision,
+                    )
+                except Exception:
+                    self._rotation_load_error = True
+                    raise
+            else:
+                if loaded.state.phase is not RotationPhase.COMPLETED:
+                    try:
+                        self._validate_rotation_group_scope(
+                            loaded.plan,
+                            lesson,
+                            workspace.classroom,
+                        )
+                    except ChildCoachingRotationError as exc:
+                        self._rotation_load_error = True
+                        raise RuntimeError(
+                            "Stored group rotation is outside current classroom scope"
+                        ) from exc
+                if loaded.plan.rotation_id != rotation_id:
+                    self._rotation_load_error = True
+                    raise RuntimeError(
+                        "A different durable group rotation already exists"
+                    )
+                plan = loaded.plan
+                state = loaded.state
+                revision = loaded.revision
 
         self._rotation_plan = plan
         self._rotation_state = state
@@ -628,12 +874,40 @@ class Version2FinalProductApplication(Version2Application):
         """Bind the exact current pairing batch as the rotation's opaque pair ref."""
 
         self._assert_thread()
+        if self._rotation_load_error:
+            raise RuntimeError("Group rotation requires recovery")
         lesson, plan, state, store = self._rotation_authorities()
         batch = self._pairing_batch
         if batch is None:
             raise RuntimeError("No classroom pairing batch is active")
         _lesson2, workspace = self._classroom_orchestration_authorities()
         assert_pairing_scope(batch, lesson, workspace.classroom)
+        item = current_round(plan, state)
+        batch_students = {
+            student_id
+            for pairing in batch.pairings
+            for student_id in (
+                pairing.white_student_id,
+                pairing.black_student_id,
+            )
+        }
+        batch_students.update(batch.unpaired_student_ids)
+        expected_students: set[str] | None = None
+        if item.activity is RotationActivity.PAIR_PLAY:
+            if item.target is RotationTarget.ALL:
+                expected_students = set(lesson.student_ids)
+            elif item.target is RotationTarget.SELECTED:
+                expected_students = set(item.target_ids)
+            elif item.target is RotationTarget.GROUP:
+                expected_students = self._rotation_group_target_students(
+                    item,
+                    lesson,
+                    workspace.classroom,
+                )
+            if expected_students is not None and batch_students != expected_students:
+                raise RuntimeError(
+                    "Pairing batch does not match current rotation target"
+                )
         next_state = bind_pair_play_batch(
             plan,
             state,
@@ -649,7 +923,11 @@ class Version2FinalProductApplication(Version2Application):
                 next_state,
                 expected_revision=expected_store_revision,
             )
-        except ChildCoachingRotationStoreConflictError:
+        except Exception:
+            # Any failed durable publication is recovery-relevant. In particular,
+            # an I/O failure can occur after os.replace has already advanced the
+            # on-disk generation; do not advertise the in-memory snapshot as
+            # clean until the durable slot is reloaded/reconciled.
             self._rotation_load_error = True
             raise
         self._rotation_state = next_state
@@ -665,6 +943,8 @@ class Version2FinalProductApplication(Version2Application):
         """Advance one CAS-bound rotation round; pair play requires a bound batch."""
 
         self._assert_thread()
+        if self._rotation_load_error:
+            raise RuntimeError("Group rotation requires recovery")
         _lesson, plan, state, store = self._rotation_authorities()
         next_state = advance_rotation(
             plan,
@@ -680,7 +960,11 @@ class Version2FinalProductApplication(Version2Application):
                 next_state,
                 expected_revision=expected_store_revision,
             )
-        except ChildCoachingRotationStoreConflictError:
+        except Exception:
+            # Any failed durable publication is recovery-relevant. In particular,
+            # an I/O failure can occur after os.replace has already advanced the
+            # on-disk generation; do not advertise the in-memory snapshot as
+            # clean until the durable slot is reloaded/reconciled.
             self._rotation_load_error = True
             raise
         self._rotation_state = next_state
@@ -861,7 +1145,83 @@ class Version2FinalProductApplication(Version2Application):
             "announcement": announcement,
         }
 
+    def _probe_rotation_durable_generation_for_status(self) -> None:
+        """Detect durable drift before reporting rotation state to the user."""
+
+        if self._rotation_load_error:
+            return
+        plan = self._rotation_plan
+        state = self._rotation_state
+        if plan is None or state is None:
+            return
+        try:
+            lesson, workspace = self._classroom_orchestration_authorities()
+            validate_rotation_scope(plan, lesson)
+            if state.phase is not RotationPhase.COMPLETED:
+                self._validate_rotation_group_scope(
+                    plan,
+                    lesson,
+                    workspace.classroom,
+                )
+        except Exception:
+            # Status is the accessible read-only truth surface. A classroom
+            # mutation that makes the live rotation scope invalid must become a
+            # recovery announcement, never an uncaught domain exception.
+            self._rotation_load_error = True
+            return
+        store = self._rotation_store
+        expected_revision = self._rotation_store_revision
+        if store is None or expected_revision is None:
+            self._rotation_load_error = True
+            return
+        try:
+            loaded = store.load()
+        except Exception:
+            self._rotation_load_error = True
+            return
+        if (
+            loaded is None
+            or loaded.revision != expected_revision
+            or loaded.plan != plan
+            or loaded.state != state
+        ):
+            # Status is diagnostic and must never adopt a foreign/newer durable
+            # owner implicitly. Fence mutation and direct the user through the
+            # explicit Start/Resume recovery path instead.
+            self._rotation_load_error = True
+
     def _rotation_keyboard_result(self) -> dict[str, object]:
+        self._probe_rotation_durable_generation_for_status()
+        if self._rotation_load_error:
+            announcement = self._teacher_keyboard_announcement(
+                "Групова ротація потребує відновлення. Відновіть ротацію, щоб перечитати збережений стан.",
+                "Group rotation requires recovery. Resume the rotation to reload the saved state.",
+            )
+            return {
+                "kind": "group-rotation",
+                "recovery_required": True,
+                "announcement": announcement,
+            }
+        if self._rotation_store is None:
+            announcement = self._teacher_keyboard_announcement(
+                "Групова ротація недоступна.",
+                "Group rotation is unavailable.",
+            )
+            return {
+                "kind": "group-rotation",
+                "recovery_required": False,
+                "announcement": announcement,
+            }
+        if self._rotation_state is None or self._rotation_plan is None:
+            announcement = self._teacher_keyboard_announcement(
+                "Групову ротацію ще не розпочато. Натисніть Control+Alt+R, щоб почати або відновити.",
+                "Group rotation has not started. Press Control+Alt+R to start or resume.",
+            )
+            return {
+                "kind": "group-rotation",
+                "recovery_required": False,
+                "announcement": announcement,
+            }
         snapshot = self.group_rotation_snapshot()
         phase = snapshot["phase"]
         if phase == RotationPhase.COMPLETED.value:
@@ -887,13 +1247,23 @@ class Version2FinalProductApplication(Version2Application):
             }.get(activity, "round")
             index = int(snapshot["round_index"]) + 1
             count = int(snapshot["round_count"])
+            pair_suffix_uk = ""
+            pair_suffix_en = ""
+            if activity == RotationActivity.PAIR_PLAY.value:
+                if bool(snapshot["pair_play_bound"]):
+                    pair_suffix_uk = ", пари прив’язано"
+                    pair_suffix_en = ", pairing bound"
+                else:
+                    pair_suffix_uk = ", пари не прив’язано"
+                    pair_suffix_en = ", pairing not bound"
             announcement = self._teacher_keyboard_announcement(
-                f"Ротація: етап {index} з {count}, {activity_uk}.",
-                f"Rotation: round {index} of {count}, {activity_en}.",
+                f"Ротація: етап {index} з {count}, {activity_uk}{pair_suffix_uk}.",
+                f"Rotation: round {index} of {count}, {activity_en}{pair_suffix_en}.",
             )
         return {
             "kind": "group-rotation",
             **snapshot,
+            "recovery_required": False,
             "announcement": announcement,
         }
 
@@ -941,8 +1311,13 @@ class Version2FinalProductApplication(Version2Application):
         raise KeyError(f"unsupported Teacher keyboard action: {action}")
 
     def _delegate(self, action, payload):
+        # Action ids are an ingress boundary. Reject active string subclasses
+        # before set membership/equality can invoke caller-owned hash/compare
+        # hooks. Canonical router actions are exact built-in strings.
+        if type(action) is not str:
+            raise ValueError("Application command is malformed")
         if action in self._COACHING_KEYBOARD_ACTIONS:
-            if type(action) is not str or type(payload) is not dict:
+            if type(payload) is not dict:
                 raise ValueError("Teacher keyboard command is malformed")
             return self._dispatch_teacher_keyboard_action(action, payload)
         return super()._delegate(action, payload)

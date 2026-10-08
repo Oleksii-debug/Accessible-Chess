@@ -114,6 +114,7 @@ class Version2ImportUiWakeupPump:
         self._ready_failures = 0
         self._retry_timer: threading.Timer | None = None
         self._owner_callback: Callable[[], None] | None = None
+        self._owner_callback_active = False
         self._owner_wakeup_pending = False
         self._owner_post_failures = 0
         self._owner_retry_timer: threading.Timer | None = None
@@ -199,7 +200,7 @@ class Version2ImportUiWakeupPump:
         with self._lock:
             if self._closed or self._owner_callback is None:
                 return False
-            if self._owner_wakeup_pending:
+            if self._owner_callback_active or self._owner_wakeup_pending:
                 return True
             self._owner_wakeup_pending = True
         try:
@@ -237,18 +238,35 @@ class Version2ImportUiWakeupPump:
             raise RuntimeError("owner callback UI wakeup ran on the wrong thread")
         with self._lock:
             self._owner_wakeup_pending = False
-            if self._closed:
+            if self._closed or self._owner_callback_active:
                 return
             callback = self._owner_callback
-            self._owner_callback = None
-        if callback is not None:
+            if callback is None:
+                return
+            self._owner_callback_active = True
+        try:
             callback()
+        except BaseException:
+            with self._lock:
+                self._owner_callback_active = False
+            # Owner callback failure is recoverable control state. Keep the
+            # exact callback retained and contain even abort-class exceptions;
+            # the runtime will fail closed before newer command dispatch and a
+            # later owner-thread attempt can retry the same completion.
+            _safe_warning("Version 2 owner callback delivery failed")
+            return
+        with self._lock:
+            self._owner_callback_active = False
+            if self._owner_callback is callback:
+                self._owner_callback = None
 
     def request_pending_owner_callback(self) -> bool:
         """Recover a retained owner completion after UI posting failed."""
         with self._lock:
             if self._closed or self._owner_callback is None:
                 return False
+            if self._owner_callback_active:
+                return True
         if threading.get_ident() == self._ui_thread_id:
             self._run_owner_callback()
             return True
@@ -341,6 +359,34 @@ class Version2ImportUiWakeupPump:
         self._request_wakeup()
         return True
 
+    def resume_after_refused_shutdown(self) -> bool:
+        """Re-open UI delivery after an application close attempt was refused.
+
+        The owning file delegate has already retired its worker before the pump is
+        closed. close() cancels retry timers and drops owner callbacks that became
+        stale at that retirement boundary, but it deliberately leaves the
+        canonical mailbox intact. A refused native close may therefore re-open
+        this pump and deliver retained path-free mailbox events through the same
+        trusted UI owner.
+        """
+
+        if threading.get_ident() != self._ui_thread_id:
+            raise RuntimeError("UI wakeup pump recovery requires the UI thread")
+        with self._lock:
+            if not self._closed:
+                return True
+            if (
+                self._retry_timer is not None
+                or self._owner_retry_timer is not None
+                or self._owner_callback is not None
+                or self._owner_callback_active
+                or self._wakeup_pending
+                or self._owner_wakeup_pending
+            ):
+                return False
+            self._closed = False
+        return True
+
     def close(self) -> None:
         """Stop future wakeup scheduling; caller must stop the import worker first."""
 
@@ -349,6 +395,7 @@ class Version2ImportUiWakeupPump:
             self._wakeup_pending = False
             self._owner_wakeup_pending = False
             self._owner_callback = None
+            self._owner_callback_active = False
             retry_timer = self._retry_timer
             owner_retry_timer = self._owner_retry_timer
             self._retry_timer = None

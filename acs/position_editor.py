@@ -1,16 +1,25 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from itertools import islice
 import re
 from typing import Iterable
 
-from .input_limits import MAX_FEN_CHARS
+from .input_limits import MAX_FEN_CHARS, MAX_SQUARE_TEXT_CHARS
 from .squares import FILES, parse_square
 
 VALID_PIECES = frozenset("PNBRQKpnbrqk")
 VALID_CASTLING = frozenset("KQkq")
 MAX_COORDINATE_POSITION_TOKENS = 64 * 2
 MAX_COORDINATE_POSITION_CHARS = 4096
+# Direct PositionState construction must never create a counter that cannot be
+# represented inside the shared FEN ingress budget. This numeric fence runs
+# before decimal rendering, so hostile/accidental huge ints cannot trigger
+# Python integer-to-string conversion amplification.
+_MAX_FEN_COUNTER_EXCLUSIVE = 10 ** MAX_FEN_CHARS
+_MAX_SQUARE_DIAGNOSTIC_CHARS = 16
+_MAX_PIECE_DIAGNOSTIC_CHARS = 16
+_MAX_CASTLING_TEXT_CHARS = 256
 _POSITION_SECTIONS_RE = re.compile(
     r"(?is)^\s*W\s*:\s*(?P<white>.*?)\s*\bB\s*:\s*(?P<black>.*?)\s*$"
 )
@@ -51,10 +60,28 @@ class PositionState:
             raise PositionValidationError("turn must be 'w' or 'b'")
         if type(self.castling) is not str:
             raise PositionValidationError("castling rights must be text")
+        if len(self.castling) > _MAX_CASTLING_TEXT_CHARS:
+            raise PositionValidationError("castling rights text is too long")
         _validate_castling(self.castling)
+        if (
+            self.castling != "-"
+            and self.castling != _canonical_castling_text(self.castling)
+        ):
+            raise PositionValidationError(
+                "castling rights must use canonical KQkq order"
+            )
         if type(self.en_passant) is not str:
             raise PositionValidationError("en-passant square must be text")
+        if len(self.en_passant) > MAX_SQUARE_TEXT_CHARS:
+            raise PositionValidationError("en-passant square text is too long")
         _validate_en_passant(self.en_passant, self.turn)
+        if (
+            self.en_passant != "-"
+            and self.en_passant != _canonical_en_passant_text(self.en_passant)
+        ):
+            raise PositionValidationError(
+                "en-passant square must use canonical lowercase text"
+            )
         if type(self.halfmove) is not int:
             raise PositionValidationError("halfmove clock must be an integer")
         if type(self.fullmove) is not int:
@@ -63,6 +90,10 @@ class PositionState:
             raise PositionValidationError("halfmove clock must be non-negative")
         if self.fullmove < 1:
             raise PositionValidationError("fullmove number must be at least 1")
+        _counter_text(self.halfmove, label="halfmove clock", minimum=0)
+        _counter_text(self.fullmove, label="fullmove number", minimum=1)
+        if len(self.to_fen()) > MAX_FEN_CHARS:
+            raise PositionValidationError("FEN is too long")
 
     def piece_at(self, square: str) -> str | None:
         return self.pieces[_square_index(square)]
@@ -83,8 +114,27 @@ class PositionState:
     def with_turn(self, turn: str) -> "PositionState":
         return replace(self, turn=turn, en_passant="-")
 
+    def with_en_passant(self, square: str) -> "PositionState":
+        if type(square) is not str:
+            raise PositionValidationError("en-passant square must be text")
+        if len(square) > MAX_SQUARE_TEXT_CHARS:
+            raise PositionValidationError("en-passant square text is too long")
+        normalized = square.strip().lower()
+        if normalized == "":
+            normalized = "-"
+        return replace(self, en_passant=normalized)
+
+    def with_counters(self, halfmove: int, fullmove: int) -> "PositionState":
+        if type(halfmove) is not int:
+            raise PositionValidationError("halfmove clock must be an integer")
+        if type(fullmove) is not int:
+            raise PositionValidationError("fullmove number must be an integer")
+        return replace(self, halfmove=halfmove, fullmove=fullmove)
+
     def with_castling(self, rights: Iterable[str] | str) -> "PositionState":
         if type(rights) is str:
+            if len(rights) > _MAX_CASTLING_TEXT_CHARS:
+                raise PositionValidationError("castling rights text is too long")
             normalized = _normalize_castling(rights)
         elif isinstance(rights, str):
             # A string subclass is scalar input, not a generic iterable. Reject it
@@ -94,11 +144,16 @@ class PositionState:
             )
         else:
             try:
-                values = tuple(rights)
+                iterator = iter(rights)
+                values = tuple(islice(iterator, len(VALID_CASTLING) + 1))
             except TypeError as exc:
                 raise PositionValidationError(
                     "castling rights must be text or an iterable of text symbols"
                 ) from exc
+            if len(values) > len(VALID_CASTLING):
+                raise PositionValidationError(
+                    "castling rights iterable contains too many symbols"
+                )
             if any(type(value) is not str for value in values):
                 raise PositionValidationError(
                     "castling rights iterable must contain text symbols"
@@ -134,6 +189,50 @@ class PositionState:
         return tuple(problems)
 
     def to_fen(self) -> str:
+        """Serialize only a still-canonical representation.
+
+        PositionState is frozen, but low-level code can still bypass the
+        dataclass boundary with object.__setattr__. Serialization is a
+        publication boundary, so revalidate every emitted field here rather
+        than trusting construction-time validation alone.
+        """
+        if type(self.pieces) is not tuple:
+            raise PositionValidationError("pieces must be an immutable tuple")
+        if len(self.pieces) != 64:
+            raise PositionValidationError("position must contain exactly 64 squares")
+        if any(
+            piece is not None
+            and (type(piece) is not str or piece not in VALID_PIECES)
+            for piece in self.pieces
+        ):
+            raise PositionValidationError("position contains an invalid piece symbol")
+        if type(self.turn) is not str or self.turn not in {"w", "b"}:
+            raise PositionValidationError("turn must be 'w' or 'b'")
+        if type(self.castling) is not str:
+            raise PositionValidationError("castling rights must be text")
+        if len(self.castling) > _MAX_CASTLING_TEXT_CHARS:
+            raise PositionValidationError("castling rights text is too long")
+        _validate_castling(self.castling)
+        if (
+            self.castling != "-"
+            and self.castling != _canonical_castling_text(self.castling)
+        ):
+            raise PositionValidationError(
+                "castling rights must use canonical KQkq order"
+            )
+        if type(self.en_passant) is not str:
+            raise PositionValidationError("en-passant square must be text")
+        if len(self.en_passant) > MAX_SQUARE_TEXT_CHARS:
+            raise PositionValidationError("en-passant square text is too long")
+        _validate_en_passant(self.en_passant, self.turn)
+        if (
+            self.en_passant != "-"
+            and self.en_passant != _canonical_en_passant_text(self.en_passant)
+        ):
+            raise PositionValidationError(
+                "en-passant square must use canonical lowercase text"
+            )
+
         ranks: list[str] = []
         for rank_index in range(7, -1, -1):
             empty = 0
@@ -150,7 +249,15 @@ class PositionState:
             if empty:
                 parts.append(str(empty))
             ranks.append("".join(parts))
-        return f"{'/'.join(ranks)} {self.turn} {self.castling} {self.en_passant} {self.halfmove} {self.fullmove}"
+        halfmove_text = _counter_text(self.halfmove, label="halfmove clock", minimum=0)
+        fullmove_text = _counter_text(self.fullmove, label="fullmove number", minimum=1)
+        rendered = (
+            f"{'/'.join(ranks)} {self.turn} {self.castling} "
+            f"{self.en_passant} {halfmove_text} {fullmove_text}"
+        )
+        if len(rendered) > MAX_FEN_CHARS:
+            raise PositionValidationError("FEN is too long")
+        return rendered
 
     @classmethod
     def from_fen(cls, fen: str) -> "PositionState":
@@ -174,11 +281,18 @@ class PositionState:
             board_rank = 7 - fen_rank
             file_index = 0
             for token in rank_text:
-                if token.isdigit():
-                    count = int(token)
-                    if not 1 <= count <= 8:
-                        raise PositionValidationError("FEN empty-square count must be 1..8")
-                    file_index += count
+                # FEN piece-placement counts are ASCII grammar, not a generic
+                # Unicode numeral channel. Keep this lexical boundary aligned
+                # with canonical Board.set_fen without importing chess legality
+                # into the editable PositionState representation.
+                if token in "12345678":
+                    file_index += ord(token) - ord("0")
+                    if file_index > 8:
+                        raise PositionValidationError("FEN rank contains more than 8 squares")
+                elif token.isdigit():
+                    raise PositionValidationError(
+                        "FEN empty-square count must use ASCII digits 1..8"
+                    )
                 elif token in VALID_PIECES:
                     if file_index >= 8:
                         raise PositionValidationError("FEN rank contains more than 8 squares")
@@ -189,12 +303,32 @@ class PositionState:
             if file_index != 8:
                 raise PositionValidationError("each FEN rank must expand to exactly 8 squares")
 
+        # Python int() accepts signs and many Unicode decimal digits. FEN does
+        # not: canonical Board.set_fen already requires unsigned ASCII decimal
+        # counters. Enforce the same lexical contract here while leaving chess
+        # legality (kings, checks, move provenance) outside the editor parser.
+        for counter, label in (
+            (halfmove_text, "halfmove"),
+            (fullmove_text, "fullmove"),
+        ):
+            if not counter.isascii() or not counter.isdecimal():
+                raise PositionValidationError(
+                    f"FEN {label} counter must be an unsigned ASCII decimal integer"
+                )
         try:
             halfmove = int(halfmove_text)
+        except ValueError as exc:
+            raise PositionValidationError(
+                "FEN halfmove counter is too large"
+            ) from exc
+        try:
             fullmove = int(fullmove_text)
         except ValueError as exc:
-            raise PositionValidationError("FEN move counters must be integers") from exc
+            raise PositionValidationError(
+                "FEN fullmove counter is too large"
+            ) from exc
 
+        _validate_fen_castling_token(castling)
         return cls(
             tuple(pieces),
             turn=turn,
@@ -282,15 +416,49 @@ def _fill_coordinate_section(
 
     result = position
     for index in range(0, len(tokens), 2):
-        piece = tokens[index].upper()
+        raw_piece = tokens[index]
+        piece = raw_piece.upper()
         square = tokens[index + 1].lower()
         if piece not in "KQRBNP":
-            raise ValueError(f"unknown piece symbol: {tokens[index]}")
+            if len(raw_piece) <= _MAX_PIECE_DIAGNOSTIC_CHARS:
+                diagnostic = raw_piece
+            else:
+                diagnostic = raw_piece[:_MAX_PIECE_DIAGNOSTIC_CHARS] + "…"
+            raise ValueError(f"unknown piece symbol: {diagnostic}")
         if square in used:
             raise ValueError(f"square {square} is specified more than once")
+        try:
+            result = result.with_piece(square, piece if white else piece.lower())
+        except PositionValidationError as exc:
+            # Public PositionState square ingress deliberately keeps malformed
+            # values generic so hostile objects cannot trigger repr()/coercion.
+            # Here square is already a bounded built-in token materialized by
+            # this parser. Preserve useful detail only for short tokens; never
+            # echo an arbitrarily long paste into an accessible error.
+            if str(exc) == "invalid square" and len(square) <= _MAX_SQUARE_DIAGNOSTIC_CHARS:
+                raise PositionValidationError(f"invalid square: {square!r}") from exc
+            raise
         used.add(square)
-        result = result.with_piece(square, piece if white else piece.lower())
     return result
+
+def _counter_text(value: int, *, label: str, minimum: int) -> str:
+    """Render a validated FEN counter without leaking runtime conversion errors."""
+
+    if type(value) is not int:
+        raise PositionValidationError(f"{label} must be an integer")
+    if value < minimum:
+        if minimum == 0:
+            raise PositionValidationError(f"{label} must be non-negative")
+        raise PositionValidationError(f"{label} must be at least {minimum}")
+    if value >= _MAX_FEN_COUNTER_EXCLUSIVE:
+        raise PositionValidationError(f"{label} is too large")
+    try:
+        return str(value)
+    except ValueError as exc:
+        # CPython may enforce a process-level integer-string conversion limit.
+        # Keep that implementation detail inside the Position domain.
+        raise PositionValidationError(f"{label} is too large") from exc
+
 
 def _square_index(square: str) -> int:
     try:
@@ -301,12 +469,30 @@ def _square_index(square: str) -> int:
         raise PositionValidationError("invalid square") from exc
 
 
+def _canonical_castling_text(value: str) -> str:
+    return "".join(symbol for symbol in "KQkq" if symbol in value)
+
+
+def _validate_fen_castling_token(value: str) -> None:
+    """Require the standard FEN KQkq relative order at text ingress."""
+
+    _validate_castling(value)
+    if value != "-" and value != _canonical_castling_text(value):
+        raise PositionValidationError(
+            "FEN castling rights must use canonical KQkq order"
+        )
+
+
 def _normalize_castling(value: str) -> str:
+    if type(value) is not str:
+        raise PositionValidationError("castling rights must be text")
+    if len(value) > _MAX_CASTLING_TEXT_CHARS:
+        raise PositionValidationError("castling rights text is too long")
     text = value.strip()
     if text in {"", "-"}:
         return "-"
     _validate_castling(text)
-    return "".join(symbol for symbol in "KQkq" if symbol in text)
+    return _canonical_castling_text(text)
 
 
 def _validate_castling(value: str) -> None:
@@ -316,6 +502,11 @@ def _validate_castling(value: str) -> None:
         raise PositionValidationError("invalid castling rights")
     if len(set(value)) != len(value):
         raise PositionValidationError("castling rights must not contain duplicates")
+
+
+def _canonical_en_passant_text(value: str) -> str:
+    index = _square_index(value)
+    return FILES[index % 8] + str(index // 8 + 1)
 
 
 def _validate_en_passant(value: str, turn: str) -> None:

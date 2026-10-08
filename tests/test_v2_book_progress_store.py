@@ -91,6 +91,29 @@ class BookProgressStoreTests(unittest.TestCase):
         self.assertEqual(restored.block_id, "diagram")
         self.assertEqual(restored.position_fen, WHITE_FEN)
 
+    def test_save_uses_canonical_reader_snapshot_despite_instance_shadow(self) -> None:
+        reader = BookReader(self.original_document())
+        reader.go_to(2)
+
+        shadow_calls: list[str] = []
+
+        def poisoned_snapshot():
+            shadow_calls.append("snapshot")
+            raise AssertionError("instance snapshot shadow executed")
+
+        reader.snapshot = poisoned_snapshot  # type: ignore[method-assign]
+
+        saved = self.store.save("book:canonical-reader", reader)
+
+        self.assertEqual(shadow_calls, [])
+        self.assertEqual(saved["current_target"], "block:diagram")
+        reopened = self.store.restore(
+            "book:canonical-reader",
+            self.original_document(),
+        )
+        self.assertEqual(reopened.location().block_id, "diagram")
+        self.assertEqual(reopened.location().position_fen, WHITE_FEN)
+
     def test_reopen_uses_semantic_identity_after_source_preserving_reorder(self) -> None:
         reader = BookReader(self.original_document())
         reader.go_to(2)

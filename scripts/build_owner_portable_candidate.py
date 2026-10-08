@@ -26,6 +26,7 @@ from acs.user_library_seed import (
     import_user_library_seed,
     load_user_library_seed,
 )
+from acs.version2_package_preflight import _passive_path
 from acs.version2_portable_package import (
     Version2PortablePackageError,
     _portable_docx_filename,
@@ -370,7 +371,11 @@ def validate_owner_portable_candidate_tree(
     expected_seed_source_count: int = 6,
     expected_seed_game_count: int = 3738,
 ) -> dict[str, object]:
-    root = Path(package_root)
+    if type(expected_seed_source_count) is not int or expected_seed_source_count <= 0:
+        _fail("expected owner Library source count is invalid")
+    if type(expected_seed_game_count) is not int or expected_seed_game_count <= 0:
+        _fail("expected owner Library game count is invalid")
+    root = _passive_path(package_root, label="owner portable package root")
     try:
         portable = validate_portable_oneclick_tree(
             root,
@@ -422,11 +427,29 @@ def assemble_owner_portable_candidate(
     expected_seed_source_count: int = 6,
     expected_seed_game_count: int = 3738,
 ) -> OwnerPortableCandidateReport:
-    if not isinstance(expected_document_sha256, tuple) or len(expected_document_sha256) != 2:
+    # These values are caller-controlled release policy. Reject derived
+    # containers/counts before len(), iteration, path coercion or package work
+    # can execute caller hooks.
+    if type(expected_document_sha256) is not tuple or len(expected_document_sha256) != 2:
         raise TypeError("expected_document_sha256 must be an exact two-item tuple")
-    if not isinstance(word_documents, tuple) or len(word_documents) != 2:
+    if type(word_documents) is not tuple or len(word_documents) != 2:
         raise TypeError("word_documents must be an exact two-item tuple")
-    documents = tuple(Path(item) for item in word_documents)
+    if type(expected_seed_source_count) is not int or expected_seed_source_count <= 0:
+        _fail("expected owner Library source count is invalid")
+    if type(expected_seed_game_count) is not int or expected_seed_game_count <= 0:
+        _fail("expected owner Library game count is invalid")
+
+    canonical = _passive_path(
+        canonical_package_root,
+        label="owner canonical package root",
+    )
+    launcher = _passive_path(launcher_exe, label="owner portable launcher source")
+    output = _passive_path(output_root, label="owner portable package output")
+    archive_output = _passive_path(output_zip, label="owner portable ZIP output")
+    documents = tuple(
+        _passive_path(item, label="owner Word document source")
+        for item in word_documents
+    )
     document_names = tuple(_owner_docx_name(path) for path in documents)
     if len({name.casefold() for name in document_names}) != 2:
         _fail("owner Word documents must have distinct Win32 filenames")
@@ -440,10 +463,10 @@ def assemble_owner_portable_candidate(
     )
 
     assembled = assemble_portable_oneclick_tree(
-        canonical_package_root,
-        launcher_exe,
+        canonical,
+        launcher,
         documents,
-        output_root,
+        output,
         integration_sha=integration_sha,
         require_user_seed=True,
     )
@@ -469,7 +492,7 @@ def assemble_owner_portable_candidate(
             _fail("packaged owner Word document changed after owner qualification")
     archived = write_portable_oneclick_zip(
         root,
-        output_zip,
+        archive_output,
         expected_integration_sha=integration_sha,
         require_user_seed=True,
         expected_checksum_sha256=str(qualification["package_checksum_sha256"]),

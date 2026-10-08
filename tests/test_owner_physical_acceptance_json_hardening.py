@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest import mock
 
@@ -41,6 +42,164 @@ class OwnerPhysicalAcceptanceJsonHardeningTests(unittest.TestCase):
             acceptance_module._validate_scenarios(active)
 
         self.assertEqual(touched, [])
+
+    def test_record_rejects_active_scenario_key_before_hash_or_publication(self):
+        touched = []
+
+        class ActiveScenarioKey(str):
+            armed = False
+
+            def __hash__(self):
+                if type(self).armed:
+                    touched.append("hash")
+                    raise AssertionError("active scenario key hash executed")
+                return super().__hash__()
+
+            def __eq__(self, other):
+                if type(self).armed:
+                    touched.append("eq")
+                    raise AssertionError("active scenario key equality executed")
+                return super().__eq__(other)
+
+        scenarios = _scenarios()
+        canonical_key = next(iter(scenarios))
+        active_key = ActiveScenarioKey(canonical_key)
+        status = scenarios.pop(canonical_key)
+        scenarios[active_key] = status
+        ActiveScenarioKey.armed = True
+
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            final_zip = root / "final.zip"
+            final_zip.write_bytes(b"zip")
+            machine = root / "machine.json"
+            receipt = _machine_receipt(final_zip)
+            _write_machine_receipt(machine, receipt)
+            output = root / "physical.json"
+
+            with self.assertRaisesRegex(
+                OwnerPhysicalAcceptanceError,
+                "scenario_results keys must be exact text",
+            ):
+                _record(machine, final_zip, output, scenarios)
+
+            self.assertEqual(touched, [])
+            self.assertFalse(output.exists())
+
+    def test_physical_snapshot_metadata_is_platform_fail_closed(self):
+        base = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=123,
+            st_ctime_ns=456,
+        )
+        ctime_drift = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=123,
+            st_ctime_ns=999,
+        )
+        missing_mtime = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_ctime_ns=456,
+        )
+        missing_ctime = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=123,
+        )
+        bool_size = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=True,
+            st_mtime_ns=123,
+            st_ctime_ns=456,
+        )
+
+        with mock.patch.object(
+            acceptance_module,
+            "_same_file_identity",
+            return_value=True,
+        ):
+            with mock.patch.object(acceptance_module.os, "name", "nt"):
+                self.assertTrue(
+                    acceptance_module._same_file_snapshot(base, ctime_drift)
+                )
+                self.assertFalse(
+                    acceptance_module._same_file_snapshot(base, missing_mtime)
+                )
+
+            with mock.patch.object(acceptance_module.os, "name", "posix"):
+                self.assertTrue(
+                    acceptance_module._same_file_snapshot(base, base)
+                )
+                self.assertFalse(
+                    acceptance_module._same_file_snapshot(base, ctime_drift)
+                )
+                self.assertFalse(
+                    acceptance_module._same_file_snapshot(base, missing_ctime)
+                )
+                self.assertFalse(
+                    acceptance_module._same_file_snapshot(base, bool_size)
+                )
+
+    def test_physical_publication_snapshot_ignores_ctime_but_requires_mtime(self):
+        base = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=123,
+            st_ctime_ns=456,
+        )
+        ctime_drift = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=123,
+            st_ctime_ns=999,
+        )
+        mtime_drift = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_mtime_ns=124,
+            st_ctime_ns=456,
+        )
+        missing_mtime = SimpleNamespace(
+            st_dev=11,
+            st_ino=22,
+            st_size=4096,
+            st_ctime_ns=456,
+        )
+
+        with mock.patch.object(
+            acceptance_module,
+            "_same_file_identity",
+            return_value=True,
+        ):
+            self.assertTrue(
+                acceptance_module._same_publication_snapshot(
+                    base,
+                    ctime_drift,
+                )
+            )
+            self.assertFalse(
+                acceptance_module._same_publication_snapshot(
+                    base,
+                    mtime_drift,
+                )
+            )
+            self.assertFalse(
+                acceptance_module._same_publication_snapshot(
+                    base,
+                    missing_mtime,
+                )
+            )
 
     def test_record_rejects_publication_not_bound_to_fsynced_staging_bytes(self):
         with tempfile.TemporaryDirectory() as raw:
@@ -90,6 +249,39 @@ class OwnerPhysicalAcceptanceJsonHardeningTests(unittest.TestCase):
                 ):
                     acceptance_module._publish_exclusive(output, payload)
 
+            self.assertFalse(output.exists())
+
+            acceptance_module._publish_exclusive(output, payload)
+            self.assertEqual(output.read_bytes(), payload)
+
+    def test_post_staging_cleanup_mutation_rejects_owned_output_and_retry_succeeds(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            output = root / "physical.json"
+            payload = b'{"accepted":true}\n'
+            real_remove = acceptance_module._remove_owned_publication_file
+            injected = False
+
+            def remove_then_mutate(path, expected_identity):
+                nonlocal injected
+                candidate = Path(path)
+                real_remove(candidate, expected_identity)
+                if candidate != output and not injected:
+                    output.write_bytes(b'{"accepted":false}\n')
+                    injected = True
+
+            with mock.patch.object(
+                acceptance_module,
+                "_remove_owned_publication_file",
+                side_effect=remove_then_mutate,
+            ):
+                with self.assertRaisesRegex(
+                    OwnerPhysicalAcceptanceError,
+                    "published bytes changed after staging cleanup",
+                ):
+                    acceptance_module._publish_exclusive(output, payload)
+
+            self.assertTrue(injected)
             self.assertFalse(output.exists())
 
             acceptance_module._publish_exclusive(output, payload)

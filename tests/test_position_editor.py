@@ -1,5 +1,6 @@
 import unittest
 
+from acs.chesscore import Board
 from acs.position_editor import (
     PositionState,
     PositionValidationError,
@@ -70,6 +71,8 @@ class PositionEditorTests(unittest.TestCase):
         )
         for fen in invalid:
             with self.subTest(fen=fen):
+                with self.assertRaises(ValueError):
+                    Board(fen)
                 with self.assertRaises(PositionValidationError):
                     PositionState.from_fen(fen)
 
@@ -127,6 +130,22 @@ class PositionEditorTests(unittest.TestCase):
                 with self.assertRaisesRegex(PositionValidationError, "castling rights"):
                     position.with_castling(rights)  # type: ignore[arg-type]
 
+    def test_castling_iterable_consumption_is_bounded_before_materialization(self):
+        consumed = []
+
+        def symbols():
+            values = ("K", "Q", "k", "q", "K", "q")
+            for index, value in enumerate(values):
+                consumed.append(index)
+                if index == 5:
+                    raise AssertionError("overflow probe must stop before a sixth item")
+                yield value
+
+        with self.assertRaisesRegex(PositionValidationError, "too many symbols"):
+            standard_position().with_castling(symbols())
+
+        self.assertEqual(consumed, [0, 1, 2, 3, 4])
+
     def test_en_passant_rank_must_match_side_to_move(self):
         PositionState.from_fen("8/8/8/3pP3/8/8/8/K6k w - d6 0 12")
         PositionState.from_fen("8/8/8/8/3Pp3/8/8/K6k b - d3 0 12")
@@ -138,6 +157,54 @@ class PositionEditorTests(unittest.TestCase):
             PositionState.from_fen("8/8/8/8/8/8/8/K6k w - - -1 1")
         with self.assertRaisesRegex(PositionValidationError, "fullmove"):
             PositionState.from_fen("8/8/8/8/8/8/8/K6k w - - 0 0")
+
+    def test_fen_lexical_numbers_use_ascii_grammar(self):
+        invalid = (
+            # Unicode decimal digits must not be interpreted as FEN rank counts.
+            "７1/8/8/8/8/8/8/K6k w - - 0 1",
+            # Some Unicode digits satisfy isdigit() but cannot be parsed by int();
+            # rejection must still stay inside the PositionValidationError domain.
+            "²6/8/8/8/8/8/8/K6k w - - 0 1",
+            # Canonical Board rejects signs and non-ASCII decimal counters.
+            "8/8/8/8/8/8/8/K6k w - - +0 1",
+            "8/8/8/8/8/8/8/K6k w - - 0 +1",
+            "8/8/8/8/8/8/8/K6k w - - ٠ 1",
+            "8/8/8/8/8/8/8/K6k w - - 0 ١",
+        )
+        for fen in invalid:
+            with self.subTest(fen=fen):
+                with self.assertRaises(PositionValidationError):
+                    PositionState.from_fen(fen)
+
+    def test_ascii_counter_lexemes_remain_compatible_and_canonicalize(self):
+        position = PositionState.from_fen(
+            "8/8/8/8/8/8/8/K6k b - - 00017 00042"
+        )
+        self.assertEqual(position.halfmove, 17)
+        self.assertEqual(position.fullmove, 42)
+        self.assertEqual(
+            position.to_fen(),
+            "8/8/8/8/8/8/8/K6k b - - 17 42",
+        )
+
+    def test_fen_lexical_number_contract_matches_canonical_board(self):
+        invalid = (
+            "７1/8/8/8/8/8/8/K6k w - - 0 1",
+            "²6/8/8/8/8/8/8/K6k w - - 0 1",
+            "8/8/8/8/8/8/8/K6k w - - +0 1",
+            "8/8/8/8/8/8/8/K6k w - - 0 +1",
+            "8/8/8/8/8/8/8/K6k w - - ٠ 1",
+            "8/8/8/8/8/8/8/K6k w - - 0 ١",
+        )
+        for fen in invalid:
+            with self.subTest(fen=fen):
+                with self.assertRaises(ValueError):
+                    Board(fen)
+                with self.assertRaises(PositionValidationError):
+                    PositionState.from_fen(fen)
+
+        fen = "8/8/8/8/8/8/8/K6k b - - 00017 00042"
+        self.assertEqual(PositionState.from_fen(fen).to_fen(), Board(fen).fen())
 
     def test_clear_preserves_turn_but_resets_position_metadata(self):
         position = PositionState.from_fen("r3k2r/8/8/8/8/8/8/R3K2R b KQkq - 17 22")

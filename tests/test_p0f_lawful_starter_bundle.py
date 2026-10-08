@@ -4,9 +4,12 @@ from contextlib import contextmanager
 import hashlib
 import io
 import json
+from pathlib import Path
 import re
 from typing import Iterator, Type
+from unittest.mock import patch
 
+import tools.p0f_lawful_starter_bundle as lawful_bundle
 from acs.acsdb import ACSDB_SCHEMA_VERSION, AcsDatabase
 from acs.starter_content import CONTENT_LICENSE_ID, build_starter_pgn
 from tools.p0f_lawful_starter_bundle import (
@@ -115,6 +118,162 @@ def _fake_curation_evidence(starter_pgn: str) -> dict[str, object]:
     }
 
 
+def _semantic_curation_fixture(count: int) -> tuple[str, dict[str, object]]:
+    source_records = list(_iter_complete_game_records(io.StringIO(build_starter_pgn(count))))
+    results = ("1-0", "0-1", "1/2-1/2")
+    finished_records: list[str] = []
+    selected: list[dict[str, object]] = []
+    for index, record in enumerate(source_records, start=1):
+        finished = _finished_record(record, results[(index - 1) % len(results)])
+        evidence, reason = _candidate_evidence(finished, index)
+        assert reason is None
+        assert evidence is not None
+        finished_records.append(finished)
+        selected.append(evidence)
+
+    starter_pgn = "\n\n".join(finished_records) + "\n"
+    aggregate = _selected_aggregate_evidence(selected)
+    return starter_pgn, {
+        "policy_id": CURATION_POLICY_ID,
+        "parser": "acs.pgn_roundtrip.parse_pgn_text(strict=True)",
+        "criteria": {
+            "minimum_plies": CURATION_MIN_PLIES,
+            "valid_results": sorted(CURATION_VALID_RESULTS),
+            "required_metadata": ["Event", "White", "Black"],
+            "result_minimums": CURATION_RESULT_MINIMUMS,
+            "length_band_minimums": lawful_bundle.CURATION_LENGTH_MINIMUMS,
+            "minimum_distinct_opening_prefixes": CURATION_MIN_OPENING_PREFIXES,
+            "opening_prefix_plies": 4,
+            "maximum_scanned_games": CURATION_MAX_SCANNED_GAMES,
+        },
+        "scanned_records": len(selected),
+        "eligible_records": len(selected),
+        "rejected_records": {},
+        "selected_games": selected,
+        **aggregate,
+    }
+
+
+def test_verified_compressed_payload_binds_exact_consumed_bytes(tmp_path):
+    source = tmp_path / "pinned-corpus.pgn.zst"
+    original = b"0123456789abcdef"
+    mutated = b"fedcba9876543210"
+    assert len(original) == len(mutated)
+    source.write_bytes(original)
+
+    with patch.object(
+        lawful_bundle,
+        "CORPUS_SHA256",
+        hashlib.sha256(original).hexdigest(),
+    ):
+        assert lawful_bundle._read_verified_compressed_payload(source) == original
+
+        # Same-size replacement must fail against the digest of the bytes that
+        # would actually be handed to the decompressor.
+        source.write_bytes(mutated)
+        with _raises(AssertionError, match="digest mismatch"):
+            lawful_bundle._read_verified_compressed_payload(source)
+
+
+def test_verified_compressed_payload_enforces_bound_before_extraction(tmp_path):
+    source = tmp_path / "oversized-corpus.pgn.zst"
+    source.write_bytes(b"x" * 17)
+    with (
+        patch.object(lawful_bundle, "DOWNLOAD_LIMIT_BYTES", 16),
+        _raises(RuntimeError, match="exceeds qualified download bound"),
+    ):
+        lawful_bundle._read_verified_compressed_payload(source)
+
+
+def test_verified_compressed_payload_rejects_non_regular_open_handle(tmp_path):
+    source = tmp_path / "pinned-corpus.pgn.zst"
+    source.write_bytes(b"regular-path-bytes")
+
+    class FakeStat:
+        st_mode = 0
+
+    with (
+        patch.object(lawful_bundle.os, "fstat", return_value=FakeStat()),
+        _raises(RuntimeError, match="must be a regular file"),
+    ):
+        lawful_bundle._read_verified_compressed_payload(source)
+
+
+def test_verified_compressed_payload_uses_nonblocking_binary_open_when_available(tmp_path):
+    source = tmp_path / "pinned-corpus.pgn.zst"
+    payload = b"verified-regular-file"
+    source.write_bytes(payload)
+    observed = {}
+    original_open = lawful_bundle.os.open
+
+    def open_spy(path, flags):
+        observed["path"] = path
+        observed["flags"] = flags
+        return original_open(path, flags)
+
+    with (
+        patch.object(lawful_bundle.os, "open", side_effect=open_spy),
+        patch.object(lawful_bundle, "CORPUS_SHA256", hashlib.sha256(payload).hexdigest()),
+    ):
+        assert lawful_bundle._read_verified_compressed_payload(source) == payload
+
+    assert observed["path"] == source
+    expected_flags = (
+        lawful_bundle.os.O_RDONLY
+        | getattr(lawful_bundle.os, "O_BINARY", 0)
+        | getattr(lawful_bundle.os, "O_NONBLOCK", 0)
+    )
+    assert observed["flags"] == expected_flags
+
+
+def test_local_build_materializes_only_verified_bounded_snapshot(tmp_path):
+    source = tmp_path / "caller-source.pgn.zst"
+    destination = tmp_path / "bundle"
+    verified = b"verified-compressed-snapshot"
+    source.write_bytes(b"original-path-bytes")
+    subset_bytes = b'[Event "Fixture"]\n\n*\n'
+    observed: dict[str, object] = {}
+
+    def read_verified(path):
+        assert path == source
+        # Simulate pathname replacement immediately after the bounded verified
+        # snapshot is acquired. Later build stages must not recopy this path.
+        source.write_bytes(b"x" * 4096)
+        return verified
+
+    def extract(compressed, subset, limit):
+        observed["materialized"] = compressed.read_bytes()
+        observed["limit"] = limit
+        subset.write_bytes(subset_bytes)
+        return {"selected_games": [{}]}
+
+    def build(destination_arg, **kwargs):
+        observed["destination"] = destination_arg
+        observed["compressed_bytes"] = kwargs["source_compressed_bytes"]
+        observed["starter_pgn"] = kwargs["starter_pgn"]
+        return {"status": "ok"}
+
+    with (
+        patch.object(lawful_bundle, "_read_verified_compressed_payload", side_effect=read_verified) as verified_read,
+        patch.object(lawful_bundle, "_extract_curated_subset", side_effect=extract),
+        patch.object(lawful_bundle, "build_release_bundle_from_curated_pgn", side_effect=build),
+    ):
+        result = lawful_bundle.build_from_pinned_lichess(
+            destination,
+            source_zst=source,
+            starter_count=1,
+            stress_count=2,
+        )
+
+    assert result == {"status": "ok"}
+    assert verified_read.call_count == 1
+    assert observed["materialized"] == verified
+    assert observed["compressed_bytes"] == len(verified)
+    assert observed["limit"] == 1
+    assert observed["starter_pgn"] == subset_bytes.decode("utf-8")
+    assert observed["destination"] == destination
+
+
 def test_complete_record_framer_keeps_exact_bounded_records(tmp_path):
     source = io.StringIO(_fixture_pgn_records(MINIMUM_REAL_GAME_COUNT + 5))
     destination = tmp_path / "subset.pgn"
@@ -185,19 +344,19 @@ def test_release_bundle_requires_binding_minimum_real_game_count(tmp_path):
 
 def test_release_bundle_binds_curation_evidence_to_exact_selected_bytes(tmp_path):
     starter_count = MINIMUM_REAL_GAME_COUNT
-    starter_pgn = build_starter_pgn(starter_count)
-    subset_sha = hashlib.sha256(starter_pgn.encode("utf-8")).hexdigest()
-    curation = _fake_curation_evidence(starter_pgn)
+    with patch.object(lawful_bundle, "CURATION_LENGTH_MINIMUMS", {"20-59": 20}):
+        starter_pgn, curation = _semantic_curation_fixture(starter_count)
+        subset_sha = hashlib.sha256(starter_pgn.encode("utf-8")).hexdigest()
 
-    manifest = build_release_bundle_from_curated_pgn(
-        tmp_path,
-        starter_pgn=starter_pgn,
-        starter_count=starter_count,
-        source_subset_sha256=subset_sha,
-        source_compressed_bytes=12345,
-        curation_evidence=curation,
-        stress_count=starter_count + 16,
-    )
+        manifest = build_release_bundle_from_curated_pgn(
+            tmp_path,
+            starter_pgn=starter_pgn,
+            starter_count=starter_count,
+            source_subset_sha256=subset_sha,
+            source_compressed_bytes=12345,
+            curation_evidence=curation,
+            stress_count=starter_count + 16,
+        )
 
     assert manifest["schema_version"] == 3
     assert manifest["bundle_kind"] == "lawful-curated-real-game-starter"
@@ -237,20 +396,94 @@ def test_release_bundle_binds_curation_evidence_to_exact_selected_bytes(tmp_path
 
 def test_release_bundle_rejects_curation_evidence_for_different_bytes(tmp_path):
     starter_count = MINIMUM_REAL_GAME_COUNT
-    starter_pgn = build_starter_pgn(starter_count)
-    curation = _fake_curation_evidence(starter_pgn)
-    curation["selected_games"][0]["record_sha256"] = "0" * 64
+    with patch.object(lawful_bundle, "CURATION_LENGTH_MINIMUMS", {"20-59": 20}):
+        starter_pgn, curation = _semantic_curation_fixture(starter_count)
+        curation["selected_games"][0]["record_sha256"] = "0" * 64
+        subset_sha = hashlib.sha256(starter_pgn.encode("utf-8")).hexdigest()
 
-    with _raises(ValueError, match="does not match selected starter PGN records"):
-        build_release_bundle_from_curated_pgn(
-            tmp_path,
-            starter_pgn=starter_pgn,
-            starter_count=starter_count,
-            source_subset_sha256="b" * 64,
-            source_compressed_bytes=1,
-            curation_evidence=curation,
-            stress_count=starter_count + 2,
-        )
+        with _raises(ValueError, match="does not match selected starter PGN records"):
+            build_release_bundle_from_curated_pgn(
+                tmp_path,
+                starter_pgn=starter_pgn,
+                starter_count=starter_count,
+                source_subset_sha256=subset_sha,
+                source_compressed_bytes=1,
+                curation_evidence=curation,
+                stress_count=starter_count + 2,
+            )
+
+
+def test_release_bundle_rejects_falsified_semantic_curation_metadata(tmp_path):
+    starter_count = MINIMUM_REAL_GAME_COUNT
+    with patch.object(lawful_bundle, "CURATION_LENGTH_MINIMUMS", {"20-59": 20}):
+        starter_pgn, curation = _semantic_curation_fixture(starter_count)
+        curation["selected_games"][0]["plies"] += 1
+        subset_sha = hashlib.sha256(starter_pgn.encode("utf-8")).hexdigest()
+
+        with _raises(ValueError, match="does not match selected starter PGN records"):
+            build_release_bundle_from_curated_pgn(
+                tmp_path,
+                starter_pgn=starter_pgn,
+                starter_count=starter_count,
+                source_subset_sha256=subset_sha,
+                source_compressed_bytes=1,
+                curation_evidence=curation,
+                stress_count=starter_count + 2,
+            )
+
+
+def test_release_bundle_rejects_subset_digest_not_bound_to_starter_bytes(tmp_path):
+    starter_count = MINIMUM_REAL_GAME_COUNT
+    with patch.object(lawful_bundle, "CURATION_LENGTH_MINIMUMS", {"20-59": 20}):
+        starter_pgn, curation = _semantic_curation_fixture(starter_count)
+
+        with _raises(ValueError, match="does not match starter PGN bytes"):
+            build_release_bundle_from_curated_pgn(
+                tmp_path,
+                starter_pgn=starter_pgn,
+                starter_count=starter_count,
+                source_subset_sha256="0" * 64,
+                source_compressed_bytes=1,
+                curation_evidence=curation,
+                stress_count=starter_count + 2,
+            )
+
+
+def test_release_bundle_rejects_inconsistent_scan_accounting(tmp_path):
+    starter_count = MINIMUM_REAL_GAME_COUNT
+    with patch.object(lawful_bundle, "CURATION_LENGTH_MINIMUMS", {"20-59": 20}):
+        starter_pgn, curation = _semantic_curation_fixture(starter_count)
+        curation["rejected_records"] = {"strict_parse_failure": 1}
+        subset_sha = hashlib.sha256(starter_pgn.encode("utf-8")).hexdigest()
+
+        with _raises(ValueError, match="scan accounting is inconsistent"):
+            build_release_bundle_from_curated_pgn(
+                tmp_path,
+                starter_pgn=starter_pgn,
+                starter_count=starter_count,
+                source_subset_sha256=subset_sha,
+                source_compressed_bytes=1,
+                curation_evidence=curation,
+                stress_count=starter_count + 2,
+            )
+
+
+def test_release_bundle_rejects_unqualified_compressed_source_size(tmp_path):
+    starter_count = MINIMUM_REAL_GAME_COUNT
+    with patch.object(lawful_bundle, "CURATION_LENGTH_MINIMUMS", {"20-59": 20}):
+        starter_pgn, curation = _semantic_curation_fixture(starter_count)
+        subset_sha = hashlib.sha256(starter_pgn.encode("utf-8")).hexdigest()
+
+        with _raises(ValueError, match="compressed-size range"):
+            build_release_bundle_from_curated_pgn(
+                tmp_path,
+                starter_pgn=starter_pgn,
+                starter_count=starter_count,
+                source_subset_sha256=subset_sha,
+                source_compressed_bytes=lawful_bundle.DOWNLOAD_LIMIT_BYTES + 1,
+                curation_evidence=curation,
+                stress_count=starter_count + 2,
+            )
 
 
 def test_release_bundle_rejects_record_count_mismatch(tmp_path):
@@ -265,3 +498,136 @@ def test_release_bundle_rejects_record_count_mismatch(tmp_path):
             curation_evidence=_fake_curation_evidence(starter_pgn),
             stress_count=MINIMUM_REAL_GAME_COUNT + 2,
         )
+
+def test_release_bundle_build_failure_preserves_existing_bundle(tmp_path):
+    starter_count = MINIMUM_REAL_GAME_COUNT
+    destination = tmp_path / "bundle"
+    destination.mkdir()
+    previous = {}
+    for index, name in enumerate(lawful_bundle.BUNDLE_FILENAMES, start=1):
+        payload = f"previous-{index}-{name}".encode("utf-8")
+        (destination / name).write_bytes(payload)
+        previous[name] = payload
+
+    with patch.object(lawful_bundle, "CURATION_LENGTH_MINIMUMS", {"20-59": 20}):
+        starter_pgn, curation = _semantic_curation_fixture(starter_count)
+        subset_sha = hashlib.sha256(starter_pgn.encode("utf-8")).hexdigest()
+        with patch.object(
+            lawful_bundle,
+            "_prove_sample_database",
+            side_effect=RuntimeError("forced database proof failure"),
+        ):
+            with _raises(RuntimeError, match="forced database proof failure"):
+                build_release_bundle_from_curated_pgn(
+                    destination,
+                    starter_pgn=starter_pgn,
+                    starter_count=starter_count,
+                    source_subset_sha256=subset_sha,
+                    source_compressed_bytes=1,
+                    curation_evidence=curation,
+                    overwrite=True,
+                    stress_count=starter_count + 2,
+                )
+
+    assert {
+        name: (destination / name).read_bytes()
+        for name in lawful_bundle.BUNDLE_FILENAMES
+    } == previous
+
+
+def test_staged_bundle_publication_rolls_back_mid_replace_failure(tmp_path):
+    destination = tmp_path / "bundle"
+    staging = tmp_path / "staging"
+    destination.mkdir()
+    staging.mkdir()
+    previous = {}
+    for index, name in enumerate(lawful_bundle.BUNDLE_FILENAMES, start=1):
+        old_payload = f"old-{index}-{name}".encode("utf-8")
+        new_payload = f"new-{index}-{name}".encode("utf-8")
+        (destination / name).write_bytes(old_payload)
+        (staging / name).write_bytes(new_payload)
+        previous[name] = old_payload
+
+    real_replace = lawful_bundle.os.replace
+    failed = False
+
+    def replace_with_one_publication_failure(source, target):
+        nonlocal failed
+        source_path = Path(source)
+        target_path = Path(target)
+        if (
+            not failed
+            and source_path.parent == staging
+            and source_path.name == "stress_uk.pgn"
+            and target_path.parent == destination
+        ):
+            failed = True
+            raise OSError("forced staged publication failure")
+        return real_replace(source, target)
+
+    with patch.object(lawful_bundle.os, "replace", side_effect=replace_with_one_publication_failure):
+        with _raises(OSError, match="forced staged publication failure"):
+            lawful_bundle._publish_staged_bundle(
+                staging,
+                destination,
+                overwrite=True,
+            )
+
+    assert failed is True
+    assert {
+        name: (destination / name).read_bytes()
+        for name in lawful_bundle.BUNDLE_FILENAMES
+    } == previous
+
+def test_incomplete_rollback_preserves_recovery_backup(tmp_path):
+    destination = tmp_path / "bundle"
+    staging = tmp_path / "staging"
+    destination.mkdir()
+    staging.mkdir()
+    previous = {}
+    for index, name in enumerate(lawful_bundle.BUNDLE_FILENAMES, start=1):
+        old_payload = f"old-{index}-{name}".encode("utf-8")
+        new_payload = f"new-{index}-{name}".encode("utf-8")
+        (destination / name).write_bytes(old_payload)
+        (staging / name).write_bytes(new_payload)
+        previous[name] = old_payload
+
+    real_replace = lawful_bundle.os.replace
+    publication_failed = False
+
+    def replace_with_publish_and_rollback_failures(source, target):
+        nonlocal publication_failed
+        source_path = Path(source)
+        target_path = Path(target)
+        if (
+            not publication_failed
+            and source_path.parent == staging
+            and source_path.name == "stress_uk.pgn"
+            and target_path.parent == destination
+        ):
+            publication_failed = True
+            raise OSError("forced staged publication failure")
+        if (
+            publication_failed
+            and source_path.parent.name.startswith(".bundle.rollback-")
+            and source_path.name == "starter_uk.pgn"
+            and target_path.parent == destination
+        ):
+            raise OSError("forced rollback restore failure")
+        return real_replace(source, target)
+
+    with patch.object(
+        lawful_bundle.os,
+        "replace",
+        side_effect=replace_with_publish_and_rollback_failures,
+    ):
+        with _raises(RuntimeError, match="rollback recovery files were preserved"):
+            lawful_bundle._publish_staged_bundle(
+                staging,
+                destination,
+                overwrite=True,
+            )
+
+    backups = sorted(tmp_path.glob(".bundle.rollback-*"))
+    assert len(backups) == 1
+    assert (backups[0] / "starter_uk.pgn").read_bytes() == previous["starter_uk.pgn"]

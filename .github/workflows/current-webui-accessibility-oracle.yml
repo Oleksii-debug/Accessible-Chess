@@ -46,13 +46,18 @@ jobs:
             git fetch --no-tags origin "+refs/heads/$EVENT_BASE_REF:refs/remotes/origin/$EVENT_BASE_REF"
             live_base="$(git rev-parse "refs/remotes/origin/$EVENT_BASE_REF")"
             test -n "$EVENT_BASE_SHA"
-            test "$EVENT_BASE_SHA" = "$live_base"
+            git cat-file -e "$EVENT_BASE_SHA^{commit}"
+            git merge-base --is-ancestor "$EVENT_BASE_SHA" "$live_base"
+            absorbed_base="$(git merge-base "$live_base" HEAD)"
+            git merge-base --is-ancestor "$EVENT_BASE_SHA" "$absorbed_base"
           else
             live_base="$(git rev-parse HEAD^)"
+            absorbed_base="$live_base"
           fi
 
-          test "$(git merge-base "$live_base" HEAD)" = "$live_base"
-          git diff --check "$live_base"...HEAD
+          git merge-base --is-ancestor "$absorbed_base" "$live_base"
+          git merge-base --is-ancestor "$absorbed_base" HEAD
+          git diff --check "$absorbed_base"...HEAD
 
           if [ -n "${EVENT_BASE_REF:-}" ] && [ "$EVENT_BASE_REF" = "$DEFAULT_BRANCH" ]; then
             # Whole-Product integration intentionally contains the complete
@@ -61,15 +66,27 @@ jobs:
             # full main integration must equal this historical two-path slice.
             echo 'CURRENT_WEBUI_SCOPE_MODE=DEFAULT_BRANCH_INTEGRATION'
           else
-            changed="$(git diff --name-only "$live_base"...HEAD | sort)"
-            expected_paths="$(printf '%s\n' \
+            changed="$(git diff --name-only "$absorbed_base"...HEAD | sort)"
+            oracle_paths="$(printf '%s\n' \
               '.github/workflows/current-webui-accessibility-oracle.yml' \
               'tests/test_accessible_webui.py' | sort)"
-            test "$changed" = "$expected_paths" || {
+            ui_transaction_paths="$(printf '%s\n' \
+              '.github/workflows/current-product-accessibility-formats-convergence.yml' \
+              '.github/workflows/current-webui-accessibility-oracle.yml' \
+              '.github/workflows/d01-pgn-workspace-webview.yml' \
+              '.github/workflows/keybindings-current-apex-dom-native.yml' \
+              'tests/js/keymap_recovery_accessibility_test.js' \
+              'tests/js/owner_gameplay_keyboard_test.js' \
+              'tests/test_accessible_webui.py' \
+              'web/index.html' | sort)"
+            if [ "$changed" = "$oracle_paths" ]; then
+              echo 'CURRENT_WEBUI_SCOPE_MODE=STACKED_ORACLE_EXACT'
+            elif [ "$changed" = "$ui_transaction_paths" ]; then
+              echo 'CURRENT_WEBUI_SCOPE_MODE=STACKED_UI_TRANSACTION_EXACT'
+            else
               printf 'Unexpected WebUI-oracle scope:\n%s\n' "$changed" >&2
               exit 1
-            }
-            echo 'CURRENT_WEBUI_SCOPE_MODE=STACKED_EXACT'
+            fi
           fi
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065

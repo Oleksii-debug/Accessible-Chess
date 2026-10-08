@@ -4,6 +4,7 @@ on:
   pull_request:
     branches:
       - work/full-product-teacher-education-reachability-20260911
+      - converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
     paths:
       - 'acs/full_product_native_menu.py'
       - 'acs/ui_native_menu.py'

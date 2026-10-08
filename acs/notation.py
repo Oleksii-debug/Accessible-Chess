@@ -10,6 +10,12 @@ class NotationError(ValueError):
 
 PROFILES = {"san", "uk_literal", "en_literal"}
 
+# SAN is an intrinsically tiny grammar. Bound the raw representation before
+# strip()/regex work so pasted or hostile text cannot amplify allocation cost.
+# The supported grammar below needs at most 9 non-whitespace characters; 64
+# leaves ample compatibility headroom without turning notation into a text sink.
+MAX_SAN_CHARS = 64
+
 _PIECES = {
     "uk": {
         "K": "король",
@@ -91,12 +97,19 @@ def _normalise_castling(san: str) -> str:
     return san
 
 
-def parse_san(san: str) -> ParsedSan:
+def _bounded_san_text(san: str) -> str:
     if type(san) is not str:
         raise NotationError("SAN token must be text")
+    if len(san) > MAX_SAN_CHARS:
+        raise NotationError("SAN token is too long")
     token = san.strip()
     if not token:
         raise NotationError("SAN token must not be empty")
+    return token
+
+
+def parse_san(san: str) -> ParsedSan:
+    token = _bounded_san_text(san)
 
     token = _normalise_castling(token)
     if token in _CASTLING_TOKENS:
@@ -157,12 +170,7 @@ def format_san(san: str, profile: str = "san") -> str:
 
     if type(profile) is not str or profile not in PROFILES:
         raise NotationError("unknown notation profile")
-    if type(san) is not str:
-        raise NotationError("SAN token must be text")
-
-    token = _normalise_castling(san.strip())
-    if not token:
-        raise NotationError("SAN token must not be empty")
+    token = _normalise_castling(_bounded_san_text(san))
     is_castling = token in _CASTLING_TOKENS
     if profile == "san":
         if not is_castling:

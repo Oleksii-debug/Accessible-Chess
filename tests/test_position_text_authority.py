@@ -35,10 +35,54 @@ class PositionTextAuthorityTests(unittest.TestCase):
 
     def test_invalid_square_uses_canonical_representation_validation(self):
         text = "W: K e1 Q z9 B: K e8"
-        with self.assertRaises(PositionValidationError):
+        with self.assertRaisesRegex(
+            PositionValidationError,
+            "^invalid square: 'z9'$",
+        ):
             parse_piece_coordinate_position(text)
-        with self.assertRaisesRegex(ValueError, "Неправильне поле: 'z9'"):
+        with self.assertRaisesRegex(ValueError, "^Неправильне поле: 'z9'$"):
             parse_position_text(text)
+        with self.assertRaisesRegex(ValueError, "^invalid square: 'z9'$"):
+            parse_position_text(text, language="en")
+
+        api_uk = AccessibleChessAPI(lang="uk")
+        api_en = AccessibleChessAPI(lang="en")
+        before_uk = api_uk.board.fen()
+        before_en = api_en.board.fen()
+
+        rejected_uk = api_uk.set_position_text(text, "w")
+        rejected_en = api_en.set_position_text(text, "w")
+
+        self.assertFalse(rejected_uk["ok"])
+        self.assertFalse(rejected_en["ok"])
+        self.assertEqual(rejected_uk["announcement"], "Неправильне поле: 'z9'")
+        self.assertEqual(rejected_en["announcement"], "invalid square: 'z9'")
+        self.assertEqual(api_uk.board.fen(), before_uk)
+        self.assertEqual(api_en.board.fen(), before_en)
+
+    def test_long_invalid_square_is_not_echoed_into_accessible_errors(self):
+        square = "z" * 64
+        text = f"W: K e1 Q {square} B: K e8"
+
+        with self.assertRaisesRegex(PositionValidationError, "^invalid square$"):
+            parse_piece_coordinate_position(text)
+        with self.assertRaisesRegex(ValueError, "^Неправильне поле$"):
+            parse_position_text(text)
+        with self.assertRaisesRegex(ValueError, "^invalid square$"):
+            parse_position_text(text, language="en")
+
+        for language, expected in (
+            ("uk", "Неправильне поле"),
+            ("en", "invalid square"),
+        ):
+            with self.subTest(language=language):
+                api = AccessibleChessAPI(lang=language)
+                before = api.board.fen()
+                result = api.set_position_text(text, "w")
+                self.assertFalse(result["ok"])
+                self.assertEqual(result["announcement"], expected)
+                self.assertNotIn(square, result["announcement"])
+                self.assertEqual(api.board.fen(), before)
 
     def test_king_cardinality_is_rejected_by_both_entry_points(self):
         text = "W: Q d1 B: K e8"
