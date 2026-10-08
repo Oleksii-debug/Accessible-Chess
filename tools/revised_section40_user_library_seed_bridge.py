@@ -16,8 +16,8 @@ import tempfile
 import zipfile
 
 from acs.acsdb import AcsDatabase
-from acs.lawful_corpus_registry import load_catalog, read_verified_source_snapshot
-from acs.gametree import serialize_game
+from acs.lawful_corpus_registry import load_catalog, read_verified_source_snapshot, read_verified_zip_member
+from acs.gametree import CanonicalPgnGameFramer, serialize_game
 from acs.pgn_roundtrip import parse_pgn_text
 from acs.user_library_seed import (
     BUNDLE_KIND, MANIFEST_NAME, SCHEMA_VERSION,
@@ -132,6 +132,39 @@ def _read_qualified_collection(source: Path) -> tuple[bytes, bytes]:
                 if len(pinned) != 1:
                     raise OfflineCollectionError("annotated original source authority missing")
                 origin = pinned[0]
+                # Stockfish source is a deterministic *derivative* of the
+                # separately pinned original ZIP, not an independently signed
+                # producer-supplied PGN. Reproduce the bounded 512-game frame
+                # selection against that exact original archive before seed
+                # generation, rejecting self-consistent counterfeit ZIPs.
+                stockfish = [row for row in load_catalog(
+                    ROOT / "docs/corpus/revised_sections37_40_sources.json"
+                ) if row["id"] == "stockfish_2moves_v2_pgn_zip"]
+                if len(stockfish) != 1:
+                    raise OfflineCollectionError("original Stockfish source authority missing")
+                stockfish_record = stockfish[0]
+                if (stockfish_record.get("acquisition") != "VENDORED_SOURCE_VERIFIED"
+                    or not str(stockfish_record.get("license", "")).startswith("CC0")
+                    or not str(stockfish_record.get("redistribution", "")).startswith("permitted")):
+                    raise OfflineCollectionError("independently verified Stockfish source rights missing")
+                member = read_verified_zip_member(
+                    ROOT / stockfish_record["local_source"], stockfish_record,
+                    expected_member=stockfish_record["zip_member"],
+                    max_unpacked_bytes=stockfish_record["max_unpacked_bytes"],
+                )
+                framer = CanonicalPgnGameFramer(max_frame_bytes=256 * 1024)
+                frames: list[str] = []
+                for line in member.decode("utf-8-sig", errors="strict").splitlines():
+                    frame = framer.feed_line(line)
+                    if frame is not None:
+                        frames.append(frame.text)
+                        if len(frames) == 512:
+                            break
+                if (len(frames) != 512
+                    or raw != ("\n".join(frames)).encode("utf-8")):
+                    raise OfflineCollectionError(
+                        "Section40 owner seed original Stockfish PGN is not the independently verified 512-game source"
+                    )
                 if (origin.get("acquisition") != "VENDORED_SOURCE_VERIFIED"
                     or not str(origin.get("license", "")).startswith("CC0")
                     or not str(origin.get("redistribution", "")).startswith("permitted")
