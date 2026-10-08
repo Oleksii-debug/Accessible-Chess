@@ -56,7 +56,7 @@ class LiveCorpusEvidenceSafetyTests(unittest.TestCase):
                 patch.object(probe, "REPORT_FILE", report),
                 patch.object(
                     probe.subprocess, "run",
-                    return_value=subprocess.CompletedProcess([], 0, head + "\\n", ""),
+                    return_value=subprocess.CompletedProcess([], 0, head + chr(10), ""),
                 ),
                 patch.dict(os.environ, {"ACCESSIBLE_CHESS_EXPECTED_HEAD": "b" * 40}),
                 patch.object(probe, "load_catalog") as catalog,
@@ -73,7 +73,7 @@ class LiveCorpusEvidenceSafetyTests(unittest.TestCase):
         with (
             patch.object(
                 probe.subprocess, "run",
-                return_value=subprocess.CompletedProcess([], 0, head + "\\n", ""),
+                return_value=subprocess.CompletedProcess([], 0, head + chr(10), ""),
             ),
             patch.dict(os.environ, {"ACCESSIBLE_CHESS_EXPECTED_HEAD": head}),
         ):
