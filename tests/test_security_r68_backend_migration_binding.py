@@ -33,7 +33,7 @@ def job():
     )
 
 
-def boundary(*, approve=lambda _: True, load=job, execute="CUTOVER_COMMITTED",
+def boundary(*, approve=lambda _actor, _proof: True, load=job, execute="CUTOVER_COMMITTED",
              reconcile="COMMITTED", fail_exec=False, fail_reconcile=False):
     calls = []
     source = object.__new__(MigrationCutover)
@@ -82,8 +82,8 @@ def test_r68_roles_and_permissions_deny_without_side_effect(user):
 
 
 def test_r68_requires_separately_authenticated_operator_authorization():
-    for verify in (lambda _: False, lambda _: 1,
-                   lambda _: (_ for _ in ()).throw(RuntimeError("AUTH_SECRET"))):
+    for verify in (lambda _actor, _proof: False, lambda _actor, _proof: 1,
+                   lambda _actor, _proof: (_ for _ in ()).throw(RuntimeError("AUTH_SECRET"))):
         bridge, calls = boundary(approve=verify)
         assert bridge.execute(actor()) == "DENIED"
         assert bridge.reconcile(actor()) == "DENIED"
@@ -98,6 +98,35 @@ def test_r68_untrusted_job_source_cannot_start_migration(bad_job):
     bridge, calls = boundary(load=lambda: bad_job)
     assert bridge.execute(actor()) == "DENIED"
     assert calls == []
+
+
+def test_r68_independent_approval_is_bound_to_exact_proof_not_role_only():
+    reviewed = job().proof
+    calls_to_approver = []
+    def authorize(actor, proof):
+        calls_to_approver.append((actor.actor_id, proof))
+        return proof == reviewed
+    bridge, effects = boundary(approve=authorize)
+    assert bridge.execute(actor()) == "COMMITTED"
+    assert calls_to_approver == [("actor.one", reviewed)]
+    assert [x[0] for x in effects] == ["execute"]
+    forged = replace(job(), proof=replace(reviewed, target_id="attacker.target"))
+    blocked, blocked_effects = boundary(approve=authorize, load=lambda: forged)
+    assert blocked.execute(actor()) == "DENIED"
+    assert blocked.reconcile(actor()) == "DENIED"
+    assert blocked_effects == []
+
+
+def test_r68_not_authorized_operator_does_not_mutate_durable_backend():
+    approvals = []
+    def verify(_actor, _proof):
+        approvals.append(True)
+        return False
+    bridge, calls = boundary(approve=verify)
+    assert bridge.execute(actor()) == "DENIED"
+    assert approvals == [True]
+    assert calls == []
+
 
 
 def test_r68_uncertain_commit_not_retried_or_promoted():
