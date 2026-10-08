@@ -2,11 +2,96 @@
   "external_backends": {
     "bundled": false,
     "external_readback": {
-      "reason": "GPL backends are build-time/test-time dependencies and are not bundled",
-      "status": "NOT_CONFIGURED"
+      "archive_backend": "uncbv",
+      "archive_backend_sha256": "77381dec2c32701fb7ac0e3b8618de470a35cd0f3156c51287a9149a835ba938",
+      "decoded_games": 113,
+      "decoder_backend_commit": "9641c5c3949d8fb210b17dd9aa54455645843696",
+      "extracted_cbh_family": {
+        "entry_count": 14,
+        "extracted_bytes": 48030,
+        "files": [
+          {
+            "name": "Cotswold_Open_2023.cba",
+            "sha256": "0cfa45b8dab375550d39b95d1b089f278d8573bdea7290149cc890a4f485682e",
+            "size": 9168
+          },
+          {
+            "name": "Cotswold_Open_2023.cbc",
+            "sha256": "e87615941133fbcee54f5428244088a4b7f7b788d0ed8f6d25223873376afa47",
+            "size": 218
+          },
+          {
+            "name": "Cotswold_Open_2023.cbe",
+            "sha256": "0f2b24067c28854c2caca9d1815dde5caa8d36743b6a92d230b3a0fb088b938f",
+            "size": 32
+          },
+          {
+            "name": "Cotswold_Open_2023.cbg",
+            "sha256": "37f2f3ad2e38d63a5112831025890a8244513f2184cdf4311b958221bf3bec78",
+            "size": 10431
+          },
+          {
+            "name": "Cotswold_Open_2023.cbh",
+            "sha256": "675866b1887e715880e545b42d1f79574822281164da92b5bad90969cb07f3c6",
+            "size": 5244
+          },
+          {
+            "name": "Cotswold_Open_2023.cbj",
+            "sha256": "8d7e97bfbf7fbf890b7c763b4346b0b74ed29df554a8cf1bf48db9e91054baea",
+            "size": 13592
+          },
+          {
+            "name": "Cotswold_Open_2023.cbl",
+            "sha256": "843b7a44e41230472c6fd690d78917b3c5073c62460844e2b64d614b795665dd",
+            "size": 1649
+          },
+          {
+            "name": "Cotswold_Open_2023.cbm",
+            "sha256": "15cb229747a77e7c27cbf17d2abc06399c6ef27b0d80a2f296f80eda202df5c4",
+            "size": 32
+          },
+          {
+            "name": "Cotswold_Open_2023.cbp",
+            "sha256": "47cbd99384f4d218ba9a8b761455061037dec7a465591584a89294f4ac59faab",
+            "size": 4119
+          },
+          {
+            "name": "Cotswold_Open_2023.cbs",
+            "sha256": "6a453d5111cd04811dfe87050c5a3d5e830afd568a32ed5ce8601e5dccc47381",
+            "size": 100
+          },
+          {
+            "name": "Cotswold_Open_2023.cbt",
+            "sha256": "b7599ea0b4922bafa9f04507a4d5e3d7b0a141681e8a914a99369140fcdededb",
+            "size": 329
+          },
+          {
+            "name": "Cotswold_Open_2023.cbtt",
+            "sha256": "557f4ea3659d4493f4549f1e6e2f297645114fca570f209b463a914bb9452aec",
+            "size": 97
+          },
+          {
+            "name": "Cotswold_Open_2023.flags",
+            "sha256": "1a590a35a38713c90164107fe425ebb93dc3dcc2a14996782f1882c464271b3e",
+            "size": 12
+          },
+          {
+            "name": "Cotswold_Open_2023.ini",
+            "sha256": "cb576e8c3bd2f4440627f58665442bdf5f4480b69a41c93e827b251cc91fbdd9",
+            "size": 3007
+          }
+        ],
+        "primary": "Cotswold_Open_2023.cbh"
+      },
+      "imported_games": 113,
+      "oracle": "cotswold_2023.pgn",
+      "source_format": "cbv",
+      "status": "PASS"
     },
+    "libcbh_bridge_sha256": "ccc9d6f762b1baf678e8dbe30d0ea1e1245218768f8cfc94cdec5c797a555158",
     "libcbh_commit": "9641c5c3949d8fb210b17dd9aa54455645843696",
-    "uncbv_commit": "3c18e8a7c6a30c21f945a1ab5462521c306dca57"
+    "uncbv_commit": "3c18e8a7c6a30c21f945a1ab5462521c306dca57",
+    "uncbv_sha256": "77381dec2c32701fb7ac0e3b8618de470a35cd0f3156c51287a9149a835ba938"
   },
   "schema_version": 1,
   "section": 37,

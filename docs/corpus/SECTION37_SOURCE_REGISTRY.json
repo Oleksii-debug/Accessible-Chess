@@ -93,7 +93,29 @@
       "actual_sha256": "d1fe221cda73ede12acdc23dc0fa4c922962b62d00ba88381f7085c3e0620902",
       "size_bytes": 24039,
       "rights": {"read": true, "test": true, "redistribute": false},
-      "status": "DOWNLOADED_READ_ONLY_EXTERNAL_ORACLE_PENDING",
+      "status": "DOWNLOADED_EXTERNAL_READBACK_PASS",
+      "evidence": ["tools/section37_real_corpus_evidence.py", "docs/corpus/SECTION37_REAL_CORPUS_READBACK.json"]
+    },
+    {
+      "id": "chessit-cotswold-extracted-cbh-family",
+      "kind": "real_external_chessbase_family",
+      "format": "CBH plus companions extracted from CBV",
+      "language": "en",
+      "source_url": "repo-evidence://chessit-cotswold-open-2023-cbv",
+      "author_or_owner": "same test-only source as parent CBV; no redistribution clearance",
+      "license": "inherited test-only source terms",
+      "expected_sha256": null,
+      "actual_sha256": null,
+      "counts": {"cbv_entries": 14, "extracted_bytes": 48030, "decoded_games": 113, "imported_games": 113},
+      "components": {
+        "Cotswold_Open_2023.cbh": {"size": 5244, "sha256": "675866b1887e715880e545b42d1f79574822281164da92b5bad90969cb07f3c6"},
+        "Cotswold_Open_2023.cbg": {"size": 10431, "sha256": "37f2f3ad2e38d63a5112831025890a8244513f2184cdf4311b958221bf3bec78"},
+        "Cotswold_Open_2023.cba": {"size": 9168, "sha256": "0cfa45b8dab375550d39b95d1b089f278d8573bdea7290149cc890a4f485682e"},
+        "Cotswold_Open_2023.cbc": {"size": 218, "sha256": "e87615941133fbcee54f5428244088a4b7f7b788d0ed8f6d25223873376afa47"},
+        "Cotswold_Open_2023.cbe": {"size": 32, "sha256": "0f2b24067c28854c2caca9d1815dde5caa8d36743b6a92d230b3a0fb088b938f"}
+      },
+      "rights": {"read": true, "test": true, "redistribute": false},
+      "status": "CBH_EXTERNAL_READBACK_PASS_TEST_ONLY",
       "evidence": ["tools/section37_real_corpus_evidence.py", "docs/corpus/SECTION37_REAL_CORPUS_READBACK.json"]
     },
     {
@@ -155,7 +177,8 @@
       "actual_sha256": null,
       "pinned_commits": {"libcbh": "9641c5c3949d8fb210b17dd9aa54455645843696", "uncbv": "3c18e8a7c6a30c21f945a1ab5462521c306dca57"},
       "rights": {"read": true, "test": true, "redistribute": false},
-      "status": "BUILD_TIME_ONLY_NOT_BUNDLED",
+      "backend_sha256": {"uncbv": "77381dec2c32701fb7ac0e3b8618de470a35cd0f3156c51287a9149a835ba938", "libcbh_json_bridge": "ccc9d6f762b1baf678e8dbe30d0ea1e1245218768f8cfc94cdec5c797a555158"},
+      "status": "BUILD_TIME_EXTERNAL_READBACK_PASS_NOT_BUNDLED",
       "evidence": ["tools/optional/LIBCBH_BACKEND.md", "tools/optional/UNCBV_BACKEND.md", ".github/workflows/section37-real-corpus-readback.yml"]
     },
     {
@@ -193,6 +216,6 @@
     "blocked": ["37.4-CBF-CBI-2CBH-CBONE"],
     "section_done": false,
     "next_dependency_safe_front": "38",
-    "honest_blocker": "Real CBV and independent PGN oracle bytes are now pinned for test-time readback, but external uncbv/libcbh execution must still produce a passing CI oracle; genuine lawful CBF+CBI, 2CBH and CBONE fixtures with independent semantic oracles remain unavailable, and all downloaded third-party sources remain excluded from PUBLIC_RELEASE until redistribution rights are explicit."
+    "honest_blocker": "CBV-to-CBH-to-ACSDB external readback now passes against the independent 113-game PGN oracle. Genuine lawful CBF+CBI, 2CBH and CBONE fixtures with independent semantic oracles remain unavailable, and all downloaded third-party sources remain excluded from PUBLIC_RELEASE until redistribution rights are explicit."
   }
 }

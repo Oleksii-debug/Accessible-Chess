@@ -22,7 +22,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from acs.acsdb import AcsDatabase  # noqa: E402
-from acs.cbv_extractor import ExternalCbvExtractorConfig  # noqa: E402
+from acs.cbv_extractor import ExternalCbvExtractorConfig, extract_cbv_external  # noqa: E402
 from acs.chessbase_decoder import ExternalChessBaseDecoderConfig  # noqa: E402
 from acs.chessbase_library_import import ChessBaseLibraryImportService  # noqa: E402
 from acs.chessbase_manifest import build_chessbase_manifest  # noqa: E402
@@ -130,6 +130,19 @@ def _external_cbv_readback(
     )
     with tempfile.TemporaryDirectory(prefix="accessible-chess-section37-") as temporary:
         database_path = Path(temporary) / "section37.acsdb"
+        extracted_root = Path(temporary) / "extracted"
+        extracted_root.mkdir()
+        extracted = extract_cbv_external(cbv, extracted_root, extractor)
+        family_files = []
+        for candidate in sorted(extracted_root.rglob("*")):
+            if candidate.is_file():
+                family_files.append(
+                    {
+                        "name": candidate.relative_to(extracted_root).as_posix(),
+                        "size": candidate.stat().st_size,
+                        "sha256": _sha256(candidate),
+                    }
+                )
         with AcsDatabase(database_path) as database:
             report = ChessBaseLibraryImportService(
                 database, decoder, extractor
@@ -150,6 +163,12 @@ def _external_cbv_readback(
                 "imported_games": report.imported_game_count,
                 "archive_backend": report.archive_backend_name,
                 "archive_backend_sha256": report.archive_backend_sha256,
+                "extracted_cbh_family": {
+                    "primary": extracted.primary_path.name,
+                    "entry_count": extracted.entry_count,
+                    "extracted_bytes": extracted.extracted_bytes,
+                    "files": family_files,
+                },
                 "decoder_backend_commit": report.backend_commit,
                 "oracle": "cotswold_2023.pgn",
             }

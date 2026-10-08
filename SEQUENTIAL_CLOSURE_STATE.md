@@ -15,7 +15,7 @@ never silently converted into `DONE`.
 
 ## Section 37 — current closure front
 
-**Status: `INTERNAL_COMPLETE_EXTERNAL_READBACK_PENDING` (not DONE).**
+**Status: `INTERNAL_COMPLETE_EXTERNAL_READBACK_VERIFIED` (not DONE).**
 
 Durable source registry: `docs/corpus/SECTION37_SOURCE_REGISTRY.json`.
 
@@ -24,7 +24,7 @@ Durable source registry: `docs/corpus/SECTION37_SOURCE_REGISTRY.json`.
 | 37.1 | `PARTIAL` | Registry now records real Cotswold CBV/PGN, TWIC CBV, and PGN Mentor Alekhine source URLs, sizes, SHA-256, rights boundary, and readback counts. It is not yet the plan's “large” all-format registry. |
 | 37.2 | `PARTIAL` | Real Cotswold PGN (113 games, 0 parser warnings) and Alekhine PGN (1661 games, 0 parser warnings) are downloaded and canonical-readback verified; EPD/FEN/annotated collections still need separate real sources. |
 | 37.3 | `PARTIAL` | 24 Ukrainian project-authored booklets and 144 exercises are real and licensed. Independent third-party EPUB/HTML/TXT/PDF/DOCX/Markdown literature across the required genres is not cleared or bundled. |
-| 37.4 | `PARTIAL` | Two genuine CBV files are SHA-pinned and adapter/manifest verified. `.github/workflows/section37-real-corpus-readback.yml` builds the pinned GPL `uncbv` and `libcbh` backends and compares CBV decode/import against the independent 113-game Cotswold PGN oracle. CBF+CBI, 2CBH and CBONE lawful fixtures remain unavailable. |
+| 37.4 | `PARTIAL` | Two genuine CBV files are SHA-pinned and adapter/manifest verified. Local external readback now passes: `uncbv` extracts a 14-entry CBH family, pinned `libcbh` decodes/imports 113 games, and the independent Cotswold PGN oracle also has 113 games. The same check is durable in `.github/workflows/section37-real-corpus-readback.yml`. CBF+CBI, 2CBH and CBONE lawful fixtures remain unavailable. |
 | 37.5 | `DONE` | TEST_BUILD versus PUBLIC_RELEASE boundary, source-page-only handling, and project-owned notices are documented. |
 | 37.6 | `DONE` | Source manifests, checksum fields, bounded download/verification path, safe temporary-workspace pattern, and fail-closed cleanup policy are present. |
 
@@ -41,6 +41,7 @@ real-source policy: 240-game deterministic sample from pinned CC0 Lichess source
 Section 37 readback manifest: `docs/corpus/SECTION37_REAL_CORPUS_READBACK.json`
 Section 37 readback command: `python tools/section37_real_corpus_evidence.py --corpus-root <downloaded-corpus> --output <evidence.json>`
 Pinned CI external oracle: `.github/workflows/section37-real-corpus-readback.yml`
+local external oracle: `status=PASS`, CBV→CBH family entries=14, decoded/imported games=113
 CBF/CBI/2CBH/CBONE evidence: BLOCKED (no lawful fixture + independent semantic oracle)
 ```
 
