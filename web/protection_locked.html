@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Accessible Chess — активація</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 52rem; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; }
+    button, textarea { font: inherit; }
+    button { margin: .35rem .35rem .35rem 0; padding: .65rem 1rem; }
+    textarea { width: 100%; min-height: 9rem; box-sizing: border-box; }
+    .status { border: 1px solid currentColor; padding: .75rem; margin: 1rem 0; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Accessible Chess — потрібна активація</h1>
+    <p>Платні функції заблоковані. Ваші локальні дані не видаляються.</p>
+    <div id="status" class="status" role="status" aria-live="polite">Перевіряю стан…</div>
+
+    <section aria-labelledby="request-heading">
+      <h2 id="request-heading">Запит на активацію</h2>
+      <p>Створіть запит і передайте його власнику/службі активації.</p>
+      <button id="make-request" type="button">Створити запит на активацію</button>
+      <label for="request-output">Текст запиту</label>
+      <textarea id="request-output" readonly></textarea>
+    </section>
+
+    <section aria-labelledby="lease-heading">
+      <h2 id="lease-heading">Імпорт підписаного дозволу</h2>
+      <label for="lease-input">Вставте JSON дозволу</label>
+      <textarea id="lease-input"></textarea>
+      <button id="import-lease" type="button">Імпортувати дозвіл</button>
+    </section>
+
+    <p>
+      <button id="retry" type="button">Перевірити доступ знову</button>
+      <button id="close" type="button">Закрити</button>
+    </p>
+  </main>
+  <script src="protection_locked.js"></script>
+</body>
+</html>
