@@ -110,14 +110,18 @@ class CloudChatProvider:
     def __init__(
         self, *, provider_id: str, default_model: str,
         allow_private_data: bool = False, max_output_tokens: int = 512,
+        allow_live_requests: bool = False,
         client_factory=None,
     ) -> None:
         if provider_id not in _PROVIDER_CONFIG:
             raise ValueError("unsupported cloud provider")
         if type(allow_private_data) is not bool:
             raise TypeError("privacy approval must be boolean")
+        if type(allow_live_requests) is not bool:
+            raise TypeError("live inference approval must be boolean")
         if type(max_output_tokens) is not int or not 1 <= max_output_tokens <= 4096:
             raise ValueError("invalid bounded output-token limit")
+        self._allow_live_requests = allow_live_requests
         self._provider_id = provider_id
         self._origin, self._secret_env = _PROVIDER_CONFIG[provider_id]
         self._default_model = _identifier(default_model)
@@ -151,6 +155,10 @@ class CloudChatProvider:
         )
 
     async def _exchange(self, method: str, path: str, *, payload=None, timeout: float):
+        if not self._allow_live_requests:
+            raise self._error(ModelErrorCode.UNAVAILABLE,
+                              "cloud inference has not been explicitly enabled",
+                              no_effect=True)
         secret = os.environ.get(self._secret_env)
         if not secret:
             raise self._error(ModelErrorCode.UNAVAILABLE,
@@ -294,7 +302,7 @@ class CloudChatProvider:
 
 def register_configured_cloud_providers(
     gateway, *, models: dict[str, str], allow_private_data: bool = False,
-    max_output_tokens: int = 512,
+    max_output_tokens: int = 512, allow_live_requests: bool = False,
 ) -> tuple[str, ...]:
     """Register into the existing ModelGateway, never instantiate a router #2.
 
@@ -311,7 +319,9 @@ def register_configured_cloud_providers(
             provider_id=provider, default_model=models[provider],
             allow_private_data=allow_private_data,
             max_output_tokens=max_output_tokens,
+            allow_live_requests=allow_live_requests,
         )
-        gateway.register(instance, default=(not registered))
+        # A cloud route is never a silent default for unrelated chess requests.
+        gateway.register(instance, default=False)
         registered.append(provider)
     return tuple(registered)
