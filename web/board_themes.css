@@ -7,10 +7,10 @@
   --board-last: #f2c14e;
 }
 
-#board-grid.board-theme-wood { --board-light: #f0d9b5; --board-dark: #b58863; }
-#board-grid.board-theme-graphite { --board-light: #cbd5e1; --board-dark: #475569; }
-#board-grid.board-theme-blue { --board-light: #dbeafe; --board-dark: #1d4ed8; }
-#board-grid.board-theme-minimal { --board-light: #ffffff; --board-dark: #e5e7eb; }
+#board-grid.board-theme-wood { --board-light: #ead7b7; --board-dark: #8d5d3b; }
+#board-grid.board-theme-graphite { --board-light: #d6e0e6; --board-dark: #405465; }
+#board-grid.board-theme-blue { --board-light: #d9edf0; --board-dark: #245d78; }
+#board-grid.board-theme-minimal { --board-light: #fffdf8; --board-dark: #d9e1e4; }
 #board-grid.board-theme-high-contrast {
   --board-light: #ffffff;
   --board-dark: #000000;

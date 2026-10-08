@@ -284,3 +284,9 @@ Durable evidence: `docs/corpus/SECTION53_FINAL_CONVERGENCE_EVIDENCE.json`.
 | 53.6 | `BLOCKED` | Final public-release convergence cannot be marked DONE while the listed external blockers remain. |
 
 Sections 49–53 are now traversed and recorded; no false DONE is asserted.
+
+## Premium platform visual pass — 2026-10-09
+
+The visual layer was upgraded across the rendered platform surfaces, not exposed as a user-only theme editor. `web/design_system.css` now supplies a deliberate premium shell: warm ivory/light and ink/navy/dark surfaces, gold hierarchy accents, typography/spacing/elevation tokens, product header, card surfaces, primary actions, modal treatment, V2 navigation/workspace styling, Books/Library/Training/Teacher/Classroom/PGN surface styling, and board framing. The product header remains bilingual and the design layer preserves semantic text, keyboard focus, forced-colors and reduced-motion behavior.
+
+Durable verification: `tests/test_premium_visual_design.py`, `tests/test_section41_design_system.py`, `tests/test_section42_board_themes.py`, inline JavaScript syntax check and `git diff --check` pass. Physical Windows rendering, DPI screenshot baselines and human NVDA acceptance remain external evidence and are not claimed.

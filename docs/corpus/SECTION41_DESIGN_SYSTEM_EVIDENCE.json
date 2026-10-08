@@ -5,17 +5,19 @@
   "local_design_system": {
     "path": "web/design_system.css",
     "offline": true,
+    "visual_direction": "premium product-wide shell: ink/navy surfaces, warm ivory light mode, gold accents, deliberate spacing, elevation and board framing",
     "themes": ["light", "dark", "contrast", "system"],
     "forced_colors": true,
     "reduced_motion": true,
     "focus_visible": true,
-    "cdn_dependency": false
+    "cdn_dependency": false,
+    "platform_surfaces": ["main chess workspace", "V2 navigation", "V2 workspace routes", "Books", "Library", "Training", "Teacher/Classroom", "PGN", "profile/help/reset/comment dialogs"]
   },
   "existing_accessibility_surface": {
     "aria_keyboard_focus_runtime": "web/version2_final_product_bootstrap.js",
     "keyboard_keymap": "web/keybindings.json",
     "semantic_text_selection": "web/p0_accessibility_runtime.js",
-    "verification": "tests/test_section41_design_system.py"
+    "verification": ["tests/test_section41_design_system.py", "tests/test_premium_visual_design.py"]
   },
   "third_party_dependencies": {
     "tabler_bootstrap": "BLOCKED_NOT_DOWNLOADED_OR_PINNED",
