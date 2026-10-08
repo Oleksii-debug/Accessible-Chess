@@ -53,7 +53,12 @@ def load_catalog(path: Path = CATALOG_FILE) -> tuple[dict, ...]:
         data = json.loads(raw)
     except (ValueError, UnicodeError) as exc:
         raise LawfulCorpusError("corpus catalog JSON is invalid") from exc
-    if type(data) is not dict or data.get("schema_version") != 1 or type(data.get("sources")) is not list:
+    if (
+        type(data) is not dict
+        or type(data.get("schema_version")) is not int
+        or data["schema_version"] != 1
+        or type(data.get("sources")) is not list
+    ):
         raise LawfulCorpusError("corpus catalog schema invalid")
     records = data["sources"]
     if not records or len(records) > 256:
