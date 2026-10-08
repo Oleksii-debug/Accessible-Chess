@@ -16,6 +16,10 @@ from acs.protection_online_boundary import (
     ProtectionOnlineClient,
     ProtectionOnlineError,
 )
+from acs.protection_entitlement_lifecycle import (
+    ProtectionEntitlementLifecycle,
+    ProtectionLifecycleError,
+)
 
 SAFE = ["help", "login", "own-data-export", "own-data-read", "recovery", "update"]
 
@@ -242,3 +246,145 @@ def test_public_browser_ui_does_not_embed_password_or_client_secret_fields():
     assert "client_secret" not in js
     assert "refresh_token" not in html
     assert "refresh_token" not in js
+
+
+def _runtime_v3(*, lifecycle=None, poll_states=None):
+    runtime = _runtime_v2(poll_states=poll_states)
+    runtime.RUNTIME_API_VERSION = 3
+    original_evaluate = runtime.evaluate_startup
+    def evaluate_startup(**kwargs):
+        value = dict(original_evaluate(**kwargs))
+        value["api_version"] = 3
+        return value
+    runtime.evaluate_startup = evaluate_startup
+    if lifecycle is None:
+        lifecycle = {
+            "api_version": 3,
+            "state": "authorized",
+            "reason": "none",
+            "actions": [],
+            "live_region": "none",
+            "retry_after_seconds": 900,
+            "lease_remaining_seconds": 3600,
+        }
+    runtime.synchronize_online_entitlement = lambda **kwargs: dict(lifecycle)
+    return runtime
+
+
+def test_r19_r22_lifecycle_has_no_identity_or_token_inputs(tmp_path):
+    lifecycle = ProtectionEntitlementLifecycle(_client(tmp_path, _runtime_v3()))
+    params = inspect.signature(lifecycle.synchronize).parameters
+    assert params == {}
+    snapshot = lifecycle.synchronize()
+    assert snapshot.state == "authorized"
+    assert snapshot.premium_allowed is True
+
+
+@pytest.mark.parametrize("state,reason,actions", [
+    ("reauth_required", "lease_expired", ["login"]),
+    ("revoked", "device_revoked", ["recover"]),
+    ("quarantined", "risk_threshold", ["repair", "login"]),
+    ("recovery_required", "device_lost", ["recover", "transfer_device"]),
+    ("device_limit", "device_limit", ["recover"]),
+])
+def test_denied_lifecycle_states_fail_closed_for_premium(state, reason, actions, tmp_path):
+    runtime = _runtime_v3(lifecycle={
+        "api_version": 3,
+        "state": state,
+        "reason": reason,
+        "actions": actions,
+        "live_region": "assertive",
+        "retry_after_seconds": 0,
+        "lease_remaining_seconds": None,
+    })
+    snapshot = ProtectionEntitlementLifecycle(_client(tmp_path, runtime)).synchronize()
+    assert snapshot.premium_allowed is False
+    assert snapshot.live_region == "assertive"
+
+
+def test_network_grace_is_explicit_and_bounded(tmp_path):
+    runtime = _runtime_v3(lifecycle={
+        "api_version": 3,
+        "state": "network_grace",
+        "reason": "network_failure",
+        "actions": ["retry"],
+        "live_region": "assertive",
+        "retry_after_seconds": 60,
+        "lease_remaining_seconds": -120,
+    })
+    snapshot = ProtectionEntitlementLifecycle(_client(tmp_path, runtime)).synchronize()
+    assert snapshot.premium_allowed is True
+    assert snapshot.retry_after_seconds == 60
+    assert snapshot.lease_remaining_seconds == -120
+
+
+def test_malformed_lifecycle_or_secret_extra_fields_fail_closed(tmp_path):
+    runtime = _runtime_v3(lifecycle={
+        "api_version": 3,
+        "state": "authorized",
+        "reason": "none",
+        "actions": [],
+        "live_region": "none",
+        "retry_after_seconds": 900,
+        "lease_remaining_seconds": 3600,
+        "access_token": "must-not-cross-boundary",
+    })
+    with pytest.raises(ProtectionLifecycleError, match="schema"):
+        ProtectionEntitlementLifecycle(_client(tmp_path, runtime)).synchronize()
+
+
+def test_completed_v3_browser_flow_runs_device_lease_revocation_lifecycle_before_unlock(tmp_path):
+    runtime = _runtime_v3(poll_states=["completed"])
+    calls = {"sync": 0}
+    def synchronize(**kwargs):
+        calls["sync"] += 1
+        assert set(kwargs) == {"package_root", "state_root"}
+        return {
+            "api_version": 3,
+            "state": "authorized",
+            "reason": "none",
+            "actions": [],
+            "live_region": "none",
+            "retry_after_seconds": 900,
+            "lease_remaining_seconds": 3600,
+        }
+    runtime.synchronize_online_entitlement = synchronize
+    client = _client(tmp_path, runtime)
+    online = ProtectionOnlineClient(client, browser_open=lambda _url: True)
+    locked = ProtectionDecision(
+        state="locked",
+        reason="login_required",
+        safe_operations=frozenset(SAFE),
+        capabilities=frozenset(),
+        build_id="build-3",
+    )
+
+    class Window:
+        def __init__(self):
+            self.destroyed = False
+        def destroy(self):
+            self.destroyed = True
+
+    api = ProtectionLockedAPI(client, locked, online_client=online)
+    window = Window()
+    api.bind_window(window)
+    assert api.begin_online_login()["ok"] is True
+    result = api.poll_online_access()
+    assert calls["sync"] == 1
+    assert result["authorized"] is True
+    assert window.destroyed is True
+
+
+def test_public_lifecycle_surface_has_no_admin_or_revocation_subject_mutators():
+    public = set(dir(ProtectionEntitlementLifecycle))
+    for forbidden in (
+        "revoke",
+        "restore",
+        "list_revocations",
+        "admin_login",
+        "set_account_id",
+        "set_device_id",
+        "set_access_token",
+        "set_refresh_token",
+    ):
+        assert forbidden not in public
