@@ -29,7 +29,8 @@
           "learning_objective": "Розрахувати три кандидати і найсильніший захист",
           "local_workbook_source": "tests/real_corpus/advanced_training/section37_master_workbook_bilingual.json",
           "filename_pattern": "section37-advanced-workbook-uk.{txt,md,html,epub,docx}",
-          "rights": "own editorial prompts + CC0 positions; publicly shareable with attribution"
+          "rights": "own editorial prompts + CC0 positions; publicly shareable with attribution",
+          "original_project_authored_material_level": "Lichess 2200+ original UK in-house explanations; no beginner book chapters"
         },
         "en": {
           "category": "Advanced calculation",
@@ -38,7 +39,8 @@
           "learning_objective": "Calculate three candidates and the strongest defensive reply",
           "local_workbook_source": "tests/real_corpus/advanced_training/section37_master_workbook_bilingual.json",
           "filename_pattern": "section37-advanced-workbook-en.{txt,md,html,epub,docx}",
-          "rights": "own editorial prompts + CC0 positions; publicly shareable with attribution"
+          "rights": "own editorial prompts + CC0 positions; publicly shareable with attribution",
+          "original_project_authored_material_level": "Lichess 2200+ English in-house master-track prompts"
         }
       },
       "english_external_advanced_bibliography": {
@@ -49,7 +51,19 @@
         "public_distribution": "NOT_AUTHORIZED",
         "notes": "Publisher catalogue/excerpt directory, not full ebook"
       },
-      "separately_imported_real_chess_material": "20 real rated CC0 Lichess puzzle records, 2200–3166; not a proof of GM playing title"
+      "separately_imported_real_chess_material": "20 real rated CC0 Lichess puzzle records, 2200–3166; not a proof of GM playing title",
+      "ukrainian_external_verified_references": [
+        {
+          "author": "Микола Боднар",
+          "title": "Тактика для всіх — лише секція КМС/МС/ММ",
+          "language": "UNVERIFIED_CONTENT_LANGUAGE",
+          "format": "10 page vendor demonstration PDF, full book commercial",
+          "verified_public_source": "https://bodnarchess.com.ua/tactics.html",
+          "evidence": "Author publisher says 200 problems classified 2200–2500, cover printed in Russian and English, actual complete internal Ukrainian language NOT independently confirmed.",
+          "distribution": "SAMPLE_ONLY_WHEN_RIGHTS_ALLOW",
+          "free_full_book": false
+        }
+      ]
     },
     {
       "work_type": "tactics",
@@ -62,7 +76,8 @@
           "learning_objective": "Розділити форсовану комбінацію та об'єктивну оцінку",
           "local_workbook_source": "tests/real_corpus/advanced_training/section37_master_workbook_bilingual.json",
           "filename_pattern": "section37-advanced-workbook-uk.{txt,md,html,epub,docx}",
-          "rights": "own editorial prompts + CC0 positions; publicly shareable with attribution"
+          "rights": "own editorial prompts + CC0 positions; publicly shareable with attribution",
+          "original_project_authored_material_level": "Lichess 2200+ original UK in-house explanations; no beginner book chapters"
         },
         "en": {
           "category": "Complex tactics and combinations",
@@ -71,7 +86,8 @@
           "learning_objective": "Separate forcing tactics from objective evaluation",
           "local_workbook_source": "tests/real_corpus/advanced_training/section37_master_workbook_bilingual.json",
           "filename_pattern": "section37-advanced-workbook-en.{txt,md,html,epub,docx}",
-          "rights": "own editorial prompts + CC0 positions; publicly shareable with attribution"
+          "rights": "own editorial prompts + CC0 positions; publicly shareable with attribution",
+          "original_project_authored_material_level": "Lichess 2200+ English in-house master-track prompts"
         }
       },
       "english_external_advanced_bibliography": {
@@ -82,7 +98,20 @@
         "public_distribution": "NOT_AUTHORIZED",
         "notes": "Publisher catalogue/excerpt directory, not full ebook"
       },
-      "separately_imported_real_chess_material": "20 real rated CC0 Lichess puzzle records, 2200–3166; not a proof of GM playing title"
+      "separately_imported_real_chess_material": "20 real rated CC0 Lichess puzzle records, 2200–3166; not a proof of GM playing title",
+      "ukrainian_external_verified_references": [
+        {
+          "author": "Іван Хабінець",
+          "title": "Шахова тактика. Від a до h",
+          "language": "uk",
+          "year": 2022,
+          "format": "publisher PDF; 280 pages",
+          "verified_public_source": "https://book.ua/book/067264-shakhova-taktyka",
+          "evidence": "Online retailer explicitly labels the e-book language Ukrainian, and PDF purchase format. Contains distinctive chess motifs and examples. Master-only difficulty NOT independently verified.",
+          "distribution": "BUY_OR_LICENSED_SAMPLE_ONLY",
+          "free_full_book": false
+        }
+      ]
     },
     {
       "work_type": "composed_studies",
@@ -95,7 +124,8 @@
           "learning_objective": "Довести композицію до авторського результату без підглядання",
           "local_workbook_source": "tests/real_corpus/advanced_training/section37_master_workbook_bilingual.json",
           "filename_pattern": "section37-advanced-workbook-uk.{txt,md,html,epub,docx}",
-          "rights": "own editorial prompts + CC0 positions; publicly shareable with attribution"
+          "rights": "own editorial prompts + CC0 positions; publicly shareable with attribution",
+          "original_project_authored_material_level": "Lichess 2200+ original UK in-house explanations; no beginner book chapters"
         },
         "en": {
           "category": "Advanced authored chess studies",
@@ -104,7 +134,8 @@
           "learning_objective": "Prove the study objective without seeing the composed solution",
           "local_workbook_source": "tests/real_corpus/advanced_training/section37_master_workbook_bilingual.json",
           "filename_pattern": "section37-advanced-workbook-en.{txt,md,html,epub,docx}",
-          "rights": "own editorial prompts + CC0 positions; publicly shareable with attribution"
+          "rights": "own editorial prompts + CC0 positions; publicly shareable with attribution",
+          "original_project_authored_material_level": "Lichess 2200+ English in-house master-track prompts"
         }
       },
       "english_external_advanced_bibliography": {
@@ -115,7 +146,8 @@
         "public_distribution": "NOT_AUTHORIZED",
         "notes": "Direct official New In Chess publisher page with a sample; historic Reti PGN is separately shareable, this commercial book is not downloaded"
       },
-      "separately_imported_real_chess_material": "Historic ARVES Kling-Horwitz source and original Grigoriev/Kasparian references: NOT rights-cleared downloads"
+      "separately_imported_real_chess_material": "Historic ARVES Kling-Horwitz source and original Grigoriev/Kasparian references: NOT rights-cleared downloads",
+      "ukrainian_external_verified_references": []
     },
     {
       "work_type": "openings",
@@ -128,7 +160,8 @@
           "learning_objective": "Перевірити повні критичні варіанти й типові пішакові структури",
           "local_workbook_source": "tests/real_corpus/advanced_training/section37_master_workbook_bilingual.json",
           "filename_pattern": "section37-advanced-workbook-uk.{txt,md,html,epub,docx}",
-          "rights": "own editorial prompts + CC0 positions; publicly shareable with attribution"
+          "rights": "own editorial prompts + CC0 positions; publicly shareable with attribution",
+          "original_project_authored_material_level": "Lichess 2200+ original UK in-house explanations; no beginner book chapters"
         },
         "en": {
           "category": "Advanced opening preparation",
@@ -137,7 +170,8 @@
           "learning_objective": "Check critical variations and typical pawn structures",
           "local_workbook_source": "tests/real_corpus/advanced_training/section37_master_workbook_bilingual.json",
           "filename_pattern": "section37-advanced-workbook-en.{txt,md,html,epub,docx}",
-          "rights": "own editorial prompts + CC0 positions; publicly shareable with attribution"
+          "rights": "own editorial prompts + CC0 positions; publicly shareable with attribution",
+          "original_project_authored_material_level": "Lichess 2200+ English in-house master-track prompts"
         }
       },
       "english_external_advanced_bibliography": {
@@ -148,7 +182,8 @@
         "public_distribution": "NOT_AUTHORIZED",
         "notes": "Official deep repertoire book with an authorized sample page and publisher-controlled PDF excerpt; full copyrighted book not downloaded"
       },
-      "separately_imported_real_chess_material": "Official genuine Lichess ECO A–E TSV"
+      "separately_imported_real_chess_material": "Official genuine Lichess ECO A–E TSV",
+      "ukrainian_external_verified_references": []
     },
     {
       "work_type": "middlegame",
@@ -161,7 +196,8 @@
           "learning_objective": "Пояснити взаємодію пішакової структури й плану",
           "local_workbook_source": "tests/real_corpus/advanced_training/section37_master_workbook_bilingual.json",
           "filename_pattern": "section37-advanced-workbook-uk.{txt,md,html,epub,docx}",
-          "rights": "own editorial prompts + CC0 positions; publicly shareable with attribution"
+          "rights": "own editorial prompts + CC0 positions; publicly shareable with attribution",
+          "original_project_authored_material_level": "Lichess 2200+ original UK in-house explanations; no beginner book chapters"
         },
         "en": {
           "category": "Positional play and middlegame",
@@ -170,7 +206,8 @@
           "learning_objective": "Relate pawn structure and strategic plan",
           "local_workbook_source": "tests/real_corpus/advanced_training/section37_master_workbook_bilingual.json",
           "filename_pattern": "section37-advanced-workbook-en.{txt,md,html,epub,docx}",
-          "rights": "own editorial prompts + CC0 positions; publicly shareable with attribution"
+          "rights": "own editorial prompts + CC0 positions; publicly shareable with attribution",
+          "original_project_authored_material_level": "Lichess 2200+ English in-house master-track prompts"
         }
       },
       "english_external_advanced_bibliography": {
@@ -181,7 +218,8 @@
         "public_distribution": "NOT_AUTHORIZED",
         "notes": "Official publisher product/reference, not redistributed book"
       },
-      "separately_imported_real_chess_material": "20 real rated CC0 Lichess puzzle records, 2200–3166; not a proof of GM playing title"
+      "separately_imported_real_chess_material": "20 real rated CC0 Lichess puzzle records, 2200–3166; not a proof of GM playing title",
+      "ukrainian_external_verified_references": []
     },
     {
       "work_type": "endgame",
@@ -194,7 +232,8 @@
           "learning_objective": "Розрахувати ладейну контргру, цугцванг і оборонні ресурси",
           "local_workbook_source": "tests/real_corpus/advanced_training/section37_master_workbook_bilingual.json",
           "filename_pattern": "section37-advanced-workbook-uk.{txt,md,html,epub,docx}",
-          "rights": "own editorial prompts + CC0 positions; publicly shareable with attribution"
+          "rights": "own editorial prompts + CC0 positions; publicly shareable with attribution",
+          "original_project_authored_material_level": "Lichess 2200+ original UK in-house explanations; no beginner book chapters"
         },
         "en": {
           "category": "Advanced endgame",
@@ -203,7 +242,8 @@
           "learning_objective": "Calculate rook counterplay, zugzwang and defensive resources",
           "local_workbook_source": "tests/real_corpus/advanced_training/section37_master_workbook_bilingual.json",
           "filename_pattern": "section37-advanced-workbook-en.{txt,md,html,epub,docx}",
-          "rights": "own editorial prompts + CC0 positions; publicly shareable with attribution"
+          "rights": "own editorial prompts + CC0 positions; publicly shareable with attribution",
+          "original_project_authored_material_level": "Lichess 2200+ English in-house master-track prompts"
         }
       },
       "english_external_advanced_bibliography": {
@@ -214,7 +254,20 @@
         "public_distribution": "NOT_AUTHORIZED",
         "notes": "Direct official edition page; publisher sample only, no full book copy"
       },
-      "separately_imported_real_chess_material": "20 real rated CC0 Lichess puzzle records, 2200–3166; not a proof of GM playing title"
+      "separately_imported_real_chess_material": "20 real rated CC0 Lichess puzzle records, 2200–3166; not a proof of GM playing title",
+      "ukrainian_external_verified_references": [
+        {
+          "author": "Леонід Ніколаєв",
+          "title": "Турові закінчення",
+          "language": "uk",
+          "year": 2025,
+          "format": "physical book",
+          "verified_public_source": "https://chess-stock.com/knigi/taktika/",
+          "evidence": "Chess-Stock source labels the edition Ukrainian, 2025. Precise difficulty and free digital format NOT verified.",
+          "distribution": "BUY_ONLY_OR_SOURCE_PAGE",
+          "free_full_book": false
+        }
+      ]
     },
     {
       "work_type": "annotated_games",
@@ -227,7 +280,8 @@
           "learning_objective": "Зберегти оригінальні PGN-коментарі й варіації",
           "local_workbook_source": "tests/real_corpus/advanced_training/section37_master_workbook_bilingual.json",
           "filename_pattern": "section37-advanced-workbook-uk.{txt,md,html,epub,docx}",
-          "rights": "own editorial prompts + CC0 positions; publicly shareable with attribution"
+          "rights": "own editorial prompts + CC0 positions; publicly shareable with attribution",
+          "original_project_authored_material_level": "Lichess 2200+ original UK in-house explanations; no beginner book chapters"
         },
         "en": {
           "category": "Annotated games and critical decisions",
@@ -236,7 +290,8 @@
           "learning_objective": "Preserve original PGN annotations and variations",
           "local_workbook_source": "tests/real_corpus/advanced_training/section37_master_workbook_bilingual.json",
           "filename_pattern": "section37-advanced-workbook-en.{txt,md,html,epub,docx}",
-          "rights": "own editorial prompts + CC0 positions; publicly shareable with attribution"
+          "rights": "own editorial prompts + CC0 positions; publicly shareable with attribution",
+          "original_project_authored_material_level": "Lichess 2200+ English in-house master-track prompts"
         }
       },
       "english_external_advanced_bibliography": {
@@ -247,7 +302,8 @@
         "public_distribution": "NOT_AUTHORIZED",
         "notes": "Official publisher excerpt directory only"
       },
-      "separately_imported_real_chess_material": "4 true original annotated CC0 PGN games"
+      "separately_imported_real_chess_material": "4 true original annotated CC0 PGN games",
+      "ukrainian_external_verified_references": []
     },
     {
       "work_type": "databases",
@@ -260,7 +316,8 @@
           "learning_objective": "Знайти партії сильних суперників і захистити права записів IBCA",
           "local_workbook_source": "tests/real_corpus/advanced_training/section37_master_workbook_bilingual.json",
           "filename_pattern": "section37-advanced-workbook-uk.{txt,md,html,epub,docx}",
-          "rights": "own editorial prompts + CC0 positions; publicly shareable with attribution"
+          "rights": "own editorial prompts + CC0 positions; publicly shareable with attribution",
+          "original_project_authored_material_level": "Lichess 2200+ original UK in-house explanations; no beginner book chapters"
         },
         "en": {
           "category": "Advanced game databases and blind chess",
@@ -269,7 +326,8 @@
           "learning_objective": "Find games of strong opponents and enforce IBCA rights",
           "local_workbook_source": "tests/real_corpus/advanced_training/section37_master_workbook_bilingual.json",
           "filename_pattern": "section37-advanced-workbook-en.{txt,md,html,epub,docx}",
-          "rights": "own editorial prompts + CC0 positions; publicly shareable with attribution"
+          "rights": "own editorial prompts + CC0 positions; publicly shareable with attribution",
+          "original_project_authored_material_level": "Lichess 2200+ English in-house master-track prompts"
         }
       },
       "english_external_advanced_bibliography": {
@@ -280,7 +338,8 @@
         "public_distribution": "NOT_AUTHORIZED",
         "notes": "Lichess games CC0; IBCA PGN rights not cleared"
       },
-      "separately_imported_real_chess_material": "4 genuine annotated CC0 PGN games, official Lichess ECO, original IBCA page records only"
+      "separately_imported_real_chess_material": "4 genuine annotated CC0 PGN games, official Lichess ECO, original IBCA page records only",
+      "ukrainian_external_verified_references": []
     }
   ],
   "ukrainian_external_book_status": {
@@ -295,5 +354,7 @@
   },
   "original_workbook_is_authored_and_reusable": true,
   "full_foreign_paid_books_included": false,
-  "translations_of_protected_books_included": false
+  "translations_of_protected_books_included": false,
+  "high_level_uK_external_policy": "No claim that any ISBN is exclusively first-category/GM unless actual publisher contents prove it; only include high-level sections and verified Ukrainian language editions.",
+  "high_level_en_external_policy": "English commercial books stay referrals/excerpts, NOT uploaded as full redistributed books."
 }
