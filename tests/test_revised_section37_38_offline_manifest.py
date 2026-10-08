@@ -77,7 +77,7 @@ class GenuineCorpusReceiptTests(unittest.TestCase):
     def test_actual_original_file_bytes_and_semantic_status_are_distinct(self):
         report = build_manifest()
         self.assertGreaterEqual(report["source_count"], 25)
-        self.assertEqual(report["vendored_cc0_byte_verified_count"], 9)
+        self.assertEqual(report["vendored_cc0_byte_verified_count"], 10)
         self.assertEqual(report["genuine_test_book_read_count"], 1)
         self.assertFalse(report["revised_section_37_terminal_done"])
         self.assertFalse(report["revised_section_38_terminal_done"])
