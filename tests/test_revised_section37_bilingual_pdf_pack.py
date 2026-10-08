@@ -21,11 +21,13 @@ class GenuineBilingualPdfTests(unittest.TestCase):
                 reader = PdfReader(BytesIO(original_bytes))
                 self.assertGreaterEqual(len(reader.pages), 2)
                 text = "\n".join(p.extract_text() or "" for p in reader.pages)
-                self.assertIn(source["title"][lang], text)
+                compact_text = "".join(text.split())
+                self.assertIn("".join(source["title"][lang].split()), compact_text)
                 for row in source["lessons"]:
-                    self.assertIn(row["fen_before_opponent_move"], text)
-                    self.assertIn(row[lang]["title"], text)
-                self.assertIn(source["level"][lang], text)
+                    # A PDF text extractor may insert visual line-breaks mid-FEN.
+                    self.assertIn("".join(row["fen_before_opponent_move"].split()), compact_text)
+                    self.assertIn("".join(row[lang]["title"].split()), compact_text)
+                self.assertIn("".join(source["level"][lang].split()), compact_text)
                 self.assertEqual(len({row["lesson_id"] for row in source["lessons"]}), 12)
                 documents[lang] = sha256(original_bytes).hexdigest()
         self.assertNotEqual(documents["uk"], documents["en"])
