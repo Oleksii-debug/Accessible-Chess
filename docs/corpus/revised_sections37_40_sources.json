@@ -470,8 +470,23 @@
       "redistribution": "NOT_CLEARED",
       "upstream_commit": "9641c5c3949d8fb210b17dd9aa54455645843696",
       "test_companion_reference": "https://github.com/rolandlo/libcbh/blob/9641c5c3949d8fb210b17dd9aa54455645843696/gtest/Annotation/TestBaseExport.pgn",
-      "canonical_qa": "Independent real-source CBH oracle scheduled in non-bundled CI gate; neither source download nor semantic PASS is asserted before exact CI readback",
-      "notes": "4 original annotated games; independent PGN export, 29 NAGs and text comments; use only pinned external CI checkout, no silent public packaging; no fake CBF/CBV/CBONE support"
+      "canonical_qa": "Exact upstream pinned binary companion/oracle/license acquisition scheduled; source-only SHA256 proof is separate from semantic import and never a PUBLIC_RELEASE claim.",
+      "notes": "4 original annotated games; independent PGN export, 29 NAGs and text comments; use only pinned external CI checkout, no silent public packaging; no fake CBF/CBV/CBONE support",
+      "external_fixture_directory": "Annotation",
+      "external_fixture_stem": "TestBase",
+      "external_oracle_filename": "TestBaseExport.pgn",
+      "external_oracle_git_blob": "ab1628047073cc666b17de72f7bab9303a502211",
+      "external_companion_git_blobs": {
+        "TestBase.cbh": "4165abc54e3dd72c6196f04dd7282df8786d56ef",
+        "TestBase.cbg": "ffb667537ca50afa70e7e9d5a495b9a2fdba2a64",
+        "TestBase.cbp": "29d977d6bbd4a7870d4f6d91706fb3f6c73fcc10",
+        "TestBase.cbt": "c955220087edccc098c598148e94383fefa13e43",
+        "TestBase.cba": "ce90f6e9a57b882e619a784be2c4e7978a722964",
+        "TestBase.cbs": "8f77e872cbd7f6d652d90289e1136b911d87b5f4"
+      },
+      "external_license_git_blob": "d159169d1050894d3ea3b98e1c965c4058208fe1",
+      "test_access": "EXTERNAL_GPL_EPHEMERAL_ONLY",
+      "public_release": "EXCLUDED"
     },
     {
       "id": "libcbh_gpl_original_nested_variations_cbh_family",
@@ -487,8 +502,23 @@
       "redistribution": "NOT_CLEARED",
       "upstream_commit": "9641c5c3949d8fb210b17dd9aa54455645843696",
       "test_companion_reference": "https://github.com/rolandlo/libcbh/blob/9641c5c3949d8fb210b17dd9aa54455645843696/gtest/WithVariations/GamesWithVariations.pgn",
-      "canonical_qa": "Independent real-source CBH oracle scheduled in non-bundled CI gate; neither source download nor semantic PASS is asserted before exact CI readback",
-      "notes": "original complete CBH companion family with nested/sibling RAV, NAG and text commentary; use only pinned external CI checkout, no silent public packaging; no fake CBF/CBV/CBONE support"
+      "canonical_qa": "Exact upstream pinned binary companion/oracle/license acquisition scheduled; source-only SHA256 proof is separate from semantic import and never a PUBLIC_RELEASE claim.",
+      "notes": "original complete CBH companion family with nested/sibling RAV, NAG and text commentary; use only pinned external CI checkout, no silent public packaging; no fake CBF/CBV/CBONE support",
+      "external_fixture_directory": "WithVariations",
+      "external_fixture_stem": "WithVariations",
+      "external_oracle_filename": "GamesWithVariations.pgn",
+      "external_oracle_git_blob": "c71082260de8fdf835398f5bcf0a517117531b39",
+      "external_companion_git_blobs": {
+        "WithVariations.cbh": "d9a0c6eb81df2d72da9f52bd5e7935d68f9cff1a",
+        "WithVariations.cbg": "c40e23828498110886d71f9de958450c37dbca28",
+        "WithVariations.cbp": "e5afbe5f9e161306abf24b8d6b9637af41eba1e2",
+        "WithVariations.cbt": "0df4724baf74cbc058aad7a8cdc46edc4a44da93",
+        "WithVariations.cba": "67894bcd9431f4393012fcf9ad128b4e38955f29",
+        "WithVariations.cbs": "09be71d4a1caf178dfb2c7bac48b3505147d5046"
+      },
+      "external_license_git_blob": "d159169d1050894d3ea3b98e1c965c4058208fe1",
+      "test_access": "EXTERNAL_GPL_EPHEMERAL_ONLY",
+      "public_release": "EXCLUDED"
     },
     {
       "id": "libcbh_gpl_original_unusual_start_cbh_family",
@@ -504,8 +534,23 @@
       "redistribution": "NOT_CLEARED",
       "upstream_commit": "9641c5c3949d8fb210b17dd9aa54455645843696",
       "test_companion_reference": "https://github.com/rolandlo/libcbh/blob/9641c5c3949d8fb210b17dd9aa54455645843696/gtest/UnusualStart/UnusualStart.pgn",
-      "canonical_qa": "Independent real-source CBH oracle scheduled in non-bundled CI gate; neither source download nor semantic PASS is asserted before exact CI readback",
-      "notes": "independent PGN oracle including zero-ply; known external libcbh decoder gap; use only pinned external CI checkout, no silent public packaging; no fake CBF/CBV/CBONE support"
+      "canonical_qa": "Exact upstream pinned binary companion/oracle/license acquisition scheduled; source-only SHA256 proof is separate from semantic import and never a PUBLIC_RELEASE claim.",
+      "notes": "independent PGN oracle including zero-ply; known external libcbh decoder gap; use only pinned external CI checkout, no silent public packaging; no fake CBF/CBV/CBONE support",
+      "external_fixture_directory": "UnusualStart",
+      "external_fixture_stem": "UnusualStartBytes",
+      "external_oracle_filename": "UnusualStart.pgn",
+      "external_oracle_git_blob": "1464ad9496d1932a744bf5c263d819b27a1a90a7",
+      "external_companion_git_blobs": {
+        "UnusualStartBytes.cbh": "fa6e88e035b5c1bf0a234e1c8eb825e1625086e0",
+        "UnusualStartBytes.cbg": "7c802be5f789baa731e2fc1eccc8aaa48bd5a37c",
+        "UnusualStartBytes.cbp": "288feb6548a3d99294381c71ab954373f9373775",
+        "UnusualStartBytes.cbt": "f4d1adf0d6890dff1c79993b1d4fc74694f2dc10",
+        "UnusualStartBytes.cba": "5a32596d020b42fc839568d68f14622abca8036a",
+        "UnusualStartBytes.cbs": "816075889f40164b46a9cb3c6a0f375ca680338f"
+      },
+      "external_license_git_blob": "d159169d1050894d3ea3b98e1c965c4058208fe1",
+      "test_access": "EXTERNAL_GPL_EPHEMERAL_ONLY",
+      "public_release": "EXCLUDED"
     },
     {
       "id": "gutenberg_chess_history_bird_original_txt",
