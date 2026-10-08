@@ -579,7 +579,58 @@
       },
       "external_license_git_blob": "d159169d1050894d3ea3b98e1c965c4058208fe1",
       "test_access": "EXTERNAL_GPL_EPHEMERAL_ONLY",
-      "public_release": "EXCLUDED"
+      "public_release": "EXCLUDED",
+      "external_companion_source_checksums": {
+        "WithVariations.cbh": {
+          "bytes": 1334,
+          "sha256": "680f9e3e64d29a99227ea5c9d761db91c0a8800b8dd8425c87eb8cecab8d16d1"
+        },
+        "WithVariations.cbg": {
+          "bytes": 5486,
+          "sha256": "9d6eec523faa6ecb415cb5482ff3d130319b12c94d546ffcaefc76e3e914aa6c"
+        },
+        "WithVariations.cbp": {
+          "bytes": 2444,
+          "sha256": "a9e25f812bb5ac6735287464318aec915380d5fd73006d81c36fa84adb64806d"
+        },
+        "WithVariations.cbt": {
+          "bytes": 1418,
+          "sha256": "0cf4cffdac23d357b721020b430e512988c70f8fcde4b9d5ebb8f26313e6c602"
+        },
+        "WithVariations.cba": {
+          "bytes": 94075,
+          "sha256": "3d2c0a157402382db75b8d6597ab49f94f377db654d3c1651842b826b518b9ea"
+        },
+        "WithVariations.cbs": {
+          "bytes": 100,
+          "sha256": "9d816c897cedbc791fedd3b3bf45cf0a7247e0ba1a750872c7d428ea41cb0cb3"
+        },
+        "WithVariations.cbc": {
+          "bytes": 94,
+          "sha256": "71f998a78af6fa08a90b32968aac6b2882adb829478a6969dc1126dc40573a3c"
+        },
+        "WithVariations.cbe": {
+          "bytes": 32,
+          "sha256": "0f2b24067c28854c2caca9d1815dde5caa8d36743b6a92d230b3a0fb088b938f"
+        },
+        "WithVariations.cbj": {
+          "bytes": 3392,
+          "sha256": "d673cc352ff010942da0c480089cb59941b8505348c255d75d3e18e8924cf463"
+        },
+        "WithVariations.cbl": {
+          "bytes": 1649,
+          "sha256": "8e15b6d2e15d881c02886a89cce89c18b5e1da4c3e82f4a41b826041b450df14"
+        },
+        "WithVariations.cbm": {
+          "bytes": 32,
+          "sha256": "55616dade6280772c4789b5c540e10b0cbcda49a3c83eb7554872b07de06f19b"
+        }
+      },
+      "external_oracle_source_checksum": {
+        "name": "GamesWithVariations.pgn",
+        "bytes": 129098,
+        "sha256": "09bcf02c9cc82ce227c7f69c6958074cdd7d23a0f3bca0f5e964d5a30657a2bb"
+      }
     },
     {
       "id": "libcbh_gpl_original_unusual_start_cbh_family",
