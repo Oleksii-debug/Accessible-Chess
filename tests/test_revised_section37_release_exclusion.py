@@ -132,6 +132,8 @@ class PublicReleaseExclusionTests(unittest.TestCase):
         self.assertIn("$env:ACS_37_PUBLIC_RELEASE_ZIP = $archive", workflow)
         self.assertIn("OWNER_FINAL_PUBLIC_CORPUS_EXCLUSION_FAILED", workflow)
         self.assertIn("OWNER_FINAL_ZIP_PRE_UPLOAD_BINDING=PASS", workflow)
+        self.assertIn("OWNER_FINAL_POST_AUDIT_ZIP_DRIFT", workflow)
+        self.assertLess(workflow.index("OWNER_FINAL_PUBLIC_CORPUS_EXCLUSION=PASS"), workflow.index("OWNER_FINAL_POST_AUDIT_ZIP_DRIFT"))
 
     def test_source_registry_empty_or_bad_hash_is_fail_closed(self):
         with self.assertRaises(LawfulCorpusError):
