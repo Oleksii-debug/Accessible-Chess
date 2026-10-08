@@ -174,11 +174,16 @@
   }
 
   function hostCommand(command) {
+    const generation = providerGeneration;
+    const sourceAtInvocation = activeSourceId;
     const invoke = requiredApi("media_workflow_command");
     const position = command && Number.isSafeInteger(command.positionMs)
       ? command.positionMs
       : null;
     return invoke(String(command.action || ""), position).then(function (next) {
+      if (generation !== providerGeneration || sourceAtInvocation !== activeSourceId) {
+        throw new Error("stale media command response");
+      }
       renderEnvelope(next, true);
       return validateEnvelope(next).player;
     });
@@ -430,6 +435,7 @@
 
   function activateYouTube(envelope, sourceText) {
     const requested = openRequestSerial;
+    const expectedGeneration = providerGeneration;
     renderEnvelope(envelope, false);
     setStatus(
       uiText(
@@ -439,7 +445,7 @@
       false
     );
     return ensureYouTubeApi().then(function (YT) {
-      if (requested !== openRequestSerial) return false;
+      if (requested !== openRequestSerial || expectedGeneration !== providerGeneration) return false;
       const namespace = global.AccessibleChessYouTubeIframePlayback;
       if (
         !namespace ||
@@ -477,6 +483,7 @@
       }, 1000);
       return true;
     }).catch(function () {
+      if (requested !== openRequestSerial) return false;
       setStatus(
         uiText(
           "YouTube IFrame Player недоступний. Джерело не запущено; шахова позиція не змінена.",
@@ -568,6 +575,7 @@
       if (request !== openRequestSerial) return false;
       return activateOpened(value, sourceText);
     }).catch(function () {
+      if (request !== openRequestSerial) return false;
       setStatus(
         uiText(
           "Не вдалося відкрити вставлене медіа.",
@@ -600,6 +608,7 @@
       activeSourceText = "";
       return activateOpened(value, "");
     }).catch(function () {
+      if (request !== openRequestSerial) return false;
       setStatus(
         uiText(
           "Не вдалося відкрити локальне медіа.",
