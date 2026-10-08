@@ -161,6 +161,20 @@ Durable evidence: `docs/corpus/SECTION46_QUALITY_GATE_EVIDENCE.json`.
 
 The next dependency-safe closure front is Section 47.
 
+## Section 48 — current closure front
+
+**Status: `INTERNAL_COMPLETE_EXTERNAL_BLOCKED` (not DONE).**
+
+Durable evidence: `docs/corpus/SECTION48_YOUTUBE_INTEGRATION_EVIDENCE.json`.
+
+| Subsection | State | Evidence / exact limitation |
+|---|---|---|
+| 48.1–48.3 | `BLOCKED` | No canonical YouTube IFrame adapter/catalog/live provider state machine is present or tested. |
+| 48.4 | `PASS` | No YouTube video was downloaded, cached or protection-bypassed; no controls/branding overlay was introduced. |
+| 48.5–48.6 | `BLOCKED` | No live provider smoke, CI live run or independent YouTube/local-video convergence evidence exists. |
+
+The next dependency-safe closure front is Section 49.
+
 ## Section 43 — current closure front
 
 **Status: `INTERNAL_COMPLETE_EXTERNAL_BLOCKED` (not DONE).**
