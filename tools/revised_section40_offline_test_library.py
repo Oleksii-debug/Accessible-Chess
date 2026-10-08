@@ -27,7 +27,7 @@ from acs.library_import_service import LibraryImportService
 from acs.library_source_service import LibrarySourceCatalogService
 from acs.pgn_roundtrip import parse_pgn_text
 from acs.starter_books_training_release import (
-    STARTER_RELEASE_LICENSE_ID, build_release_booklets,
+    STARTER_RELEASE_LICENSE_ID, STARTER_RELEASE_LICENSE_TERMS_UK, build_release_booklets,
     build_training_task_catalogue,
 )
 from acs.starter_books_training_runtime import build_training_ready_starter_course
@@ -101,7 +101,12 @@ def _source_assets(root: Path, profile: str, catalog: tuple[dict, ...]):
 
 
 def _books_and_training():
-    payloads = {}
+    payloads = {
+        "licenses/ACCESSIBLE_CHESS_STARTER_UK.txt": (
+            "LicenseRef: " + STARTER_RELEASE_LICENSE_ID + "\\n"
+            + STARTER_RELEASE_LICENSE_TERMS_UK + "\\n"
+        ).encode("utf-8"),
+    }
     rows = []
     booklets = build_release_booklets()
     documents = (*booklets, build_training_ready_starter_course())
