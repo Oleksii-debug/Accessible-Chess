@@ -305,7 +305,19 @@
     }
   }
   const productLayouts = readProductLayouts();
+  let productLayoutDirty = false;
+  let productNativeHydrationStarted = false;
+  let productNativeWrites = Promise.resolve();
+  function queueNativeProductLayout() {
+    const bridge = api();
+    if (!bridge || typeof bridge.save_presentation_layout !== "function") return;
+    const payload = { version: 1, routes: Object.assign({}, productLayouts) };
+    productNativeWrites = productNativeWrites.then(function () {
+      return bridge.save_presentation_layout("product", payload);
+    }).catch(function () {});
+  }
   function persistProductLayouts() {
+    productLayoutDirty = true;
     try {
       if (global.localStorage) {
         global.localStorage.setItem(layoutStorageKey, JSON.stringify({
@@ -313,6 +325,28 @@
         }));
       }
     } catch (_) {}
+    queueNativeProductLayout();
+  }
+  function hydrateNativeProductLayout() {
+    if (productNativeHydrationStarted) return;
+    const bridge = api();
+    if (!bridge || typeof bridge.get_presentation_layout !== "function") return;
+    productNativeHydrationStarted = true;
+    if (productLayoutDirty) { queueNativeProductLayout(); return; }
+    Promise.resolve(bridge.get_presentation_layout("product")).then(function (result) {
+      if (productLayoutDirty || !result || result.ok !== true) return;
+      const layout = result.layout;
+      if (!layout || layout.version !== 1 ||
+          !layout.routes || typeof layout.routes !== "object" ||
+          Array.isArray(layout.routes)) return;
+      for (const route of productRoutes) delete productLayouts[route];
+      for (const route of productRoutes) {
+        if (productModeValues.has(layout.routes[route])) {
+          productLayouts[route] = layout.routes[route];
+        }
+      }
+      applyProductLayout(currentRouteId, currentLanguage);
+    }).catch(function () {});
   }
   function applyProductLayout(routeId, language) {
     const active = productRoutes.has(routeId);
@@ -1328,6 +1362,10 @@
     }
   }, true);
 
+  if (typeof global.addEventListener === "function") {
+    global.addEventListener("pywebviewready", hydrateNativeProductLayout);
+  }
+  hydrateNativeProductLayout();
   refresh(true).catch(function () {
     announce(uiText("Не вдалося завантажити розділи Version 2.", "Could not load Version 2 sections."));
   });
