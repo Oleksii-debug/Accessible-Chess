@@ -13,6 +13,7 @@ import unittest
 from unittest.mock import patch
 
 from acs.book_text_import import import_text_book
+from acs.bookreader import BookReader
 from acs.lawful_corpus_registry import (
     LawfulCorpusError, acquire_cc0_source, load_catalog,
     qualify_offline_collection, verified_local_source,
@@ -70,6 +71,45 @@ class ActualBookTextSourceTests(unittest.TestCase):
             len(first.document.blocks), len(after_reopen.document.blocks),
             "reopening the same genuine file must not change reading structure",
         )
+        self.assertEqual(record["redistribution"], "NOT_CLEARED")
+
+    def test_real_book_reader_resume_reimport_and_return_point(self):
+        """Section 38.2/38.3: actual upstream book -> reader -> restart.
+
+        A fixture-only parse does not prove the user can resume genuine source
+        content. The resumed target must retain the same semantic block and
+        not rely on a stale offset after the original bytes are reimported.
+        """
+        record, original = self._record_and_bytes()
+        first = import_text_book(
+            original, source_name="gitenberg-capablanca-33870.txt",
+            source_format="txt", title="Chess Fundamentals",
+            author="José Raúl Capablanca", language="en",
+        )
+        reader = BookReader(first.document)
+        self.assertGreater(len(first.document.blocks), 20)
+        start = reader.location()
+        destination = reader.next_block()
+        self.assertEqual(destination.index, start.index + 1)
+        self.assertEqual(reader.block_snapshot(destination.index).as_dict(),
+                         first.document.blocks[destination.index].as_dict())
+        reader.save_return_point("real_book_checkpoint")
+        checkpoint = reader.snapshot()
+
+        # Re-open the exact pinned original material through the same canonical
+        # importer, rather than merely reusing the in-memory BookDocument.
+        self.assertEqual(record["sha256"], EXPECTED_SOURCE_SHA256)
+        reopened = import_text_book(
+            original, source_name="gitenberg-capablanca-33870.txt",
+            source_format="txt", title="Chess Fundamentals",
+            author="José Raúl Capablanca", language="en",
+        )
+        self.assertEqual(reopened.source_sha256, first.source_sha256)
+        resumed = BookReader.restore_snapshot(reopened.document, checkpoint)
+        self.assertEqual(resumed.location(), destination)
+        resumed.next_block()
+        self.assertEqual(resumed.restore_return_point("real_book_checkpoint"), destination)
+        self.assertEqual(resumed.document_title_author_snapshot()[0], "Chess Fundamentals")
         self.assertEqual(record["redistribution"], "NOT_CLEARED")
 
     def test_corruption_and_implicit_network_or_release_refused(self):
