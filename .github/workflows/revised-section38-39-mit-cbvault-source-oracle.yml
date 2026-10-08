@@ -10,6 +10,11 @@ on:
   workflow_dispatch: {}
 permissions:
   contents: read
+# One authoritative qualification per latest PR SHA; otherwise frequent
+# concurrent source commits leave stale queued runs competing with new evidence.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 jobs:
   independent-clean-room-cbh-original:
     runs-on: ubuntu-24.04
