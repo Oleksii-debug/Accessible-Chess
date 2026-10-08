@@ -74,6 +74,15 @@ _RAW_SOURCE_SUFFIXES = {
     ".py", ".pyc", ".pyo", ".ipynb", ".c", ".cc", ".cpp", ".cxx",
     ".h", ".hpp", ".hh", ".rs",
 }
+# R43 native-debug leakage gate, shared by the canonical V2 tree and ZIP
+# validators. Third-party corresponding source in its mandated notice ZIP is
+# preserved; loose C/C++/Rust source is already rejected by _RAW_SOURCE_SUFFIXES.
+_NATIVE_DEBUG_SUFFIXES = frozenset({
+    ".pdb", ".ilk", ".idb", ".iobj", ".ipch", ".map", ".sourcemap",
+    ".dmp", ".profraw", ".profdata", ".gcda", ".gcno", ".debug",
+    ".bsc", ".sbr",
+})
+_NATIVE_DEBUG_NAMES = frozenset({".coverage", "core", "core.dump"})
 _USER_STATE_NAMES = {
     "settings.json",
     "library.acsdb",
@@ -529,7 +538,17 @@ def _backend_payload(relative: str) -> bool:
     return False
 
 
+def _validate_native_debug_policy(relative: str) -> None:
+    parts = PurePosixPath(relative).parts
+    name = parts[-1].casefold()
+    if (any(part.casefold().endswith(".dsym") for part in parts)
+            or PurePosixPath(name).suffix in _NATIVE_DEBUG_SUFFIXES
+            or name in _NATIVE_DEBUG_NAMES):
+        _fail(f"native debug symbols are forbidden in the default package: {relative}")
+
+
 def _validate_file_policy(relative: str) -> None:
+    _validate_native_debug_policy(relative)
     token = PurePosixPath(relative)
     folded_parts = tuple(part.casefold() for part in token.parts)
     if any(part in _FORBIDDEN_COMPONENTS for part in folded_parts):
@@ -576,6 +595,7 @@ def _inventory(root: Path, limits: PackageLimits) -> tuple[tuple[str, ...], int]
                     _fail("package exceeds entry-count limit")
                 if PurePosixPath(relative).name.casefold() in _FORBIDDEN_COMPONENTS:
                     _fail(f"build/source component is forbidden: {relative}")
+                _validate_native_debug_policy(relative)
 
             for name in filenames:
                 path = parent / name
@@ -2190,6 +2210,8 @@ def _validate_zip_entries(
             directories=topology_directories,
             label="Version 2 ZIP",
         )
+        if is_directory:
+            _validate_native_debug_policy(token)
         if not is_directory:
             _validate_file_policy(token)
             if info.file_size > limits.max_member_bytes:
