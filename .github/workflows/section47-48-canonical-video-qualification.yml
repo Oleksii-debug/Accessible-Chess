@@ -15,6 +15,7 @@ on:
       - 'tests/test_section48_native_youtube_url_contract.py'
       - 'tests/js/youtube_iframe_playback_adapter_test.js'
       - 'tests/js/section47_canonical_browser_playback.js'
+      - 'tests/js/section48_canonical_youtube_live_smoke.js'
       - '.github/workflows/section47-48-canonical-video-qualification.yml'
   workflow_dispatch:
 permissions:
