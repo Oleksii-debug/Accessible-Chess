@@ -26,7 +26,7 @@ PINNED_ORIGINAL_SHA1 = {
     "byrne-fischer-game-century": "022b2c55b284c9586c5bee695d82af3a582b2adc",
     "joaquin-perkins-blitz": "910919c9c3f442c85d1388f85576956ee4ffa320",
 }
-AGENT = "AccessibleChess-Section47-OriginalQualification/1.0 (Wikimedia API)"
+AGENT = "AccessibleChess-Section47-OriginalQualification/1.0 (https://github.com/Oleksii-debug/Accessible-Chess)"
 
 
 class OriginalError(RuntimeError):
@@ -232,6 +232,8 @@ def make_private_mp4_derivative(
         "creator": original["creator"],
         "license": original["license"],
         "license_url": original["license_url"],
+        "derivative_license_id": original["license"],
+        "derivative_license_url": original["license_url"],
         "modified": True,
         "modification": "ffmpeg H264/AAC 12-second 480-pixel educational QA clip",
         "bytes": target.stat().st_size,
@@ -320,7 +322,7 @@ def main() -> int:
             item["filename"] + " (MODIFIED private QA derivative)",
             "Source: " + item["source_page"],
             "Author: " + item["creator"],
-            "Source license: " + item["license"] + " — " + item["license_url"],
+            "Source and derivative license (ShareAlike): " + item["derivative_license_id"] + " — " + item["derivative_license_url"],
             "Source SHA-256: " + item["derived_from_original_sha256"],
             "Derivative SHA-256: " + item["sha256"],
             "Modification: " + item["modification"],
