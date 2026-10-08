@@ -25,6 +25,7 @@ _ALLOWED_STATES = frozenset({
     "quarantined",
     "recovery_required",
     "device_limit",
+    "consent_required",
 })
 _ALLOWED_ACTIONS = frozenset({
     "retry",
@@ -32,6 +33,7 @@ _ALLOWED_ACTIONS = frozenset({
     "recover",
     "repair",
     "transfer_device",
+    "review_privacy",
 })
 _ALLOWED_LIVE_REGIONS = frozenset({"none", "polite", "assertive"})
 _MAX_REASON = 256
@@ -122,7 +124,7 @@ def _validate_snapshot(value: object) -> EntitlementLifecycleSnapshot:
         if reason == "none":
             raise ProtectionLifecycleError("denied lifecycle result is inconsistent")
 
-    if state in {"revoked", "quarantined", "recovery_required", "device_limit", "reauth_required"}:
+    if state in {"revoked", "quarantined", "recovery_required", "device_limit", "reauth_required", "consent_required"}:
         if live_region != "assertive":
             raise ProtectionLifecycleError("blocked lifecycle result must be assertive")
 
