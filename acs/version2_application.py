@@ -16,6 +16,7 @@ import threading
 from .acsdb import AcsDatabase
 from .book_board_workflow import BookBoardWorkflow
 from .book_epub_import import import_epub_book, MAX_EPUB_SOURCE_BYTES
+from .book_docx_import import import_docx_book, MAX_DOCX_SOURCE_BYTES
 from .book_html_import import import_html_book, MAX_HTML_SOURCE_BYTES
 from .book_text_import import import_text_book, BookTextFormat, MAX_TEXT_SOURCE_BYTES
 from .book_library_game_lookup import AcsdbBookGameLookup
@@ -701,10 +702,12 @@ class Version2Application:
 
         checkpoint()
         suffix = source.suffix.casefold()
-        if suffix not in {".epub", ".html", ".htm", ".xhtml", ".txt", ".md", ".markdown"}:
+        if suffix not in {".epub", ".html", ".htm", ".xhtml", ".txt", ".md", ".markdown", ".docx"}:
             raise ValueError("unsupported book source")
         if suffix == ".epub":
             limit = MAX_EPUB_SOURCE_BYTES
+        elif suffix == ".docx":
+            limit = MAX_DOCX_SOURCE_BYTES
         elif suffix in {".html", ".htm", ".xhtml"}:
             limit = MAX_HTML_SOURCE_BYTES
         else:
@@ -722,6 +725,12 @@ class Version2Application:
         safe_name = report_safe_name(source)
         if suffix == ".epub":
             imported = import_epub_book(
+                raw,
+                source_name=safe_name,
+                control_checkpoint=checkpoint,
+            )
+        elif suffix == ".docx":
+            imported = import_docx_book(
                 raw,
                 source_name=safe_name,
                 control_checkpoint=checkpoint,
