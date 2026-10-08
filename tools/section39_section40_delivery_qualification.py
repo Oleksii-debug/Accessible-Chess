@@ -165,6 +165,44 @@ def qualify_built_delivery(test_path: Path, public_path: Path,
     ):
         raise LawfulCorpusError("genuine historical original study FEN/SAN/bilingual comments missing")
 
+    # The newest Section37 corpus contains twelve authentic Lichess CC0
+    # advanced positions, authored original teaching prose in two languages,
+    # and ten distinct native documents. Both archives must include EXACTLY
+    # those same vetted derivatives. This is not ten third-party originals.
+    from tools.section39_section37_bilingual_workbook_qualification import (
+        qualify_bilingual_books,
+    )
+    original_workbook, original_bilingual_books = qualify_bilingual_books()
+    sample_rows = {}
+    for profile, blobs, manifest in (
+        ("TEST_BUILD", tests, trial), ("PUBLIC_RELEASE", public, publish)
+    ):
+        typed = [item for item in manifest["materials"]
+                 if str(item.get("id", "")).startswith("section37_bilingual_original_workbook_")]
+        if len(typed) != 10:
+            raise LawfulCorpusError("one of ten real bilingual Section37 book files missing from offline collection")
+        for book in typed:
+            name = book["source_path"]
+            original_name = name[len("books/"):] if name.startswith("books/") else ""
+            original_bytes = original_bilingual_books.get(original_name)
+            if (
+                original_bytes is None
+                or blobs.get(name) != original_bytes
+                or book.get("original_workbook_source_sha256") != original_workbook["workbook_source_sha256"]
+                or book.get("original_lesson_count") != 12
+                or book.get("source_kind") != "NEW_ORIGINAL_PROJECT_AUTHORSHIP_DERIVED_FROM_PINNED_CC0_POSITIONS"
+                or book.get("redistribution") != "permitted"
+                or book.get("import_status") != "ACTUAL_NATIVE_BOOK_IMPORT_RESTART_PASS_DERIVED_SOURCE"
+                or book.get("sha256") != _sha(original_bytes)
+            ):
+                raise LawfulCorpusError("Section37 original bilingual workbook was tampered with or mislabeled")
+            if profile == "TEST_BUILD":
+                sample_rows[name] = book
+            elif name not in sample_rows or book != sample_rows[name]:
+                raise LawfulCorpusError("test/public bilingual authored workbook differs")
+    if {name.removeprefix("books/") for name in sample_rows} != set(original_bilingual_books):
+        raise LawfulCorpusError("bilingual native chess test files were silently replaced")
+
     # Contents authored by this project are materialized in BookDocument form,
     # never conflated with the restricted original Gutenberg TXT.
     starter = BookDocument.from_dict(json.loads(tests["books/accessible-chess-starter-course.json"]))
@@ -260,6 +298,9 @@ def qualify_built_delivery(test_path: Path, public_path: Path,
         "extreme_training_original_tasks": 4,
         "book_document_reopen": "PASS",
         "bilingual_advanced_chess_positions": "PASS",
+        "section37_bilingual_native_original_derived_book_files": 10,
+        "section37_bilingual_original_lessons": 12,
+        "section37_workbook_source_sha256": original_workbook["workbook_source_sha256"],
         "runtime_user_library_restart": "PASS",
         "public_rights_separation": "PASS",
         "owner_nvda_verified": False,
