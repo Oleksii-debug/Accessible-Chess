@@ -99,7 +99,8 @@ def _read_qualified_collection(source: Path) -> bytes:
                 if (type(report) is not dict
                     or report.get("profile") != "TEST_BUILD"
                     or report.get("schema") != "acs-revised-section40-offline-collection-v1"
-                    or report.get("real_import_readback", {}).get("game_count") != 512):
+                    or type(report.get("real_import_readback")) is not dict
+                    or report["real_import_readback"].get("game_count") != 512):
                     raise OfflineCollectionError("only verified 512-game TEST_BUILD is seedable")
                 sources = [
                     x for x in report["materials"]
@@ -107,7 +108,7 @@ def _read_qualified_collection(source: Path) -> bytes:
                 ]
                 if (len(sources) != 1
                     or not str(sources[0].get("license", "")).startswith("CC0")
-                    or sources[0].get("redistribution") != "permitted"):
+                    or not str(sources[0].get("redistribution", "")).startswith("permitted")):
                     raise OfflineCollectionError("Section 40 source rights unverified")
                 raw = archive.read(_LIBRARY_PGN)
                 if _sha(raw) != report["real_import_readback"]["derivative_pgn_sha256"]:
