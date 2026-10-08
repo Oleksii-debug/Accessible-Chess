@@ -6,6 +6,7 @@ on:
     paths:
       - 'web/index.html'
       - 'web/accessible_chess_web.html'
+      - 'web/section41_components.html'
       - 'web/assets/accessible_chess_design.css'
       - 'web/assets/tabler/**'
       - 'tools/revised_section41_mit_asset_qualification.py'
