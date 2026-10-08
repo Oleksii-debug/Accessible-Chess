@@ -105,9 +105,11 @@ def build_manifest(root: Path = ROOT) -> dict:
                 row["verified_zip_member_sha256"] = hashlib.sha256(member).hexdigest()
                 row["verified_zip_member_bytes"] = len(member)
                 if source_id == PGN_ID:
+                    if len(member) != item["original_member_bytes"]:
+                        raise LawfulCorpusError("original PGN member byte count differs from qualified upstream source")
                     games = parse_pgn_text(member.decode("utf-8-sig", errors="strict"), strict=False)
-                    if len(games) != 12092 or not all(game.line.moves for game in games):
-                        raise LawfulCorpusError("real original 12092-game PGN readback changed or lost moves")
+                    if len(games) != item["original_pgn_opening_records"] or not all(game.line.moves for game in games):
+                        raise LawfulCorpusError("original PGN games changed or lost canonical moves")
                     row["semantic_state"] = "SEMANTIC_PGN_PARSED"
                     row["semantic_count"] = len(games)
                     # Library persistence/roundtrip are separate mandatory gates.
