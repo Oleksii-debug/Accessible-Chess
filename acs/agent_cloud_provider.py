@@ -240,6 +240,10 @@ class CloudChatProvider:
     async def complete(self, request: ModelRequest) -> ModelResponse:
         if type(request) is not ModelRequest:
             raise TypeError("request must be ModelRequest")
+        if request.privacy is PrivacyClass.SENSITIVE:
+            raise self._error(ModelErrorCode.INVALID_REQUEST,
+                              "sensitive data cannot be sent to cloud text routes",
+                              no_effect=True)
         if request.privacy is not PrivacyClass.PUBLIC and not self._capabilities.supports_private_data:
             raise self._error(ModelErrorCode.INVALID_REQUEST,
                               "private chess data is not approved for cloud",
@@ -260,6 +264,10 @@ class CloudChatProvider:
             "stream": False,
             "max_tokens": self._max_output_tokens,
         }
+        if sum(len(item["content"]) for item in payload["messages"]) > MAX_PROMPT_CHARS:
+            raise self._error(ModelErrorCode.RESOURCE_LIMIT,
+                              "cloud model transport messages exceed limit",
+                              no_effect=True)
         if request.temperature is not None:
             payload["temperature"] = request.temperature
         started = time.perf_counter()
