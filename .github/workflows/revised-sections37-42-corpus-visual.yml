@@ -38,6 +38,7 @@ jobs:
           acs/lawful_corpus_registry.py
           acs/visual_board_contract.py
           tests/test_revised_sections37_40_corpus.py
+          tools/revised_section37_real_cc0_readback.py
           tests/test_revised_sections41_42_design.py
       - name: Test real source catalog authorization and existing visual authority
         run: >-
