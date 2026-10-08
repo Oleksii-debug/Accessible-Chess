@@ -99,6 +99,8 @@ class LiveCorpusEvidenceSafetyTests(unittest.TestCase):
             source.write_bytes(original)
             record = {
                 "id": "test_verified_archive",
+                "license": "CC0",
+                "download_url": "https://database.lichess.org/standard/test-verified.pgn.zst",
                 "sha256": hashlib.sha256(original).hexdigest(),
                 "max_bytes": 1024,
                 "indexed_bytes": len(original),
@@ -156,6 +158,8 @@ class LiveCorpusEvidenceSafetyTests(unittest.TestCase):
             source.write_bytes(b"tampered source")
             record = {
                 "id": "test_verified_archive",
+                "license": "CC0",
+                "download_url": "https://database.lichess.org/standard/test-verified.pgn.zst",
                 "sha256": hashlib.sha256(b"original trusted bytes").hexdigest(),
                 "max_bytes": 1024,
                 "indexed_bytes": len(b"original trusted bytes"),
