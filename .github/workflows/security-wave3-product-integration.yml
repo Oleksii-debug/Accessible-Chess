@@ -15,7 +15,11 @@ on:
       - 'tests/test_security_wave1_product_integration.py'
       - 'tests/test_security_wave2_product_integration.py'
       - 'tests/test_security_wave3_product_integration.py'
+      - 'tests/test_security_wave3_release_attestation.py'
+      - 'tests/test_security_wave3_windows_signing.py'
       - '.github/workflows/security-wave3-product-integration.yml'
+      - '.github/workflows/security-wave3-release-attestation.yml'
+      - '.github/workflows/security-wave3-windows-signing.yml'
       - 'docs/automation/SECURITY_WAVE3_R28_R40_PRODUCT_INTEGRATION.md'
   workflow_dispatch:
 
@@ -65,6 +69,8 @@ jobs:
           acs/spdx_sbom.py
           acs/slsa_provenance.py
           tests/test_security_wave3_product_integration.py
+          tests/test_security_wave3_release_attestation.py
+          tests/test_security_wave3_windows_signing.py
 
       - name: Run wave-1 through wave-3 security regressions
         run: >-
@@ -72,6 +78,8 @@ jobs:
           tests/test_security_wave1_product_integration.py
           tests/test_security_wave2_product_integration.py
           tests/test_security_wave3_product_integration.py
+          tests/test_security_wave3_release_attestation.py
+          tests/test_security_wave3_windows_signing.py
           tests/test_update_security.py
           tests/test_release_update_center.py
           tests/test_release_update_application_boundary.py
