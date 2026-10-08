@@ -6,6 +6,7 @@ on:
       - "acs/agent_cloud_provider.py"
       - "acs/universal_chess_agent.py"
       - "tests/test_section49_agent_fallback.py"
+      - "tests/test_section49_agent_cloud_tool_roundtrip.py"
       - "tests/test_section49_cloud_provider.py"
       - "tests/test_section49_50_evidence.py"
       - "tests/test_section50_media_agent_integration.py"
@@ -36,7 +37,7 @@ jobs:
       - name: Install optional model HTTP dependency
         run: python -m pip install httpx==0.28.1
       - name: Compile bounded model adapter and tests
-        run: python -m py_compile acs/agent_cloud_provider.py acs/universal_chess_agent.py tools/section49_50_live_qualification.py tools/section50_real_video_source.py tests/test_section49_cloud_provider.py tests/test_section49_agent_fallback.py tests/test_section49_50_evidence.py tests/test_section50_media_agent_integration.py tests/test_section50_real_video_source.py
+        run: python -m py_compile acs/agent_cloud_provider.py acs/universal_chess_agent.py tools/section49_50_live_qualification.py tools/section50_real_video_source.py tests/test_section49_cloud_provider.py tests/test_section49_agent_fallback.py tests/test_section49_agent_cloud_tool_roundtrip.py tests/test_section49_50_evidence.py tests/test_section50_media_agent_integration.py tests/test_section50_real_video_source.py
       - name: Execute offline adversarial integration through canonical gateway
         run: python -m unittest discover -s tests -p "test_section49*.py" -v
       - name: Qualify offline media-to-canonical-board-to-cloud-model seam
