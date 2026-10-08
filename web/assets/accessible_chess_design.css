@@ -294,3 +294,32 @@ body:has(#routes) > #error:not(:empty){
     background:Highlight!important;color:HighlightText!important
   }
 }
+
+
+/* Section 43: route-scoped presentation preference sits outside all module
+   render roots; a module repaint never deletes its control or state. */
+#ac43-product-layout{
+  display:flex;gap:var(--ac41-space-2);align-items:center;flex-wrap:wrap;
+  max-width:92rem;margin:var(--ac41-space-3) 0;padding:var(--ac41-space-3);
+  background:var(--ac41-surface);border:1px solid var(--ac41-border);
+  border-radius:var(--ac41-radius);
+}
+#ac43-product-layout[hidden]{display:none!important}
+#ac43-product-layout label{font-weight:600}
+#v2-workspace[data-ac43-presentation="compact"] :is(section,article,fieldset){
+  margin-block:.3rem;padding:.35rem
+}
+#v2-workspace[data-ac43-presentation="compact"] :is([role="listbox"],[role="tree"],[role="table"]){
+  padding:.2rem
+}
+#v2-workspace[data-ac43-presentation="reading"]{
+  font-size:clamp(1.125rem,1.1rem + .65vw,1.45rem);
+  line-height:1.65;max-width:65rem;
+}
+#v2-workspace[data-ac43-presentation="reading"] :is(p,li,blockquote){
+  max-width:75ch
+}
+@media(forced-colors:active){
+  #ac43-product-layout{background:Canvas!important;color:CanvasText!important;
+    border-color:CanvasText!important}
+}
