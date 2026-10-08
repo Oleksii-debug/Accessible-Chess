@@ -252,6 +252,26 @@ class BilingualSourceGroundingTests(unittest.TestCase):
             self.assertTrue(report["generated_files"]["original-advanced-after-opponent-solver-positions.fen"]
                             ["first_opponent_move_already_applied"])
 
+    def test_licensed_original_catalog_cannot_be_demoted_or_spoofed_into_distributed_book(self):
+        original = load_catalog()
+        source_id = "lichess_cc0_extreme_4_original_derived_puzzles"
+        controls = (
+            ("license", "PROPRIETARY_NO_REDISTRIBUTION"),
+            ("redistribution", "NOT_CLEARED"),
+            ("acquisition", "SOURCE_PAGE_ONLY"),
+            ("public_release", "EXCLUDED"),
+            ("source_original_git_blob", "0" * 40),
+        )
+        for key, bad in controls:
+            with self.subTest(source_restriction=key):
+                forged = [dict(item) for item in original]
+                record = next(row for row in forged if row["id"] == source_id)
+                record[key] = bad
+                with patch("tools.revised_section37_bilingual_workbook_pack.load_catalog",
+                           return_value=forged):
+                    with self.assertRaisesRegex(ValueError, "licensed advanced CC0"):
+                        load_advanced_workbook()
+
     def test_legal_but_counterfeit_high_rated_book_sources_fail_before_distribution(self):
         authentic = load_advanced_workbook()
         original = authentic["lessons"][0]
