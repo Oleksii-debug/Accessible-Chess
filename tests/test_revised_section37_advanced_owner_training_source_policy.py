@@ -35,6 +35,35 @@ class OwnerLevelAndProvenanceTests(unittest.TestCase):
             source["lichess_cc0_combined_original_100_source"]["upstream_git_blob"],
         )
 
+    def test_owner_advanced_collection_has_twenty_real_licensed_tasks_and_no_easy_puzzles(self):
+        first = json.loads(ADVANCED.read_text(encoding="utf-8"))
+        extreme_file = ROOT / "tests/real_corpus/advanced_training/lichess_cc0_extreme_3000_3166_original_puzzles.json"
+        extreme = json.loads(extreme_file.read_text(encoding="utf-8"))
+        registry = {entry["id"]: entry for entry in load_catalog()}
+        qualified = registry["lichess_cc0_extreme_4_original_derived_puzzles"]
+        self.assertEqual(qualified["license"], "CC0-1.0")
+        verified_local_source(extreme_file, qualified)
+        self.assertEqual(first["retained_count"] + extreme["puzzle_count"], 20)
+        ids = {p["puzzle_id"] for p in first["puzzles"]}
+        for item in extreme["puzzles"]:
+            self.assertGreaterEqual(item["puzzle_rating"], 3000)
+            self.assertNotIn(item["puzzle_id"], ids)
+            self.assertFalse(item["composed_study"])
+            self.assertTrue(item["requires_opponent_first_move_before_presenting"])
+            ids.add(item["puzzle_id"])
+        self.assertEqual(len(ids), 20)
+        self.assertEqual(
+            sorted(p["puzzle_rating"] for p in extreme["puzzles"]),
+            [3000, 3030, 3164, 3166],
+        )
+        self.assertEqual(
+            registry["lichess_cc0_fexd_offline_original_24595_puzzles"]["acquisition"],
+            "SOURCE_PAGE_ONLY",
+        )
+        self.assertIsNone(
+            registry["lichess_cc0_fexd_offline_original_24595_puzzles"]["sha256"],
+        )
+
     def test_full_50k_and_latest_puzzle_database_remain_truthfully_unqualified(self):
         source = {r["id"]: r for r in load_catalog()}
         original = source["lichess_cc0_combined_original_50000_source"]
