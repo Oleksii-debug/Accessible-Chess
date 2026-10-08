@@ -21,6 +21,8 @@ class Section37RealBilingualMultiFormatQualification(unittest.TestCase):
         self.assertFalse(proof["original_third_party_publisher_file_claim"])
         self.assertFalse(proof["section39_terminal_done"])
         self.assertEqual(len(proof["workbook_source_sha256"]), 64)
+        self.assertEqual(len(proof["workbook_original_git_blob"]), 40)
+        self.assertTrue(proof["production_embedded_source_is_byte_identical"])
         self.assertEqual(
             {(x["language"], x["format"]) for x in proof["sources"]},
             {(lang, ext.upper()) for lang in ("uk", "en")
