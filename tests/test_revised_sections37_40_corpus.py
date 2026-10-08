@@ -148,6 +148,31 @@ class RevisedCorpusContractTests(unittest.TestCase):
         self.assertTrue(polish["license"].startswith("COPYRIGHTED"))
         self.assertEqual(polish["redistribution"], "NOT_CLEARED")
 
+    def test_extreme_lichess_fixture_requires_pinned_cc0_license_for_inventory(self):
+        from acs.lawful_corpus_registry import inventory_vendored_corpus
+
+        records = {record["id"]: record for record in load_catalog()}
+        source = records["lichess_cc0_extreme_4_original_derived_puzzles"]
+        self.assertEqual(source["license"], "CC0-1.0")
+        self.assertEqual(source["license_source"], "tests/real_corpus/lichess_openings_COPYING.txt")
+        self.assertEqual(
+            source["license_sha256"],
+            "a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499",
+        )
+        root = Path(__file__).resolve().parents[1]
+        actual = inventory_vendored_corpus((source,), root, distribution="TEST_BUILD")
+        self.assertEqual(len(actual), 1)
+        self.assertEqual(actual[0]["sha256"], source["sha256"])
+        # Wrong attestation must never turn unverified bytes into an inventory PASS.
+        tampered = {**source, "license_sha256": "0" * 64}
+        with self.assertRaisesRegex(LawfulCorpusError, "mismatch"):
+            inventory_vendored_corpus((tampered,), root, distribution="TEST_BUILD")
+        uncleared = {**source, "redistribution": "NOT_CLEARED"}
+        self.assertEqual(
+            inventory_vendored_corpus((uncleared,), root, distribution="TEST_BUILD"),
+            (),
+        )
+
     def test_catalog_only_official_positions_and_broadcasts_never_auto_download(self):
         records = {entry["id"]: entry for entry in load_catalog()}
         candidates = (
