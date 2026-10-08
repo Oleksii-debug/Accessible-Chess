@@ -1,3 +1,48 @@
+# 2026-10-08 production reachability repair
+
+The historical Section-37 coordinator was not reachable from the real Windows
+`native_runtime_factory`, and its accepted files had also diverged out of the
+current shipping lineage. This repair restores the accepted orchestration
+authority and closes the demonstrated production gap without creating a second
+domain store.
+
+Current production contract:
+
+- `data.backup`, `data.restore`, `data.export`, and `data.import` are
+  present in the one canonical ActionRegistry and route through the trusted
+  `Version2Application.bind_user_data_portability` seam.
+- Browser/model payloads cannot supply filesystem paths. The release root binds
+  `Version2UserDataPortabilityHost` only after the real native owner Form and
+  close guard exist; Open/Save paths come only from owner-bound WinForms dialogs.
+- The live process never rewrites an open Settings/SQLite root. User actions
+  schedule an operation. On the next startup, `begin_pending_user_data_operation`
+  runs before Settings or AcsDatabase is opened.
+- Backup/export captures the closed user-data root. Restore/import validates and
+  stages a checksummed bounded archive, atomically publishes the staged root and
+  retains the previous root as rollback authority.
+- The canonical `Version2UpgradeCoordinator.run()` then validates/migrates the
+  published root. Any bridge/upgrade failure rolls Section-37 publication back;
+  only successful canonical upgrade validation commits and removes rollback data.
+- Portable import preserves machine-local/private state and excludes credential,
+  token, OAuth/OIDC, protection/entitlement, session/cookie and cache material.
+- Archive paths reject traversal, backslashes, control characters, Windows
+  reserved names, symlinks/reparse points, undeclared ZIP members, duplicate
+  entries, checksum/size mismatches and expanded-size/file-count overflow.
+- Crash journal phases are fail-closed: pre-publication interruption preserves
+  the prior root; publication interruption restores it; a durable validated phase
+  keeps the new root and completes idempotent cleanup.
+
+New focused contract:
+`tests/test_section37_production_portability.py`.
+The dedicated dual-OS Section-37 workflow now compiles and executes both the
+original coordinator contract and this production reachability/rollback contract,
+plus inherited persistence/upgrade regressions.
+
+This repair does not claim physical/human NVDA validation and does not create a
+second Settings, Library, chess, migration or credential authority.
+
+---
+
 # Section 37 — Persistence, backup, restore, migrations and user-data portability
 
 Canonical plan: `ACCESSIBLE CHESS — SECTION PLAN ДО ПОВНІСТЮ ЗАВЕРШЕНОГО ПРОДУКТУ`.
