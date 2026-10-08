@@ -97,6 +97,57 @@ class EvidenceJoinSafety(unittest.TestCase):
         with self.assertRaisesRegex(LawfulCorpusError, "falsely declares"):
             merge_real_receipts(base, positions, books, catalog, HEAD)
 
+    def test_skipped_real_cbh_oracle_cannot_join_three_external_families(self):
+        catalog, base, positions, books = synthetic_evidence()
+        cbh = {
+            "schema": "accessible-chess-section39-cbh-authentic-oracle-v1",
+            "source_commit_sha": HEAD,
+            "sources": [],
+            "all_three_real_semantic_tests_executed": False,
+            "all_three_real_semantic_tests_success": False,
+            "full_cb_family_format_supported": False,
+            "original_source_bytes_packaged": False,
+        }
+        with self.assertRaisesRegex(LawfulCorpusError, "CBH real source oracle"):
+            merge_real_receipts(base, positions, books, catalog, HEAD, cbh)
+
+    def test_forged_cbh_family_component_hash_must_be_rejected(self):
+        catalog, base, positions, books = synthetic_evidence()
+        lookup = {record["id"]: record for record in catalog}
+        names = (
+            "libcbh_gpl_original_annotation_cbh_family",
+            "libcbh_gpl_original_nested_variations_cbh_family",
+            "libcbh_gpl_original_unusual_start_cbh_family",
+        )
+        cbh_rows = []
+        for number, key in enumerate(names):
+            registered = lookup[key]
+            members = {name: meta["sha256"]
+                       for name, meta in registered["external_companion_source_checksums"].items()}
+            if number == 0:
+                name = sorted(members)[0]
+                members[name] = "0" * 64
+            cbh_rows.append({
+                "source_id": key, "qualification": "PARTIAL" if number == 2 else "PASS",
+                "original_source_read": True, "mock_used": False,
+                "backend_commit": registered["upstream_commit"],
+                "original_member_count": 11,
+                "original_member_sha256": members,
+                "semantic_oracle_test": "fake test - MUST be refused",
+                "actual_importer": "fake",
+            })
+        cbh = {
+            "schema": "accessible-chess-section39-cbh-authentic-oracle-v1",
+            "source_commit_sha": HEAD,
+            "sources": cbh_rows,
+            "all_three_real_semantic_tests_executed": True,
+            "all_three_real_semantic_tests_success": True,
+            "full_cb_family_format_supported": False,
+            "original_source_bytes_packaged": False,
+        }
+        with self.assertRaisesRegex(LawfulCorpusError, "CBH companion SHA256s"):
+            merge_real_receipts(base, positions, books, catalog, HEAD, cbh)
+
     def test_missing_external_format_cannot_be_called_complete(self):
         catalog, base, positions, books = synthetic_evidence()
         books["sources"].pop()
