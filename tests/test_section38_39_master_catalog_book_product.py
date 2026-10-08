@@ -67,12 +67,82 @@ class ProfessionalCatalogProductTests(unittest.TestCase):
                 self.assertEqual(restored.location(), first)
                 self.assertEqual(restored.restore_return_point(
                     "after-first-master-genre"), first)
+                # Navigate ALL 25 genre headings with the same keyboard-next
+                # semantic navigation method used by accessible Books, not
+                # just check one index in a static catalogue.
+                traversed = [first.source_anchor]
+                for _ in range(24):
+                    item = restored.next_heading()
+                    traversed.append(item.source_anchor)
+                    self.assertEqual(item.kind, "Heading")
+                self.assertEqual(
+                    traversed,
+                    ["section38:master:genre:" + ident for ident in ids],
+                )
+                with self.assertRaises(LookupError):
+                    restored.next_heading()
+                restored.restore_return_point("after-first-master-genre")
+                self.assertEqual(restored.location(), first)
                 self.assertEqual(
                     len([x for x in doc.blocks if isinstance(x, Paragraph)
                          and "NOT VERIFIED" in x.text]), 25 if language == "en" else 0
                 )
         with self.assertRaises(ValueError):
             build_professional_genre_book(language="ru")
+
+    def test_actual_bilingual_books_keyboard_commands_can_navigate_all_twenty_five(self):
+        ordered = tuple(genre["id"] for genre in professional_genres())
+        for language_code, language in (
+            ("uk", UILanguage.UA), ("en", UILanguage.EN),
+        ):
+            with self.subTest(language=language_code):
+                with tempfile.TemporaryDirectory(prefix="acs-master-genre-webview-") as temp:
+                    root = Path(temp)
+                    database = AcsDatabase(root / "library.acsdb")
+                    analysis = AnalysisService(lambda: None)
+                    try:
+                        app = Version2StarterContentApplication(
+                            database, language=language,
+                            progress_store=BookProgressStore(root / "books.json"),
+                            engine_assistance=EngineAssistedWorkflowService(analysis),
+                            board_dispatch=lambda *_: None,
+                            board_position_projector=lambda fen: {"fen": fen},
+                        )
+                        try:
+                            app.browser_command("shell", "screen.books")
+                            first = app.browser_command(
+                                "books", "book.open_starter_material",
+                                {"material_id": MATERIAL_ID},
+                            )
+                            self.assertEqual(first["kind"], "render")
+                            self.assertEqual(
+                                first["payload"]["snapshot"]["document"]["lang"],
+                                language_code,
+                            )
+                            for index, source_id in enumerate(ordered, 1):
+                                rendered = app.browser_command(
+                                    "books", "book.next_heading"
+                                )
+                                self.assertEqual(rendered["kind"], "render")
+                                payload = rendered["payload"]
+                                block = payload["snapshot"]["block"]
+                                self.assertEqual(
+                                    block["source_anchor"],
+                                    "section38:master:genre:" + source_id,
+                                )
+                                self.assertEqual(block["heading_level"], 2)
+                                self.assertEqual(block["role"], "heading")
+                                self.assertEqual(
+                                    payload["focus_target"],
+                                    block["dom_id"],
+                                    "NVDA keyboard focus must follow real Book heading",
+                                )
+                                self.assertTrue(block["title"])
+                                self.assertIn(str(index), block["title"])
+                        finally:
+                            app.shutdown()
+                    finally:
+                        analysis.close()
 
     def test_actual_v2_books_catalogue_opens_expert_25_genre_guide_in_both_languages(self):
         with tempfile.TemporaryDirectory(prefix="acs-masters-genre-books-product-") as temp:

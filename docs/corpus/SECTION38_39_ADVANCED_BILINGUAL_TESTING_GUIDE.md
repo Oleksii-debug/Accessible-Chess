@@ -120,6 +120,40 @@ keyboard/UI result, CI source SHA, and actual PASS/PARTIAL/UNSUPPORTED/BLOCKED**
 Never mark a source PASS on the basis of an extension, link, synthetic document,
 partial ChessBase import, or queued workflow.
 
+## Незалежні професійні формати CBV — справжні джерела, не mock
+
+В офіційному каталозі `docs/corpus/revised_sections37_40_sources.json`
+додано три зовнішні реальні джерела:
+
+- **Northwest Chess, січень 2013:** оригінальний
+  [CBV](https://www.nwchess.com/articles/games/published/NWC%202013-01%20Published%20Games.cbv)
+  і [PGN](https://www.nwchess.com/articles/games/published/NWC%202013-01%20Published%20Games.pgn)
+  з тієї самої професійної шахової публікації. Це перевірений прямий
+  **URL видавця**, а не доказ байтового SHA-256 чи ліцензії на републікацію.
+  Обидва мають `SOURCE_PAGE_ONLY / NOT_CLEARED`, без оригінальних
+  файлів у цьому репозиторії.
+- **Федерація шахів Нової Зеландії:** [історична база Пітера Стюарта
+  (CBV + PGN)](https://compete.newzealandchess.co.nz/resources/peter-stuart-database/).
+  Офіційний видавець повідомляє про дозвіл родини на публічний доступ,
+  **але це не ліцензія на перевидання** в нашому продукті. Потрібні
+  окремі оригінальні SHA-256, дозвіл на TEST/PUBLIC_RELEASE і повний імпорт.
+
+Окремий беззбережний зовнішній CI-шлях:
+`tools/section38_39_nwc_genuine_cbv_pgn.py` у перевірці
+`Section 38-39 MIT cbvault Original CBH Oracle`. Він має отримати
+оригінальні CBV і PGN через HTTPS, зупинити неприпустимі redirect,
+порівняти *повне* канонічне дерево ходів, далі відкрити ACSDB після
+закриття з'єднання й перевірити Search/повторний імпорт. У звіт
+потрапляють SHA-256 **фактично отриманих** байтів, але якщо незалежний
+оригінальний SHA ще не був зафіксований, формат не отримує термінального
+PASS. Похідний PGN, виданий MIT-бібліотекою, не є оригінальним PGN
+видавця.
+
+MIT `itshak/cbvault` версії 0.1.4 тестується тільки як **окрема
+зовнішня інструментальна можливість** з точною Git-версією. Чинний
+`acs.chessbase_decoder` / `acs.chessbase_library_import` не
+замінюється, і 2CBH, CBF, CBONE залишаються явно непідтвердженими.
+
 ## Термінальна готовність
 
 Викладені матеріали — **робочі вихідні тексти, тестові контракти і рецепти**.

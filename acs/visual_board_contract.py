@@ -82,6 +82,7 @@ class VisualBoardPreferences:
     fit_to_window: bool = False
     presentation_mode: bool = False
     animate_moves: bool = False
+    low_power_mode: bool = False
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "board_theme", _enum_value(BoardTheme, self.board_theme, "board theme"))
@@ -92,7 +93,7 @@ class VisualBoardPreferences:
             raise ValueError("scale_percent must be an exact integer in 75..200")
         if type(self.show_last_move) is not bool:
             raise ValueError("show_last_move must be boolean")
-        for visual_flag in ("fit_to_window", "presentation_mode", "animate_moves"):
+        for visual_flag in ("fit_to_window", "presentation_mode", "animate_moves", "low_power_mode"):
             if type(getattr(self, visual_flag)) is not bool:
                 raise ValueError(visual_flag + " must be boolean")
 
@@ -115,7 +116,7 @@ class VisualBoardPreferences:
             if type(value) is not bool:
                 raise ValueError("show_last_move must be boolean")
             return replace(self, show_last_move=value)
-        if field in ("fit_to_window", "presentation_mode", "animate_moves"):
+        if field in ("fit_to_window", "presentation_mode", "animate_moves", "low_power_mode"):
             if type(value) is not bool:
                 raise ValueError(field + " must be boolean")
             return replace(self, **{field: value})
@@ -132,6 +133,7 @@ class VisualBoardPreferences:
             "fitToWindow": self.fit_to_window,
             "presentationMode": self.presentation_mode,
             "animateMoves": self.animate_moves,
+            "lowPowerMode": self.low_power_mode,
         }
 
 

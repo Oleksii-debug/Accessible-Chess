@@ -43,6 +43,54 @@ def _read_json(path: Path) -> tuple[dict, str]:
     return data, hashlib.sha256(raw).hexdigest()
 
 
+def _candidate_matches_format(source_format: str, target: str) -> bool:
+    """Classify source *declared type*, not a substring inside another family.
+
+    In particular '2cbh' is not classic 'CBH', 'cbf+cbi' is not CBV,
+    and FEN text embedded in another format is not an independently acquired
+    FEN file. This only selects evidence candidates; it never issues PASS.
+    """
+    if type(source_format) is not str or type(target) is not str:
+        raise TypeError("original format classifiers require exact text")
+    if target not in _ALLOWED:
+        raise ValueError("unsupported original format label")
+    fmt = source_format.casefold().strip()
+    if target == "CBH":
+        return fmt in {"cbh", "cbh_family"} or fmt.startswith("cbh ")
+    if target == "2CBH":
+        return fmt == "2cbh"
+    if target == "CBF":
+        return fmt in {"cbf", "cbf+cbi"}
+    if target == "CBV":
+        return fmt in {"cbv", "cbv.zip"}
+    if target == "CBONE":
+        return fmt == "cbone"
+    if target == "PGN":
+        return fmt == "pgn" or fmt.startswith("pgn.") or fmt.startswith("pgn (")
+    if target == "SAN":
+        # SAN contained in PGN is NOT an independent original SAN file.
+        return fmt == "san"
+    if target == "FEN":
+        return fmt == "fen"
+    if target == "EPD":
+        return fmt == "epd" or fmt.startswith("epd.")
+    if target == "ACSDB":
+        return fmt == "acsdb"
+    if target == "Markdown":
+        return fmt in {"markdown", "md"}
+    if target == "DOCX":
+        return fmt == "docx"
+    if target == "PDF":
+        return fmt == "pdf" or fmt.startswith("pdf (")
+    if target == "EPUB":
+        return fmt == "epub" or fmt.startswith("epub3/") or fmt.startswith("epub3")
+    if target == "HTML":
+        return fmt == "html" or "/html/" in fmt or fmt.endswith("/html")
+    if target == "TXT":
+        return fmt == "txt" or fmt.endswith("/txt")
+    return False
+
+
 def build_master_qa_matrix() -> dict:
     genres, genres_sha = _read_json(GENRES)
     formats, formats_sha = _read_json(FORMAT_QA)
@@ -76,7 +124,7 @@ def build_master_qa_matrix() -> dict:
             fmt = row["format"]
             matched = tuple(
                 source for source in eligible
-                if any(token in source["format"].casefold() for token in _FAMILY[fmt])
+                if _candidate_matches_format(source["format"], fmt)
             )
             for lang in ("uk", "en"):
                 indexed.append({

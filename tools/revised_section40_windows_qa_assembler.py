@@ -192,6 +192,36 @@ def build_section40_windows_test_package(
         original_checksum = hashlib.sha256(
             Path(verified_collection_zip).read_bytes()
         ).hexdigest()
+        # Verify the newest original Section37 bilingual workbook not just
+        # as files in a disconnected QA directory but inside the exact archive
+        # that is about to accompany the Windows TEST_BUILD executable.
+        # Reuse the Section39 true-CC0 source/Books readback, and compare
+        # all ten native bytes to what is actually inside the nested ZIP.
+        from tools.section39_section37_bilingual_workbook_qualification import (
+            qualify_bilingual_books,
+        )
+        actual_source, real_native_books = qualify_bilingual_books()
+        with zipfile.ZipFile(copied) as contained:
+            catalog = json.loads(contained.read("catalog/materials.json"))
+            stored = {
+                row["source_path"]: row
+                for row in catalog["materials"]
+                if row["id"].startswith("section37_bilingual_original_workbook_")
+            }
+            if len(stored) != 10 or len(real_native_books) != 10:
+                raise OfflineCollectionError("Windows QA archive lacks genuine ten-file bilingual CC0 workbook")
+            for filename, original_bytes in real_native_books.items():
+                name = "books/" + filename
+                receipt = stored.get(name)
+                if (
+                    receipt is None or contained.read(name) != original_bytes
+                    or receipt["sha256"] != hashlib.sha256(original_bytes).hexdigest()
+                    or receipt.get("original_workbook_source_sha256")
+                        != actual_source["workbook_source_sha256"]
+                    or receipt.get("original_lesson_count") != 12
+                    or receipt.get("redistribution") != "permitted"
+                ):
+                    raise OfflineCollectionError("bilingual real-master workbook changed in Windows test package")
         copied_checksum = hashlib.sha256(copied.read_bytes()).hexdigest()
         if original_checksum != copied_checksum:
             raise OfflineCollectionError("copied offline corpus ZIP checksum differs")
@@ -202,7 +232,7 @@ def build_section40_windows_test_package(
             "4 оригінальні анотовані партії Lichess і 1 історичний етюд Réti "
             "(усього 517 нових партій/позицій; за наявності старих джерел вони зберігаються).\n"
             "Файл TEST_COLLECTION.zip містить каталог, українські й англійські "
-            "BookDocument, вправи, PGN, додаткові формати й ліцензії для тестування.\n"
+            "BookDocument, вправи, 12 складних двомовних позицій у 10 файлах EPUB3/HTML/DOCX/TXT/Markdown, PGN і ліцензії.\n"
             "Для NVDA: запускайте AccessibleChess.exe з папки AccessibleChess, "
             "перейдіть до Бібліотеки, Книг або Тренування штатною навігацією. "
             "Тести необхідно підтвердити на реальному Windows EXE.\n"
@@ -216,7 +246,7 @@ def build_section40_windows_test_package(
             "four genuine annotated Lichess games and one historical Reti study "
             "(517 additional games/positions); existing owner PGN sources are preserved.\n"
             "TEST_COLLECTION.zip includes a licensed catalogue, Ukrainian/English "
-            "BookDocuments, training cases, PGN and other qualified test formats.\n"
+            "Books, 12 genuine hard chess positions in 10 UK/EN EPUB3/HTML/DOCX/TXT/Markdown files, PGN and rights.\n"
             "For screen-reader testing use AccessibleChess.exe in AccessibleChess "
             "and the product's existing Library, Books and Training navigation.\n"
             "Actual Windows EXE/NVDA tests remain required before claiming DONE.\n"
@@ -246,6 +276,9 @@ def build_section40_windows_test_package(
             "restart_reused_sources": second.reused_source_count,
             "zip_sha256": hashlib.sha256(output_zip.read_bytes()).hexdigest(),
             "bundled_offline_collection_sha256": copied_checksum,
+            "section37_native_bilingual_books_verified": 10,
+            "section37_authentic_advanced_lessons": 12,
+            "section37_workbook_source_sha256": actual_source["workbook_source_sha256"],
             "bilingual_test_instructions": True,
             "canonical_version2_package_readback": True,
             "compiled_real_exe_attested": False,

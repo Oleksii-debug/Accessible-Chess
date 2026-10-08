@@ -53,6 +53,21 @@
           "availability": "BIBLIOGRAPHY_ONLY_NOT_IMPORTED",
           "book_binary_in_repo": false,
           "licensed_copy_proven": false
+        },
+        {
+          "title": "Методика розрахунку в шахах на 5-10 ходів та більше",
+          "author": "Олександр Васильович Сулима",
+          "language": "uk-publisher-page-edition-language-to-verify",
+          "provider_url": "https://irbis-nbuv.gov.ua/cgi-bin/irbis_nbuv/cgiirbis_64.exe?C21COM=S&I21DBN=EC&P21DBN=&S21ALL=%28%3C.%3EU%3D%D0%A7515.81%24%3C.%3E%29&S21CNR=20&S21FMT=JwU_B&S21REF=10&S21SRD=DOWN&S21SRW=GOD&S21STN=1&Z21ID=",
+          "availability": "BIBLIOGRAPHY_ONLY_NOT_IMPORTED",
+          "book_binary_in_repo": false,
+          "licensed_copy_proven": false,
+          "bibliography_provider": "Національна бібліотека України імені В. І. Вернадського",
+          "bibliography_year": 2025,
+          "bibliography_pages": 135,
+          "isbn": "978-966-8906-80-0",
+          "edition_language_verified": false,
+          "minimum_level_suitability": "ADVANCED_LONG_VARIATION_CALCULATION_CONTENT_FIT_NOT_FIDE_GRADE_CLAIM"
         }
       ],
       "tested_material_scope": "RAV branch navigation and multiple candidates",
@@ -731,6 +746,16 @@
           "catalog_source_id": "lichess_cc0_high_level_4_original_annotated_games",
           "role": "4 complete high-level annotated games",
           "qualification_status": "VENDORED_ORIGINAL_PGN_PINNED"
+        },
+        {
+          "catalog_source_id": "northwest_chess_2013_01_annotated_cbv_original_external",
+          "role": "external original annotated CBV paired with independent official PGN",
+          "qualification_status": "SOURCE_PAGE_ONLY_NOT_DOWNLOADED"
+        },
+        {
+          "catalog_source_id": "northwest_chess_2013_01_annotated_pgn_independent_oracle_external",
+          "role": "source-authored PGN corresponding to original CBV source",
+          "qualification_status": "SOURCE_PAGE_ONLY_NOT_DOWNLOADED"
         }
       ],
       "professional_book_references": [
@@ -767,6 +792,11 @@
           "catalog_source_id": "lichess_cc0_high_level_4_original_annotated_games",
           "role": "4 complete high-level annotated games",
           "qualification_status": "VENDORED_ORIGINAL_PGN_PINNED"
+        },
+        {
+          "catalog_source_id": "nzcf_peter_stuart_historical_full_cbv_pgn_bibliography",
+          "role": "large historic NZCF database with paired external formats",
+          "qualification_status": "SOURCE_PAGE_ONLY_NOT_DOWNLOADED"
         }
       ],
       "professional_book_references": [
@@ -891,6 +921,11 @@
           "catalog_source_id": "gutenberg_chess_history_bird_original_txt",
           "role": "historic textbook for format QA",
           "qualification_status": "PINNED_NOT_DOWNLOADED_IN_THIS_PASS"
+        },
+        {
+          "catalog_source_id": "nzcf_peter_stuart_historical_full_cbv_pgn_bibliography",
+          "role": "historical chess archival source, not licensed for reuse",
+          "qualification_status": "SOURCE_PAGE_ONLY_NOT_DOWNLOADED"
         }
       ],
       "professional_book_references": [],
@@ -968,6 +1003,21 @@
           "availability": "BIBLIOGRAPHY_ONLY_NOT_IMPORTED",
           "book_binary_in_repo": false,
           "licensed_copy_proven": false
+        },
+        {
+          "title": "Методика розрахунку в шахах на 5-10 ходів та більше",
+          "author": "Олександр Васильович Сулима",
+          "language": "uk-publisher-page-edition-language-to-verify",
+          "provider_url": "https://irbis-nbuv.gov.ua/cgi-bin/irbis_nbuv/cgiirbis_64.exe?C21COM=S&I21DBN=EC&P21DBN=&S21ALL=%28%3C.%3EU%3D%D0%A7515.81%24%3C.%3E%29&S21CNR=20&S21FMT=JwU_B&S21REF=10&S21SRD=DOWN&S21SRW=GOD&S21STN=1&Z21ID=",
+          "availability": "BIBLIOGRAPHY_ONLY_NOT_IMPORTED",
+          "book_binary_in_repo": false,
+          "licensed_copy_proven": false,
+          "bibliography_provider": "Національна бібліотека України імені В. І. Вернадського",
+          "bibliography_year": 2025,
+          "bibliography_pages": 135,
+          "isbn": "978-966-8906-80-0",
+          "edition_language_verified": false,
+          "minimum_level_suitability": "ADVANCED_LONG_VARIATION_CALCULATION_CONTENT_FIT_NOT_FIDE_GRADE_CLAIM"
         }
       ],
       "tested_material_scope": "teach original multi-line real puzzles without solution leak",
@@ -1043,6 +1093,21 @@
           "catalog_source_id": "chessbase_official_cbf_cbi_format_external_gap",
           "role": "proprietary CBF+CBI",
           "qualification_status": "BLOCKED_NO_LAWFUL_COMPLETE_SAMPLE"
+        },
+        {
+          "catalog_source_id": "northwest_chess_2013_01_annotated_cbv_original_external",
+          "role": "real original publisher CBV full archive for format QA",
+          "qualification_status": "SOURCE_PAGE_ONLY_NOT_DOWNLOADED"
+        },
+        {
+          "catalog_source_id": "northwest_chess_2013_01_annotated_pgn_independent_oracle_external",
+          "role": "publisher PGN reference for full game-tree comparator",
+          "qualification_status": "SOURCE_PAGE_ONLY_NOT_DOWNLOADED"
+        },
+        {
+          "catalog_source_id": "nzcf_peter_stuart_historical_full_cbv_pgn_bibliography",
+          "role": "larger historical CBV/PGN source page, not acquired",
+          "qualification_status": "SOURCE_PAGE_ONLY_NOT_DOWNLOADED"
         }
       ],
       "professional_book_references": [],

@@ -104,6 +104,20 @@ class MasterGenresProofTests(unittest.TestCase):
         self.assertGreaterEqual(len(seen), 9)
         self.assertIn("Тактика для всіх — вибірково 200 задач КМС/МС/ММ", seen)
         self.assertIn("Grandmaster Preparation: Calculation", seen)
+        self.assertIn("Методика розрахунку в шахах на 5-10 ходів та більше", seen)
+        ukrainian = [
+            book for genre in self.matrix["genres"]
+            for book in genre["professional_book_references"]
+            if book.get("isbn") == "978-966-8906-80-0"
+        ]
+        self.assertEqual(len(ukrainian), 2)
+        for book in ukrainian:
+            self.assertEqual(book["bibliography_year"], 2025)
+            self.assertEqual(book["bibliography_pages"], 135)
+            self.assertIn("Вернадського", book["bibliography_provider"])
+            self.assertIs(book["edition_language_verified"], False)
+            self.assertFalse(book["licensed_copy_proven"])
+            self.assertFalse(book["book_binary_in_repo"])
 
     def test_uk_en_source_authored_workbook_and_all_twenty_licensed_puzzles_survive(self):
         workbook = load_advanced_workbook()

@@ -47,6 +47,7 @@ progress{width:min(32rem,100%)}
 <section aria-labelledby="board-heading" id="board-surface" hidden>
 <h3 id="board-heading">Дошка</h3>
 <div id="board-grid" class="grid" role="grid" aria-label="Шахова дошка"></div>
+<p class="ac42-board-annotation-summary" tabindex="0" aria-live="off"></p>
 </section>
 <section aria-labelledby="content-heading">
 <h3 id="content-heading">Вміст</h3>
@@ -63,6 +64,7 @@ progress{width:min(32rem,100%)}
 </section>
 </main>
 <script>document.getElementById("ac41-theme").addEventListener("change",event=>{const t=event.currentTarget.value;if(["system","light","dark","contrast"].includes(t))document.documentElement.dataset.acUiTheme=t});</script>
+<script src="/assets/board_overlay_renderer.js"></script>
 <script src="/assets/accessible_chess_web.js"></script>
 </body>
 </html>

@@ -95,7 +95,7 @@
 #board-grid[data-theme=classic]{--light:#f0d9b5;--dark:#b58863;--piece-light:#111;--piece-dark:#111}
 #board-grid[data-theme=high_contrast]{--light:#fff;--dark:#000;--piece-light:#000;--piece-dark:#fff}
 #board-grid[data-theme=blue]{--light:#dbeafe;--dark:#1d4ed8;--piece-light:#111;--piece-dark:#fff}
-#board-grid[data-theme=classic_wood]{--light:#f0dfc3;--dark:#946f50;--piece-light:#1b211c;--piece-dark:#fffdf7}
+#board-grid[data-theme=classic_wood]{--light:#f0dfc3;--dark:#8e684b;--piece-light:#1b211c;--piece-dark:#fffdf7}
 #board-grid[data-theme=modern_graphite]{--light:#e0e4e8;--dark:#384552;--piece-light:#18232e;--piece-dark:#fff}
 #board-grid[data-theme=tournament_blue]{--light:#dceafa;--dark:#205d97;--piece-light:#102439;--piece-dark:#fff}
 #board-grid[data-theme=light_minimal]{--light:#fbfbf8;--dark:#c8d2dc;--piece-light:#1a2028;--piece-dark:#132435}
@@ -105,6 +105,34 @@
 #board-grid[role=grid] [role=gridcell][aria-selected=true]{outline:4px solid Highlight}
 #board-grid[role=grid] [role=gridcell][data-last-move=true]{box-shadow:inset 0 0 0 4px #f59e0b}
 #board-grid[role=grid] [role=gridcell][data-legal-target=true]{border:4px dashed #16a34a}
+
+/* Teacher/coach arrows and highlights are inert visual decorations. */
+#board-grid{position:relative}
+#board-grid[role=grid] [role=gridcell][data-ac42-highlight=true]::after{
+  content:"";position:absolute;inset:4px;z-index:1;border:4px solid var(--ac42-highlight-color);
+  border-radius:.2rem;pointer-events:none
+}
+#board-grid .ac42-board-arrows{
+  position:absolute;inset:0;width:100%;height:100%;z-index:2;pointer-events:none
+}
+#board-grid [role=gridcell]:focus-visible{position:relative;z-index:3}
+@media(forced-colors:active){
+  #board-grid .ac42-board-arrows{display:none!important}
+  #board-grid[role=grid] [role=gridcell][data-ac42-highlight=true]::after{border:2px dashed Highlight}
+}
+
+/* Windows high-contrast exposes canonical Unicode glyph rather than dark raster SVG. */
+.ac42-piece-fallback{display:none;font:700 1.9rem/1 sans-serif;pointer-events:none}
+#board-grid[data-power=low] .board-piece{transition:none!important;animation:none!important}
+#board-grid[data-power=low] [role=gridcell]{box-shadow:none!important}
+@media(forced-colors:active){
+  #board-grid .ac42-piece-art{display:none!important}
+  #board-grid .ac42-piece-fallback{display:inline!important;color:CanvasText!important}
+}
+
+/* Copyable, non-live semantic equivalent of teacher and study annotations. */
+.ac42-board-annotation-summary{white-space:pre-wrap;overflow-wrap:anywhere;color:var(--ac41-ink);max-width:70ch}
+.ac42-board-annotation-summary:empty{display:none}
 
 
 /* Sections 43–44: presentation-only composition of the existing Windows/Web

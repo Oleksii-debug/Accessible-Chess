@@ -68,6 +68,9 @@ class Section40RealWindowsQAPackageTests(unittest.TestCase):
             self.assertEqual(report["restart_reused_sources"], 3)
             self.assertEqual(report["original_seed_files_untouched"], 0)
             self.assertTrue(report["canonical_version2_package_readback"])
+            self.assertEqual(report["section37_native_bilingual_books_verified"], 10)
+            self.assertEqual(report["section37_authentic_advanced_lessons"], 12)
+            self.assertEqual(len(report["section37_workbook_source_sha256"]), 64)
             self.assertFalse(report["compiled_real_exe_attested"])
             self.assertFalse(report["section40_done"])
             self.assertEqual(before, hashlib.sha256(
@@ -107,6 +110,27 @@ class Section40RealWindowsQAPackageTests(unittest.TestCase):
                     self.assertIn("library/original-reti-1921-uk-en-study.pgn", corpus.namelist())
                     metadata = json.loads(corpus.read("catalog/materials.json"))
                     self.assertEqual(metadata["profile"], "TEST_BUILD")
+                    bilingual = [
+                        entry for entry in metadata["materials"]
+                        if entry["id"].startswith("section37_bilingual_original_workbook_")
+                    ]
+                    self.assertEqual(len(bilingual), 10)
+                    self.assertEqual(
+                        {(item["language"], item["format"]) for item in bilingual},
+                        {(lang, extension) for lang in ("uk", "en")
+                         for extension in ("txt", "md", "html", "docx", "epub")},
+                    )
+                    for entry in bilingual:
+                        source = corpus.read(entry["source_path"])
+                        self.assertEqual(entry["sha256"], hashlib.sha256(source).hexdigest())
+                        self.assertEqual(entry["size_bytes"], len(source))
+                        self.assertEqual(entry["original_lesson_count"], 12)
+                    self.assertIn(
+                        "books/section37-advanced-workbook-uk.epub", corpus.namelist()
+                    )
+                    self.assertIn(
+                        "books/section37-advanced-workbook-en.docx", corpus.namelist()
+                    )
 
 
     def test_existing_private_seed_is_preserved_and_extended_only_in_disposable_qa(self):

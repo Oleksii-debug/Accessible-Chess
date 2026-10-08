@@ -35,6 +35,7 @@ from acs.section40_advanced_training_runtime import (
     build_advanced_offline_material, build_extreme_offline_material,
 )
 from tools.revised_section40_advanced_training import build_complete_advanced_training
+from tools.section39_section37_bilingual_workbook_qualification import qualify_bilingual_books
 from acs.section40_historical_reti_runtime import build_historical_reti_offline_material
 from acs.section40_historical_reti_dataset import original_reti_source_bytes
 
@@ -397,6 +398,53 @@ def build_collection(profile: str, output: Path, *, root: Path = ROOT) -> dict:
         "import_status": "ORIGINAL_RETI_1921_STRICT_PGN_AND_FEN_PASS",
         "repeat_download": "BUNDLED_OFFLINE",
     })
+    # Consume the original Section37 12-lesson bilingual generator, not a
+    # second five-format producer. Each of ten actual EPUB3/HTML/MD/TXT/DOCX
+    # bytes has already passed production Version2Application Books import,
+    # canonical CC0 original puzzles, disk bookmark and per-format semantics.
+    real_workbook_proof, bilingual_real_books = qualify_bilingual_books(root=root)
+    if (
+        real_workbook_proof["original_lesson_count"] != 12
+        or real_workbook_proof["observed_derivative_count"] != 10
+        or not real_workbook_proof["real_original_cc0_position_provenance"]
+        or real_workbook_proof["original_third_party_publisher_file_claim"] is not False
+    ):
+        raise OfflineCollectionError("genuine Section37 bilingual advanced source not qualified")
+    evidence_by_name = {row["filename"]: row for row in real_workbook_proof["sources"]}
+    for filename, encoded in sorted(bilingual_real_books.items()):
+        row = evidence_by_name.get(filename)
+        if (
+            row is None or row["derived_sha256"] != _digest(encoded)
+            or row["derived_bytes"] != len(encoded)
+            or row["bookdocument_semantic_reimport"] != "PASS"
+            or row["book_progress_disk_restart"] != "PASS"
+            or row["independent_publisher_original_file"] is not False
+        ):
+            raise OfflineCollectionError("Section37 bilingual original-source format evidence differs")
+        dest = "books/" + filename
+        if dest in assets:
+            raise OfflineCollectionError("Section37 bilingual book duplicates an existing asset")
+        assets[dest] = encoded
+        rows.append({
+            "id": "section37_bilingual_original_workbook_" +
+                  row["language"] + "_" + row["format"].lower(),
+            "title": "Section37 advanced 12-source chess workbook: " + row["language"].upper(),
+            "author": "Accessible Chess original authored learning prose; Lichess CC0 chess positions",
+            "genre": "advanced calculation, tactics, middlegame, endgame",
+            "language": row["language"],
+            "format": row["format"].lower(),
+            "source_url": "https://database.lichess.org/#puzzles",
+            "download_url": None,
+            "source_path": dest,
+            "size_bytes": len(encoded), "sha256": _digest(encoded),
+            "original_workbook_source_sha256": real_workbook_proof["workbook_source_sha256"],
+            "original_lesson_count": 12,
+            "source_kind": "NEW_ORIGINAL_PROJECT_AUTHORSHIP_DERIVED_FROM_PINNED_CC0_POSITIONS",
+            "license": "original project-authored narrative and CC0-1.0 chess positions",
+            "redistribution": "permitted",
+            "import_status": "ACTUAL_NATIVE_BOOK_IMPORT_RESTART_PASS_DERIVED_SOURCE",
+            "repeat_download": "BUNDLED_OFFLINE",
+        })
     advanced_assets, advanced_rows = build_complete_advanced_training(root=root)
     if set(assets) & set(advanced_assets):
         raise OfflineCollectionError("duplicate advanced training content key")

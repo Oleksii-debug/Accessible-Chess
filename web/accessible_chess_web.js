@@ -95,15 +95,46 @@ function flattenText(value, depth = 0) {
   return [];
 }
 
+// Only project the selected route's canonical visual board. Never reuse a
+// stale Play board for Teacher/Book/Media after switching workspaces.
+function canonicalSquares(cells) {
+  if (!Array.isArray(cells) || cells.length !== 64) return false;
+  const names = cells.map(cell => cell && cell.square);
+  return names.every(x => typeof x === "string" && /^[a-h][1-8]$/.test(x))
+    && new Set(names).size === 64;
+}
+function activeVisualBoard(snapshot) {
+  if (!snapshot || typeof snapshot !== "object") return null;
+  const route = String(currentRoute || "board");
+  const surfaceForRoute = {board:"ordinary_play",teacher:"teacher",
+    online:"online",spectator:"spectator",books:"book",media:"media"};
+  const top = snapshot.visualBoard;
+  const correctlyScoped = top && top.surface === surfaceForRoute[route] ? top : null;
+  const routeObjects = {
+    board:[correctlyScoped,snapshot.board && snapshot.board.visualBoard],
+    teacher:[correctlyScoped,snapshot.teacher && snapshot.teacher.visualBoard],
+    online:[correctlyScoped,snapshot.online && snapshot.online.visualBoard],
+    spectator:[correctlyScoped,snapshot.spectator && snapshot.spectator.visualBoard],
+    books:[correctlyScoped,snapshot.books && snapshot.books.visualBoard,
+           snapshot.book && snapshot.book.visualBoard],
+    media:[correctlyScoped,snapshot.media && snapshot.media.visualBoard]
+  };
+  const possible = routeObjects[route] || [];
+  for (const candidate of possible) {
+    if (candidate && canonicalSquares(candidate.cells)) return candidate;
+  }
+  return null;
+}
 function boardCells(snapshot) {
-  const candidates = [
-    snapshot && snapshot.visualBoard && snapshot.visualBoard.cells,
-    snapshot && snapshot.board && snapshot.board.cells,
+  const visual=activeVisualBoard(snapshot);
+  if (visual) return visual.cells;
+  // Legacy V2 board fallback belongs only to the real Play route.
+  if (currentRoute !== "board") return [];
+  const candidates = [snapshot && snapshot.board && snapshot.board.cells,
     snapshot && snapshot.screen && snapshot.screen.board,
-    snapshot && snapshot.position && snapshot.position.cells
-  ];
+    snapshot && snapshot.position && snapshot.position.cells];
   for (const value of candidates) {
-    if (Array.isArray(value) && value.length === 64) return value;
+    if (canonicalSquares(value)) return value;
   }
   return [];
 }
@@ -121,8 +152,7 @@ function renderBoard(snapshot) {
     return;
   }
   boardSurface.hidden = false;
-  const visual = snapshot && snapshot.visualBoard && typeof snapshot.visualBoard === "object"
-    ? snapshot.visualBoard : {};
+  const visual = activeVisualBoard(snapshot) || {};
   const p = visual.preferences && typeof visual.preferences === "object" ? visual.preferences : {};
   const themes = ["classic", "high_contrast", "blue", "classic_wood",
     "modern_graphite", "tournament_blue", "light_minimal"];
@@ -140,7 +170,8 @@ function renderBoard(snapshot) {
   boardGrid.dataset.theme = theme;
   boardGrid.dataset.pieceTheme = style;
   boardGrid.dataset.presentation = p.presentationMode === true ? "true" : "false";
-  boardGrid.dataset.motion = p.animateMoves === true ? "true" : "false";
+  boardGrid.dataset.motion = p.animateMoves === true && p.lowPowerMode !== true ? "true" : "false";
+  boardGrid.dataset.power = p.lowPowerMode === true ? "low" : "normal";
   boardGrid.style.maxWidth = p.fitToWindow === true
     ? "min(100%,calc(100dvh - 6rem))"
     : p.presentationMode === true ? "min(98vw,85rem)" : String(52*scale/100)+"rem";
@@ -188,6 +219,12 @@ function renderBoard(snapshot) {
         decoration.textContent = glyphs[token] || token;
       });
       decoration.appendChild(image);
+      const backup=document.createElement('span');
+      backup.className='ac42-piece-fallback';
+      backup.textContent=glyphs[token]||token;
+      backup.setAttribute('aria-hidden','true');
+      decoration.appendChild(backup);
+      image.addEventListener('error',()=>{backup.style.display='inline'});
     } else {
       decoration.textContent = !token ? "" : style === "letters" ? token : glyphs[token];
     }
@@ -226,6 +263,10 @@ function renderBoard(snapshot) {
     });
     boardGrid.appendChild(button);
   });
+  const overlayRenderer = globalThis.AccessibleChessBoardOverlay;
+  if (overlayRenderer && typeof overlayRenderer.project === "function") {
+    overlayRenderer.project(boardGrid, ordered, visual);
+  }
   if (focusedSquare && boardGrid.children[activeIndex]) {
     boardGrid.children[activeIndex].focus({preventScroll:true});
   }

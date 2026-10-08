@@ -38,7 +38,8 @@ def merge_real_receipts(base: dict, original_positions: dict, original_books: di
                         gutenberg: dict | None = None,
                         chess960: dict | None = None,
                         reti: dict | None = None,
-                        docx: dict | None = None) -> dict:
+                        docx: dict | None = None,
+                        workbook: dict | None = None) -> dict:
     if not _valid_digest(expected_sha, 40):
         raise LawfulCorpusError("Section 39 merge lacks exact source SHA")
     reports = (base, original_positions, original_books)
@@ -73,6 +74,73 @@ def merge_real_receipts(base: dict, original_positions: dict, original_books: di
         raise LawfulCorpusError("original licensed external-file matrices incomplete")
 
     imported_external = []
+    if workbook is not None:
+        actual_rows = workbook.get("sources", [])
+        identities = {
+            (language, ext) for language in ("uk", "en")
+            for ext in ("TXT", "MD", "HTML", "EPUB", "DOCX")
+        }
+        original_sample_ids = {
+            "lichess_cc0_advanced_16_original_derived",
+            "lichess_cc0_extreme_4_original_derived_puzzles",
+        }
+        if (
+            workbook.get("schema") != "acs-section39-original-section37-bilingual-ten-book-import-v1"
+            or workbook.get("source_commit_sha") != expected_sha
+            or not _valid_digest(workbook.get("workbook_source_sha256"), 64)
+            or workbook.get("original_lesson_count") != 12
+            or workbook.get("language_count") != 2
+            or workbook.get("source_native_derived_format_count") != 5
+            or workbook.get("observed_derivative_count") != 10
+            or len(actual_rows) != 10
+            or {(r.get("language"), r.get("format")) for r in actual_rows} != identities
+            or set(workbook.get("origin_sample_source_ids", [])) != original_sample_ids
+            or workbook.get("real_original_cc0_position_provenance") is not True
+            or workbook.get("original_third_party_publisher_file_claim") is not False
+            or workbook.get("qualified_native_product_import_and_disk_restart") is not True
+            or workbook.get("source_book_binary_distribution_rights") != "NEW_PROJECT_AUTHORED_CC0_POSITION_DERIVATIVES"
+        ):
+            raise LawfulCorpusError("genuine Section37 bilingual 12-lesson book coverage unavailable/stale")
+        for origin in original_sample_ids:
+            receipt = base_receipts.get(origin)
+            if (
+                receipt is None
+                or receipt.get("actual_sha256") != sources[origin].get("sha256")
+                or sources[origin].get("acquisition") != "VENDORED_SOURCE_VERIFIED"
+                or sources[origin].get("redistribution") != "permitted"
+            ):
+                raise LawfulCorpusError("Section37 original CC0 backing puzzle source not authenticated")
+        for row in actual_rows:
+            lang, ext = row["language"], row["format"]
+            original_name = "section37-advanced-workbook-" + lang + "." + ext.lower()
+            if (
+                row.get("filename") != original_name
+                or not _valid_digest(row.get("derived_sha256"), 64)
+                or type(row.get("derived_bytes")) is not int or row["derived_bytes"] < 250
+                or type(row.get("semantic_blocks")) is not int or row["semantic_blocks"] < 20
+                or row.get("explicit_fen_positions") != (12 if ext in ("MD", "HTML", "EPUB") else 0)
+                or row.get("bookdocument_semantic_reimport") != "PASS"
+                or row.get("book_progress_disk_restart") != "PASS"
+                or row.get("source_kind") != "AUTHORED_DERIVED_FROM_PINNED_ORIGINAL_CC0_POSITIONS"
+                or row.get("independent_publisher_original_file") is not False
+            ):
+                raise LawfulCorpusError("one of ten genuine source-bound bilingual book formats failed")
+            fmt = "Markdown" if ext == "MD" else ext
+            target = rows[fmt]
+            target.setdefault("genuine_source_derived_test_books", []).append({
+                "language": lang, "derived_sha256": row["derived_sha256"],
+                "importer": row["importer"], "semantic_blocks": row["semantic_blocks"],
+                "original_publisher_file": False, "file_kind": "LICENSED_NEW_DERIVATIVE",
+            })
+            # This proves real UX read of authored multi-format books, not
+            # original upstream five-format rights/semantic preservation.
+            if target["qualification"] == "BLOCKED":
+                target["qualification"] = "PARTIAL"
+                target["read"] = "PASS"
+                target["source_kind"] = "VERIFIED_GENUINE_CC0_POSITION_DERIVED_BOOK"
+                target["coverage"] = "EXECUTED_ORIGINAL_PROJECT_AUTHORED_CONTENT"
+            target["source_ids"] = sorted(set(target["source_ids"]) | original_sample_ids)
+
     # Actual upstream Capablanca text converted into an OPC DOCX for user
     # interoperability is not an independent original DOCX. Record that real
     # Books open/recovery test without granting source-format write/roundtrip.
@@ -370,8 +438,17 @@ def merge_real_receipts(base: dict, original_positions: dict, original_books: di
         ):
             raise LawfulCorpusError("new original Section37 annotated source not fully qualified")
         receipt = base_receipts[adv_id]
-        if receipt.get("actual_sha256") is not None:
-            raise LawfulCorpusError("original annotated source already attributed to another candidate")
+        # The source was already vendored by Section37 and authenticated
+        # before these semantic checks. A verified hash is corroboration,
+        # not a duplicate independent claim. A different hash, byte count,
+        # or a pre-existing semantic promotion is an actual conflict.
+        if (
+            receipt.get("actual_sha256") != advanced["original_sha256"]
+            or receipt.get("actual_bytes") != advanced["original_bytes"]
+            or receipt.get("expected_sha256") != entry.get("sha256")
+            or receipt.get("semantic_qualification") is not None
+        ):
+            raise LawfulCorpusError("original Section37 annotated PGN receipt identity conflicted with semantic qualification")
         receipt.update({
             "actual_sha256": advanced["original_sha256"],
             "actual_bytes": advanced["original_bytes"],
@@ -591,6 +668,8 @@ def merge_real_receipts(base: dict, original_positions: dict, original_books: di
         "original_source_count": len(imported_external) + (3 if cbh is not None else 0) + (1 if advanced is not None else 0) + (2 if gutenberg is not None else 0) + (2 if chess960 is not None else 0) + (1 if reti is not None else 0),
         "format_count": 16, "format_rows": [rows[r["format"]] for r in original_rows],
         "source_receipts": [base_receipts[r["source_id"]] for r in base["source_receipts"]],
+        "derived_bilingual_uk_en_book_files_qualified": 10 if workbook is not None else 0,
+        "original_independent_publisher_book_formats_qualified_by_workbook": 0,
         "full_matrix_completed": False,
         "windows_packaged_verified": False,
         "manual_nvda_verified": False,
@@ -625,12 +704,14 @@ def main() -> None:
     parser.add_argument("--chess960", type=Path, required=True)
     parser.add_argument("--reti", type=Path, required=True)
     parser.add_argument("--docx", type=Path, required=True)
+    parser.add_argument("--workbook", type=Path, required=True)
     args = parser.parse_args()
     head = _source_head()
     result = merge_real_receipts(
         _read(args.base), _read(args.positions), _read(args.books),
         load_catalog(), head, _read(args.cbh), _read(args.advanced), _read(args.training),
         _read(args.gutenberg), _read(args.chess960), _read(args.reti), _read(args.docx),
+        _read(args.workbook),
     )
     staged = REPORT.with_suffix(".tmp")
     try:

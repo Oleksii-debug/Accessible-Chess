@@ -56,6 +56,24 @@ class RevisedSection40CollectionTests(unittest.TestCase):
                 self.assertIn("library/real-stockfish-first-512.pgn", trial_names)
                 self.assertEqual(catalog["real_import_readback"]["sample_sizes"], [32, 128, 512])
                 self.assertIn("books/accessible-chess-starter-course.json", trial_names)
+                qualified_workbooks = [
+                    item for item in catalog["materials"]
+                    if item["id"].startswith("section37_bilingual_original_workbook_")
+                ]
+                self.assertEqual(len(qualified_workbooks), 10)
+                self.assertEqual(
+                    {(r["language"], r["format"]) for r in qualified_workbooks},
+                    {(lang, ext) for lang in ("uk", "en")
+                     for ext in ("txt", "md", "html", "epub", "docx")},
+                )
+                for row in qualified_workbooks:
+                    self.assertIn(row["source_path"], trial_names)
+                    raw = z.read(row["source_path"])
+                    self.assertEqual(row["sha256"], hashlib.sha256(raw).hexdigest())
+                    self.assertEqual(row["size_bytes"], len(raw))
+                    self.assertEqual(row["original_lesson_count"], 12)
+                    self.assertEqual(row["import_status"],
+                                     "ACTUAL_NATIVE_BOOK_IMPORT_RESTART_PASS_DERIVED_SOURCE")
                 for english_book in (
                     "books/advanced-lichess-16-en.json",
                     "books/extreme-lichess-4-en.json",
@@ -99,7 +117,7 @@ class RevisedSection40CollectionTests(unittest.TestCase):
                 names = set(z.namelist())
                 catalog = json.loads(z.read("catalog/materials.json"))
                 self.assertEqual(catalog["profile"], "PUBLIC_RELEASE")
-                self.assertEqual(len(catalog["materials"]), 40)
+                self.assertGreaterEqual(len(catalog["materials"]), 50)
                 self.assertFalse(any(p.startswith("library/") for p in names))
                 self.assertNotIn("library/original-reti-1921-uk-en-study.pgn", names)
                 self.assertFalse(any("stockfish_" in p for p in names))
@@ -109,6 +127,17 @@ class RevisedSection40CollectionTests(unittest.TestCase):
                 self.assertIn("books/original-reti-1921-en.json", names)
                 self.assertIn("books/original-reti-1921-uk.json", names)
                 self.assertIn("training/original-reti-1921-study.json", names)
+                bilingual = [
+                    item for item in catalog["materials"]
+                    if item["id"].startswith("section37_bilingual_original_workbook_")
+                ]
+                self.assertEqual(len(bilingual), 10)
+                for row in bilingual:
+                    self.assertIn(row["source_path"], names)
+                    self.assertEqual(row["sha256"],
+                                     hashlib.sha256(z.read(row["source_path"])).hexdigest())
+                    self.assertFalse("publisher" in row["source_kind"].lower())
+                    self.assertEqual(row["redistribution"], "permitted")
                 self.assertIn("books/advanced-lichess-16-en.json", names)
                 self.assertIn("books/extreme-lichess-4-en.json", names)
                 self.assertFalse(any("gitenberg_" in p for p in names))
