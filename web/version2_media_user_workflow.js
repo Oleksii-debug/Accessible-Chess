@@ -198,6 +198,7 @@
     }
     if (snapshot.providerId === "youtube_iframe_v1" &&
         (snapshot.ok !== true || snapshot.ready !== true)) {
+      synchronizationSequence += 1;
       if (snapshot.ok === false) {
         const code = snapshot.errorCode;
         const reason = code === 101 || code === 150
@@ -216,17 +217,21 @@
         (snapshot.durationMs !== null &&
          (!Number.isSafeInteger(snapshot.durationMs) ||
           snapshot.durationMs < snapshot.positionMs))) {
+      synchronizationSequence += 1;
       setStatus(uiText("Некоректний час відео.", "Invalid video timing."), true);
       return Promise.resolve(null);
     }
     const synchronize = requiredApi("media_workflow_sync_playback");
+    const requestSequence = ++synchronizationSequence;
     return synchronize(
       snapshot.sourceId,
       snapshot.positionMs,
       snapshot.durationMs,
       snapshot.playbackState
     ).then(function (next) {
-      if (generation !== providerGeneration || snapshot.sourceId !== activeSourceId) return null;
+      if (generation !== providerGeneration ||
+          requestSequence !== synchronizationSequence ||
+          snapshot.sourceId !== activeSourceId) return null;
       renderEnvelope(next, false);
       return validateEnvelope(next);
     }).catch(function () {
@@ -277,7 +282,8 @@
     }
 
     const snapshot = activeAdapter.snapshot();
-    return syncYouTubeSnapshot(snapshot).then(function () {
+    return syncYouTubeSnapshot(snapshot).then(function (qualified) {
+      if (qualified === null) throw new Error("stale or unconfirmed media clock");
       return hostCommand(command);
     });
   }
@@ -306,7 +312,8 @@
       return Promise.resolve(undefined);
     }
     const snapshot = activeAdapter.snapshot();
-    return syncYouTubeSnapshot(snapshot).then(function () {
+    return syncYouTubeSnapshot(snapshot).then(function (qualified) {
+      if (qualified === null) throw new Error("stale or unconfirmed media clock");
       return hostCommand(command);
     });
   }
