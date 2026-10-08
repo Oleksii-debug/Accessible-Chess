@@ -6,7 +6,9 @@ They prove a failed new run cannot leave an obsolete PASS receipt behind.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -24,6 +26,7 @@ class LiveCorpusEvidenceSafetyTests(unittest.TestCase):
             staging.write_text('{"status":"PASS","source":"stale-staging"}')
             with (
                 patch.object(probe, "REPORT_FILE", report),
+                patch.object(probe, "_exact_source_head", return_value="a" * 40),
                 patch.object(probe, "acquire_cc0_source", side_effect=LawfulCorpusError("source offline")),
             ):
                 with self.assertRaisesRegex(LawfulCorpusError, "source offline"):
@@ -37,11 +40,52 @@ class LiveCorpusEvidenceSafetyTests(unittest.TestCase):
             report.write_text('{"status":"PASS"}')
             with (
                 patch.object(probe, "REPORT_FILE", report),
+                patch.object(probe, "_exact_source_head", return_value="a" * 40),
                 patch.object(probe, "load_catalog", side_effect=LawfulCorpusError("bad catalog")),
             ):
                 with self.assertRaisesRegex(LawfulCorpusError, "bad catalog"):
                     probe.main()
             self.assertFalse(report.exists())
+
+    def test_checkout_mismatch_rejects_evidence_before_acquisition(self):
+        head = "a" * 40
+        with tempfile.TemporaryDirectory() as temp:
+            report = Path(temp) / "revised-section37-live-cc0-readback.json"
+            report.write_text('{"status":"PASS","source_commit_sha":"older"}')
+            with (
+                patch.object(probe, "REPORT_FILE", report),
+                patch.object(
+                    probe.subprocess, "run",
+                    return_value=subprocess.CompletedProcess([], 0, head + "\\n", ""),
+                ),
+                patch.dict(os.environ, {"ACCESSIBLE_CHESS_EXPECTED_HEAD": "b" * 40}),
+                patch.object(probe, "load_catalog") as catalog,
+                patch.object(probe, "acquire_cc0_source") as acquire,
+            ):
+                with self.assertRaisesRegex(RuntimeError, "differs from expected candidate"):
+                    probe.main()
+                catalog.assert_not_called()
+                acquire.assert_not_called()
+            self.assertFalse(report.exists(), "stale PASS must be invalidated on SHA mismatch")
+
+    def test_exact_checkout_sha_is_accepted_only_when_matching(self):
+        head = "0f" * 20
+        with (
+            patch.object(
+                probe.subprocess, "run",
+                return_value=subprocess.CompletedProcess([], 0, head + "\\n", ""),
+            ),
+            patch.dict(os.environ, {"ACCESSIBLE_CHESS_EXPECTED_HEAD": head}),
+        ):
+            self.assertEqual(probe._exact_source_head(), head)
+
+    def test_missing_git_checkout_refuses_unattributed_pass(self):
+        with (
+            patch.object(probe.subprocess, "run", side_effect=FileNotFoundError("git")),
+            patch.dict(os.environ, {"ACCESSIBLE_CHESS_EXPECTED_HEAD": "c" * 40}),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "cannot verify checkout SHA"):
+                probe._exact_source_head()
 
 
 if __name__ == "__main__":
