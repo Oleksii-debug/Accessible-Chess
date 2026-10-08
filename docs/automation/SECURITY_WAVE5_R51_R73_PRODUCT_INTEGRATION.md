@@ -402,3 +402,34 @@ same Wave-5 dual-OS workflow includes the exact upstream R67 ledger/anchor
 suite on its frozen upstream SHA. Hosted execution is unverified while jobs
 remain queued; do not claim a live LAN seat server, native protected
 Windows build or product shipping integration from these fixtures.
+
+## R68 production-backend cutover — trusted operator integration (NOT DEPLOYED)
+
+`acs/protection_backend_migration_binding.py` reuses the one canonical
+`continuum_runtime.backend_migration.MigrationCutover`, rather than
+introducing another migration journal, credential issuer, database adapter,
+entitlement authority or active-route registry. The bridge is deliberately
+**operator only**, with NO browser/API route. The operator must have the
+existing trusted `migration.operator` role, `backend.migrate` permission
+and separate independent server-side authorization. A separately approved
+trusted migration job supplies the existing R68 `MigrationProof` and exact
+authenticated backup; public input cannot choose source, target, scope,
+revision, signer, device or route.
+
+R68 itself independently authenticates proof/backup, checks source revisions,
+fences and rechecks source, verifies target SHA readback, journals all
+side effects and uses a durable consensus/CAS routing authority. The product
+bridge does not bypass those checks. Its only successful execution result
+is a canonical `CUTOVER_COMMITTED`; every uncertain result is
+`UNKNOWN_FAIL_CLOSED` without automatic retry. Its separate
+`reconcile` endpoint is read-only and cannot repeat effects or mint a PASS
+based on a route pointer alone. All failures redact provider details.
+
+`tests/test_security_r68_backend_migration_binding.py` covers trusted
+operator authorization, untrusted job/missing proof, malformed attributes,
+stale/failing approvals, ambiguous writes and read-only reconciliation.
+The Wave-5 dual-OS CI also runs the existing upstream R68 component tests
+on the pinned neutral source. This is repository-controlled server
+integration only: no actual production data export, HA target, real
+database/backup restoration, durable external CAS, routed traffic, Windows
+shipping integration or independently approved migration has occurred.
