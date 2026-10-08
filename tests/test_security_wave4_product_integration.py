@@ -182,3 +182,35 @@ def test_v5_hardening_denial_stops_product_before_user_data_and_engine(tmp_path,
     ]
     assert not engine_calls
     assert not user_root.exists()
+
+
+@pytest.mark.parametrize("version", [True, 1.0, 5.0, 5 + 0j, "5"])
+def test_private_api_version_must_be_an_exact_integer_not_equal_coercible(tmp_path, version):
+    # Python's True == 1 and 5.0 == 5 must never satisfy an API trust gate.
+    from acs.protection_boundary import ProtectionBoundaryError
+    client, calls, _ = make_client(tmp_path, version=version)
+    with pytest.raises(ProtectionBoundaryError, match="API version is unsupported"):
+        client.runtime_api_version()
+    assert calls == []
+    with pytest.raises(ProtectionHardenedError, match="private hardened runtime unavailable"):
+        HardenedReleaseBoundary(client).require_all(build_id="build-1")
+    assert calls == []
+
+
+@pytest.mark.parametrize("reported_version", [True, 1.0, 1 + 0j, "1"])
+def test_private_v1_decision_api_version_requires_exact_integer(tmp_path, reported_version):
+    from acs.protection_boundary import ProtectionBoundaryError
+    from acs.protection_boundary import _validate_decision
+
+    signed_state = {
+        "api_version": reported_version,
+        "state": "authorized",
+        "reason": "none",
+        "safe_operations": sorted({
+            "recovery", "login", "update", "help", "own-data-read", "own-data-export"
+        }),
+        "capabilities": ["local-chess"],
+        "build_id": "build-1",
+    }
+    with pytest.raises(ProtectionBoundaryError, match="API version does not match runtime"):
+        _validate_decision(signed_state, runtime_api_version=1)
