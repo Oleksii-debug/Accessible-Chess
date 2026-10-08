@@ -154,5 +154,5 @@ def test_r68_readback_error_does_not_promote_success():
 def test_r68_migration_authority_cannot_be_missing():
     with pytest.raises(ValueError, match="R68_MIGRATION_AUTHORITY_NOT_CONFIGURED"):
         CanonicalMigrationOperatorBoundary(
-            cutover=None, authorize_operator=lambda _: True, load_approved_job=job,
+            cutover=None, authorize_operator=lambda *_: True, load_approved_job=job,
         )
