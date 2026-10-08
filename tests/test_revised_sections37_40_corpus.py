@@ -396,6 +396,51 @@ class RevisedCorpusContractTests(unittest.TestCase):
             self.assertEqual(acquire_cc0_source(record, root, opener=lambda *_a, **_kw: self.fail("unexpected network")), target)
         self.assertEqual(hits, [record["download_url"]])
 
+    def test_post_publication_verification_failure_cleans_only_own_link(self):
+        # Fail closed on the final post-link readback and clean owned output.
+        payload = b"postlink-verification"
+        record = self._record(payload)
+        original_verify = verified_local_source
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = root / (record["id"] + ".pgn.zst")
+
+            def fail_published(path, source):
+                if path == target:
+                    raise LawfulCorpusError("simulated post-link checksum failure")
+                return original_verify(path, source)
+
+            with patch("acs.lawful_corpus_registry.verified_local_source", side_effect=fail_published):
+                with self.assertRaisesRegex(LawfulCorpusError, "post-link"):
+                    acquire_cc0_source(
+                        record, root,
+                        opener=lambda request, **_kw: Response(payload, request.full_url),
+                    )
+            self.assertEqual(list(root.iterdir()), [])
+
+        # Another writer may replace the published path during readback.
+        # Its different inode must survive this worker's cleanup.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = root / (record["id"] + ".pgn.zst")
+            different = b"other-writer-retains-ownership"
+
+            def replace_then_fail(path, source):
+                if path == target:
+                    target.unlink()
+                    target.write_bytes(different)
+                    raise LawfulCorpusError("simulated replacement after publication")
+                return original_verify(path, source)
+
+            with patch("acs.lawful_corpus_registry.verified_local_source", side_effect=replace_then_fail):
+                with self.assertRaisesRegex(LawfulCorpusError, "replacement"):
+                    acquire_cc0_source(
+                        record, root,
+                        opener=lambda request, **_kw: Response(payload, request.full_url),
+                    )
+            self.assertEqual(target.read_bytes(), different)
+            self.assertEqual(list(root.iterdir()), [target])
+
     def test_unpinned_or_unlicensed_material_never_opens_network(self):
         base = self._record(b"sample")
         for bad in (
