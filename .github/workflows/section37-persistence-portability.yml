@@ -124,17 +124,16 @@ jobs:
           tests.test_section37_user_data_portability
           tests.test_section37_production_portability
 
-      - name: Execute inherited crash-safe persistence contracts
+      - name: Execute production portability contract
         run: >-
           python -m unittest -v
-          tests.test_settings
-          tests.test_settings_corruption_security
-          tests.test_v2_book_progress_store
-          tests.test_w2_training_progress_crash_recovery
-          tests.test_education_workspace
-          tests.test_media_timeline_store
-          tests.test_local_profile
-          tests.test_agent_checkpoint_crossrepo
+          tests.test_section37_user_data_portability
+          tests.test_section37_production_portability
+
+      # Full persistence-owner regression sweeping belongs to final Section 39
+      # whole-product convergence. Section 37 owns orchestration, production
+      # reachability, startup transaction ordering, rollback and portability;
+      # it must not absorb unrelated owner-suite failures as a second owner.
 
       - name: Execute backup restore and migration contracts
         run: >-
