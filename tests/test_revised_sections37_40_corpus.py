@@ -158,6 +158,23 @@ class RevisedCorpusContractTests(unittest.TestCase):
                             ),
                         )
 
+    def test_upstream_discovery_is_not_a_download_authority(self):
+        from acs.lawful_corpus_registry import _https_url
+        records = {record["id"]: record for record in load_catalog()}
+        upstream = records["lichess_openings_original_eco_a_tsv"]
+        self.assertEqual(upstream["upstream_git_blob"], "561099854a15dfb523759aa87993a1fe480a6abc")
+        self.assertEqual(upstream["indexed_bytes"], 67257)
+        self.assertEqual(upstream["acquisition"], "SOURCE_PAGE_ONLY")
+        self.assertIsNone(upstream["sha256"])
+        self.assertIsNone(upstream["download_url"])
+        self.assertIn("/blob/a6189a30dc273ccb21fc2536a9a2fefd5592a67a/a.tsv", upstream["source_page"])
+        self.assertEqual(_https_url(upstream["source_page"], source_page=True), upstream["source_page"])
+        with self.assertRaises(LawfulCorpusError):
+            _https_url(upstream["source_page"])
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(LawfulCorpusError):
+                acquire_cc0_source(upstream, Path(tmp), opener=lambda *_args, **_kwargs: self.fail("unverified GitHub file must not auto-download"))
+
     def test_decoded_pgn_framer_uses_bounded_lines_and_total_budget(self):
         # Deliberately exercise transport resource checks without inventing
         # syntactically valid Product PGN or mocking real source qualification.
