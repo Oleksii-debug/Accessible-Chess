@@ -507,7 +507,7 @@ def _validated_value(key: str, value: Any) -> Any:
             parsed = json.loads(value)
         except (ValueError, TypeError) as exc:
             raise SettingsError("UI-only layout profile is not valid JSON") from exc
-        if type(parsed) is not dict or parsed.get("version") != 1:
+        if type(parsed) is not dict or type(parsed.get("version")) is not int or parsed["version"] != 1:
             raise SettingsError("UI-only layout profile version is invalid")
         if any(type(name) is not str for name in parsed):
             raise SettingsError("UI-only layout profile keys are invalid")
