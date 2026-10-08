@@ -260,17 +260,31 @@ class ProtectionUpdateChannel:
     def _staged_path(self, value: object) -> Path:
         if not isinstance(value, str) or not value:
             raise ProtectionAdvancedError("private secure-update package path is invalid")
-        root = (self.client.state_root / "security-updates").resolve()
-        path = Path(value).expanduser().resolve()
+        # Keep the lexical identity before resolving links.  Calling resolve()
+        # first loses the very symlink/reparse evidence we must reject.
+        supplied = Path(value).expanduser()
+        if not supplied.is_absolute():
+            raise ProtectionAdvancedError("private secure-update package path is invalid")
+        root = Path(os.path.abspath(os.fspath(self.client.state_root / "security-updates")))
+        path = Path(os.path.abspath(os.fspath(supplied)))
         try:
             path.relative_to(root)
         except ValueError:
             raise ProtectionAdvancedError("private secure-update package escaped staging root") from None
         try:
+            # Reject link/junction ancestors (including the staging root) as well
+            # as a linked candidate.  No resolved-path alias is a staging file.
+            if root.resolve(strict=True) != root or path.resolve(strict=True) != path:
+                raise ProtectionAdvancedError("private secure-update package is unsafe")
             info = path.lstat()
-        except OSError as exc:
+        except (OSError, RuntimeError) as exc:
             raise ProtectionAdvancedError("private secure-update package is unavailable") from exc
-        if path.is_symlink() or not stat.S_ISREG(info.st_mode):
+        reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+        if (
+            stat.S_ISLNK(info.st_mode)
+            or bool(getattr(info, "st_file_attributes", 0) & reparse_flag)
+            or not stat.S_ISREG(info.st_mode)
+        ):
             raise ProtectionAdvancedError("private secure-update package is unsafe")
         return path
 
