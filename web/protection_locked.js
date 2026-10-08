@@ -2,6 +2,9 @@
   const status = document.getElementById('status');
   const requestOutput = document.getElementById('request-output');
   const leaseInput = document.getElementById('lease-input');
+  const onlineLogin = document.getElementById('online-login');
+  const onlineRegister = document.getElementById('online-register');
+  const onlineCheck = document.getElementById('online-check');
 
   const announce = (text) => { status.textContent = text; };
 
@@ -17,7 +20,60 @@
       const bridge = await api();
       const value = await bridge.status();
       announce('Стан: заблоковано. Причина: ' + value.reason);
-      document.getElementById('make-request').focus();
+      if (value.online_available) {
+        onlineLogin.disabled = false;
+        onlineRegister.disabled = false;
+        onlineCheck.disabled = false;
+        onlineLogin.focus();
+      } else {
+        onlineLogin.disabled = true;
+        onlineRegister.disabled = true;
+        onlineCheck.disabled = true;
+        document.getElementById('make-request').focus();
+      }
+    } catch (error) {
+      announce(String(error));
+    }
+  });
+
+  const beginOnline = async (kind) => {
+    try {
+      const bridge = await api();
+      const value = kind === 'login'
+        ? await bridge.begin_online_login()
+        : await bridge.begin_online_registration();
+      if (!value.ok) {
+        announce('Онлайн-доступ не вдалося розпочати: ' + value.error);
+        return;
+      }
+      const label = kind === 'login' ? 'Вхід' : 'Реєстрацію';
+      announce(label + ' відкрито у системному браузері. Після завершення поверніться сюди й натисніть «Перевірити завершення входу».');
+      onlineCheck.focus();
+    } catch (error) {
+      announce(String(error));
+    }
+  };
+
+  onlineLogin.addEventListener('click', () => beginOnline('login'));
+  onlineRegister.addEventListener('click', () => beginOnline('register'));
+
+  onlineCheck.addEventListener('click', async () => {
+    try {
+      const bridge = await api();
+      const value = await bridge.poll_online_access();
+      if (!value.ok) {
+        announce('Не вдалося перевірити онлайн-доступ: ' + value.error);
+        return;
+      }
+      if (value.authorized) {
+        announce('Онлайн-доступ підтверджено. Відкриваю Accessible Chess.');
+        return;
+      }
+      if (value.state === 'pending') {
+        announce('Вхід ще не завершено у системному браузері.');
+      } else {
+        announce('Онлайн-доступ не підтверджено. Причина: ' + value.reason);
+      }
     } catch (error) {
       announce(String(error));
     }
