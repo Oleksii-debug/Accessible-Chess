@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 from pathlib import Path
 import tempfile
 
@@ -18,6 +17,7 @@ from acs.lawful_corpus_registry import (
     LawfulCorpusError, load_catalog, read_verified_zip_member, verified_local_source,
 )
 from acs.pgn_roundtrip import parse_pgn_text
+from acs.version2_package_assembler import _publish_directory_no_replace
 from acs.user_library_seed import (
     BUNDLE_KIND, MANIFEST_NAME, SCHEMA_VERSION, MAX_SOURCE_BYTES,
     load_user_library_seed,
@@ -127,26 +127,11 @@ def prepare_owner_test_stockfish_seed(destination: Path, *, repository_root: Pat
         verified = load_user_library_seed(staging)
         if len(verified.entries) != 1 or verified.entries[0].sha256 != digest:
             raise LawfulCorpusError("actual-source seed failed canonical preflight")
-        # Reserve the destination with an atomic exclusive mkdir. On POSIX,
-        # os.rename(staging, destination) may replace an existing *empty*
-        # directory created between the existence check and the rename.
-        # Such a race would violate the owner's no-clobber promise. The
-        # manifest is published LAST; before that the standard Library seed
-        # consumer fails closed instead of accepting a partially staged set.
-        destination.mkdir(mode=0o700, exist_ok=False)
-        published = []
-        try:
-            for name in (SEED_PGN_NAME, MANIFEST_NAME):
-                os.replace(staging / name, destination / name)
-                published.append(name)
-        except BaseException:
-            # Only remove paths this call just created. If the directory is
-            # unexpectedly altered by another actor, rmdir refuses and no
-            # third-party inventory is deleted.
-            for name in reversed(published):
-                (destination / name).unlink(missing_ok=True)
-            destination.rmdir()
-            raise
+        # Reuse the existing canonical package assembly publisher. Its
+        # platform-specific atomic NOREPLACE directory move preserves the
+        # all-or-nothing bundle and refuses even an empty concurrent target
+        # on Windows/Linux without a check-then-move race.
+        _publish_directory_no_replace(staging, destination)
 
     return {
         "status": "OWNER_TEST_PREPARED_NOT_PUBLIC_RELEASE",
