@@ -226,7 +226,6 @@
           positionMs,
           durationMs,
           errorCode: this._errorCode,
-        autoplayBlocked: this._autoplayBlocked,
           autoplayBlocked: this._autoplayBlocked,
         });
       }
