@@ -124,6 +124,19 @@ async function settle(){for(let i=0;i<12;i++)await Promise.resolve();}
    "accessible-chess.design-profiles.v1":'{"version":1,"selected":"Classic","profiles":{},"userData":"secret"}'
  }});
  assert.equal(invalid.get("ac45-profile").value,"Classic");
+ // Browser tabs use read-before-write conflict detection (no silent overwrite).
+ const shared={};
+ const tab1=mount({storage:shared});
+ const tab2=mount({storage:shared});
+ tab1.get("ac45-profile").value="Coach";
+ tab1.get("ac45-profile").dispatchEvent({type:"change"});
+ tab1.get("ac45-apply").click();await settle();
+ assert.equal(JSON.parse(shared["accessible-chess.design-profiles.v1"]).selected,"Coach");
+ tab2.get("ac45-profile").value="Tournament";
+ tab2.get("ac45-profile").dispatchEvent({type:"change"});
+ tab2.get("ac45-apply").click();await settle();
+ assert.equal(JSON.parse(shared["accessible-chess.design-profiles.v1"]).selected,"Coach");
+ assert.equal(tab2.get("ac45-status").dataset.error,"true");
  let revision="first";
  let durable={version:1,selected:"Coach",profiles:{}};
  const native={
@@ -142,5 +155,5 @@ async function settle(){for(let i=0;i<12;i++)await Promise.resolve();}
  assert.equal(durable.selected,"Low Vision");
  assert.equal(win.get("ac45-profile").value,"Low Vision");
  assert.equal(win.store["accessible-chess.design-profiles.v1"],undefined,"native private profile must not use localStorage");
- console.log("Section45 real studio DOM: 5 groups PASS (preview, Apply/Cancel, restart, input security, native CAS mock)");
+ console.log("Section45 real studio DOM: 6 groups PASS (preview, Apply/Cancel, restart, input security, native CAS mock)");
 })().catch(err=>{console.error(err);process.exitCode=1;});
