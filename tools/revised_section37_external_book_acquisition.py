@@ -60,6 +60,39 @@ def _git_blob(raw: bytes) -> str:
     return hashlib.sha1(b"blob " + str(len(raw)).encode("ascii") + b"\x00" + raw).hexdigest()
 
 
+def _bounded_direct_snapshot(path: Path, limit: int) -> bytes:
+    """Read a single verified regular-file identity with a strict memory cap."""
+    if type(limit) is not int or not 0 < limit <= 128 * 1024 * 1024:
+        raise LawfulCorpusError("original source snapshot limit invalid")
+    try:
+        before = path.lstat()
+        with path.open("rb") as stream:
+            opened = os.fstat(stream.fileno())
+            attrs = getattr(before, "st_file_attributes", 0)
+            if (
+                not stat.S_ISREG(before.st_mode)
+                or stat.S_ISLNK(before.st_mode)
+                or attrs & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+                or not os.path.samestat(before, opened)
+                or before.st_size <= 0 or before.st_size > limit
+            ):
+                raise LawfulCorpusError("original source changed while opening")
+            raw = stream.read(limit + 1)
+            opened_after = os.fstat(stream.fileno())
+        after = path.lstat()
+    except (OSError, ValueError) as exc:
+        raise LawfulCorpusError("original source snapshot cannot be read") from exc
+    if (
+        not os.path.samestat(before, opened_after)
+        or not os.path.samestat(before, after)
+        or opened_after.st_size != before.st_size
+        or len(raw) != before.st_size
+        or not 0 < len(raw) <= limit
+    ):
+        raise LawfulCorpusError("original source changed during snapshot")
+    return raw
+
+
 def verify_original_book(record: dict, external_root: Path) -> dict:
     """Verify a precisely cataloged upstream TEST_ONLY book without copying it."""
     identity = record.get("id")
@@ -81,9 +114,9 @@ def verify_original_book(record: dict, external_root: Path) -> dict:
     path = _direct_path(external_root, record.get("external_checkout_path"))
     license_path = _direct_path(external_root, record.get("external_license_checkout_path"))
     verified_local_source(path, record)
-    # Path re-open is used only for exact, repeat identity; digest is checked
-    # again on the bytes consumed here so a swap can never claim a false PASS.
-    raw = path.read_bytes()
+    # A separate unbounded read_bytes() could consume swapped or growing
+    # source data before its final SHA check. Check exact opened identity.
+    raw = _bounded_direct_snapshot(path, record["max_bytes"])
     actual = hashlib.sha256(raw).hexdigest()
     if (
         len(raw) != record["indexed_bytes"]
@@ -99,7 +132,7 @@ def verify_original_book(record: dict, external_root: Path) -> dict:
     license_size = record.get("external_license_indexed_bytes")
     if type(license_size) is not int or not 0 < license_size <= 1024 * 1024:
         raise LawfulCorpusError("external license size is not pinned")
-    license_raw = license_path.read_bytes()
+    license_raw = _bounded_direct_snapshot(license_path, license_size)
     if (
         len(license_raw) != license_size
         or _git_blob(license_raw) != license_blob
