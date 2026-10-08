@@ -507,3 +507,37 @@ body{font-size:calc(1rem * var(--ac45-font-scale))}
     border-color:CanvasText!important}
   #ac45-studio :focus-visible{outline:3px solid Highlight!important}
 }
+
+/* Section 45 real, decorative 64-square preview only: the canonical board
+   remains the only interactive 64-cell grid and the only chess state source. */
+#ac45-preview-board{
+  --light:#f0d9b5;--dark:#b58863;--piece-light:#111;
+  --piece-dark:#111;display:grid;grid-template-columns:repeat(8,minmax(0,1fr));
+  width:min(100%,24rem);aspect-ratio:1;margin-block:.75rem;
+  border:2px solid var(--ac41-border);user-select:none;pointer-events:none
+}
+#ac45-preview-board[data-theme="classic_wood"]{--light:#f0dfc3;--dark:#946f50;--piece-light:#1b211c;--piece-dark:#fffdf7}
+#ac45-preview-board[data-theme="modern_graphite"]{--light:#e0e4e8;--dark:#384552;--piece-light:#18232e;--piece-dark:#fff}
+#ac45-preview-board[data-theme="tournament_blue"]{--light:#dceafa;--dark:#205d97;--piece-light:#102439;--piece-dark:#fff}
+#ac45-preview-board[data-theme="light_minimal"]{--light:#fbfbf8;--dark:#c8d2dc;--piece-light:#1a2028;--piece-dark:#132435}
+#ac45-preview-board[data-theme="blue"]{--light:#dbeafe;--dark:#1d4ed8;--piece-light:#111;--piece-dark:#fff}
+#ac45-preview-board[data-theme="high_contrast"]{--light:#fff;--dark:#000;--piece-light:#000;--piece-dark:#fff}
+#ac45-preview-board .ac45-sample-square{
+  display:flex;align-items:center;justify-content:center;
+  min-width:0;min-height:0;overflow:hidden;font-weight:700;
+  font-size:clamp(.8rem,2.5vw,1.65rem);line-height:1
+}
+#ac45-preview-board .ac45-sample-square[data-light="true"]{
+  background:var(--light);color:var(--piece-light)
+}
+#ac45-preview-board .ac45-sample-square[data-light="false"]{
+  background:var(--dark);color:var(--piece-dark)
+}
+#ac45-preview-board img{width:80%;height:80%;object-fit:contain}
+#ac45-preview-note{max-width:60ch}
+@media(forced-colors:active){
+  #ac45-preview-board{border:2px solid CanvasText!important}
+  #ac45-preview-board .ac45-sample-square{forced-color-adjust:auto}
+  #ac45-preview-board .ac45-sample-square[data-light="true"]{background:Canvas!important;color:CanvasText!important}
+  #ac45-preview-board .ac45-sample-square[data-light="false"]{background:ButtonText!important;color:ButtonFace!important}
+}
