@@ -792,6 +792,51 @@
       "public_release": "EXCLUDED_PENDING_QUALIFICATION",
       "canonical_qa": "original Git blob/source-license verification and runtime SHA256 receipt scheduled; no PDF importer capability or public packaging PASS claimed",
       "notes": "Real unmodified third-party CC0 chess PDF, source-only qualification and security bounds; binary SHA256 and size are unknown until real source checkout/receipt."
+    },
+    {
+      "id": "chessbase_official_cbf_cbi_format_external_gap",
+      "title": "ChessBase genuine cbf+cbi source qualification gap",
+      "author": "ChessBase GmbH (format documentation)",
+      "format": "cbf+cbi",
+      "source_page": "https://help.chessbase.com/CBase/18/Eng/database_formats.htm",
+      "download_url": null,
+      "sha256": null,
+      "max_bytes": 0,
+      "license": "Format specification/owner rights; genuine corpus redistribution not granted",
+      "redistribution": "NOT_CLEARED",
+      "acquisition": "BLOCKED_NO_LAWFUL_COMPLETE_SAMPLE",
+      "canonical_qa": "No genuine fixture/source bytes, no semantic import PASS",
+      "notes": "CBF needs original CBF + CBI companion, no authenticated lawfully downloadable complete source set found"
+    },
+    {
+      "id": "chessbase_official_cbone_format_external_gap",
+      "title": "ChessBase genuine cbone source qualification gap",
+      "author": "ChessBase GmbH (format documentation)",
+      "format": "cbone",
+      "source_page": "https://help.chessbase.com/CBase/18/Eng/database_formats.htm",
+      "download_url": null,
+      "sha256": null,
+      "max_bytes": 0,
+      "license": "Format specification/owner rights; genuine corpus redistribution not granted",
+      "redistribution": "NOT_CLEARED",
+      "acquisition": "BLOCKED_NO_LAWFUL_COMPLETE_SAMPLE",
+      "canonical_qa": "No genuine fixture/source bytes, no semantic import PASS",
+      "notes": "CBONE is a native single-file ChessBase database; no genuine rights-cleared test archive or original checksum"
+    },
+    {
+      "id": "chessbase_official_2cbh_format_external_gap",
+      "title": "ChessBase genuine 2cbh source qualification gap",
+      "author": "ChessBase GmbH (format documentation)",
+      "format": "2cbh",
+      "source_page": "https://help.chessbase.com/CBase/18/Eng/database_formats.htm",
+      "download_url": null,
+      "sha256": null,
+      "max_bytes": 0,
+      "license": "Format specification/owner rights; genuine corpus redistribution not granted",
+      "redistribution": "NOT_CLEARED",
+      "acquisition": "BLOCKED_NO_LAWFUL_COMPLETE_SAMPLE",
+      "canonical_qa": "No genuine fixture/source bytes, no semantic import PASS",
+      "notes": "2CBH is new ChessBase multi-file format, no lawful small complete sample or rights-cleared source bytes; giant commercial Megabase downloads are not generic samples"
     }
   ]
 }
