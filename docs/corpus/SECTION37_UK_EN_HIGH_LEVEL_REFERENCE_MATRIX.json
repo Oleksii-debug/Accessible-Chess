@@ -1,0 +1,299 @@
+{
+  "schema": "acs-section37-high-level-uk-en-all-worktypes-v1",
+  "policy": "Both languages required for each work type; no low-level books or junior beginner exercises in owner's advanced pack; third-party full books referenced not republished",
+  "workbook_format_status": {
+    "txt": "Canonical BookTextImport readable text; no implicit chess position inference",
+    "md": "Canonical BookTextImport explicitly marked FEN supported",
+    "html": "Canonical BookHtmlImport data-acs-fen supported",
+    "epub": "Canonical BookEpubImport with HTML spine, exact library roundtrip must pass",
+    "docx": "Canonical BookDocxImport readable headings/text; chess FEN is text without implicit positional validation",
+    "pdf": "Genuine external high-level PDF source metadata only, canonical PDF reading support must be independently qualified",
+    "pgn": "Four original CC0 high-level annotated PGN games already in repo, not translations of copyrighted books",
+    "epd": "Original 1110 EPD positions real but original difficulty UNRATED and not automatically sold as above-I-category",
+    "fen": "20 genuine CC0 rated hard training positions",
+    "cbh": "Genuine libcbh original GPL test families ephemeral only, library applicability requires separate CI",
+    "cbv": "No legally full authentic source qualified",
+    "cbf": "No legally full authentic source qualified",
+    "two_cbh": "No legally full authentic source qualified",
+    "cbone": "No legally full authentic source qualified"
+  },
+  "worktypes": [
+    {
+      "work_type": "calculation",
+      "min_required_level": "first category or higher",
+      "languages": {
+        "uk": {
+          "category": "Складний розрахунок",
+          "available_advanced_material": "original_project_authored_bilingual_workbook",
+          "language_verified": true,
+          "learning_objective": "Розрахувати три кандидати і найсильніший захист",
+          "local_workbook_source": "tests/real_corpus/advanced_training/section37_master_workbook_bilingual.json",
+          "filename_pattern": "section37-advanced-workbook-uk.{txt,md,html,epub,docx}",
+          "rights": "own editorial prompts + CC0 positions; publicly shareable with attribution"
+        },
+        "en": {
+          "category": "Advanced calculation",
+          "available_advanced_material": "original_project_authored_bilingual_workbook",
+          "language_verified": true,
+          "learning_objective": "Calculate three candidates and the strongest defensive reply",
+          "local_workbook_source": "tests/real_corpus/advanced_training/section37_master_workbook_bilingual.json",
+          "filename_pattern": "section37-advanced-workbook-en.{txt,md,html,epub,docx}",
+          "rights": "own editorial prompts + CC0 positions; publicly shareable with attribution"
+        }
+      },
+      "english_external_advanced_bibliography": {
+        "author": "Jacob Aagaard",
+        "title": "Grandmaster Preparation: Calculation",
+        "verified_primary_source_page": "https://qualitychess.co.uk/pdf-excerpts/",
+        "acquired_full_book": false,
+        "public_distribution": "NOT_AUTHORIZED",
+        "notes": "Publisher catalogue/excerpt directory, not full ebook"
+      },
+      "separately_imported_real_chess_material": "20 real rated CC0 Lichess puzzle records, 2200–3166; not a proof of GM playing title"
+    },
+    {
+      "work_type": "tactics",
+      "min_required_level": "first category or higher",
+      "languages": {
+        "uk": {
+          "category": "Складна тактика та комбінації",
+          "available_advanced_material": "original_project_authored_bilingual_workbook",
+          "language_verified": true,
+          "learning_objective": "Розділити форсовану комбінацію та об'єктивну оцінку",
+          "local_workbook_source": "tests/real_corpus/advanced_training/section37_master_workbook_bilingual.json",
+          "filename_pattern": "section37-advanced-workbook-uk.{txt,md,html,epub,docx}",
+          "rights": "own editorial prompts + CC0 positions; publicly shareable with attribution"
+        },
+        "en": {
+          "category": "Complex tactics and combinations",
+          "available_advanced_material": "original_project_authored_bilingual_workbook",
+          "language_verified": true,
+          "learning_objective": "Separate forcing tactics from objective evaluation",
+          "local_workbook_source": "tests/real_corpus/advanced_training/section37_master_workbook_bilingual.json",
+          "filename_pattern": "section37-advanced-workbook-en.{txt,md,html,epub,docx}",
+          "rights": "own editorial prompts + CC0 positions; publicly shareable with attribution"
+        }
+      },
+      "english_external_advanced_bibliography": {
+        "author": "Jacob Aagaard",
+        "title": "Grandmaster Preparation: Attack and Defence",
+        "verified_primary_source_page": "https://qualitychess.co.uk/pdf-excerpts/",
+        "acquired_full_book": false,
+        "public_distribution": "NOT_AUTHORIZED",
+        "notes": "Publisher catalogue/excerpt directory, not full ebook"
+      },
+      "separately_imported_real_chess_material": "20 real rated CC0 Lichess puzzle records, 2200–3166; not a proof of GM playing title"
+    },
+    {
+      "work_type": "composed_studies",
+      "min_required_level": "first category or higher",
+      "languages": {
+        "uk": {
+          "category": "Авторські етюди високого рівня",
+          "available_advanced_material": "original_project_authored_bilingual_workbook",
+          "language_verified": true,
+          "learning_objective": "Довести композицію до авторського результату без підглядання",
+          "local_workbook_source": "tests/real_corpus/advanced_training/section37_master_workbook_bilingual.json",
+          "filename_pattern": "section37-advanced-workbook-uk.{txt,md,html,epub,docx}",
+          "rights": "own editorial prompts + CC0 positions; publicly shareable with attribution"
+        },
+        "en": {
+          "category": "Advanced authored chess studies",
+          "available_advanced_material": "original_project_authored_bilingual_workbook",
+          "language_verified": true,
+          "learning_objective": "Prove the study objective without seeing the composed solution",
+          "local_workbook_source": "tests/real_corpus/advanced_training/section37_master_workbook_bilingual.json",
+          "filename_pattern": "section37-advanced-workbook-en.{txt,md,html,epub,docx}",
+          "rights": "own editorial prompts + CC0 positions; publicly shareable with attribution"
+        }
+      },
+      "english_external_advanced_bibliography": {
+        "author": "Oleg Pervakov; Mark Dvoretsky",
+        "title": "Studies for Practical Players",
+        "verified_primary_source_page": "https://www.newinchess.com/endgame",
+        "acquired_full_book": false,
+        "public_distribution": "NOT_AUTHORIZED",
+        "notes": "Publisher category; commercial study book not cleared"
+      },
+      "separately_imported_real_chess_material": "Historic ARVES Kling-Horwitz source and original Grigoriev/Kasparian references: NOT rights-cleared downloads"
+    },
+    {
+      "work_type": "openings",
+      "min_required_level": "first category or higher",
+      "languages": {
+        "uk": {
+          "category": "Дебютна підготовка глибокого рівня",
+          "available_advanced_material": "original_project_authored_bilingual_workbook",
+          "language_verified": true,
+          "learning_objective": "Перевірити повні критичні варіанти й типові пішакові структури",
+          "local_workbook_source": "tests/real_corpus/advanced_training/section37_master_workbook_bilingual.json",
+          "filename_pattern": "section37-advanced-workbook-uk.{txt,md,html,epub,docx}",
+          "rights": "own editorial prompts + CC0 positions; publicly shareable with attribution"
+        },
+        "en": {
+          "category": "Advanced opening preparation",
+          "available_advanced_material": "original_project_authored_bilingual_workbook",
+          "language_verified": true,
+          "learning_objective": "Check critical variations and typical pawn structures",
+          "local_workbook_source": "tests/real_corpus/advanced_training/section37_master_workbook_bilingual.json",
+          "filename_pattern": "section37-advanced-workbook-en.{txt,md,html,epub,docx}",
+          "rights": "own editorial prompts + CC0 positions; publicly shareable with attribution"
+        }
+      },
+      "english_external_advanced_bibliography": {
+        "author": "Parimarjan Negi",
+        "title": "Grandmaster Repertoire — 1.e4 vs the Sicilian I",
+        "verified_primary_source_page": "https://qualitychess.co.uk/pdf-excerpts/",
+        "acquired_full_book": false,
+        "public_distribution": "NOT_AUTHORIZED",
+        "notes": "Publisher catalogue/excerpt directory; commercial full book not cleared"
+      },
+      "separately_imported_real_chess_material": "Official genuine Lichess ECO A–E TSV"
+    },
+    {
+      "work_type": "middlegame",
+      "min_required_level": "first category or higher",
+      "languages": {
+        "uk": {
+          "category": "Позиційна гра й мітельшпіль",
+          "available_advanced_material": "original_project_authored_bilingual_workbook",
+          "language_verified": true,
+          "learning_objective": "Пояснити взаємодію пішакової структури й плану",
+          "local_workbook_source": "tests/real_corpus/advanced_training/section37_master_workbook_bilingual.json",
+          "filename_pattern": "section37-advanced-workbook-uk.{txt,md,html,epub,docx}",
+          "rights": "own editorial prompts + CC0 positions; publicly shareable with attribution"
+        },
+        "en": {
+          "category": "Positional play and middlegame",
+          "available_advanced_material": "original_project_authored_bilingual_workbook",
+          "language_verified": true,
+          "learning_objective": "Relate pawn structure and strategic plan",
+          "local_workbook_source": "tests/real_corpus/advanced_training/section37_master_workbook_bilingual.json",
+          "filename_pattern": "section37-advanced-workbook-en.{txt,md,html,epub,docx}",
+          "rights": "own editorial prompts + CC0 positions; publicly shareable with attribution"
+        }
+      },
+      "english_external_advanced_bibliography": {
+        "author": "Mauricio Flores Rios",
+        "title": "Chess Structures: A Grandmaster Guide",
+        "verified_primary_source_page": "https://www.simonandschuster.com/books/Chess-Structures/Mauricio-Flores-Rios/9781784830007",
+        "acquired_full_book": false,
+        "public_distribution": "NOT_AUTHORIZED",
+        "notes": "Official publisher product/reference, not redistributed book"
+      },
+      "separately_imported_real_chess_material": "20 real rated CC0 Lichess puzzle records, 2200–3166; not a proof of GM playing title"
+    },
+    {
+      "work_type": "endgame",
+      "min_required_level": "first category or higher",
+      "languages": {
+        "uk": {
+          "category": "Складний ендшпіль",
+          "available_advanced_material": "original_project_authored_bilingual_workbook",
+          "language_verified": true,
+          "learning_objective": "Розрахувати ладейну контргру, цугцванг і оборонні ресурси",
+          "local_workbook_source": "tests/real_corpus/advanced_training/section37_master_workbook_bilingual.json",
+          "filename_pattern": "section37-advanced-workbook-uk.{txt,md,html,epub,docx}",
+          "rights": "own editorial prompts + CC0 positions; publicly shareable with attribution"
+        },
+        "en": {
+          "category": "Advanced endgame",
+          "available_advanced_material": "original_project_authored_bilingual_workbook",
+          "language_verified": true,
+          "learning_objective": "Calculate rook counterplay, zugzwang and defensive resources",
+          "local_workbook_source": "tests/real_corpus/advanced_training/section37_master_workbook_bilingual.json",
+          "filename_pattern": "section37-advanced-workbook-en.{txt,md,html,epub,docx}",
+          "rights": "own editorial prompts + CC0 positions; publicly shareable with attribution"
+        }
+      },
+      "english_external_advanced_bibliography": {
+        "author": "Mark Dvoretsky",
+        "title": "Dvoretsky's Endgame Manual, Sixth Edition",
+        "verified_primary_source_page": "https://www.newinchess.com/dvoretsky-s-endgame-manual-6th-edition",
+        "acquired_full_book": false,
+        "public_distribution": "NOT_AUTHORIZED",
+        "notes": "Publisher sample/product; not unrestricted ebook"
+      },
+      "separately_imported_real_chess_material": "20 real rated CC0 Lichess puzzle records, 2200–3166; not a proof of GM playing title"
+    },
+    {
+      "work_type": "annotated_games",
+      "min_required_level": "first category or higher",
+      "languages": {
+        "uk": {
+          "category": "Анотовані партії й критичні рішення",
+          "available_advanced_material": "original_project_authored_bilingual_workbook",
+          "language_verified": true,
+          "learning_objective": "Зберегти оригінальні PGN-коментарі й варіації",
+          "local_workbook_source": "tests/real_corpus/advanced_training/section37_master_workbook_bilingual.json",
+          "filename_pattern": "section37-advanced-workbook-uk.{txt,md,html,epub,docx}",
+          "rights": "own editorial prompts + CC0 positions; publicly shareable with attribution"
+        },
+        "en": {
+          "category": "Annotated games and critical decisions",
+          "available_advanced_material": "original_project_authored_bilingual_workbook",
+          "language_verified": true,
+          "learning_objective": "Preserve original PGN annotations and variations",
+          "local_workbook_source": "tests/real_corpus/advanced_training/section37_master_workbook_bilingual.json",
+          "filename_pattern": "section37-advanced-workbook-en.{txt,md,html,epub,docx}",
+          "rights": "own editorial prompts + CC0 positions; publicly shareable with attribution"
+        }
+      },
+      "english_external_advanced_bibliography": {
+        "author": "Boris Gelfand",
+        "title": "Dynamic Decision Making in Chess",
+        "verified_primary_source_page": "https://qualitychess.co.uk/pdf-excerpts/",
+        "acquired_full_book": false,
+        "public_distribution": "NOT_AUTHORIZED",
+        "notes": "Official publisher excerpt directory only"
+      },
+      "separately_imported_real_chess_material": "4 true original annotated CC0 PGN games"
+    },
+    {
+      "work_type": "databases",
+      "min_required_level": "first category or higher",
+      "languages": {
+        "uk": {
+          "category": "Складні партійні бази та шахи незрячих",
+          "available_advanced_material": "original_project_authored_bilingual_workbook",
+          "language_verified": true,
+          "learning_objective": "Знайти партії сильних суперників і захистити права записів IBCA",
+          "local_workbook_source": "tests/real_corpus/advanced_training/section37_master_workbook_bilingual.json",
+          "filename_pattern": "section37-advanced-workbook-uk.{txt,md,html,epub,docx}",
+          "rights": "own editorial prompts + CC0 positions; publicly shareable with attribution"
+        },
+        "en": {
+          "category": "Advanced game databases and blind chess",
+          "available_advanced_material": "original_project_authored_bilingual_workbook",
+          "language_verified": true,
+          "learning_objective": "Find games of strong opponents and enforce IBCA rights",
+          "local_workbook_source": "tests/real_corpus/advanced_training/section37_master_workbook_bilingual.json",
+          "filename_pattern": "section37-advanced-workbook-en.{txt,md,html,epub,docx}",
+          "rights": "own editorial prompts + CC0 positions; publicly shareable with attribution"
+        }
+      },
+      "english_external_advanced_bibliography": {
+        "author": "Lichess community; International Braille Chess Association",
+        "title": "Lichess CC0 Game Database; official IBCA game archive results",
+        "verified_primary_source_page": "https://database.lichess.org/",
+        "acquired_full_book": false,
+        "public_distribution": "NOT_AUTHORIZED",
+        "notes": "Lichess games CC0; IBCA PGN rights not cleared"
+      },
+      "separately_imported_real_chess_material": "4 genuine annotated CC0 PGN games, official Lichess ECO, original IBCA page records only"
+    }
+  ],
+  "ukrainian_external_book_status": {
+    "publisher_or_author": "Микола Боднар",
+    "title": "Тактика для всіх — секція КМС/МС/ММ",
+    "primary_source": "https://bodnarchess.com.ua/tactics.html",
+    "hard_section_claim": "200 examples 2200–2500 ELO in the publisher's proposed classification",
+    "text_language_not_confirmed": "Publisher says cover title in Russian and English; DO NOT assume full body is Ukrainian",
+    "downloaded": false,
+    "redistribution": "NOT_AUTHORIZED",
+    "low_level_sections_excluded": true
+  },
+  "original_workbook_is_authored_and_reusable": true,
+  "full_foreign_paid_books_included": false,
+  "translations_of_protected_books_included": false
+}
