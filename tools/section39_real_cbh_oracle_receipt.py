@@ -13,7 +13,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from acs.lawful_corpus_registry import LawfulCorpusError
+from acs.lawful_corpus_registry import LawfulCorpusError, load_catalog
 from tests.test_revised_section38_real_cbh_oracles import (
     Dev09RealCbhAnnotationsVariationsTests,
     LIBCBH_COMMIT, _environment_ready, _family_hashes,
@@ -43,6 +43,7 @@ def build_cbh_real_receipt() -> dict:
         or results.skipped or results.expectedFailures or results.unexpectedSuccesses
     ):
         raise LawfulCorpusError("real CBH annotation/variation/unusual source semantic tests did not all execute and pass")
+    catalog = {row["id"]: row for row in load_catalog()}
     sources = []
     for source_id, variable, stem, qualification in CASES:
         directory = Path(os.environ[variable])
@@ -50,8 +51,21 @@ def build_cbh_real_receipt() -> dict:
             raise LawfulCorpusError("CBH original source directory is missing/unsafe")
         hashes = _family_hashes(directory, stem)
         cbh_file = f"{stem}.cbh"
-        if cbh_file not in hashes or len(hashes) < 2:
-            raise LawfulCorpusError("actual CBH companion-file family lacks original .cbh or companion bytes")
+        record = catalog.get(source_id)
+        if cbh_file not in hashes or record is None or (
+            record.get("upstream_commit") != LIBCBH_COMMIT
+            or record.get("public_release") != "EXCLUDED"
+            or record.get("test_access") != "EXTERNAL_GPL_EPHEMERAL_ONLY"
+            or record.get("external_fixture_stem") != stem
+            or record.get("external_companion_source_checksums") is None
+            or len(hashes) != 11
+        ):
+            raise LawfulCorpusError("real CBH family lacks complete pinned Git-source provenance")
+        pinned = record["external_companion_source_checksums"]
+        if set(pinned) != set(hashes) or any(
+            pinned[name]["sha256"] != actual for name, actual in hashes.items()
+        ):
+            raise LawfulCorpusError("real CBH family bytes differ from upstream original source metadata")
         sources.append({
             "source_id": source_id,
             "actual_importer": "acs.chessbase_decoder.decode_chessbase_external -> acs.chessbase_library_import -> acs.acsdb",
