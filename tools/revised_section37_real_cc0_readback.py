@@ -38,6 +38,11 @@ REPORT_FILE = Path("revised-section37-live-cc0-readback.json")
 
 
 def main() -> None:
+    # A new invocation must not retain a successful JSON receipt from a prior
+    # invocation if acquisition, decompression, or canonical parsing now fails.
+    # An existing PASS is not exact-run evidence for this invocation.
+    REPORT_FILE.unlink(missing_ok=True)
+    REPORT_FILE.with_suffix(".tmp").unlink(missing_ok=True)
     records = {item["id"]: item for item in load_catalog()}
     results = []
     with tempfile.TemporaryDirectory(prefix="accessible-chess-lawful-source-") as temp:
