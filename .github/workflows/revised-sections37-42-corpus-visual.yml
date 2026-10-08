@@ -32,6 +32,9 @@ on:
       - 'tools/revised_section37_external_position_acquisition.py'
       - 'tests/test_revised_section37_external_position_acquisition.py'
       - 'tools/revised_section37_release_exclusion.py'
+      - 'tools/revised_section37_advanced_puzzle_curator.py'
+      - 'tests/test_revised_section37_advanced_puzzle_curator.py'
+      - 'tests/real_corpus/advanced_training/**'
       - 'tests/test_revised_section37_release_exclusion.py'
       - 'tools/revised_section37_cbh_original_family_inventory.py'
       - 'tests/test_revised_section37_cbh_original_family_inventory.py'
@@ -102,6 +105,7 @@ jobs:
           tests.test_revised_section37_external_book_acquisition
           tests.test_revised_section37_external_position_acquisition
           tests.test_revised_section37_release_exclusion
+          tests.test_revised_section37_advanced_puzzle_curator
           tests.test_revised_section37_cbh_original_family_inventory
           tests.test_revised_sections41_42_design
           tests.test_section15_visual_board_contract
@@ -420,3 +424,59 @@ jobs:
           rm -rf -- source-originals upstream
           test ! -e source-originals
           test ! -e upstream
+
+  original-cc0-gm-track-puzzles:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact Accessible Chess source candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          path: product
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Acquire original historical CC0 50k chess puzzles and full original games
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: mcognetta/lichess-combined-puzzle-game-db
+          path: upstream/licensed-puzzles
+          persist-credentials: false
+      - name: Pin source Git object and CC0 license independently before any decompression
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C product rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(git -C upstream/licensed-puzzles rev-parse HEAD:combined_puzzle_db_first_50k.ndjson.bz2)" = "c72d5988f2aa5caf634d90e130688b26525be33e"
+          test "$(git -C upstream/licensed-puzzles rev-parse HEAD:combined_puzzle_db_first_100.ndjson)" = "d7b86f83c1a355fa511420a36dbdc656a3cc6fef"
+          test "$(git -C upstream/licensed-puzzles rev-parse HEAD:LICENSE)" = "0e259d42c996742e9e3cba14c677129b2c1b6311"
+      - name: Install stable Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+      - name: Verify advanced-source filters, real sample subset and malformed puzzle cases
+        working-directory: product
+        run: |
+          python -m py_compile tools/revised_section37_advanced_puzzle_curator.py tests/test_revised_section37_advanced_puzzle_curator.py
+          python -m unittest -v tests.test_revised_section37_advanced_puzzle_curator
+      - name: Actually curate 50k original licensed puzzles into three advanced and GM-level bands
+        working-directory: product
+        env:
+          ACS_37_ADVANCED_CC0_SOURCE_ROOT: ${{ github.workspace }}/upstream/licensed-puzzles
+          ACCESSIBLE_CHESS_EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: python -m tools.revised_section37_advanced_puzzle_curator
+      - name: Preserve CC0 selected advanced source evidence, not full 50k original games
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: section37-advanced-tactics-2200-2600-3000-lichess-original
+          path: |
+            product/section37-high-level-puzzles-source-receipt.json
+            product/section37-high-level-puzzles-curated.json
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Remove all original 50k source/game bytes after selection
+        if: always()
+        shell: bash
+        run: |
+          rm -rf -- upstream/licensed-puzzles
+          test ! -e upstream/licensed-puzzles
