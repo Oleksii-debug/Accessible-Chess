@@ -32,9 +32,9 @@
     --ac41-shadow:0 3px 17px rgba(0,0,0,.3);color-scheme:dark;
   }
 }
-:where(body){background:var(--ac41-bg);color:var(--ac41-ink);font-family:"Segoe UI",system-ui,sans-serif}
+body{background:var(--ac41-bg);color:var(--ac41-ink);font-family:"Segoe UI",system-ui,sans-serif}
 :where(main,section,article,fieldset,dialog){max-width:100%}
-:where(fieldset,dialog,.block){background:var(--ac41-surface);color:var(--ac41-ink);
+.block,fieldset,dialog{background:var(--ac41-surface);color:var(--ac41-ink);
  border-color:var(--ac41-border);border-radius:var(--ac41-radius)}
 :where(button,input,textarea,select){font:inherit;max-width:100%}
 :where(button,select,input,textarea){min-height:2.5rem;border:2px solid var(--ac41-border);
@@ -42,7 +42,7 @@
 :where(button:not(:disabled)){cursor:pointer}
 :where(button:hover:not(:disabled)){box-shadow:var(--ac41-shadow)}
 :where(button:disabled){cursor:not-allowed;opacity:.75}
-:where(a){color:var(--ac41-link);text-underline-offset:.16em}
+a{color:var(--ac41-link);text-underline-offset:.16em}
 :where(:focus-visible){outline:3px solid var(--ac41-focus)!important;
  outline-offset:3px!important}
 :where(input,textarea,select,button){accent-color:var(--ac41-action)}
