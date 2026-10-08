@@ -97,7 +97,7 @@ class Section52CorpusQualificationTests(unittest.TestCase):
 
     def test_traversal_device_names_and_urls_are_denied(self):
         for value in ("../sample.pgn", "/etc/passwd", "books/../sample.pgn",
-                      "books/CON.txt", "books/sample.pgn."):
+                      "books/CON.txt", "books/COM1 .txt", "books/sample.pgn."):
             self.doc["assets"][0]["path"] = value
             self.deny()
         self.doc["assets"][0]["path"] = "books/sample.pgn"
@@ -191,6 +191,14 @@ class Section52CorpusQualificationTests(unittest.TestCase):
         extra.unlink()
         extra = self.stage / "books" / "api-token.key"
         extra.write_bytes(b"test fixture only")
+        self.deny()
+
+    def test_file_directory_windows_aliases_fail_closed(self):
+        alias = self.stage / "BOOKS"
+        try:
+            alias.write_bytes(b"ambiguous directory alias")
+        except (OSError, FileExistsError, IsADirectoryError):
+            self.skipTest("filesystem does not permit Windows-colliding directory alias")
         self.deny()
 
     def test_directory_amplification_is_bounded(self):
