@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - work/full-product-teacher-education-reachability-20260911
+      - converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
     paths:
       - 'web/**'
       - 'run_accessible_chess.py'
@@ -63,6 +64,7 @@ on:
   pull_request:
     branches:
       - work/full-product-teacher-education-reachability-20260911
+      - converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
     paths:
       - 'web/**'
       - 'run_accessible_chess.py'
