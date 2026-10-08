@@ -15,7 +15,7 @@ import tempfile
 
 from acs.gametree import CanonicalPgnGameFramer, serialize_game
 from acs.lawful_corpus_registry import (
-    LawfulCorpusError, load_catalog, read_verified_zip_member,
+    LawfulCorpusError, load_catalog, read_verified_zip_member, verified_local_source,
 )
 from acs.pgn_roundtrip import parse_pgn_text
 from acs.user_library_seed import (
@@ -41,6 +41,12 @@ def _verified_original_pgntree(root: Path) -> tuple[str, dict[str, object]]:
         or record["format"] != "pgn.zip"
     ):
         raise LawfulCorpusError("original Stockfish source rights are not qualified")
+    # Source rights evidence is original, independent upstream license bytes.
+    # A catalog label alone must never be treated as an authenticated license.
+    verified_local_source(
+        root / record["license_source"],
+        {"sha256": record["license_sha256"], "max_bytes": 1024 * 1024},
+    )
     raw = read_verified_zip_member(
         root / record["local_source"], record,
         expected_member=record["zip_member"],
