@@ -372,12 +372,25 @@ jobs:
         run: |
           python -m unittest -v tests.test_revised_section37_external_book_acquisition
           python -m tools.revised_section37_external_book_acquisition
+      - name: Validate Section 39 real-book format regression and negative tests
+        working-directory: product
+        run: |
+          python -m py_compile tools/section39_external_book_semantic.py tests/test_section39_external_book_semantic.py
+          python -m unittest -v tests.test_section39_external_book_semantic
+      - name: Perform licensed original TXT and Markdown books semantic import and restart
+        working-directory: product
+        env:
+          ACS_37_GITENBERG_ROOT: ${{ github.workspace }}/source-originals
+          ACCESSIBLE_CHESS_EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: python -m tools.section39_external_book_semantic
       - name: Preserve path-free source-only receipt
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: revised-section37-original-book-evidence
-          path: product/revised-section37-original-books-readback.json
+          path: |
+            product/revised-section37-original-books-readback.json
+            product/section39-original-books-semantic-evidence.json
           if-no-files-found: ignore
           retention-days: 14
       - name: Erase every original book and license test copy
