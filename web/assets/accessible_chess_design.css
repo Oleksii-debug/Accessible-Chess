@@ -52,6 +52,8 @@
 :where(.ac41-theme-control){display:flex;flex-wrap:wrap;align-items:center;
  gap:var(--ac41-space-2);margin-block:var(--ac41-space-3)}
 :where(.ac41-theme-control label){font-weight:600}
+.ac41-skip{position:absolute;inset-inline-start:-200vw;top:0}
+.ac41-skip:focus-visible{inset-inline-start:1rem;top:1rem;z-index:999;padding:.5rem;background:Canvas;color:CanvasText}
 ::selection{background:Highlight;color:HighlightText}
 @media(max-width:48rem){
   :where(body){padding-inline:.75rem}
