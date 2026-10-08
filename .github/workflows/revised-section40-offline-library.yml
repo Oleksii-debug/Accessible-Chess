@@ -33,6 +33,10 @@ on:
       - 'docs/corpus/revised_sections37_40_sources.json'
       - 'tests/real_corpus/**'
   workflow_dispatch: {}
+concurrency:
+  group: ${{ github.workflow }}-pr-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
