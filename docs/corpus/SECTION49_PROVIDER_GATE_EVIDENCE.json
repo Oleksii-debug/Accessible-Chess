@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "section": 49,
+  "status": "INTERNAL_COMPLETE_EXTERNAL_BLOCKED",
+  "drive_provider_root": {
+    "title": "Провайдери",
+    "folder_id": "184VIWIax7jRH_UIDw_GFjSS7zfcikB4j",
+    "mistral_folder_id": "1UCSvOxqKOWcPmaGK-xNp0e4A0NC81xWu",
+    "mistral_access_record_present": true,
+    "secrets_read_or_copied": false
+  },
+  "provider_inventory": [
+    "Mistral",
+    "Groq",
+    "OpenRouter",
+    "Google_AI_Studio_Gemini",
+    "DeepSeek",
+    "NVIDIA_NIM",
+    "Cohere",
+    "Cloudflare_Workers_AI"
+  ],
+  "product_state": {
+    "model_gateway": "no provider-neutral live API gateway found in current source tree",
+    "agent_surface": "no Mistral/provider switching adapter found in current source tree",
+    "canonical_board_and_stockfish": "present and remain authoritative"
+  },
+  "not_run": [
+    "authenticated Mistral model listing",
+    "short/long chess prompts",
+    "FEN/PGN analysis through live model",
+    "401/429/timeout/retry against provider",
+    "three-provider comparison",
+    "text/vision/audio Agent run"
+  ],
+  "blocked": [
+    "protected secret-to-runtime handoff is unavailable",
+    "live provider endpoint execution is unavailable",
+    "provider credentials were intentionally not copied into code, logs, GitHub or artifacts"
+  ],
+  "bilingual_literature_boundary": "No provider literature or large corpus was downloaded in this gate; existing Ukrainian/English project documentation remains the source set."
+}

@@ -216,3 +216,71 @@ Durable catalog: `docs/corpus/SECTION47_VIDEO_SOURCE_CATALOG.json`.
 | 47.4–47.6 | `BLOCKED` | No checksum, seek/playback, frame-to-board, MediaSession restart, GitHub binary artifact or owner packaged acceptance was run in this environment. |
 
 The next dependency-safe closure front is Section 48.
+
+## Section 49 — current closure front
+
+**Status: `INTERNAL_COMPLETE_EXTERNAL_BLOCKED` (not DONE).**
+
+Durable evidence: `docs/corpus/SECTION49_PROVIDER_GATE_EVIDENCE.json`.
+
+| Subsection | State | Evidence / exact limitation |
+|---|---|---|
+| 49.1 | `PASS` | Existing Drive `Провайдери` folder and Mistral/other provider subfolders were found by metadata-only inspection; no re-registration was attempted. |
+| 49.2–49.5 | `BLOCKED` | No protected secret-to-runtime channel or live provider tool is available in this environment; API keys were not read, copied, logged or embedded. |
+| 49.6 | `BLOCKED` | Current source has canonical Board/GameTree/Stockfish but no provider-neutral live AI Agent switching adapter or text/vision/audio live evidence. |
+
+The next dependency-safe closure front is Section 50.
+
+## Section 50 — current closure front
+
+**Status: `INTERNAL_COMPLETE_EXTERNAL_BLOCKED` (not DONE).**
+
+Durable evidence: `docs/corpus/SECTION50_CROSS_PRODUCT_EVIDENCE.json`.
+
+| Subsection | State | Evidence / exact limitation |
+|---|---|---|
+| 50.1–50.4 | `BLOCKED` | The required video → frame/FEN → Stockfish → Library/Books → Agent chain depends on Sections 47–49, which have no packaged/live provider evidence. |
+| 50.5 | `PARTIAL` | Exact source-state/evidence boundary is recorded without credentials; no endpoint result can be claimed. |
+| 50.6 | `BLOCKED` | Owner TEST_BUILD inputs and real multi-provider Agent are not available in this environment. |
+
+The next dependency-safe closure front is Section 51.
+
+## Section 51 — current closure front
+
+**Status: `INTERNAL_COMPLETE_EXTERNAL_BLOCKED` (not DONE).**
+
+Durable evidence: `docs/corpus/SECTION51_PERSISTENCE_EVIDENCE.json`.
+
+| Subsection | State | Evidence / exact limitation |
+|---|---|---|
+| 51.1–51.5 | `PARTIAL` | Existing settings, ACSDB migration/repair, Library export, Books/Training crash-recovery and classroom corruption contracts are mapped to source/tests; full multi-surface crash, Windows restore and Media/Agent durable-job stores remain open. |
+
+The next dependency-safe closure front is Section 52.
+
+## Section 52 — current closure front
+
+**Status: `INTERNAL_COMPLETE_EXTERNAL_BLOCKED` (not DONE).**
+
+Durable evidence: `docs/corpus/SECTION52_RELEASE_INFRASTRUCTURE_EVIDENCE.json`.
+
+| Subsection | State | Evidence / exact limitation |
+|---|---|---|
+| 52.1–52.5 | `PARTIAL` | Existing package assembler, release payload, preflight, SLSA provenance and accessibility contracts are present; clean Windows, signing/update, SBOM-vulnerability and lifecycle gates were not executed here. |
+| 52.6 | `BLOCKED` | TEST_BUILD/PUBLIC_RELEASE clean-machine qualification cannot be claimed while real media/provider inputs and Windows acceptance are unavailable. |
+
+The next dependency-safe closure front is Section 53.
+
+## Section 53 — current closure front
+
+**Status: `INTERNAL_COMPLETE_EXTERNAL_BLOCKED` (not DONE).**
+
+Durable evidence: `docs/corpus/SECTION53_FINAL_CONVERGENCE_EVIDENCE.json`.
+
+| Subsection | State | Evidence / exact limitation |
+|---|---|---|
+| 53.1 | `PARTIAL` | Current branch is one canonical lineage with durable evidence for Sections 37–52; unsupported external gates remain explicit. |
+| 53.2 | `BLOCKED` | Full real-corpus/video/YouTube/Mistral-first/multi-provider/Windows/NVDA convergence run is unavailable. |
+| 53.3–53.5 | `PARTIAL` | Existing restart, performance, semantic keyboard/UI, security and release contracts are mapped, but full end-to-end execution is not evidenced. |
+| 53.6 | `BLOCKED` | Final public-release convergence cannot be marked DONE while the listed external blockers remain. |
+
+Sections 49–53 are now traversed and recorded; no false DONE is asserted.

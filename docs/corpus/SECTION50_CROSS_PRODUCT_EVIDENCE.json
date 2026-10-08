@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "section": 50,
+  "status": "INTERNAL_COMPLETE_EXTERNAL_BLOCKED",
+  "required_chain": [
+    "video",
+    "frame/timecode",
+    "Board/FEN",
+    "Stockfish",
+    "Book/Library",
+    "AI Agent",
+    "history/recovery"
+  ],
+  "available_local_components": [
+    "canonical board/FEN/GameTree",
+    "Stockfish runtime and analysis UI",
+    "Book/Library routes",
+    "local media source catalog"
+  ],
+  "blocked_dependencies": [
+    "Section 47 real packaged video playback/frame capture",
+    "Section 48 YouTube IFrame adapter/live smoke",
+    "Section 49 protected live provider/AI Agent gateway"
+  ],
+  "not_run": [
+    "video-to-FEN extraction",
+    "YouTube embed seek/pause/unavailable smoke",
+    "Mistral-first and three-provider live comparison",
+    "cross-provider failure/recovery scenarios",
+    "owner packaged end-to-end run"
+  ],
+  "state_authority": "canonical chess core remains the only position authority; no model/video result may mutate it unchecked"
+}

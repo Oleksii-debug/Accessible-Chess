@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "section": 53,
+  "status": "INTERNAL_COMPLETE_EXTERNAL_BLOCKED",
+  "canonical_lineage": {
+    "repository": "Oleksii-debug/Accessible-Chess",
+    "branch": "work/owner-gameplay-section37-20261009",
+    "canonical_core": "acs/ chess/application services plus existing WebView/native bridges"
+  },
+  "integrated_local_scope": [
+    "Formats/Library/Books/Training",
+    "board themes/design tokens",
+    "Windows workspace route mapping",
+    "media and YouTube requirement boundaries",
+    "release/persistence evidence registries"
+  ],
+  "subsections": {
+    "53.1": "PARTIAL",
+    "53.2": "BLOCKED",
+    "53.3": "PARTIAL",
+    "53.4": "PARTIAL",
+    "53.5": "PARTIAL",
+    "53.6": "BLOCKED"
+  },
+  "final_blockers": [
+    "lawful/proprietary format fixtures and external Windows/NVDA acceptance",
+    "real packaged video and YouTube provider evidence",
+    "protected Mistral-first multi-provider Agent evidence",
+    "clean-machine signed TEST_BUILD/PUBLIC_RELEASE qualification"
+  ],
+  "release_rule": "Do not mark final product DONE while any listed external blocker remains."
+}
