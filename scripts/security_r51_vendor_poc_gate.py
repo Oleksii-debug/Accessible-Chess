@@ -29,9 +29,11 @@ def assess_product_vendor(
     _digest_arg(approved_reviewers_sha256, "REVIEWER_KEYS")
     _digest_arg(expected_build_sha256, "BUILD")
     artifact_sha = _sha256_file(artifact, maximum=_MAX_ARTIFACT)
-    if _sha256_file(approved_reviewers, maximum=64 * 1024) != approved_reviewers_sha256:
-        raise ProductEvidenceError("R51_REVIEWER_TRUST_PIN_MISMATCH")
-    trust = _strict_json(approved_reviewers, maximum=64 * 1024)
+    trust = _strict_json(
+        approved_reviewers, maximum=64 * 1024,
+        expected_sha256=approved_reviewers_sha256,
+        mismatch_code="R51_REVIEWER_TRUST_PIN_MISMATCH",
+    )
     if set(trust) != {"schema_version", "reviewer_public_keys"} or type(trust["schema_version"]) is not int or trust["schema_version"] != 1 or type(trust["reviewer_public_keys"]) is not dict:
         raise ProductEvidenceError("R51_TRUST_SCHEMA_INVALID")
     packet = _strict_json(proof_file, maximum=1024 * 1024)
