@@ -43,6 +43,11 @@ class Section37RealBilingualMultiFormatQualification(unittest.TestCase):
                 else "NO_EXPLICIT_FEN_METADATA_IN_TEXT_DOCX",
             )
 
+    def test_original_source_not_matching_embedded_product_is_not_qualified(self):
+        with patch.object(qa, "_ORIGINAL_SOURCE_TEXT", "{}"):
+            with self.assertRaisesRegex(LawfulCorpusError, "production offline Books source bytes diverged"):
+                qa.qualify_bilingual_books()
+
     def test_license_changed_in_original_cc0_catalog_fails_before_derivation(self):
         original = qa.load_catalog
         def malicious(path):
