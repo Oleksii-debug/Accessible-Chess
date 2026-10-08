@@ -1,0 +1,83 @@
+name: Owner V2 Bootstrap Windows Recompile 20261008
+on:
+  push:
+    branches:
+      - fix/owner-v2-bootstrap-readiness-20261008
+  workflow_dispatch: {}
+permissions:
+  contents: read
+concurrency:
+  group: owner-v2-bootstrap-windows-recompile-20261008
+  cancel-in-progress: true
+jobs:
+  windows-compile:
+    runs-on: windows-2025
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 1
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+      - name: Verify V2 late-bridge regression on exact source
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          node tests/js/version2_late_bridge_bootstrap_test.js
+          if ($LASTEXITCODE -ne 0) { throw 'Late-bridge regression failed' }
+          node --check web/version2_release_bootstrap.js
+          if ($LASTEXITCODE -ne 0) { throw 'V2 bootstrap syntax failed' }
+          node --check web/version2_final_product_bootstrap.js
+          if ($LASTEXITCODE -ne 0) { throw 'Full product bootstrap syntax failed' }
+      - name: Install pinned Windows build stack
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $nuitkaUrl='https://github.com/Nuitka/Nuitka/archive/b7ea05bf570e0b6950de6db7c4c8e579e1b77d29.zip'
+          python -m pip install --disable-pip-version-check 'pywebview==6.2.1' 'pythonnet==3.1.0' 'clr-loader==0.3.1' 'cffi==2.1.1' 'pycparser==3.0' 'typing-extensions==4.16.0' "Nuitka @ $nuitkaUrl" 'ordered-set==4.1.0' 'zstandard==0.25.0'
+          if ($LASTEXITCODE -ne 0) { throw 'Windows compiler dependency installation failed' }
+      - name: Compile current complete V2 Python product
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -m nuitka --standalone --assume-yes-for-downloads --windows-console-mode=disable --output-filename=AccessibleChess.exe --include-data-dir=web=web run_accessible_chess_v2.py
+          if ($LASTEXITCODE -ne 0) { throw 'Current V2 compilation failed' }
+          $dist='run_accessible_chess_v2.dist'
+          if (-not (Test-Path "$dist/AccessibleChess.exe")) { throw 'Compiled executable missing' }
+          if (-not (Test-Path "$dist/AccessibleChess.exe.config")) { throw 'Windows UIA application config missing' }
+          foreach ($file in @('version2_final_product_bootstrap.js','full_product_books_training.js','full_product_library.js','full_product_education.js','stage1_release_bootstrap.js')) {
+            if (-not (Test-Path "$dist/web/$file")) { throw "Missing product component: $file" }
+          }
+      - name: Run compiled Windows composition diagnostic
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=(Resolve-Path 'run_accessible_chess_v2.dist').Path
+          $exe=Join-Path $root 'AccessibleChess.exe'
+          $out=Join-Path $env:RUNNER_TEMP 'owner-v2.stdout.txt'
+          $err=Join-Path $env:RUNNER_TEMP 'owner-v2.stderr.txt'
+          $p=Start-Process -FilePath $exe -WorkingDirectory $root -ArgumentList '--diagnostic' -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
+          if (-not $p.WaitForExit(60000)) { $p.Kill(); throw 'Packaged V2 diagnostic timed out' }
+          $p.Refresh()
+          Get-Content $out
+          Get-Content $err
+          if ($p.ExitCode -ne 0) { throw "V2 diagnostic failed $($p.ExitCode)" }
+          if ((Get-Content $out -Raw) -notmatch 'ACCESSIBLE CHESS V2 FINAL-PRODUCT COMPOSITION DIAGNOSTIC PASS') { throw 'V2 diagnostic success marker missing' }
+      - name: Record intermediate build identity and nonrelease status
+        if: success()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $sha=(git rev-parse HEAD).Trim()
+          $exe='run_accessible_chess_v2.dist/AccessibleChess.exe'
+          @{source_sha=$sha;profile='owner-v2-bootstrap-intermediate';human_tested=$false;nvda_verified=$false;audible_windows_verified=$false;owner_330_wav_pack_included=$false;exe_sha256=(Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()} | ConvertTo-Json | Set-Content 'run_accessible_chess_v2.dist/build-identity.json' -Encoding utf8
+      - name: Upload compiled inputs; owner WAV pack and final QA still required
+        if: success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: owner-v2-windows-intermediate-${{ github.sha }}
+          path: run_accessible_chess_v2.dist/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 1
