@@ -86,9 +86,34 @@ def _sample_real_pgn(records: dict) -> tuple[tuple, str]:
 
 
 def _pgn_signature(games: tuple) -> tuple:
+    """Compare full representable GameTree structure, not only top-level SAN.
+
+    Annotations, language-visible comments, NAG and recursive sibling RAV
+    must survive every PGN -> export -> PGN/ACSDB reimport pathway.  Move
+    numbering is intentionally omitted as surface notation, not move meaning.
+    """
+    def comments(values):
+        return tuple((c.text, c.style.value) for c in values)
+
+    def line_semantics(line):
+        return (
+            comments(line.leading_comments),
+            tuple(
+                (
+                    move.san,
+                    tuple(move.nags),
+                    comments(move.comments_before),
+                    comments(move.comments_after),
+                    tuple(line_semantics(child) for child in move.variations),
+                )
+                for move in line.moves
+            ),
+            comments(line.trailing_comments),
+            line.result,
+        )
+
     return tuple(
-        (tuple(sorted(game.tags.items())), tuple(move.san for move in game.line.moves),
-         game.line.result)
+        (tuple(sorted(game.tags.items())), line_semantics(game.line))
         for game in games
     )
 
