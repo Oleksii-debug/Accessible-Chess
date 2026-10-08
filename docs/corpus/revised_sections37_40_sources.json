@@ -213,6 +213,24 @@
       "acquisition": "SOURCE_PAGE_ONLY",
       "canonical_qa": "existing PGN/GameTree/Library parser after explicit attribution/rights and exact-hash acquisition",
       "notes": "Official historical monthly broadcast PGN corpus; CC BY-SA is NOT CC0. No download, hash, complete real-game parse or attribution package is claimed."
+    },
+    {
+      "id": "lichess_openings_original_eco_a_tsv",
+      "title": "Lichess chess-openings ECO A original source data",
+      "author": "Lichess chess-openings contributors",
+      "format": "tsv (ECO, opening name, PGN move sequence)",
+      "source_page": "https://github.com/lichess-org/chess-openings/blob/a6189a30dc273ccb21fc2536a9a2fefd5592a67a/a.tsv",
+      "download_url": null,
+      "sha256": null,
+      "max_bytes": 0,
+      "license": "CC0",
+      "redistribution": "NOT_CLEARED",
+      "acquisition": "SOURCE_PAGE_ONLY",
+      "upstream_commit": "a6189a30dc273ccb21fc2536a9a2fefd5592a67a",
+      "upstream_git_blob": "561099854a15dfb523759aa87993a1fe480a6abc",
+      "indexed_bytes": 67257,
+      "canonical_qa": "reuse existing PGN/SAN core only after lawful hash-bound acquisition; TSV is not a full PGN game database",
+      "notes": "Verified 2026-10-08 against official lichess-org/chess-openings README/COPYING.txt. This is original ECO/PGN TSV, NOT generated EPD and NOT downloaded/imported. Git blob is Git object identity, NOT SHA-256. No public/test package inclusion until byte checksum and format-specific readback."
     }
   ]
 }
