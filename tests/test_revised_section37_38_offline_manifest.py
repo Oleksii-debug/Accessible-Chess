@@ -1,0 +1,80 @@
+"""Real-byte provenance receipt regression: NEVER promote discovery to PASS."""
+from __future__ import annotations
+
+from pathlib import Path
+import shutil
+import tempfile
+import unittest
+
+from acs.lawful_corpus_registry import LawfulCorpusError
+from tools.revised_sections37_38_offline_manifest import build_manifest
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+class GenuineCorpusReceiptTests(unittest.TestCase):
+    def test_actual_original_file_bytes_and_semantic_status_are_distinct(self):
+        report = build_manifest()
+        self.assertEqual(report["source_count"], 25)
+        self.assertEqual(report["vendored_cc0_byte_verified_count"], 9)
+        self.assertEqual(report["genuine_test_book_read_count"], 1)
+        self.assertFalse(report["revised_section_37_terminal_done"])
+        self.assertFalse(report["revised_section_38_terminal_done"])
+        sources = {item["source_id"]: item for item in report["sources"]}
+        self.assertEqual(len(sources), report["source_count"])
+        self.assertGreater(
+            sources["stockfish_2moves_v2_pgn_zip"]["semantic_count"], 0
+        )
+        self.assertEqual(
+            sources["stockfish_2moves_v2_pgn_zip"]["semantic_state"],
+            "SEMANTIC_PGN_PARSED",
+        )
+        self.assertEqual(
+            sources["stockfish_startpos_epd_zip"]["semantic_state"],
+            "SEMANTIC_FEN_READ",
+        )
+        self.assertGreater(
+            sources["gitenberg_capablanca_33870_original_txt"]["semantic_count"], 20
+        )
+        self.assertEqual(
+            sources["gitenberg_capablanca_33870_original_txt"]["redistribution"],
+            "NOT_CLEARED",
+        )
+        for identifier in (
+            "chessbase_family_complete_real_samples",
+            "chessbase_official_free_rossolimo_cbv_sample",
+            "capablanca_chess_fundamentals_epub3",
+            "lichess_official_puzzles_fen_csv",
+        ):
+            entry = sources[identifier]
+            self.assertEqual(entry["semantic_state"], "NOT_QUALIFIED")
+            self.assertIsNone(entry["actual_sha256"])
+        self.assertFalse(any(item["public_release_published"] for item in sources.values()))
+        for item in sources.values():
+            if item["semantic_state"] != "NOT_QUALIFIED":
+                self.assertIsNotNone(item["actual_sha256"])
+                self.assertEqual(item["actual_sha256"], item["expected_sha256"])
+                self.assertEqual(item["actual_bytes"], item["expected_bytes"])
+
+    def test_tampered_original_cc0_source_is_not_reported_as_verified(self):
+        # This is deliberately a temporary copy: never modify committed upstream
+        # fixtures or overwrite any owner Library database.
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "docs/corpus").mkdir(parents=True)
+            shutil.copy2(
+                ROOT / "docs/corpus/revised_sections37_40_sources.json",
+                root / "docs/corpus/revised_sections37_40_sources.json",
+            )
+            shutil.copytree(ROOT / "tests/real_corpus", root / "tests/real_corpus")
+            changed = root / "tests/real_corpus/lichess_openings_a.tsv"
+            data = bytearray(changed.read_bytes())
+            data[0] ^= 1
+            changed.write_bytes(data)
+            with self.assertRaises(LawfulCorpusError):
+                build_manifest(root)
+
+
+if __name__ == "__main__":
+    unittest.main()
