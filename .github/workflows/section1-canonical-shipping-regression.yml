@@ -1,0 +1,53 @@
+name: Section 1 Canonical Chess Core Shipping Regression
+on:
+  pull_request:
+    branches:
+      - converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
+    paths:
+      - acs/chesscore.py
+      - tests/test_section1_*.py
+      - tests/test_fen_edge_corpus.py
+      - tests/data/fen_edge_corpus_v1.json
+      - .github/workflows/section1-canonical-shipping-regression.yml
+  workflow_dispatch: {}
+permissions:
+  contents: read
+jobs:
+  canonical-chesscore:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12.10"
+      - name: Compile unchanged canonical chess authority
+        run: python -m py_compile acs/chesscore.py
+      - name: Section 1 strict FEN, SAN and position regression corpus
+        run: >-
+          python -m unittest -v
+          tests.test_fen_edge_corpus
+          tests.test_section1_fen_castling_order
+          tests.test_section1_fen_en_passant_fullmove
+          tests.test_section1_fen_en_passant_halfmove
+          tests.test_section1_fen_field_count
+          tests.test_section1_king_capture_boundary
+          tests.test_section1_positionstate_counter_boundary
+          tests.test_section1_positionstate_serialization_boundary
+          tests.test_section1_san_internal_whitespace
+          tests.test_section1_san_transition_contract
+      - name: Retained game tree and board regressions
+        run: >-
+          python -m unittest -v
+          tests.test_chesscore
+          tests.test_chess_core
+          tests.test_game_lifecycle
+          tests.test_pgn
+      - name: Existing canonical selftest
+        run: python -m acs.selftest
