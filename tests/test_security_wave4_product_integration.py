@@ -214,3 +214,64 @@ def test_private_v1_decision_api_version_requires_exact_integer(tmp_path, report
     }
     with pytest.raises(ProtectionBoundaryError, match="API version does not match runtime"):
         _validate_decision(signed_state, runtime_api_version=1)
+
+
+
+def test_release_marker_alias_cannot_downgrade_to_source_mode(tmp_path):
+    from acs.protection_boundary import (
+        ProtectedStartupLocked, open_release_protection_session,
+        protection_required,
+    )
+
+    app = tmp_path / "app"
+    app.mkdir()
+    # The target deliberately does not exist. lstat still sees the marker.
+    marker = app / "RELEASE_MANIFEST.json"
+    try:
+        marker.symlink_to(tmp_path / "missing-private-release-manifest")
+    except (OSError, NotImplementedError):
+        pytest.skip("real symlink creation unavailable on this runner")
+
+    assert protection_required(app, frozen=False) is True
+
+    def missing_runtime(_name):
+        raise ImportError("private runtime intentionally absent")
+
+    with pytest.raises(ProtectedStartupLocked) as exc:
+        open_release_protection_session(
+            application_dir=app,
+            state_root=tmp_path / "state",
+            module_loader=missing_runtime,
+        )
+    assert exc.value.decision.reason == "runtime_unavailable_or_invalid"
+    assert exc.value.decision.capabilities == frozenset()
+    assert not (tmp_path / "state").exists()
+
+
+def test_release_marker_directory_and_unreadable_metadata_both_require_protection(
+    tmp_path, monkeypatch,
+):
+    from acs.protection_boundary import protection_required
+
+    app = tmp_path / "app"
+    app.mkdir()
+    marker = app / "RELEASE_MANIFEST.json"
+    marker.mkdir()
+    assert protection_required(app, frozen=False) is True
+    marker.rmdir()
+
+    original = Path.lstat
+
+    def denied_metadata(path, *args, **kwargs):
+        if path == marker:
+            raise PermissionError("simulated inaccessible release marker")
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "lstat", denied_metadata)
+    assert protection_required(app, frozen=False) is True
+
+
+def test_unmarked_source_stays_development_only(tmp_path):
+    from acs.protection_boundary import protection_required
+    assert protection_required(tmp_path, frozen=False) is False
+    assert protection_required(tmp_path, frozen=True) is True
