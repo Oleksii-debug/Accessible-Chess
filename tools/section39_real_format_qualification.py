@@ -25,6 +25,7 @@ from acs.pgn_roundtrip import parse_pgn_text
 from acs.pgn_service import open_pgn, save_pgn_atomic
 from acs.position_editor import PositionState
 from tools.revised_sections37_38_offline_manifest import ROOT, _source_head, build_manifest
+from tools.revised_section38_39_advanced_puzzle_pgn import build_advanced_pgn
 
 
 FORMATS = (
@@ -227,6 +228,18 @@ def build_report() -> dict:
     records = {item["id"]: item for item in catalog}
     receipt_by_id = {r["source_id"]: r for r in source_manifest["sources"]}
     readbacks = _genuine_readbacks(records)
+    # Independent master-only training qualification from the two actually
+    # checked-in CC0 puzzle subsets. This is a DERIVED legal FEN/SAN/PGN product
+    # path and MUST NOT promote an unverified original publisher's PGN to PASS.
+    advanced_pgn, advanced_receipt = build_advanced_pgn()
+    if (
+        advanced_receipt["puzzles"] != 20
+        or len(advanced_receipt["source_sha256"]) != 2
+        or advanced_receipt["min_puzzle_rating_lichess_not_fide"] < 2200
+        or hashlib.sha256(advanced_pgn).hexdigest() != advanced_receipt["pgn_sha256"]
+        or advanced_receipt["source_original_game_pgn"] is not False
+    ):
+        raise LawfulCorpusError("derived advanced source cannot qualify Section 39")
     rows = []
     for name in FORMATS:
         candidates = SOURCE_IDS[name]
@@ -313,6 +326,21 @@ def build_report() -> dict:
         "source_receipts": receipts,
         "evidence": {
             "genuine_source_bytes": True,
+            "advanced_master_derived_qa": {
+                "source_kind": "CANONICAL_DERIVED_FROM_CHECKED_IN_CC0_PUZZLES",
+                "original_publisher_pgn_qualified": False,
+                "pgn_sha256": advanced_receipt["pgn_sha256"],
+                "pgn_bytes": advanced_receipt["pgn_bytes"],
+                "source_ids": advanced_receipt["source_ids"],
+                "source_sha256": advanced_receipt["source_sha256"],
+                "qualified_puzzle_positions": advanced_receipt["puzzles"],
+                "rating_system": "LICHESS_PUZZLE_DIFFICULTY_NOT_FIDE",
+                "min_puzzle_rating": advanced_receipt["min_puzzle_rating_lichess_not_fide"],
+                "max_puzzle_rating": advanced_receipt["max_puzzle_rating_lichess_not_fide"],
+                "format_semantics": ["FEN", "SAN", "PGN", "ACSDB_pending_separate_import"],
+                "external_author_original_full_corpus_sha_pass": False,
+                "terminal_section_done": False,
+            },
             "mocked_or_derived_receipts_separated": True,
             "ci_run_id": os.environ.get("GITHUB_RUN_ID"),
             "ci_run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT"),
