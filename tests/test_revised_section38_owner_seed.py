@@ -1,7 +1,7 @@
 """Real Stockfish bytes -> owner-test package -> canonical Library -> restart."""
 from __future__ import annotations
 
-from pathlib import Path
+from pathlib import Path, PurePath
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -18,6 +18,18 @@ from tools.revised_section38_stockfish_owner_seed import (
 
 
 class RealStockfishOwnerLibrarySeedTests(unittest.TestCase):
+    def test_invalid_nonconcrete_paths_refused_before_any_owner_write(self):
+        with tempfile.TemporaryDirectory() as temp:
+            target = Path(temp) / "should-not-exist"
+            for malformed in (str(target), PurePath(target), None):
+                with self.subTest(type=type(malformed).__name__):
+                    with self.assertRaises(TypeError):
+                        prepare_owner_test_stockfish_seed(malformed)
+            self.assertFalse(target.exists())
+            with self.assertRaises(TypeError):
+                prepare_owner_test_stockfish_seed(target, repository_root=str(Path(temp)))
+            self.assertFalse(target.exists())
+
     def test_real_source_published_once_and_survives_library_restart(self):
         with tempfile.TemporaryDirectory(prefix="acs-real-stockfish-owner-seed-") as temp:
             parent = Path(temp) / "release-content"
