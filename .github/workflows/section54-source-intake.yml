@@ -6,15 +6,19 @@ on:
     paths:
       - 'acs/format_factory_intake.py'
       - 'acs/format_factory_tokens.py'
+      - 'acs/format_factory_policy.py'
       - 'tests/test_section54_source_intake.py'
       - 'tests/test_section54_factory_tokens.py'
+      - 'tests/test_section54_factory_policy.py'
       - '.github/workflows/section54-source-intake.yml'
   pull_request:
     paths:
       - 'acs/format_factory_intake.py'
       - 'acs/format_factory_tokens.py'
+      - 'acs/format_factory_policy.py'
       - 'tests/test_section54_source_intake.py'
       - 'tests/test_section54_factory_tokens.py'
+      - 'tests/test_section54_factory_policy.py'
       - '.github/workflows/section54-source-intake.yml'
   workflow_dispatch:
 jobs:
@@ -35,6 +39,6 @@ jobs:
         with:
           python-version: '3.11'
       - name: Compile exact Python sources
-        run: python -m py_compile acs/format_factory_intake.py acs/format_factory_tokens.py tests/test_section54_source_intake.py tests/test_section54_factory_tokens.py
+        run: python -m py_compile acs/format_factory_intake.py acs/format_factory_tokens.py acs/format_factory_policy.py tests/test_section54_source_intake.py tests/test_section54_factory_tokens.py tests/test_section54_factory_policy.py
       - name: Execute Section 54 unit and negative tests
         run: python -m unittest discover -s tests -p 'test_section54_*.py' -v
