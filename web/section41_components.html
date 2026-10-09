@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Accessible Chess — Section 41 UI accessibility fixture</title>
+  <link rel="stylesheet" href="assets/tabler-core/accessibility.css">
+  <link rel="stylesheet" href="assets/accessible_chess_design.css">
+</head>
+<body>
+<a href="#main" class="ac41-skip">До основного вмісту</a>
+<header><h1><img src="assets/tabler/chess-rook.svg" alt="" aria-hidden="true" width="24" height="24"> Accessible Chess — приклади компонентів</h1>
+<p>Тестова сторінка тем, клавіатури й семантики; не є додатковим шаховим рушієм.</p></header>
+<nav aria-label="Навігація прикладів"><ul>
+<li><a href="#forms">Форми</a></li><li><a href="#table">Таблиця</a></li>
+<li><a href="#dialog-example">Діалог</a></li><li><a href="#copy">Виділення тексту</a></li>
+</ul></nav>
+<main id="main" tabindex="-1">
+<section aria-labelledby="theme-title">
+<h2 id="theme-title">Налаштування оформлення</h2>
+<div class="ac41-theme-control"><img src="assets/tabler/adjustments.svg" alt="" aria-hidden="true" width="24" height="24"><label for="ac41-theme">Тема інтерфейсу</label>
+<select id="ac41-theme"><option value="system">Системна</option><option value="light">Світла</option>
+<option value="dark">Темна</option><option value="contrast">Контрастна</option></select></div>
+<p>Вибір не змінює шахову позицію, команди чи дані програми.</p>
+</section>
+<section id="forms" aria-labelledby="forms-title"><h2 id="forms-title">Форми та стани</h2>
+<form id="fixture-form"><fieldset><legend>Пошук шахового матеріалу</legend>
+<label for="fixture-search">Пошук</label>
+<input type="search" id="fixture-search" autocomplete="off" required placeholder="Автор, назва, дебют">
+<label for="fixture-category">Категорія</label>
+<select id="fixture-category"><option value="books">Книги</option><option value="games">Партії</option><option value="training">Вправи</option></select>
+<label for="fixture-notes">Нотатка</label>
+<textarea id="fixture-notes" rows="3"></textarea>
+<button type="submit">Перевірити форму</button>
+<button type="reset">Очистити</button><button type="button" disabled>Недоступна дія</button>
+</fieldset></form>
+<p id="form-status" role="status" aria-live="polite" aria-atomic="true"></p>
+</section>
+<section id="table" aria-labelledby="table-title">
+<h2 id="table-title">Таблиця даних</h2>
+<table><caption>Приклад каталогу — фіктивні службові дані</caption>
+<thead><tr><th scope="col">Матеріал</th><th scope="col">Формат</th><th scope="col">Стан</th></tr></thead>
+<tbody><tr><th scope="row">Навчальна позиція</th><td>FEN</td><td>Приклад</td></tr>
+<tr><th scope="row">Навчальна партія</th><td>PGN</td><td>Приклад</td></tr></tbody></table>
+</section>
+<section id="dialog-example" aria-labelledby="dialog-title">
+<h2 id="dialog-title">Керування діалогом</h2>
+<button id="open-dialog" type="button">Відкрити діалог</button>
+<dialog id="fixture-dialog" aria-labelledby="dialog-heading" aria-describedby="dialog-help">
+<h3 id="dialog-heading" tabindex="-1">Приклад доступного діалогу</h3>
+<p id="dialog-help">Натисніть Escape або кнопку «Закрити». Фокус повернеться до кнопки відкриття.</p>
+<button type="button" id="close-dialog">Закрити</button>
+</dialog></section>
+<section id="copy" aria-labelledby="copy-title"><h2 id="copy-title">Виділення й копіювання</h2>
+<p id="copy-content" tabindex="0">Поле e4. Білий пішак. Текст можна виділити та скопіювати клавішами.</p>
+<details><summary>Додаткова інформація</summary><p>Вбудований HTML details, без додаткового JavaScript-движка.</p></details>
+</section>
+</main>
+<script>
+"use strict";
+const theme=document.getElementById("ac41-theme");
+theme.addEventListener("change",()=>{
+  const next=theme.value;
+  if(["system","light","dark","contrast"].includes(next))
+    document.documentElement.dataset.acUiTheme=next;
+});
+const openButton=document.getElementById("open-dialog");
+const closeButton=document.getElementById("close-dialog");
+const dialog=document.getElementById("fixture-dialog");
+openButton.addEventListener("click",()=>{
+  if(!dialog.open){dialog.showModal();document.getElementById("dialog-heading").focus();}
+});
+closeButton.addEventListener("click",()=>dialog.close());
+dialog.addEventListener("close",()=>openButton.focus({preventScroll:true}));
+document.getElementById("fixture-form").addEventListener("submit",event=>{
+  event.preventDefault();
+  document.getElementById("form-status").textContent="Форму перевірено. Значення не надсилаються в мережу.";
+});
+</script>
+</body>
+</html>

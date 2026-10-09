@@ -1,0 +1,69 @@
+name: Section 41 main offline MIT and accessible component qualification
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'web/index.html'
+      - 'web/section41_components.html'
+      - 'web/assets/tabler/**'
+      - 'web/assets/tabler-core/**'
+      - 'web/assets/accessible_chess_design.css'
+      - 'acs/spdx_sbom.py'
+      - 'docs/third_party/tabler-core-1.6.1-accessibility.scss'
+      - 'tools/revised_section41_mit_asset_qualification.py'
+      - 'tests/test_section41_integrated_mit_assets.py'
+      - 'tests/test_revised_section41_tabler_core.py'
+      - 'tests/js/section41_semantic_component_dom_test.js'
+      - '.github/workflows/section41-offline-mit-main.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'web/assets/tabler/**'
+      - 'web/assets/tabler-core/**'
+      - 'tools/revised_section41_mit_asset_qualification.py'
+      - 'tests/test_section41_integrated_mit_assets.py'
+  workflow_dispatch: {}
+permissions:
+  contents: read
+concurrency:
+  group: section41-offline-mit-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  exact-section41-assets:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+      - name: Verify exact checked-out SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: Execute exact asset, negative, design and UI semantics tests
+        run: |
+          python -m unittest -v tests.test_section41_integrated_mit_assets tests.test_revised_section41_tabler_core tests.test_section41_design_system tests.test_premium_visual_design
+      - name: Execute fixture focus, keyboard and copy DOM contract
+        shell: bash
+        run: |
+          node --check tests/js/section41_semantic_component_dom_test.js
+          node tests/js/section41_semantic_component_dom_test.js
+      - name: Rebuild bounded SPDX evidence from installed MIT assets
+        shell: bash
+        run: |
+          python -m tools.revised_section41_mit_asset_qualification --head "$(git rev-parse HEAD)" --output artifacts/section41-mit
+      - name: Retain exact-source audit artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: section41-offline-mit-${{ matrix.os }}
+          path: artifacts/section41-mit/*.json
+          if-no-files-found: error
