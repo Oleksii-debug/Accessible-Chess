@@ -61,6 +61,8 @@ class Section55LocalCLITests(unittest.TestCase):
             pef = (output / "chess-book-unverified.pef").read_bytes()
             brf = (output / "chess-book-unverified.brf").read_bytes()
             self.assertEqual(sha256(pef).hexdigest(), m["output_pef_sha256"])
+            self.assertEqual(sha256((root / "input.json").read_bytes()).hexdigest(), m["original_source_sha256"])
+            self.assertEqual((root / "input.json").stat().st_size, m["original_source_size_bytes"])
             self.assertEqual(sha256(brf).hexdigest(), m["output_brf_sha256"])
             self.assertIs(m["print_ready"], False)
             self.assertIs(m["brf_print_ready"], False)
