@@ -70,7 +70,7 @@ class HistoricalRetiProductTests(unittest.TestCase):
                     progress_store=BookProgressStore(root/"progress.json"),
                     engine_assistance=EngineAssistedWorkflowService(analysis),
                     board_dispatch=lambda *_: None,
-                    board_position_projector=lambda fen: {"fen": fen},
+                    board_position_projector=lambda fen: {"ok": True, "fen": fen},
                 )
                 try:
                     app.browser_command("shell","screen.books")
