@@ -1740,6 +1740,25 @@ def _validate_required_runtime_resources(
             ):
                 _fail("Section 41 packaged CSS has a remote/unsafe dependency")
 
+    # A linked professional design studio is a real runtime resource.
+    # Missing/substituted JS fails closed even with rewritten package checksums.
+    studio_link = b'<script src="section45_design_studio.js"></script>'
+    if b"section45_design_studio.js" in packed_index:
+        if packed_index.count(studio_link) != 1:
+            _fail("packaged Section 45 studio JS is not linked exactly once")
+        relative = "AccessibleChess/web/section45_design_studio.js"
+        script = _require_package_file(
+            root, inventory, relative, label="packaged Section 45 local design studio",
+        )
+        studio = _read_stable_bytes_file(
+            script, label="packaged Section 45 local script",
+            max_bytes=128 * 1024,
+        )
+        if (b"get_design_studio_state" not in studio
+            or b"save_design_studio_state" not in studio
+            or b"aria-expanded" not in studio):
+            _fail("packaged Section 45 studio has lost native bridge semantics")
+
     # Section 42: a shipping UI using the CC0 RhosGFX piece pack must
     # include all 12 exact original source files plus license/provenance.
     # A rewritten package checksum manifest must never legitimize tampering.

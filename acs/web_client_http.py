@@ -19,6 +19,7 @@ _JSON_TYPE = b"application/json; charset=utf-8"
 _HTML_TYPE = b"text/html; charset=utf-8"
 _JS_TYPE = b"text/javascript; charset=utf-8"
 _CSS_TYPE = b"text/css; charset=utf-8"
+_SVG_TYPE = b"image/svg+xml"
 _NO_STORE = (b"cache-control", b"no-store")
 _NOSNIFF = (b"x-content-type-options", b"nosniff")
 _REFERRER = (b"referrer-policy", b"no-referrer")
@@ -181,6 +182,30 @@ class AccessibleChessWebAsgi:
             if method == "GET" and path == "/assets/accessible_chess_web_design.css":
                 _trusted_principal(scope)
                 await _respond(send, 200, _asset_bytes("design_system.css"), _CSS_TYPE)
+                return
+            if method == "GET" and path == "/assets/section45_design_studio.js":
+                _trusted_principal(scope)
+                await _respond(send, 200, _asset_bytes("section45_design_studio.js"), _JS_TYPE)
+                return
+            if method == "GET" and path == "/assets/accessible_chess_design.css":
+                _trusted_principal(scope)
+                await _respond(send, 200, _asset_bytes("assets/accessible_chess_design.css"), _CSS_TYPE)
+                return
+            if method == "GET" and path == "/assets/board_overlay_renderer.js":
+                _trusted_principal(scope)
+                await _respond(send, 200, _asset_bytes("board_overlay_renderer.js"), _JS_TYPE)
+                return
+            if method == "GET" and type(path) is str and path.startswith("/assets/pieces/rhosgfx/"):
+                _trusted_principal(scope)
+                art_name = path[len("/assets/pieces/rhosgfx/"):]
+                allowed = {c + p + ".svg" for c in "wb" for p in "KQRBNP"}
+                if art_name not in allowed:
+                    raise WebClientHttpError(404, "Not found.")
+                await _respond(
+                    send, 200,
+                    _asset_bytes("assets/pieces/rhosgfx/" + art_name),
+                    _SVG_TYPE,
+                )
                 return
             if method == "GET" and path == "/v1/snapshot":
                 principal = _trusted_principal(scope)
