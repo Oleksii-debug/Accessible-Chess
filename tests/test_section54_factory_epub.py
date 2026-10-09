@@ -46,6 +46,17 @@ class FactoryEpubPreviewTests(unittest.TestCase):
             self.assertNotIn("<script>", page)
             self.assertIn("urn:sha256:", zf.read("OEBPS/package.opf").decode())
 
+    def test_epub_preview_reimports_with_accepted_canonical_spine(self) -> None:
+        from acs.book_epub_import import import_epub_book
+        book = BookDocument(title="My study", language="en",
+                            blocks=[Heading(text="Chapter One", level=1),
+                                    Paragraph(text="First canonical paragraph.")])
+        result = export_factory_epub3_preview(book, source_sha256=SHA, modified_utc=UTC)
+        imported = import_epub_book(result.output_bytes, source_name="private-preview.epub")
+        self.assertTrue(imported.document.blocks)
+        self.assertTrue(any("First canonical paragraph." in getattr(x, "text", "")
+                            for x in imported.document.blocks))
+
     def test_missing_chapters_get_accessible_fallback_navigation(self) -> None:
         book = BookDocument(title="Simple", language="uk", blocks=[Paragraph(text="Ласкаво просимо.")])
         a = export_factory_epub3_preview(book, source_sha256=SHA, modified_utc=UTC)
