@@ -12,6 +12,7 @@ from hashlib import sha256
 from acs.bookdocument import BookDocument, Paragraph
 from tools.section55_braille_pef import make_parser, run
 from acs.chess_braille_factory import BrailleFactoryError
+from acs.chess_braille_bundle import verify_provisional_bundle
 
 
 class SyntheticLouis(types.ModuleType):
@@ -201,6 +202,16 @@ class Section55LocalCLITests(unittest.TestCase):
             self.assertEqual(len(provenance["table_closure_sha256"]), 64)
             self.assertEqual(provenance["table_closure_status"],
                              "LOCAL_PIN_ONLY_NOT_LANGUAGE_CERTIFICATION")
+            completed = verify_provisional_bundle(
+                args.output_folder, args.book_json, table_file=args.table_file,
+            )
+            self.assertTrue(completed.table_inventory_verified)
+            nested.write_text("# Modified after package
+", encoding="utf-8")
+            with self.assertRaises(BrailleFactoryError):
+                verify_provisional_bundle(
+                    args.output_folder, args.book_json, table_file=args.table_file,
+                )
 
     def test_modified_included_table_during_translation_fails_closed(self):
         with tempfile.TemporaryDirectory() as tmp:
