@@ -11,6 +11,12 @@ const v2 = fs.readFileSync(path.join(root, "web/version2_final_product_bootstrap
 const start = html.indexOf("(function installAccessibleWorkspaceControls(){");
 const end = html.indexOf("\n})();", start);
 assert.ok(start > 0 && end > start, "must be installed into actual packaged index.html");
+assert.ok(end < html.indexOf("installSection43DialogFocusReturn", start),
+  "workspace IIFE must terminate independently before modal focus-return IIFE");
+assert.ok(html.includes('if(typeof MutationObserver==="function")'),
+  "existing language/heading rerenders must preserve focusable panel controls");
+assert.ok(html.includes('panel.heading.appendChild(panel.actions)'),
+  "bilingual textContent rerenders must reattach the original bound controls");
 const code = html.slice(start, end + 6);
 new vm.Script(code, { filename: "web/index.html:sections43-44" });
 const IDS = [
