@@ -84,9 +84,11 @@ def extract_member(archive: Path, member: str, destination: Path, *, max_bytes: 
                 os.fsync(sink.fileno())
             if written != entry.file_size:
                 raise ValueError("ZIP member size mismatch")
-        if destination.exists() or destination.is_symlink():
-            raise ValueError("destination appeared during extraction")
-        os.replace(temporary, destination)
+        # A second existence check followed by os.replace is racy and may
+        # overwrite an owner's file created concurrently. Hard-link the same-
+        # directory temporary file atomically: link refuses an existing name.
+        os.link(temporary, destination)
+        temporary.unlink()
         temporary = None
         return digest.hexdigest()
     finally:
