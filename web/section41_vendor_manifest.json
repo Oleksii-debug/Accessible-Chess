@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "section": 41,
+  "status": "PINNED_UPSTREAM_SELECTED_ASSETS",
+  "tabler": {
+    "project": "tabler/tabler",
+    "version": "@tabler/core@1.6.1",
+    "commit": "ec33733290bd0f314ca19f6be58bc69a6ab3e4fa",
+    "license": "MIT",
+    "origin": "core/scss/ui/_badges.scss",
+    "original_git_blob_sha1": "a29128215ce13d3ae74ced9534aaacfce65339a6",
+    "vendored_source": "web/tabler_badges_source.scss",
+    "derived_runtime_css": "web/tabler_subset.css",
+    "bootstrap_runtime_bundled": false
+  },
+  "tabler_icons": {
+    "project": "tabler/tabler-icons",
+    "version": "v3.49.0",
+    "commit": "bbed884d15354b5cebf2493371f20dc2d5e83eaf",
+    "license": "MIT",
+    "files": [
+      {
+        "source": "icons/outline/search.svg",
+        "path": "web/tabler-icons-search.svg",
+        "original_git_blob_sha1": "e894f96200eb75972169fc7c58be7df14ecb8645"
+      },
+      {
+        "source": "icons/outline/settings.svg",
+        "path": "web/tabler-icons-settings.svg",
+        "original_git_blob_sha1": "c94891403e451a07bf69053e98d1a57e424759fc"
+      }
+    ]
+  },
+  "license_notice": "web/SECTION41_THIRD_PARTY_NOTICES.txt",
+  "offline_no_cdn": true,
+  "prohibited_dependency_policy": "ApexCharts and Tabler Pro excluded; optional Radix Colors not bundled",
+  "runtime_dependency_list": [],
+  "provenance_scope": "Pinned MIT upstream sources and minimal local badge/icon adapter; existing Accessible Chess tokens and chess authority preserved."
+}

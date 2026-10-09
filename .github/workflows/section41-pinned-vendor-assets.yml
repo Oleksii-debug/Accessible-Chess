@@ -1,0 +1,34 @@
+name: Section 41 pinned offline Tabler assets
+on:
+  pull_request:
+    paths:
+      - 'web/index.html'
+      - 'web/tabler*'
+      - 'web/SECTION41_THIRD_PARTY_NOTICES.txt'
+      - 'web/section41_vendor_manifest.json'
+      - 'tests/test_section41_vendor_assets.py'
+      - '.github/workflows/section41-pinned-vendor-assets.yml'
+  push:
+    branches:
+      - 'work/section41-pinned-tabler-assets-20261009'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+      - name: Exact source and security validation
+        run: python -m py_compile tests/test_section41_vendor_assets.py
+      - name: Pinned upstream integrity, semantics, recovery and existing UI regression
+        run: python -m unittest -v tests.test_section41_vendor_assets tests.test_section41_design_system tests.test_premium_visual_design
