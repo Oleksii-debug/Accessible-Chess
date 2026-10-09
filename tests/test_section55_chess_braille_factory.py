@@ -111,6 +111,22 @@ class TestSection55ProvisionalPEF(unittest.TestCase):
         with self.assertRaises(BrailleFactoryError):
             prepare(BookDocument(title="Chess", blocks=[Paragraph(text="X" * 100)]))
 
+    def test_native_translation_is_never_invoked_for_oversized_segments(self) -> None:
+        class MustNotRun(SyntheticSixDotTranslator):
+            def translate(self, source: str) -> str:
+                if len(source) > 8192:
+                    raise AssertionError("Unbounded source reached translation")
+                return super().translate(source)
+        with self.assertRaises(BrailleFactoryError):
+            prepare(
+                BookDocument(title="Chess", blocks=[Paragraph(text="X" * 8193)]),
+                translator=MustNotRun(),
+            )
+
+    def test_source_control_characters_are_rejected_before_translation(self) -> None:
+        with self.assertRaises(BrailleFactoryError):
+            prepare(BookDocument(title="Chess", blocks=[Paragraph(text="A\u000bB")]))
+
     def test_book_structural_warning_not_silently_published(self) -> None:
         with self.assertRaises(BrailleFactoryError):
             prepare(BookDocument(title="Chess", blocks=[Paragraph(text="Text")],
