@@ -1,0 +1,47 @@
+{
+  "schema": "accessible-chess-section41-third-party-assets-v1",
+  "release_pinning": {
+    "tabler_icons": {
+      "name": "Tabler Icons",
+      "upstream": "https://github.com/tabler/tabler-icons",
+      "release_tag": "v3.49.0",
+      "commit_sha": "bbed884d15354b5cebf2493371f20dc2d5e83eaf",
+      "license": "MIT",
+      "license_source": "web/assets/tabler/LICENSE",
+      "original_license_blob_sha1": "3e82379dab3fe93d9ee22251949604ed63ddea39",
+      "assets": [
+        {
+          "installed": "web/assets/tabler/chess-rook.svg",
+          "original": "icons/outline/chess-rook.svg",
+          "git_blob_sha1": "accb4f7b7ea39eb1a023b6e2ad8589453fcdb305",
+          "bytes": 575
+        },
+        {
+          "installed": "web/assets/tabler/adjustments.svg",
+          "original": "icons/outline/adjustments.svg",
+          "git_blob_sha1": "ef63f0fb0065937722a5ffd59cc5355b96b38045",
+          "bytes": 670
+        }
+      ]
+    },
+    "tabler_core": {
+      "name": "Tabler Core",
+      "upstream": "https://github.com/tabler/tabler",
+      "release_tag": "@tabler/core@1.6.1",
+      "license": "MIT",
+      "integration_status": "REVIEWED_CSS_COMPONENT_ONLY",
+      "scope": "Use only explicitly reviewed isolated components; never import all bundled dist/libs automatically",
+      "source_commit": "ec33733290bd0f314ca19f6be58bc69a6ab3e4fa",
+      "source_component": "core/scss/layout/_accessibility.scss",
+      "reviewer_note": "Only original pinned MIT accessibility SCSS manually compiled to dependency-free CSS; full Tabler Core/Bootstrap JS not installed."
+    }
+  },
+  "prohibited": [
+    "@tabler/pro",
+    "apexcharts",
+    "non-MIT unvetted bundles",
+    "remote CDN styles/scripts"
+  ],
+  "ui_authority": "One existing canonical HTML/WebView2 surface and domain core",
+  "acceptance": "Source SHA checked independently; no claim full Section41 or NVDA manual PASS"
+}
