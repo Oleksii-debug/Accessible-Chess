@@ -1,6 +1,4 @@
 # Accessible-Chess
-
-**Поточний план робіт — тільки Sections 0–53; останній номер 53.** Назви та відповідність номерів зафіксовано в [CURRENT_SECTION_INDEX_0_53.md](CURRENT_SECTION_INDEX_0_53.md). Канонічні вимоги: [ACCESSIBLE CHESS — SECTION PLAN ДО ПОВНІСТЮ ЗАВЕРШЕНОГО ПРОДУКТУ](https://docs.google.com/document/d/1ITsUBFwwETRICctcOWLd6atuMcCFZg6v5-wVFumIyxE/edit). Для фактичних статусів DONE: [SEQUENTIAL_CLOSURE_STATE.md](SEQUENTIAL_CLOSURE_STATE.md). Використовувати лише ці поточні номери для задач, PR, назв розділів і звітів.
 Accessible chess platform with Windows/NVDA-first desktop support and a binding future accessible Web edition.
 
 Canonical product truth:
