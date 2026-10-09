@@ -63,6 +63,19 @@ class TestSection55ProvisionalPEF(unittest.TestCase):
         self.assertEqual(len(produced.manifest["output_pef_sha256"]), 64)
         self.assertTrue(produced.warnings)
 
+    def test_multiline_chess_text_preserves_blank_row_in_pef(self) -> None:
+        # PGN tags and comments regularly contain line boundaries; these must
+        # not be passed raw into a six-dot Unicode translator.
+        item = BookDocument(title="Chess",
+                            blocks=[Paragraph(text="First line\n\nSecond line")])
+        produced = prepare(item)
+        root = ET.fromstring(produced.pef)
+        namespace = {"pef": "http://www.daisy.org/ns/2008/pef"}
+        rows = [el.text for el in root.findall(".//pef:row", namespace)]
+        self.assertIn("\u2800", rows)
+        self.assertEqual(rows.count("\u2800"), 1)
+        self.assertIs(produced.manifest["print_ready"], False)
+
     def test_reproducible_snapshot(self) -> None:
         first, second = prepare(), prepare()
         self.assertEqual(first.pef, second.pef)
