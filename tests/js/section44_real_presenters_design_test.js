@@ -29,7 +29,7 @@ function cssSelector(literal, label) {
 }
 
 present(html, ["main-content", "move-input", "board-grid"], "Windows canonical host");
-present(bootstrap, ["v2-workspace", "renderProductSurface", "fullProduct"], "V2 product bootstrap");
+present(bootstrap, ["v2-workspace", "renderProductSurface", "renderNavigation("], "V2 product bootstrap");
 present(css, ["#v2-workspace", "--ac41-ink", "forced-colors:active", "prefers-reduced-motion:reduce"], "Offline design system");
 assert.equal(/@import\s+url\(\s*["']?https?:/i.test(css), false, "Visual layer must remain offline");
 
@@ -76,7 +76,7 @@ assert.match(css, /#v2-workspace #teacher-visual-board button\[data-square\]:foc
 
 present(webHtml, ['id="workspace"', 'id="routes"', 'id="status"', 'id="error"',
   'role="status"', 'role="alert"'], "Actual Web application");
-present(webClient, ["setRoute(", "fetch(", 'byId("workspace")',
+present(webClient, ["setRouteButtons(", "fetch(", 'byId("workspace")',
   'byId("content")'], "Real Web commands and status");
 for (const selector of ["#workspace", "#routes", "#workspace iframe",
   "#v2-workspace iframe", "@media(max-width:38rem)"]) cssSelector(selector, "Web/media");
