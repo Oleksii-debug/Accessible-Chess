@@ -130,14 +130,14 @@
       "author": "Edward Lasker; translated by J. Du Mont",
       "format": "epub3/html/txt",
       "source_page": "https://www.gutenberg.org/ebooks/5614",
-      "download_url": null,
+      "download_url": "https://www.gutenberg.org/ebooks/5614.epub3.images",
       "sha256": null,
       "max_bytes": 16777216,
       "license": "US public domain per Project Gutenberg; local jurisdiction and trademark terms require review",
       "redistribution": "NOT_CLEARED",
-      "acquisition": "SOURCE_PAGE_ONLY",
+      "acquisition": "OFFICIAL_DIRECT_EPUB3_LINK_VERIFIED_BYTES_NOT_ACQUIRED",
       "canonical_qa": "BookDocument reader after separately verified lawful acquisition",
-      "notes": "Official Gutenberg listing offers EPUB3, HTML and plain text; no byte download, format import or redistribution approval claimed"
+      "notes": "Official Gutenberg listing offers EPUB3, HTML and plain text; no byte download, format import or redistribution approval claimed Official Project Gutenberg page directly links to https://www.gutenberg.org/ebooks/5614.epub3.images (verified 2026-10-09). Binary fetch was unsupported (application/epub+zip); original bytes, SHA-256, canonical import/restart and redistribution clearance remain unverified."
     },
     {
       "id": "gutenberg_blue_book_chess_staunton",
@@ -170,14 +170,14 @@
       "author": "Edward Lasker",
       "format": "epub3/html/txt",
       "source_page": "https://www.gutenberg.org/ebooks/4913",
-      "download_url": null,
+      "download_url": "https://www.gutenberg.org/ebooks/4913.epub3.images",
       "sha256": null,
       "max_bytes": 16777216,
       "license": "US public domain per Project Gutenberg; local jurisdiction and trademark terms require review",
       "redistribution": "NOT_CLEARED",
-      "acquisition": "SOURCE_PAGE_ONLY",
+      "acquisition": "OFFICIAL_DIRECT_EPUB3_LINK_VERIFIED_BYTES_NOT_ACQUIRED",
       "canonical_qa": "BookDocument reader after separately verified lawful acquisition",
-      "notes": "Official Gutenberg beginner and instructional source; not downloaded, not a ChessBase-format sample"
+      "notes": "Official Gutenberg beginner and instructional source; not downloaded, not a ChessBase-format sample Official Project Gutenberg page directly links to https://www.gutenberg.org/ebooks/4913.epub3.images (verified 2026-10-09). Binary fetch was unsupported (application/epub+zip); original bytes, SHA-256, canonical import/restart and redistribution clearance remain unverified."
     },
     {
       "id": "gutenberg_szachy_warcaby_polish",
