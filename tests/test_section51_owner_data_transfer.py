@@ -3,6 +3,7 @@ from __future__ import annotations
 """Narrow Section-51 owner-data export/import behavioral acceptance tests."""
 
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -120,6 +121,25 @@ class OwnerDataTransferTests(unittest.TestCase):
             with self.assertRaisesRegex(UserDataTransferError, "already exists"):
                 import_owner_profile(exported, target)
             self.assertEqual((target / "owner.txt").read_bytes(), b"preserve")
+
+    def test_symlinked_source_data_directory_is_refused_before_publication(self):
+        if not hasattr(os, "symlink"):
+            self.skipTest("symlink API unavailable")
+        with tempfile.TemporaryDirectory() as td:
+            parent = Path(td)
+            source = self._source(parent)
+            exported = export_owner_profile(UserDataLayout(source))
+            old = exported / "data" / "media"
+            moved = exported / "data" / "moved-media"
+            old.rename(moved)
+            try:
+                old.symlink_to(moved, target_is_directory=True)
+            except (OSError, NotImplementedError):
+                self.skipTest("symlink creation unavailable on this host")
+            destination = parent / "fresh-owner"
+            with self.assertRaises(UserDataTransferError):
+                import_owner_profile(exported, destination)
+            self.assertFalse(destination.exists())
 
     def test_publication_race_never_overwrites_foreign_new_profile(self):
         with tempfile.TemporaryDirectory() as td:
