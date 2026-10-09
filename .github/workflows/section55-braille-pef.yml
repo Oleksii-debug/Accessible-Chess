@@ -1,0 +1,33 @@
+name: Section 55 Braille PEF foundation
+on:
+  pull_request:
+    paths:
+      - "acs/chess_braille_factory.py"
+      - "tests/test_section55_chess_braille_factory.py"
+      - ".github/workflows/section55-braille-pef.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "acs/chess_braille_factory.py"
+      - "tests/test_section55_chess_braille_factory.py"
+      - ".github/workflows/section55-braille-pef.yml"
+  workflow_dispatch:
+jobs:
+  provisional-pef:
+    name: Fail-closed synthetic PEF tests (not device qualification)
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: \${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Check syntax
+        run: python -m compileall -q acs/chess_braille_factory.py tests/test_section55_chess_braille_factory.py
+      - name: Run synthetic structural and negative-path tests
+        run: python -m unittest tests.test_section55_chess_braille_factory -v
