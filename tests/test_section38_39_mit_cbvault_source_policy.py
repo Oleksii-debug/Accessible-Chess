@@ -124,52 +124,72 @@ class MITCbvaultNoFalsePassTests(unittest.TestCase):
                 child.wait.assert_called_once()
                 child.kill.assert_not_called()
 
-    def test_external_decoder_stdout_is_file_bounded_and_exact_bytes(self):
+    def test_external_decoder_pgn_file_is_bounded_and_exact_bytes(self):
         import os
         from unittest.mock import MagicMock
         with tempfile.TemporaryDirectory() as tmp:
             binary, source = Path(tmp) / "safe-decoder", Path(tmp) / "original.cbh"
             binary.write_bytes(b"stub")
             source.write_bytes(b"original")
-            exact = b'[Event "Original expert"]\n\n1. e4 e5 *\n'
+            exact = b'[Event "Original expert"]\\n\\n1. e4 e5 *\\n'
             observed = []
 
-            def safe_stub(args, **kwargs):
+            def complete_child(args, **kwargs):
                 self.assertIsNot(kwargs["stdout"], m.subprocess.PIPE)
                 self.assertIsNot(kwargs["stderr"], m.subprocess.PIPE)
                 self.assertIs(kwargs["shell"], False)
+                self.assertEqual(tuple(args[:3]), (str(binary), "pgn", str(source)))
+                self.assertEqual(len(args), 4, "cbvault requires an explicit PGN output path")
+                self.assertEqual(Path(args[3]).suffix, ".pgn")
                 observed.append(tuple(args))
+                child = MagicMock()
+                child.poll.return_value = 0
+                child.returncode = 0
+                return child
+
+            def real_file_stub(args, **kwargs):
+                Path(args[3]).write_bytes(exact)
+                return complete_child(args, **kwargs)
+
+            with patch.object(m.subprocess, "Popen", side_effect=real_file_stub):
+                self.assertEqual(m._run_external_pgn(binary, source), exact)
+            self.assertEqual(len(observed), 1)
+
+            def misleading_stdout_only(args, **kwargs):
                 kwargs["stdout"].write(exact)
                 kwargs["stdout"].flush()
-                child = MagicMock()
-                child.poll.return_value = 0
-                child.returncode = 0
-                return child
+                return complete_child(args, **kwargs)
 
-            with patch.object(m.subprocess, "Popen", side_effect=safe_stub):
-                self.assertEqual(m._run_external_pgn(binary, source), exact)
-            self.assertEqual(observed, [(str(binary), "pgn", str(source))])
+            # A zero-exit CLI writing only logging text to stdout is never an
+            # independently decoded original game.
+            with patch.object(m.subprocess, "Popen", side_effect=misleading_stdout_only):
+                with self.assertRaisesRegex(LawfulCorpusError, "no bounded complete PGN"):
+                    m._run_external_pgn(binary, source)
 
             def oversized_stub(args, **kwargs):
-                os.ftruncate(kwargs["stdout"].fileno(), m._MAX_PGN + 1)
-                child = MagicMock()
-                child.poll.return_value = 0
-                child.returncode = 0
-                return child
+                with Path(args[3]).open("wb") as stream:
+                    stream.truncate(m._MAX_PGN + 1)
+                return complete_child(args, **kwargs)
 
             with patch.object(m.subprocess, "Popen", side_effect=oversized_stub):
                 with self.assertRaisesRegex(LawfulCorpusError, "bounded complete PGN"):
                     m._run_external_pgn(binary, source)
 
             def stderr_bomb(args, **kwargs):
+                Path(args[3]).write_bytes(exact)
                 os.ftruncate(kwargs["stderr"].fileno(), 1024 * 1024 + 1)
-                child = MagicMock()
-                child.poll.return_value = 0
-                child.returncode = 0
-                return child
+                return complete_child(args, **kwargs)
 
             with patch.object(m.subprocess, "Popen", side_effect=stderr_bomb):
                 with self.assertRaisesRegex(LawfulCorpusError, "bounded complete PGN"):
+                    m._run_external_pgn(binary, source)
+
+            def directory_attack(args, **kwargs):
+                Path(args[3]).mkdir()
+                return complete_child(args, **kwargs)
+
+            with patch.object(m.subprocess, "Popen", side_effect=directory_attack):
+                with self.assertRaisesRegex(LawfulCorpusError, "unsafe PGN output"):
                     m._run_external_pgn(binary, source)
 
     def test_external_decoder_timeout_kills_child_without_publication(self):
