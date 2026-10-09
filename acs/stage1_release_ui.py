@@ -160,6 +160,45 @@ class Stage1ReleaseAccessibleChessAPI(_core.Stage1ReleaseAccessibleChessAPI):
             return {"ok": False}
         return {"ok": True, "layout": value}
 
+    # Section 45: shared Windows/Web design-profile payload through the one
+    # existing Settings authority; no new storage, board, or chess-rule owner.
+    def get_design_studio_state(self) -> dict[str, Any]:
+        from .section45_design_profiles import PRESETS, read_store
+
+        settings = getattr(self, "_settings", None)
+        if not self._settings_persistence_available(settings):
+            return {"ok": False, "reason": "settings_unavailable"}
+        # Do not rewrite an unreadable or corrupt existing private settings
+        # file with guessed defaults; retain the bytes for explicit recovery.
+        if str(getattr(settings, "warning", "")).startswith("settings recovery:"):
+            return {"ok": False, "reason": "settings_corrupt_requires_recovery"}
+        try:
+            raw = settings.get("design_profiles_json")
+            store = read_store(raw)
+            from hashlib import sha256
+            revision = sha256(raw.encode("utf-8")).hexdigest()
+            return {"ok": True, "store": store, "revision": revision, "presets": PRESETS}
+        except (ValueError, TypeError, AttributeError):
+            return {"ok": False, "reason": "invalid_saved_profiles"}
+
+    def save_design_studio_state(
+        self, store: object, expected_revision: object
+    ) -> dict[str, Any]:
+        from .section45_design_profiles import serialize_store
+
+        previous = self.get_design_studio_state()
+        if not previous.get("ok"):
+            return previous
+        if type(expected_revision) is not str or expected_revision != previous["revision"]:
+            return {"ok": False, "reason": "stale_revision", "conflict": True}
+        try:
+            encoded = serialize_store(store)
+            self._settings.set("design_profiles_json", encoded)
+        except Exception:
+            _core._LOG.exception("Design studio settings could not be saved")
+            return {"ok": False, "reason": "save_failed"}
+        return self.get_design_studio_state()
+
     @staticmethod
     def _binding_context(value: object) -> str:
         raw = getattr(value, "value", value)

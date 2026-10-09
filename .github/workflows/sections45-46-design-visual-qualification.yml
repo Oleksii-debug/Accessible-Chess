@@ -1,0 +1,89 @@
+name: Sections 45-46 Design Studio and Visual Quality Qualification
+on:
+  push:
+    branches:
+      - feature/section45-46-design-studio-qa-20261008
+  pull_request:
+    branches:
+      - feature/sections43-44-workspace-skin-20261008
+  workflow_dispatch: {}
+permissions:
+  contents: read
+
+# One exact source per branch; a stream of new commits must not retain
+# stale queued duplicate runs that consume the shared repository workers.
+concurrency:
+  group: sections45-46-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  section45-section46-contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Source identity and diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          git diff --check HEAD
+      - name: Compile existing canonical settings and design studio
+        run: |
+          python -m py_compile acs/section45_design_profiles.py acs/settings.py acs/stage1_release_ui.py acs/web_client_http.py acs/version2_package_preflight.py tests/test_section45_design_profiles.py tests/test_section46_visual_contracts.py tools/section46_visual_quality_browser.py tools/section46_baseline_diff.py tests/test_section46_baseline_provenance.py
+      - name: Qualified native profiles, recovery and served web assets
+        run: |
+          python -m unittest -v tests.test_section45_design_profiles tests.test_section45_package_studio_asset tests.test_section46_visual_contracts tests.test_section46_baseline_provenance tests.test_sections43_44_native_layout_persistence tests.test_section34_web_client tests.test_settings tests.test_settings_corruption_security
+      - name: Node script syntax and real existing DOM actions
+        run: |
+          node --check web/section45_design_studio.js
+          node --check web/accessible_chess_web.js
+          node --check tests/js/section45_design_studio_dom_test.js
+          node tests/js/section45_design_studio_dom_test.js
+          node --check tests/js/section45_web_board_profile_integration_test.js
+          node tests/js/section45_web_board_profile_integration_test.js
+          node tests/js/sections43_44_workspace_contract_test.js
+          node --check tests/js/section42_overlay_runtime_test.js
+          node tests/js/section42_overlay_runtime_test.js
+          node --check tests/js/section42_route_scope_runtime_test.js
+          node tests/js/section42_route_scope_runtime_test.js
+      - name: Retain existing accessible Windows WebView application contracts
+        run: |
+          python -m unittest -v tests.test_accessible_webui tests.test_section34_web_client tests.test_nvda_p0_contract tests.test_stage1_webview2_accessibility_boundary tests.test_section15_visual_board_contract tests.test_section42_board_palette_contrast
+
+  section46-browser-screenshots-axe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Browser and axe dependencies (isolated non-product CI tooling)
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save --package-lock=false --ignore-scripts --no-audit --no-fund axe-core@4.10.3
+          python -m pip install 'playwright==1.55.0'
+          python -m playwright install --with-deps chromium
+      - name: Actual HTML browser snapshots, accessibility, DPI and keyboard focus
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/section46_visual_quality_browser.py --output section46-visual-report
+      - name: Upload all captured screenshots and violations without calling them approved
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: section46-unapproved-visual-matrix-${{ github.run_id }}
+          path: section46-visual-report/
+          if-no-files-found: warn

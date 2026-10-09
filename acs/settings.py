@@ -28,6 +28,7 @@ DEFAULTS: dict[str, Any] = {
     # WebView2 runs in private mode: ephemeral localStorage alone is not durable.
     "workspace_layout_json": '{"version":1,"collapsed":[],"sizes":{},"density":"comfortable","layout":"auto"}',
     "product_layout_json": '{"version":1,"routes":{}}',
+    "design_profiles_json": '{"version":1,"selected":"Classic","profiles":{}}',
     "newgame_animation": True,
     "volume": 80,
     "tick_policy": "my_turn",
@@ -512,6 +513,14 @@ def _validated_value(key: str, value: Any) -> Any:
         if any(type(name) is not str for name in parsed):
             raise SettingsError("UI-only layout profile keys are invalid")
         return value
+    if key == "design_profiles_json":
+        from .section45_design_profiles import read_store, serialize_store
+        if type(value) is not str:
+            raise SettingsError("design profiles must be JSON text")
+        try:
+            return serialize_store(read_store(value))
+        except ValueError as exc:
+            raise SettingsError("invalid design profile store") from exc
     if key == "engine_path":
         if type(value) is not str:
             raise SettingsError("engine_path must be a string")

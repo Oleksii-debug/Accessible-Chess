@@ -1734,6 +1734,28 @@ def _validate_required_runtime_resources(
         label="packaged HTML theme entrypoint",
         max_bytes=4 * 1024 * 1024,
     )
+    # If the Windows page advertises a Section 45 studio, the shipped
+    # same-volume script must exist and contain its versioned bridge.
+    # Historical package fixtures with no Section 45 link remain valid.
+    studio_link = b'<script src="section45_design_studio.js"></script>'
+    if b"section45_design_studio.js" in index_bytes:
+        if index_bytes.count(studio_link) != 1:
+            _fail("packaged Section 45 studio JS is not linked exactly once")
+        relative = "AccessibleChess/web/section45_design_studio.js"
+        _require_package_file(
+            root, inventory, relative,
+            label="packaged Section 45 local design studio",
+        )
+        studio = _read_stable_bytes_file(
+            root / relative,
+            label="packaged Section 45 local script",
+            max_bytes=128 * 1024,
+        )
+        if (b"get_design_studio_state" not in studio
+            or b"save_design_studio_state" not in studio
+            or b"aria-expanded" not in studio):
+            _fail("packaged Section 45 studio has lost native bridge semantics")
+
     design_link = b'<link rel="stylesheet" href="assets/accessible_chess_design.css">'
     if b'assets/accessible_chess_design.css' in index_bytes:
         if index_bytes.count(design_link) != 1:

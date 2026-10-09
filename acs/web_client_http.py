@@ -29,6 +29,7 @@ _LOCAL_VISUAL_ASSETS: dict[str, tuple[str, bytes]] = {
     "/assets/tabler/chess-rook.svg": ("assets/tabler/chess-rook.svg", _SVG_TYPE),
     "/assets/tabler/adjustments.svg": ("assets/tabler/adjustments.svg", _SVG_TYPE),
     "/assets/board_overlay_renderer.js": ("board_overlay_renderer.js", _JS_TYPE),
+    "/assets/section45_design_studio.js": ("section45_design_studio.js", _JS_TYPE),
 }
 for _color in ("w", "b"):
     for _piece in ("K", "Q", "R", "B", "N", "P"):
