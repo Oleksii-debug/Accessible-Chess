@@ -32,18 +32,18 @@ function Get-Controls($owner, $condition) {
   $found = $owner.FindAll([System.Windows.Automation.TreeScope]::Descendants,$condition)
   $list = @()
   for($i=0;$i -lt $found.Count;$i++){$list += ,$found.Item($i)}
-  return ,$list
+  return $list
 }
 function Get-Name($control) {
   try { return [string]$control.Current.Name } catch { return '' }
 }
 function Get-Toggles($owner) {
-  return ,@(Get-Controls $owner $buttonCondition | Where-Object {
+  return @(Get-Controls $owner $buttonCondition | Where-Object {
     (Get-Name $_) -match '( — | - )(Згорнути|Collapse)$'
   })
 }
 function Get-Expands($owner) {
-  return ,@(Get-Controls $owner $buttonCondition | Where-Object {
+  return @(Get-Controls $owner $buttonCondition | Where-Object {
     (Get-Name $_) -match '( — | - )(Розгорнути|Expand)$'
   })
 }
@@ -85,7 +85,7 @@ if($null -ne $owner){
   $edits=@(Get-Controls $owner $editCondition)
   $editNames=@($edits | ForEach-Object {Get-Name $_})
   $checks.native_move_edit_discovered = @($editNames | Where-Object {
-    $_ -match '(^|\\s)(Хід|Move)($|\\s|:)'
+    $_ -match 'Хід|Move'
   }).Count -ge 1
   $rect=$owner.Current.BoundingRectangle
   $windowBounds=[ordered]@{x=[int]$rect.X;y=[int]$rect.Y;width=[int]$rect.Width;height=[int]$rect.Height}
