@@ -141,11 +141,11 @@ def _sniff_text(source: bytes) -> str:
     # begin with semantic elements rather than a full <html> wrapper.  Require
     # a specific HTML root/fragment marker; generic XML must never be
     # silently reclassified as a book HTML document.
-    html_start = re.sub(r"^(?:<!--.{0,1024}?-->\\s*){0,3}", "", stripped, flags=re.DOTALL)
-    html_start = re.sub(r"^<\\?xml\\s+[^>]{1,512}\\?>\\s*", "", html_start)
+    html_start = re.sub(r"^(?:<!--.{0,1024}?-->\s*){0,3}", "", stripped, flags=re.DOTALL)
+    html_start = re.sub(r"^<\?xml\s+[^>]{1,512}\?>\s*", "", html_start)
     if re.match(
-        r"^(?:<!doctype\\s+html\\b|<(?:html|head|body|main|article|"
-        r"section|div|h[1-6]|p|ul|ol|pre|blockquote|table)\\b)",
+        r"^(?:<!doctype\s+html\b|<(?:html|head|body|main|article|"
+        r"section|div|h[1-6]|p|ul|ol|pre|blockquote|table)\b)",
         html_start,
     ):
         return "html"
