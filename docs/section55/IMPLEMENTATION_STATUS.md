@@ -72,3 +72,11 @@ All results are UNVERIFIED_REQUIRES_DECISION; no print-ready certification is al
 - Added tests/test_section55_liblouis_tables.py and expanded local CLI tests for legitimate recursive includes, cycles/traversal/symlinks, unsupported binary files, changed nested dependency during/after generation, source/page/BRF consistency. Updated 2-OS scoped Actions.
 - Fixed platform-native Path type rejection in verifier and multiline source/PGN blank-line PEF handling.
 - A draft GitHub PR is not a released product; GitHub Actions jobs remained queued at the last observation, and real chess Braille codes, physical paper/embosser, publisher rights, independent reader proof, eBraille, OCR, full queue/product integration remain open. **0/16 DONE.**
+
+## Fourth continuation checkpoint — bounded local batch queue
+
+- Added tools/section55_batch.py, a local crash-replay-aware batch worker with a single immutable queue JSON revision (SHA-256), at most 32 jobs, at most 1–4 NEW jobs per invocation, unique safe job output folders, private exclusive worker lock, atomic and fsynced completion journal and exact SHA re-verification of any previously published output.
+- The worker refuses changed source books, stale or altered Liblouis dependency closure, incomplete package, tampered journal, unknown job IDs, changed queue hash, concurrent lock and accidental overwrite. It can re-attach a package already published before a journal checkpoint. A stale crash lock requires manual process verification before removal.
+- Added tests/test_section55_batch.py for bounded two-run processing, re-entry without duplication, crash between publication and journal, journal and queue tampering, damaged files, stale lock and unsafe job IDs. Updated GitHub Actions matrix and documented the exact commands in docs/section55/LOCAL_BATCH_RECOVERY.md.
+- This is a local, offline batch prototype, not a production cloud agent; there are no paid model requests or assumed input/output model-token budgets. Physical, chess-code, licensing, proofreading, accessible UI, OCR/eBraille, real corpus and end-to-end qualifications remain open.
+- Last authoritative status: Section 55 is ACTIVE / PARTIAL / NOT DONE; no subsections can be marked DONE from synthetic tests alone.
