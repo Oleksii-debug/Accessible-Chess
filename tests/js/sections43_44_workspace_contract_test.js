@@ -176,6 +176,52 @@ const key = "accessible-chess.workspace-layout.v1";
   assert.ok(html.includes("installSection43DialogFocusReturn"));
   assert.ok(html.includes('["engine-game-dialog","engine-play-open"]'));
 }
+// Execute the actual dialog close-focus code with a minimal DOM fixture.
+{
+  const modalStart = html.indexOf("(function installSection43DialogFocusReturn(){");
+  const modalEnd = html.indexOf("\n})();", modalStart);
+  assert.ok(modalStart > 0 && modalEnd > modalStart, "real dialog focus script must be embedded");
+  const script = html.slice(modalStart, modalEnd + 6);
+  new vm.Script(script);
+  const body = {id:"document-body"};
+  const elements = {};
+  const document = {
+    body,
+    activeElement: body,
+    getElementById(id) { return elements[id] || null; }
+  };
+  const dialogIds = ["keymap-dialog","help-dialog","engine-game-dialog"];
+  const openerIds = ["open-keymap","open-help","engine-play-open"];
+  for (let i=0; i<dialogIds.length; i++) {
+    const dlg={id:dialogIds[i], handlers:{}, contains(x){return x===this;},
+      addEventListener(name, fn){this.handlers[name]=fn;}};
+    const opener={id:openerIds[i],hidden:false,disabled:false,
+      focus(){document.activeElement=this;}};
+    elements[dlg.id]=dlg;
+    elements[opener.id]=opener;
+  }
+  vm.runInNewContext(script,{document}, {timeout:1500});
+  for (let i=0; i<dialogIds.length; i++) {
+    const dlg=elements[dialogIds[i]],opener=elements[openerIds[i]];
+    assert.equal(typeof dlg.handlers.close,"function");
+    document.activeElement=body;
+    dlg.handlers.close();
+    assert.equal(document.activeElement,opener,"closed dialog returns focus to correct opener");
+    const external={id:"selected-route-after-success"};
+    document.activeElement=external;
+    dlg.handlers.close();
+    assert.equal(document.activeElement,external,"intentional external focus must not be stolen");
+    opener.hidden=true;
+    document.activeElement=body;
+    dlg.handlers.close();
+    assert.equal(document.activeElement,body,"hidden opener must not receive focus");
+    opener.hidden=false;
+    opener.disabled=true;
+    dlg.handlers.close();
+    assert.equal(document.activeElement,body,"disabled opener must not receive focus");
+    opener.disabled=false;
+  }
+}
 // User-facing keyboard layout choices persist; corrupt/bad storage fails closed.
 {
   const app = mount();
