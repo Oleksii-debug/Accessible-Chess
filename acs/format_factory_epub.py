@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from hashlib import sha256
 from html import escape
 from io import BytesIO
+import json
 import re
 from xml.etree import ElementTree as ET
 from zipfile import ZIP_DEFLATED, ZIP_STORED, ZipFile, ZipInfo
@@ -70,6 +71,12 @@ def export_factory_epub3_preview(
         raise FactoryExportError("EPUB3 language needs a qualified source code")
     title = escape(wire["title"])
     lang = escape(language, quote=True)
+    # The source alone is not the edition: two selected chapter subsets must
+    # never share a publication identity. Stable full semantic wire fingerprint
+    # keeps repeated preview builds idempotent across restarts.
+    wire_digest = sha256(json.dumps(wire, ensure_ascii=False, sort_keys=True,
+                                    separators=(",", ":")).encode("utf-8")).hexdigest()
+    publication_digest = sha256((digest + ":" + wire_digest).encode("ascii")).hexdigest()
     pieces: list[str] = []
     toc: list[str] = []
     losses: list[str] = []
@@ -105,7 +112,7 @@ def export_factory_epub3_preview(
         '<?xml version="1.0" encoding="utf-8"?>'
         f'<package xmlns="{_OPF}" version="3.0" unique-identifier="pub-id" '
         f'xml:lang="{lang}"><metadata xmlns:dc="{_DC}">'
-        f'<dc:identifier id="pub-id">urn:sha256:{digest}</dc:identifier>'
+        f'<dc:identifier id="pub-id">urn:sha256:{publication_digest}</dc:identifier>'
         f'<dc:title>{title}</dc:title><dc:language>{lang}</dc:language>'
         f'<meta property="dcterms:modified">{modification}</meta>'
         '</metadata><manifest>'
