@@ -140,13 +140,30 @@ def import_owner_profile(backup: str | Path, destination: str | Path) -> str:
         for entry in manifest["entries"]:
             relative = PurePosixPath(entry["path"])
             copied = stage.joinpath(*relative.parts)
+            source_file = data.joinpath(*relative.parts)
+            # Check every parent component, not merely the leaf file: a
+            # symlink/reparse directory must not redirect an owner's export.
+            parents = [data]
+            for component in relative.parts[:-1]:
+                parents.append(parents[-1] / component)
+            before = []
+            for parent in parents:
+                _plain_directory(parent, label="transfer data parent")
+                info = _safe_stat(parent, "transfer data parent")
+                before.append((info.st_dev, info.st_ino))
             _stable_copy(
-                data.joinpath(*relative.parts),
+                source_file,
                 copied,
                 expected_size=entry["size"],
                 expected_sha256=entry["sha256"],
             )
-            count += 1
+            for parent, identity in zip(parents, before):
+                _plain_directory(parent, label="transfer data parent")
+                info = _safe_stat(parent, "transfer data parent")
+                if (info.st_dev, info.st_ino) != identity:
+                    raise UserDataTransferError(
+                        "transfer source directories changed during import"
+                    )
 
         # This executes precisely the product's existing Settings/ACSDB upgrade
         # logic, including its checksum-guarded backup and crash recovery.
