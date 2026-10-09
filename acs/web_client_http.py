@@ -197,7 +197,7 @@ class AccessibleChessWebAsgi:
                 return
             if method == "GET" and type(path) is str and path.startswith("/assets/pieces/rhosgfx/"):
                 _trusted_principal(scope)
-                art_name = path.rsplit("/", 1)[-1]
+                art_name = path[len("/assets/pieces/rhosgfx/"):]
                 allowed = {c + p + ".svg" for c in "wb" for p in "KQRBNP"}
                 if art_name not in allowed:
                     raise WebClientHttpError(404, "Not found.")
