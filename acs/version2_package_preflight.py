@@ -190,6 +190,7 @@ _REQUIRED_WEB_FILES = (
     "AccessibleChess/web/index.html",
     "AccessibleChess/web/design_system.css",
     "AccessibleChess/web/board_themes.css",
+    "AccessibleChess/web/visual_profile_transfer.js",
     "AccessibleChess/web/youtube_iframe_adapter.js",
     "AccessibleChess/web/video_board_sync.js",
     "AccessibleChess/web/ai_voice.js",
