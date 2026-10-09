@@ -165,7 +165,16 @@
       "external_license_checkout_path": "blue/LICENSE",
       "external_license_git_blob": "8d062dda262bcdc42d45b861bd796117feb6d0fe",
       "external_license_indexed_bytes": 17504,
-      "external_license_sha256": "1e301e03fb28addf6ad03d42b1429e87679013d1ee7e141c7c968fbef0ad961d"
+      "external_license_sha256": "1e301e03fb28addf6ad03d42b1429e87679013d1ee7e141c7c968fbef0ad961d",
+      "original_text_sha256_readback": {
+        "status": "VERIFIED_GITENBERG_ORIGINAL_UTF8_BYTES_TEST_ONLY",
+        "observed_date": "2026-10-09",
+        "evidence": "docs/corpus/SECTION37_GITENBERG_ORIGINAL_TEXT_SHA256_READBACK_20261009.json",
+        "checks": "EXACT_GIT_BLOB_AND_SHA256_AND_UTF8_BYTES_3_OF_3",
+        "semantic_book_import": "NOT_RUN",
+        "publisher_current_bytes": "NOT_TESTED",
+        "public_release": "EXCLUDED"
+      }
     },
     {
       "id": "gutenberg_chess_and_checkers_lasker",
@@ -751,7 +760,16 @@
       "external_license_checkout_path": "bird/LICENSE",
       "external_license_git_blob": "8d062dda262bcdc42d45b861bd796117feb6d0fe",
       "external_license_indexed_bytes": 17504,
-      "external_license_sha256": "1e301e03fb28addf6ad03d42b1429e87679013d1ee7e141c7c968fbef0ad961d"
+      "external_license_sha256": "1e301e03fb28addf6ad03d42b1429e87679013d1ee7e141c7c968fbef0ad961d",
+      "original_text_sha256_readback": {
+        "status": "VERIFIED_GITENBERG_ORIGINAL_UTF8_BYTES_TEST_ONLY",
+        "observed_date": "2026-10-09",
+        "evidence": "docs/corpus/SECTION37_GITENBERG_ORIGINAL_TEXT_SHA256_READBACK_20261009.json",
+        "checks": "EXACT_GIT_BLOB_AND_SHA256_AND_UTF8_BYTES_3_OF_3",
+        "semantic_book_import": "NOT_RUN",
+        "publisher_current_bytes": "NOT_TESTED",
+        "public_release": "EXCLUDED"
+      }
     },
     {
       "id": "gutenberg_checkmates_three_fishburne_original_txt",
@@ -779,7 +797,16 @@
       "external_license_checkout_path": "checkmates/LICENSE",
       "external_license_git_blob": "8d062dda262bcdc42d45b861bd796117feb6d0fe",
       "external_license_indexed_bytes": 17504,
-      "external_license_sha256": "1e301e03fb28addf6ad03d42b1429e87679013d1ee7e141c7c968fbef0ad961d"
+      "external_license_sha256": "1e301e03fb28addf6ad03d42b1429e87679013d1ee7e141c7c968fbef0ad961d",
+      "original_text_sha256_readback": {
+        "status": "VERIFIED_GITENBERG_ORIGINAL_UTF8_BYTES_TEST_ONLY",
+        "observed_date": "2026-10-09",
+        "evidence": "docs/corpus/SECTION37_GITENBERG_ORIGINAL_TEXT_SHA256_READBACK_20261009.json",
+        "checks": "EXACT_GIT_BLOB_AND_SHA256_AND_UTF8_BYTES_3_OF_3",
+        "semantic_book_import": "NOT_RUN",
+        "publisher_current_bytes": "NOT_TESTED",
+        "public_release": "EXCLUDED"
+      }
     },
     {
       "id": "cc0_capablanca_open_pdf_original_source",
