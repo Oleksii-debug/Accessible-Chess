@@ -175,7 +175,7 @@ class BilingualSourceGroundingTests(unittest.TestCase):
                     self.assertEqual(UUID(identifier.text[9:]).version, 5)
                     updated = xml.find(".//opf:meta[@property='dcterms:modified']", namespaces=ns)
                     self.assertIsNotNone(updated)
-                    self.assertRegex(updated.text, r"^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$")
+                    self.assertRegex(updated.text, r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
                     toc = z.read("OEBPS/nav.xhtml").decode("utf-8")
                     body = z.read("OEBPS/lesson.xhtml").decode("utf-8")
                     self.assertEqual(toc.count('href="lesson.xhtml#S37-'), 12)
