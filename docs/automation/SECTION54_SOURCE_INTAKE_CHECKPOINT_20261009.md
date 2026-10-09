@@ -49,3 +49,10 @@ Local isolated deterministic tests in a lightweight development harness (using a
 ### Current closure truth
 
 Parent Section 54: **PARTIAL, NOT DONE**. No subsection is terminal DONE. Existing code covers **bounded portions** of 54.1, 54.6, 54.8, 54.9, 54.10, 54.11, 54.13; all full 54.1–54.15 clauses require final integration/qualification. Section 51 and 55 untouched. Outstanding blockers: approved PDF/DOCX/OCR/multimodal and ChessBase actual import; author/edition/source-page anchoring; canonical per-variation legality and edition provenance; lawful search and model orchestration; keyboard/NVDA policy surface; tagged PDF/EPUB3/PGN output; real provider token settlement and durable API usage; app backup/upgrade integration; exact Windows/Web user journey; real corpus, security/rights acceptance and release provenance. Never promote partial code into full-feature DONE or privately publish copyright-protected books.
+
+
+## 54.7 form update, same active partial lineage
+
+New \`web/format_factory_policy_form.js\` and \`tests/js/format_factory_policy_form_test.js\`: isolated, user-facing keyboard form collecting requested book coverage, noncontiguous page/chapter ranges, output format, language, separate search/AI consent and exact per-run input/output token caps. Label-to-control associations, accessible status, focus recovery, safe submit, and blocked unsupported outputs are covered by a runnable local Node fake-DOM contract PASS. The form is NOT YET mounted inside actual Windows/WebView or a canonical backend action: functional release acceptance and human NVDA validation are not claimed. An exact integer guard avoids JS 2^53 rounding of token limits. Output offers only private HTML/TXT previews until other formats are qualified.
+
+Latest exact branch SHA must be obtained from GitHub PR #2530 live head; older checkpoint SHAs are not final. GitHub Actions for Section54 and adjacent product workflows were QUEUED, not SUCCESS at the last read. \`PARTIAL/NOT DONE\` remains the only truthful parent status.
