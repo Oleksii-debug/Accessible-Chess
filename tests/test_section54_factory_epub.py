@@ -57,6 +57,17 @@ class FactoryEpubPreviewTests(unittest.TestCase):
         self.assertTrue(any("First canonical paragraph." in getattr(x, "text", "")
                             for x in imported.document.blocks))
 
+    def test_selected_editions_share_source_but_not_publication_identity(self) -> None:
+        a = BookDocument(title="Book", language="en", blocks=[Paragraph(text="Selected chapter A.")])
+        b = BookDocument(title="Book", language="en", blocks=[Paragraph(text="Selected chapter B.")])
+        first = export_factory_epub3_preview(a, source_sha256=SHA, modified_utc=UTC)
+        second = export_factory_epub3_preview(b, source_sha256=SHA, modified_utc=UTC)
+        with ZipFile(BytesIO(first.output_bytes)) as left, ZipFile(BytesIO(second.output_bytes)) as right:
+            p = ET.fromstring(left.read("OEBPS/package.opf"))
+            q = ET.fromstring(right.read("OEBPS/package.opf"))
+            id_tag = "{http://purl.org/dc/elements/1.1/}identifier"
+            self.assertNotEqual(p.find(".//" + id_tag).text, q.find(".//" + id_tag).text)
+
     def test_missing_chapters_get_accessible_fallback_navigation(self) -> None:
         book = BookDocument(title="Simple", language="uk", blocks=[Paragraph(text="Ласкаво просимо.")])
         a = export_factory_epub3_preview(book, source_sha256=SHA, modified_utc=UTC)
