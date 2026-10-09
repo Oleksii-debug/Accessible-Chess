@@ -61,6 +61,7 @@ jobs:
           tests/test_revised_section37_cbh_original_family_inventory.py
           tests/test_revised_section37_release_exclusion.py
           tests/test_revised_section37_offline_collection_readback.py
+          tests/test_revised_section37_real_book_txt.py
       - name: Run existing source authenticity, denial, rights and recovery unit tests
         run: >-
           python -m unittest -v
@@ -69,3 +70,4 @@ jobs:
           tests.test_revised_section37_cbh_original_family_inventory
           tests.test_revised_section37_release_exclusion
           tests.test_revised_section37_offline_collection_readback
+          tests.test_revised_section37_real_book_txt
