@@ -137,7 +137,17 @@ def _sniff_text(source: bytes) -> str:
         any(ord(c) < 32 and c not in "\t\r\n\f" for c in sample)):
         return "unknown"
     stripped = sample.lstrip().lower()
-    if stripped.startswith(("<!doctype html", "<html", "<head", "<body")):
+    # Valid XHTML starts with an XML declaration, while HTML book fragments can
+    # begin with semantic elements rather than a full <html> wrapper.  Require
+    # a specific HTML root/fragment marker; generic XML must never be
+    # silently reclassified as a book HTML document.
+    html_start = re.sub(r"^(?:<!--.{0,1024}?-->\\s*){0,3}", "", stripped, flags=re.DOTALL)
+    html_start = re.sub(r"^<\\?xml\\s+[^>]{1,512}\\?>\\s*", "", html_start)
+    if re.match(
+        r"^(?:<!doctype\\s+html\\b|<(?:html|head|body|main|article|"
+        r"section|div|h[1-6]|p|ul|ol|pre|blockquote|table)\\b)",
+        html_start,
+    ):
         return "html"
     if re.match(r'^\s*\[(Event|Site|Date|Round|White|Black|Result|FEN|SetUp)\s+"', sample):
         return "pgn"
