@@ -96,6 +96,8 @@ def load_catalog(path: Path = CATALOG_FILE) -> tuple[dict, ...]:
             "PINNED_NOT_DOWNLOADED_IN_THIS_PASS", "DISCOVERED_NOT_HASH_VERIFIED",
             "SOURCE_PAGE_ONLY", "BLOCKED_NO_LAWFUL_COMPLETE_SAMPLE",
             "VENDORED_SOURCE_VERIFIED",
+            "OFFICIAL_DIRECT_EPUB3_LINK_VERIFIED_BYTES_NOT_ACQUIRED",
+            "PARTIAL_ORIGINAL_BYTES_VERIFIED_5_OF_7_TWO_METADATA_ONLY",
         }:
             raise LawfulCorpusError("corpus acquisition truth invalid")
         digest = entry.get("sha256")
@@ -107,13 +109,18 @@ def load_catalog(path: Path = CATALOG_FILE) -> tuple[dict, ...]:
         for key in ("source_page", "download_url"):
             value = entry.get(key)
             if value is not None:
-                _https_url(value, source_page=key == "source_page")
+                _https_url(value, source_page=key == "source_page", catalog_metadata=key == "download_url")
+        if status in {
+            "OFFICIAL_DIRECT_EPUB3_LINK_VERIFIED_BYTES_NOT_ACQUIRED",
+            "PARTIAL_ORIGINAL_BYTES_VERIFIED_5_OF_7_TWO_METADATA_ONLY",
+        } and digest is not None:
+            raise LawfulCorpusError("unacquired or incomplete corpus cannot claim a pinned digest")
         if digest is None and status == "PINNED_NOT_DOWNLOADED_IN_THIS_PASS":
             raise LawfulCorpusError("pinned acquisition requires pinned bytes")
     return tuple(records)
 
 
-def _https_url(url: object, *, source_page: bool = False) -> str:
+def _https_url(url: object, *, source_page: bool = False, catalog_metadata: bool = False) -> str:
     if type(url) is not str or len(url) > 2048:
         raise LawfulCorpusError("source URL invalid")
     try:
@@ -128,7 +135,10 @@ def _https_url(url: object, *, source_page: bool = False) -> str:
         or parsed.fragment or parsed.query
         or parsed.hostname not in (
             {"database.lichess.org", "www.gutenberg.org", "github.com", "shop.chessbase.com", "help.chessbase.com", "ibca-info.org", "s2.chess-results.com", "s1.chess-results.com", "chess-results.com", "www.olimpbase.org", "www.arves.org", "www.chessmail.com", "braillechess.org.uk", "studies.chessbase.com", "www.nwchess.com", "compete.newzealandchess.co.nz"}
-            if source_page else {"database.lichess.org", "www.gutenberg.org", "de.chessbase.com", "www.nwchess.com"}
+            if source_page else (
+                {"database.lichess.org", "www.gutenberg.org", "de.chessbase.com", "www.nwchess.com"}
+                | ({"raw.githubusercontent.com", "www.chessmail.com"} if catalog_metadata else set())
+            )
         )
     ):
         raise LawfulCorpusError("source URL must be recognized, credential-free HTTPS")
