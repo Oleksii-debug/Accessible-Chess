@@ -86,7 +86,7 @@
       "Refuse modified manifests, digest changes, existing destination, future schema"
     ],
     "test_module": "tests/test_section51_owner_data_transfer.py",
-    "regression_scenarios": 7,
+    "regression_scenarios": 8,
     "actual_test_result": "NOT_YET_EXECUTED",
     "hosted_ci_result": "QUEUED_AT_CHECKPOINT",
     "limit": "Owner backup source requires original *.upgrade-backups directory; app should be closed; no GUI picker and physical Windows/NVDA validation; not a terminal Section 51 acceptance",
