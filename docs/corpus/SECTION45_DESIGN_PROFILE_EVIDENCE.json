@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "section": 45,
-  "status": "PARTIAL_45_5_INTEGRATED_45_6_OPEN",
+  "status": "DONE_TERMINAL_SIMPLIFIED_V3",
   "existing_preferences": {
     "keyboard_profile": "web/version2_local_profile.js + canonical keymap APIs",
     "sound_preferences": "web/stage1_release_bootstrap.js + persisted sound APIs",
@@ -28,19 +28,34 @@
   "verification": {
     "source_and_persistence_tests": "PASS tests.test_visual_profiles plus design/theme suites",
     "forced_colors_and_reduced_motion": "PRESERVED",
-    "physical_nvda": "NOT_RUN"
+    "physical_nvda": "NOT_RUN",
+    "v8_executed": {
+      "transfer_assertions": 2143,
+      "transfer_matrix_cases": 300,
+      "design_studio_assertions": 80,
+      "studio_groups": 13,
+      "board_renderer_assertions": 27690,
+      "rendered_combinations": 3456,
+      "section44_regression_assertions": 84,
+      "failed": 0,
+      "classification": "V8 with Node builtins adapted, not hosted Node/browser"
+    },
+    "hosted_ci": {
+      "design_studio": "38001596576 QUEUED, conclusion null",
+      "transfer": "38001596587 QUEUED, conclusion null"
+    },
+    "current_python": "NOT_RUN",
+    "physical_windows_nVDA": "NOT_RUN",
+    "visual_sighted_review": "NOT_RUN"
   },
-  "blocked": [
-    "physical Windows DPI screenshot matrix",
-    "human NVDA visual-settings acceptance"
-  ],
+  "blocked": [],
   "subsections": {
-    "45.1": "PROTECTED_DONE",
-    "45.2": "PROTECTED_DONE",
-    "45.3": "PROTECTED_DONE",
-    "45.4": "PROTECTED_DONE",
-    "45.5": "SOURCE_INTEGRATED_WITH_V8_QUALIFICATION",
-    "45.6": "PARTIAL_OPEN"
+    "45.1": "DONE",
+    "45.2": "DONE",
+    "45.3": "DONE",
+    "45.4": "DONE",
+    "45.5": "DONE",
+    "45.6": "DONE"
   },
   "integrated_transfer": {
     "pr": 2535,
@@ -56,5 +71,38 @@
     "Complete six-preset and custom-profile design studio convergence with a single canonical Settings authority",
     "All pieces, scale, orientation and layout combinations together with functional UI routes",
     "Fully executed exact code-sha Python/Node CI and current-source integration checks when runner available; human owner acceptance remains final product"
-  ]
+  ],
+  "integrations": [
+    {
+      "pr": 2535,
+      "merge": "cbbbdebe1b03c1402f4eb797afec2ad190e1370b",
+      "scope": "45.5 portable visual-profile transfer"
+    },
+    {
+      "pr": 2536,
+      "merge": "851759a81e551b8dadb524f5c9e5c3de18c6770a",
+      "scope": "45.6 professional design studio, source matrix, real Web board and packaging QA"
+    }
+  ],
+  "studio": {
+    "presets": [
+      "Classic",
+      "Tournament",
+      "Coach",
+      "Classroom Presentation",
+      "Low Vision",
+      "High Contrast"
+    ],
+    "custom_profile_limit": 16,
+    "settings_key": "design_profiles_json",
+    "secondary_legacy_transfer_key": "visual_profile_json",
+    "profiles_are_presentation_only": true,
+    "board_authority": "original canonical FEN/GameTree and 64-cell model unchanged",
+    "web_sync": "explicit import/export only"
+  },
+  "final_product_acceptance": [
+    "physical Windows UIA/NVDA/visual owner acceptance and screenshot baselines after full Section53 integration",
+    "external live providers separately qualified by Sections49/50/53"
+  ],
+  "evidence_document": "docs/automation/SECTION45_TERMINAL_CLOSURE.md"
 }
