@@ -1,7 +1,5 @@
 # Accessible Chess — immutable completed work and one-section execution
 
-**CANONICAL SECTION IDENTITY (owner final authority):** Read [CURRENT_SECTION_INDEX_0_53.md](CURRENT_SECTION_INDEX_0_53.md) and the matching current Google Drive Section plan before using any numeric Section ID. This exact current 0–53 list is the only valid plan for worker selection, scope, names, tests, subscopes, status, and reports. Do not introduce or discuss any alternative mapping of numbers. Historical source/PR evidence is never a second plan. No additional Section IDs or reinterpretations are authorized.
-
 **OWNER DIRECTIVE — 2026-10-09. Binding for every worker.** Read alongside root `AGENTS.md`, the canonical Google Drive plan (Sections 0–53), live `SEQUENTIAL_CLOSURE_STATE.md`, current-shipping `main`, and active PR/branch heads. This directive supersedes older contradictory worker count, work-volume, reimplementation, automatic-next-section, and terminal-lock instructions. It does **not** relax correctness, tests, security, licensing, or truthful DONE requirements.
 
 ## Mandatory preservation — DO NOT REDO
