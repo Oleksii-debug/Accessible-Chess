@@ -17,3 +17,5 @@ tests/real_corpus/stockfish/*.zip -text
 tests/real_corpus/advanced_training/*.json -text
 tests/real_corpus/advanced_training/*.pgn -text
 tests/real_corpus/advanced_training/*.md -text
+# Section 42 original Lichess Git objects: preserve UTF-8 bytes (including COPYING) on Windows.
+web/assets/pieces/rhosgfx/** -text
