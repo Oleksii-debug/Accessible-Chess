@@ -13,6 +13,26 @@ evidence, and applicable accessibility/security/packaging evidence are present
 on the exact source. External-only blockers are recorded separately; they are
 never silently converted into `DONE`.
 
+## Worker closure locks — authoritative
+
+This block is the worker-facing status authority for completed work on this
+source lineage. A `DONE — DO NOT REOPEN` scope is closed: workers must not
+replace it with an earlier assessment, redo its implementation, or change its
+status. The only permitted follow-up is a regression repair with a failing
+test/evidence that names the affected locked scope.
+
+| Scope | Terminal state | Worker instruction |
+|---|---|---|
+| Section 47 | `TERMINAL DONE — WORKER LOCKED` | Do not reopen local-video playback, preparation, legal board synchronization, recognition controls or their package/source gates. |
+| Section 48 | `TERMINAL DONE — WORKER LOCKED` | Do not reopen the official YouTube IFrame integration boundary or its local-video separation. |
+| Section 49 | `TERMINAL DONE — WORKER LOCKED` | Do not reopen Mistral-first provider integration, the agent, voice controls, profile editor or secret-safe gateway evidence. |
+| 37.5–37.6; 38.5; 40.2, 40.5 | `DONE — DO NOT REOPEN` | Corpus policy, manifest/provenance and TEST_COLLECTION release-boundary work is complete. |
+| 41.3–41.5; 42.2; 45.1–45.4; 46.6 | `DONE — DO NOT REOPEN` | Completed design tokens, local themes, visual profiles and offline-dependency controls are closed. |
+| 50.5; 51.1–51.2, 51.4 | `DONE — DO NOT REOPEN` | Completed cross-product evidence and persistence metadata paths are closed. |
+
+Sections or subsections still labeled `PARTIAL` or `BLOCKED` remain actionable;
+they do not invalidate or reopen any locked completed scope above.
+
 ## Section 37 — current closure front
 
 **Status: `INTERNAL_COMPLETE_EXTERNAL_READBACK_VERIFIED` (not DONE).**
@@ -163,7 +183,7 @@ The next dependency-safe closure front is Section 47.
 
 ## Section 48 — current closure front
 
-**Status: `DONE` for the supported YouTube integration scope.**
+**Status: `TERMINAL DONE — WORKER LOCKED`. Do not reopen this section.**
 
 Durable evidence: `docs/corpus/SECTION48_YOUTUBE_INTEGRATION_EVIDENCE.json`.
 
@@ -204,7 +224,7 @@ The next dependency-safe closure front is Section 46.
 
 ## Section 47 — current closure front
 
-**Status: `DONE` for the implemented local-video product scope.**
+**Status: `TERMINAL DONE — WORKER LOCKED`. Do not reopen this section.**
 
 Durable catalog: `docs/corpus/SECTION47_VIDEO_SOURCE_CATALOG.json`.
 
@@ -219,7 +239,7 @@ The next dependency-safe closure front is Section 48.
 
 ## Section 49 — current closure front
 
-**Status: `DONE`. Do not reopen this section in worker runs.**
+**Status: `TERMINAL DONE — WORKER LOCKED`. Do not reopen this section in worker runs.**
 
 Durable evidence: `docs/corpus/SECTION49_PROVIDER_GATE_EVIDENCE.json`.
 
@@ -240,7 +260,7 @@ Durable evidence: `docs/corpus/SECTION50_CROSS_PRODUCT_EVIDENCE.json`.
 | Subsection | State | Evidence / exact limitation |
 |---|---|---|
 | 50.1–50.4 | `PARTIAL` | Real MP4 frames select only canonical legal moves, update FEN/Move list, support background queue preparation and timed history projection, and expose that state to Stockfish/Library/Books/Agent services. |
-| 50.5 | `PASS` | Exact MP4 hashes, recognized SAN/timecodes, source-state tests and a successful protected live Mistral result are recorded without credential disclosure. |
+| 50.5 | `DONE` | Exact MP4 hashes, recognized SAN/timecodes, source-state tests and a successful protected live Mistral result are recorded without credential disclosure. |
 | 50.6 | `PARTIAL` | Both owner TEST_BUILD MP4 inputs pass deterministic prefixes. Multi-provider live comparison and packaged Windows convergence remain open. |
 
 The next dependency-safe closure front is Section 51.
@@ -253,7 +273,7 @@ Durable evidence: `docs/corpus/SECTION51_PERSISTENCE_EVIDENCE.json`.
 
 | Subsection | State | Evidence / exact limitation |
 |---|---|---|
-| 51.1–51.2, 51.4 | `PASS` | Existing settings/ACSDB/Library/Books/Training recovery remains, and visual profiles, AI provider metadata and up to 32 validated prepared-video timelines now persist without secret values or video binaries. |
+| 51.1–51.2, 51.4 | `DONE` | Existing settings/ACSDB/Library/Books/Training recovery remains, and visual profiles, AI provider metadata and up to 32 validated prepared-video timelines now persist without secret values or video binaries. |
 | 51.3, 51.5 | `PARTIAL` | Full multi-surface crash campaign and clean Windows restore/upgrade acceptance remain external. |
 
 The next dependency-safe closure front is Section 52.
