@@ -3,6 +3,7 @@ on:
   pull_request:
     branches:
       - feature/revised-37-42-corpus-visual-20261008
+      - feature/sections43-44-workspace-skin-20261008
     paths:
       - 'web/index.html'
       - 'web/accessible_chess_web.html'
@@ -16,6 +17,7 @@ on:
   push:
     branches:
       - feature/sections43-44-workspace-skin-20261008
+      - feature/section44-real-service-visual-a11y-20261009
   workflow_dispatch: {}
 permissions:
   contents: read
