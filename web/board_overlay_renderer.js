@@ -13,8 +13,18 @@
     const summary=holder && typeof holder.querySelector==="function" ?
       holder.querySelector(".ac42-board-annotation-summary") : null;
     if (summary) summary.textContent="";
-    if (!Array.isArray(ordered) || ordered.length !== 64 || !visual) return;
+    // This projector can be called more than once without replacing the grid.
+    // Stale SVGs and highlights must never survive a mode/FEN change, even
+    // when the new projection is invalid or contains no annotations.
+    const staleOverlays = [...grid.querySelectorAll(".ac42-board-arrows")];
+    for (const old of staleOverlays) old.remove();
     const cells = [...grid.querySelectorAll('[role="gridcell"]')];
+    for (const cell of cells) {
+      delete cell.dataset.ac42Highlight;
+      delete cell.dataset.ac42HighlightPurpose;
+      cell.style.removeProperty("--ac42-highlight-color");
+    }
+    if (!Array.isArray(ordered) || ordered.length !== 64 || !visual) return;
     if (cells.length !== 64) return;
     const positions = new Map();
     ordered.forEach((cell,index) => {
