@@ -37,7 +37,7 @@ def _included(n: int, intervals: tuple[tuple[int, int], ...]) -> bool:
     return any(start <= n <= end for start, end in intervals)
 
 
-def _resolve_selection(document: BookDocument, selection: FactorySelection) -> BookDocument:
+def _resolve_selection(document: BookDocument, selection: FactorySelection, *, chapter_heading_level: int | None) -> BookDocument:
     """Enforce complete semantic chapter spans; never invent page/edition anchors."""
     if selection.kind == "all":
         return document
@@ -53,8 +53,12 @@ def _resolve_selection(document: BookDocument, selection: FactorySelection) -> B
     ]
     if not headings:
         raise FactoryConversionError("Source contains no semantic chapter headings")
-    chapter_level = min(level for _, level in headings)
-    starts = [index for index, level in headings if level == chapter_level]
+    # A top-level title is not necessarily Chapter 1. Guessing from the
+    # shallowest heading silently selects the wrong material, so require
+    # the reader's explicit structural heading level for this source edition.
+    if type(chapter_heading_level) is not int or not 1 <= chapter_heading_level <= 6:
+        raise FactoryConversionError("Select explicit canonical heading level for chapters")
+    starts = [index for index, level in headings if level == chapter_heading_level]
     if not starts:
         raise FactoryConversionError("Source has no resolvable chapter anchors")
     selected: list[dict[str, object]] = []
@@ -80,6 +84,7 @@ def convert_factory_book_private(
     policy: FactoryJobPolicy,
     source_language: str,
     allow_semantic_loss: bool = False,
+    chapter_heading_level: int | None = None,
 ) -> FactoryConversionResult:
     """Single-call safe conversion of a validated local source to private previews.
 
@@ -113,7 +118,7 @@ def convert_factory_book_private(
     if imported.source.sha256 != source_digest:
         raise FactoryConversionError("Source identity mismatch after import")
     try:
-        selected = _resolve_selection(imported.document, policy.selection)
+        selected = _resolve_selection(imported.document, policy.selection, chapter_heading_level=chapter_heading_level)
         rendered = tuple(
             export_factory_preview(
                 selected, source_sha256=source_digest, output_format=fmt,
