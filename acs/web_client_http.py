@@ -182,6 +182,14 @@ class AccessibleChessWebAsgi:
                 _trusted_principal(scope)
                 await _respond(send, 200, _asset_bytes("design_system.css"), _CSS_TYPE)
                 return
+            if method == "GET" and path == "/assets/section45_design_studio.js":
+                _trusted_principal(scope)
+                await _respond(send, 200, _asset_bytes("section45_design_studio.js"), _JS_TYPE)
+                return
+            if method == "GET" and path == "/assets/accessible_chess_design.css":
+                _trusted_principal(scope)
+                await _respond(send, 200, _asset_bytes("assets/accessible_chess_design.css"), _CSS_TYPE)
+                return
             if method == "GET" and path == "/v1/snapshot":
                 principal = _trusted_principal(scope)
                 await _respond(
