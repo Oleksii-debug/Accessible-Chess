@@ -63,36 +63,44 @@ function validStore(s) {
 // Native Settings uses duplicate-key rejecting JSON. Web imports must share
 // the same rejection policy, not JSON.parse's silent last-key-wins behavior.
 function uniqueObjectKeys(raw) {
+  // Structural punctuation inside a JSON string is data, not a new object.
+  // A single pass also catches duplicate keys at every nesting level.
   const frames=[];
+  let quoted=false,escaped=false,stringStart=-1;
   for(let i=0;i<raw.length;i++){
     const ch=raw[i];
+    if(quoted){
+      if(escaped){escaped=false;continue;}
+      if(ch==="\\"){escaped=true;continue;}
+      if(ch!=='"')continue;
+      quoted=false;
+      let next=i+1;
+      while(next<raw.length&&/\s/.test(raw[next]))next++;
+      if(raw[next]!==":")continue;
+      const keys=frames[frames.length-1];
+      if(!(keys instanceof Set))return false;
+      let key;
+      try{key=JSON.parse(raw.slice(stringStart,i+1));}catch(_){return false;}
+      if(keys.has(key))return false;
+      keys.add(key);
+      continue;
+    }
+    if(ch==='"'){quoted=true;stringStart=i;continue;}
     if(ch==="{"){frames.push(new Set());continue;}
     if(ch==="["){frames.push(null);continue;}
-    if(ch==="}"||ch==="]"){if(!frames.length)return false;frames.pop();continue;}
-    if(ch!=='"')continue;
-    let end=i+1;
-    while(end<raw.length){
-      if(raw[end]==="\\"){end+=2;continue;}
-      if(raw[end]==='"')break;
-      end++;
+    if(ch==="}"){
+      if(!(frames[frames.length-1] instanceof Set))return false;
+      frames.pop();continue;
     }
-    if(end>=raw.length)return false;
-    let after=end+1;
-    while(after<raw.length&&/\s/.test(raw[after]))after++;
-    if(raw[after]===":"){
-      const current=frames[frames.length-1];
-      if(!(current instanceof Set))return false;
-      let key;
-      try{key=JSON.parse(raw.slice(i,end+1));}catch(_){return false;}
-      if(current.has(key))return false;
-      current.add(key);
+    if(ch==="]"){
+      if(frames[frames.length-1]!==null)return false;
+      frames.pop();
     }
-    i=end;
   }
-  return frames.length===0;
+  return !quoted&&frames.length===0;
 }
 function safeParse(raw) {
-  if (typeof raw !== "string" || raw.length > 16384) return null;
+  if (typeof raw !== "string" || new Blob([raw]).size > 16384) return null;
   try {
     if(!uniqueObjectKeys(raw))return null;
     const parsed=JSON.parse(raw);
@@ -123,7 +131,7 @@ function localRead() {
 }
 function localWrite(value) {
   const data=JSON.stringify(value);
-  if (data.length>16384) return false;
+  if (new Blob([data]).size>16384) return false;
   try {
     // Web has no server-side profile authority: refuse a stale local tab
     // instead of silently overwriting another tab's changed profile.
@@ -328,7 +336,7 @@ async function copyProfile() {
 function exportProfile(){
   if(!validStore(store)){status("Некоректний профіль.","Invalid profile.",true);return;}
   const raw=JSON.stringify(store);
-  if(raw.length>16384)return;
+  if(new Blob([raw]).size>16384)return;
   const blob=new Blob([raw],{type:"application/json"});
   const url=URL.createObjectURL(blob),a=document.createElement("a");
   a.href=url;a.download="accessible-chess-design-profiles.json";a.click();
