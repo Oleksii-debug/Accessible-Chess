@@ -65,3 +65,17 @@ Files: acs/section45_design_profiles.py; acs/settings.py; acs/stage1_release_ui.
 5. Sections 41–44 ancestor candidates and Sections 45–46 must converge into one shipping Product; post-integration exact-source readback and license verification are mandatory.
 
 **SECTION45_TERMINAL_DONE=NO. SECTION46_TERMINAL_DONE=NO.** These are engineering advancements with verifiable scope, not certified terminal closures.
+
+
+## 2026-10-09 Section 45.5–45.6 portability/recovery checkpoint — NOT TERMINAL DONE
+
+Source branch: `feature/section45-46-design-studio-qa-20261008`; protected PR #2503 remains DRAFT and OPEN, not the current shipping `main`.
+
+- Web profile decoder now treats structural JSON characters inside quoted strings as data; duplicate object keys still fail closed at any depth. Portable custom names containing unmatched `{`, `[`, `}`, `]` no longer spuriously fail import/restart. Commit `8b5a4695bf0bffd92d17d5098b3500a404d83c85`.
+- Web import, export and local persistence now enforce the same 16,384-byte UTF-8 payload bound used by Python, rather than JavaScript UTF-16 code-unit length. Same source commit.
+- Native Python and existing real-studio Web DOM source tests gained portable-profile punctuation/restart regression cases. Commits `2c27a5278df63b331c3b046bd0b4c07eb99d7e0e` and `09a87405cc46e562ab856a0cd8bfc2d8dfa174b7`.
+- Existing actual Web `renderBoard(snapshot)` integration test gained 3,456 combinations from six preset-palette selections x four UI-theme values x three piece sets x six zoom values x both orientations x both densities x both layout selections. Every scenario asserts 64 cells, canonical per-square accessibility label, board/piece theme, zoom and coordinates plus invariant canonical snapshot. Commit `a27842112a85a99ae411235761caacfb6d66d2f0`. This is **source test authored, not yet an observed CI PASS**.
+- Exact GitHub file-blob readback confirms four changed branch files. No chess move, FEN, GameTree, sound engine, student record, public release or protected Section 45.1–45.4 implementation was rewritten.
+- The restricted `fetch_commit_workflow_runs` GitHub view returned no PR-triggered workflow runs for the new branch head; no exact-head Ubuntu/Windows success can be claimed. Local container Git clone is blocked by DNS resolution. Native Windows/NVDA/OS-DPI, approved sighted baselines, full-module performance, correct shipping-main convergence and artifact restart validation remain unqualified.
+
+Closure authority: 45.1–45.4 stay protected/locked; 45.5–45.6 improved but PARTIAL; SECTION 45 = **NOT DONE**, never promote to DONE on a branch diff or staged test alone.
