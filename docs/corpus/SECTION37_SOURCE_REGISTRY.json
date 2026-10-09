@@ -411,7 +411,8 @@
         "tests/real_corpus/lichess_openings_a.tsv",
         "tests/real_corpus/lichess_openings_COPYING.txt",
         "docs/corpus/revised_sections37_40_sources.json",
-        "SEQUENTIAL_CLOSURE_STATE.md"
+        "SEQUENTIAL_CLOSURE_STATE.md",
+        "docs/corpus/SECTION37_LICHESS_ECO_STRUCTURAL_READBACK_20261009.json"
       ],
       "qualification_note": "Existing original source and license Git blobs matched pinned upstream. This registry convergence does not run semantic import, recovery or packaging tests; no whole Section or subsection DONE is claimed."
     },
@@ -442,7 +443,8 @@
         "tests/real_corpus/lichess_openings_b.tsv",
         "tests/real_corpus/lichess_openings_COPYING.txt",
         "docs/corpus/revised_sections37_40_sources.json",
-        "SEQUENTIAL_CLOSURE_STATE.md"
+        "SEQUENTIAL_CLOSURE_STATE.md",
+        "docs/corpus/SECTION37_LICHESS_ECO_STRUCTURAL_READBACK_20261009.json"
       ],
       "qualification_note": "Existing original source and license Git blobs matched pinned upstream. This registry convergence does not run semantic import, recovery or packaging tests; no whole Section or subsection DONE is claimed."
     },
@@ -473,7 +475,8 @@
         "tests/real_corpus/lichess_openings_c.tsv",
         "tests/real_corpus/lichess_openings_COPYING.txt",
         "docs/corpus/revised_sections37_40_sources.json",
-        "SEQUENTIAL_CLOSURE_STATE.md"
+        "SEQUENTIAL_CLOSURE_STATE.md",
+        "docs/corpus/SECTION37_LICHESS_ECO_STRUCTURAL_READBACK_20261009.json"
       ],
       "qualification_note": "Existing original source and license Git blobs matched pinned upstream. This registry convergence does not run semantic import, recovery or packaging tests; no whole Section or subsection DONE is claimed."
     },
@@ -504,7 +507,8 @@
         "tests/real_corpus/lichess_openings_d.tsv",
         "tests/real_corpus/lichess_openings_COPYING.txt",
         "docs/corpus/revised_sections37_40_sources.json",
-        "SEQUENTIAL_CLOSURE_STATE.md"
+        "SEQUENTIAL_CLOSURE_STATE.md",
+        "docs/corpus/SECTION37_LICHESS_ECO_STRUCTURAL_READBACK_20261009.json"
       ],
       "qualification_note": "Existing original source and license Git blobs matched pinned upstream. This registry convergence does not run semantic import, recovery or packaging tests; no whole Section or subsection DONE is claimed."
     },
@@ -535,7 +539,8 @@
         "tests/real_corpus/lichess_openings_e.tsv",
         "tests/real_corpus/lichess_openings_COPYING.txt",
         "docs/corpus/revised_sections37_40_sources.json",
-        "SEQUENTIAL_CLOSURE_STATE.md"
+        "SEQUENTIAL_CLOSURE_STATE.md",
+        "docs/corpus/SECTION37_LICHESS_ECO_STRUCTURAL_READBACK_20261009.json"
       ],
       "qualification_note": "Existing original source and license Git blobs matched pinned upstream. This registry convergence does not run semantic import, recovery or packaging tests; no whole Section or subsection DONE is claimed."
     },
