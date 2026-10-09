@@ -906,18 +906,55 @@ class AccessibleChessAPI:
         return prefs.updated("board_theme", palette)
 
     def _section42_visual_board(self, board: Board, state: dict[str, Any]) -> dict[str, Any]:
+        """Read-only visual cues from canonical Board; no independent chess rules.
+
+        The optional cues are presentation-only and must not affect the saved
+        FEN, GameTree, legal-move authority or NVDA live announcements.
+        """
         cells = tuple(
             VisualBoardCell(cell["square"], board.board[parse_sq(cell["square"])] or "",
                             cell["label"])
             for cell in state["board"]
         )
+        prefs = self._section42_preferences()
+        highlights: list[tuple[str, str, str]] = []
+        targets: tuple[str, ...] = ()
+        # Use the *canonical* core's legal/attack predicates only, and only on
+        # the current playable owner (never infer from styled DOM or review text).
+        if state.get("positionComplete"):
+            selected = state.get("selectedSquare")
+            if selected is not None:
+                source = parse_sq(selected)
+                moves = board.legal_moves()
+                targets = tuple(sorted({sq_name(move.to) for move in moves
+                                        if move.frm == source}))
+                source_piece = board.board[source]
+                if source_piece:
+                    for target in board.attacks_from(source):
+                        captured = board.board[target]
+                        purpose = ("defence" if captured and
+                                   color_of(captured) == color_of(source_piece)
+                                   else "attack")
+                        highlights.append((sq_name(target), purpose,
+                                           "#218458" if purpose == "defence"
+                                           else "#d97706"))
+            if board.in_check():
+                king = sq_name(board.king_square(board.turn))
+                mate = not board.legal_moves()
+                highlights.append((king, "mate" if mate else "check",
+                                   "#b91c1c"))
+        last = ((sq_name(board.last_move.frm), sq_name(board.last_move.to))
+                if prefs.show_last_move and board.last_move is not None else None)
+        arrows = ((last[0], last[1], "last-move", "#d97706"),) if last else ()
         snapshot = VisualBoardSnapshot(
             surface=BoardSurface.ORDINARY_PLAY,
-            preferences=self._section42_preferences(),
+            preferences=prefs,
             cells=cells,
             selected_square=state["selectedSquare"],
-            last_move=(sq_name(board.last_move.frm), sq_name(board.last_move.to))
-            if board.last_move is not None else None,
+            last_move=last,
+            legal_targets=targets,
+            highlights=tuple(highlights),
+            arrows=arrows,
         )
         return snapshot.as_dict()
 
