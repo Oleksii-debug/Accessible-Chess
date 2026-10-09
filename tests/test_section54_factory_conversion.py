@@ -39,18 +39,38 @@ class FactoryPrivateConversionTests(unittest.TestCase):
         selected = FactorySelection.from_text("chapters", "2")
         result = convert_factory_book_private(
             CHAPTER_BOOK, source_name="chapters.md", policy=policy(CHAPTER_BOOK, scope=selected),
-            source_language="en",
+            source_language="en", chapter_heading_level=1,
         )
         output = result.outputs[0].output_bytes
         self.assertIn(b"Second unique text.", output)
         self.assertNotIn(b"First unique text.", output)
+
+    def test_chapter_level_requires_explicit_reader_selection(self) -> None:
+        with self.assertRaises(FactoryConversionError):
+            convert_factory_book_private(
+                CHAPTER_BOOK, source_name="chapters.md",
+                policy=policy(CHAPTER_BOOK, scope=FactorySelection.from_text("chapters", "1")),
+                source_language="en",
+            )
+
+    def test_book_title_heading_must_not_be_guessed_as_chapter(self) -> None:
+        source = b"# Book title\\n\\n## First chapter\\n\\nAlpha.\\n\\n## Second chapter\\n\\nBeta.\\n"
+        chosen = FactorySelection.from_text("chapters", "2")
+        result = convert_factory_book_private(
+            source, source_name="edition.md",
+            policy=policy(source, scope=chosen),
+            source_language="en", chapter_heading_level=2,
+        )
+        output = result.outputs[0].output_bytes
+        self.assertIn(b"Beta.", output)
+        self.assertNotIn(b"Alpha.", output)
 
     def test_missing_chapter_fails_closed(self) -> None:
         with self.assertRaises(FactoryConversionError):
             convert_factory_book_private(
                 CHAPTER_BOOK, source_name="chapters.md",
                 policy=policy(CHAPTER_BOOK, scope=FactorySelection.from_text("chapters", "3")),
-                source_language="en",
+                source_language="en", chapter_heading_level=1,
             )
 
     def test_page_selection_has_no_fake_edition_mapping(self) -> None:
