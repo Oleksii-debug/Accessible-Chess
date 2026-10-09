@@ -145,6 +145,26 @@ const key = "accessible-chess.workspace-layout.v1";
   toggle.click();toggle.click();
   assert.equal(panel.content.hidden, true, "must not unhide canonical board on restore");
 }
+// Late service updates cannot visually or semantically reopen a collapsed panel.
+// The DOM fixture has no CSS engine, so exercise its dynamic insertion boundary
+// AND require the real packaged stylesheet to enforce display:none.
+{
+  const app = mount();
+  const panel = app.panels.get("h-moves");
+  const toggle = panel.h2.children[0].children[0];
+  toggle.click();
+  const late = app.document.createElement("div");
+  late.id = "ac43-late-service-update";
+  panel.section.appendChild(late);
+  assert.equal(panel.section.dataset.ac43Collapsed, "true");
+  assert.equal(late.hidden, false, "simulate service repaint outside JS tracker");
+  assert.match(css, /#main-content\\s*>\\s*section\\[data-ac43-collapsed="true"\\]\\s*>\\s*:not\\(h2\\)\\s*\\{\\s*display:\\s*none\\s*!important;/,
+    "late children of collapsed panels must be hidden by the actual stylesheet");
+  toggle.click();
+  assert.equal(panel.section.dataset.ac43Collapsed, "false");
+  assert.equal(late.hidden, false, "new content must become accessible again on expansion");
+}
+
 // User-facing keyboard layout choices persist; corrupt/bad storage fails closed.
 {
   const app = mount();
