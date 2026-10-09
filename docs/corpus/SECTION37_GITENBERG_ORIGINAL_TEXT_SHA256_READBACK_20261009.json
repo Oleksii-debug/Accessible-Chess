@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "section": "37.3",
+  "observed_date": "2026-10-09",
+  "status": "PARTIAL_GITENBERG_TEXT_ORIGINAL_BYTE_READBACK_NOT_TERMINAL",
+  "description": "Re-fetched genuine original GITenberg source-text objects through authenticated GitHub connector; independent UTF-8 byte SHA-256 and length compared with pre-existing Section 37 research catalog; upstream Git blob SHA was checked. No source binary reproduced in public repository.",
+  "algorithm": "Independent pure-JavaScript SHA-256 operating on full UTF-8 bytes; 3 known-answer vectors: empty string, abc, hello world.",
+  "check_results": {
+    "sha256_known_answer_vectors": "3/3 PASS",
+    "original_file_blob_sha": "3/3 PASS",
+    "original_file_utf8_bytes": "3/3 PASS",
+    "original_file_sha256": "3/3 PASS",
+    "unchanged_registry_other_66_records": "QUALIFICATION_BEFORE_CATALOG_UPDATE"
+  },
+  "original_text_sources": [
+    {
+      "source_id": "gutenberg_blue_book_chess_staunton",
+      "repo": "GITenberg/The-Blue-Book-of-Chess--13-Teaching-the-Rudiments-of-the-Game-and-Giving-an-Analysis-of-All-t__16377",
+      "path": "16377.txt",
+      "git_blob": "d946777f0eaee2b5f8f7a73afb9c1dd104eb4142",
+      "bytes": 679686,
+      "sha256": "aa35876c550a5c84d770a9daf2964a2a859c56cae9325ee6e9f261c307cd7b98"
+    },
+    {
+      "source_id": "gutenberg_chess_history_bird_original_txt",
+      "repo": "GITenberg/Chess-History-and-Reminiscences_4902",
+      "path": "4902.txt",
+      "git_blob": "fe18ddf36538952c95c62052b5d05464ca64abe7",
+      "bytes": 404528,
+      "sha256": "fb4b5ad969566c4ae9c974f7fa606ea7bbfb3aa2697142d05f8bf83d02365149"
+    },
+    {
+      "source_id": "gutenberg_checkmates_three_fishburne_original_txt",
+      "repo": "GITenberg/Checkmates-for-Three-Pieces_4542",
+      "path": "4542.txt",
+      "git_blob": "ab6af427f4de27d8e98c0cc25e025b1984cc60cb",
+      "bytes": 38389,
+      "sha256": "f4d8c085d5450013876bfe6d214ba85107afebb37fe6e5fc2bf9c3b58b2c75fb"
+    }
+  ],
+  "limits": {
+    "publisher_live_gutenberg_current_bytes": "NOT_TESTED; GITenberg Git versioned text is the only byte authority validated",
+    "bookdocument_semantic_import": "NOT_RUN",
+    "actual_chess_parser_and_library_restart": "NOT_RUN",
+    "negative_application_security": "NOT_RUN",
+    "physical_windows_nvda": "NOT_RUN_FINAL_PRODUCT_GATE",
+    "hosted_ci": "NOT_RUN_FOR_THIS_EVIDENCE",
+    "original_epub_html_pdf_docx": "NOT_TESTED",
+    "redistribution": "NOT_CLEARED; TEST_ONLY; public release EXCLUDED",
+    "missing_cb_families": "CBF+CBI, 2CBH full companions, and CBONE original licensed fixtures/oracles remain unavailable",
+    "section37_3": "PARTIAL_ACTIONABLE",
+    "parent_section37": "PARTIAL_NOT_DONE",
+    "protected_locked_subsections": [
+      "37.5",
+      "37.6"
+    ]
+  }
+}
