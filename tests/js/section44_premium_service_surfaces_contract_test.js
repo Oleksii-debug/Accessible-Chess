@@ -12,6 +12,8 @@ const load = name => fs.readFileSync(path.join(root, name), "utf8");
 const html = load("web/index.html");
 const css = load("web/design_system.css");
 const v2 = load("web/version2_final_product_bootstrap.js");
+const nativeUi = load("acs/version2_release_ui.py");
+const canonicalApplication = load("acs/version2_final_product_application.py");
 const assets = {
   books: load("web/full_product_books_training.js"),
   library: load("web/full_product_library.js"),
@@ -24,6 +26,9 @@ const assets = {
 assert.match(html, /<link\s+rel="stylesheet"\s+href="design_system\.css"/);
 assert.match(html, /id="live"\s+role="status"\s+aria-live="polite"/);
 assert.match(v2, /v2_browser_command/);
+assert.match(nativeUi, /def v2_browser_command\(/);
+assert.match(nativeUi, /return self\._version2\(\)\.browser_command\(area, command, payload\)/);
+assert.match(canonicalApplication, /def browser_command\(/);
 assert.match(v2, /function restoreProductFocus\(/);
 assert.match(v2, /aria-current/);
 assert.match(css, /@media \(forced-colors:\s*active\)/);
