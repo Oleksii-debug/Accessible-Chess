@@ -163,6 +163,20 @@ def process_batch(queue_file: Path, output_root: Path, *, max_per_run: int) -> t
     try:
         os.close(fd)
         journal = _load_journal(journal_path, queue_sha)
+        expected_ids = {job["id"] for job in jobs}
+        existing_ids = set(journal["completed"])
+        if not existing_ids <= expected_ids:
+            raise BrailleFactoryError("Batch journal contains job IDs outside the pinned queue")
+        for entry in journal["completed"].values():
+            if (type(entry) is not dict or set(entry) != {
+                    "source_sha256", "pef_sha256", "brf_sha256"}
+                    or any(type(entry[key]) is not str or
+                           not re.fullmatch(r"[0-9a-f]{64}", entry[key])
+                           for key in ("source_sha256", "pef_sha256"))
+                    or (entry["brf_sha256"] is not None and (
+                        type(entry["brf_sha256"]) is not str or
+                        not re.fullmatch(r"[0-9a-f]{64}", entry["brf_sha256"])))):
+                raise BrailleFactoryError("Batch journal contains malformed completion evidence")
         processed = 0
         for job in jobs:
             key = job["id"]
