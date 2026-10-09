@@ -24,7 +24,10 @@ on:
       - 'acs/version2_windows_native_dialog_ownership.py'
       - 'acs/version2_windows_file_workflows.py'
       - '.github/workflows/section38-real-corpus-integration.yml'
+  # Only validate main on push; PR branches are covered by pull_request.
   push:
+    branches:
+      - main
     paths:
       - 'acs/book_library_import.py'
       - 'tools/section38_real_corpus_integration.py'
