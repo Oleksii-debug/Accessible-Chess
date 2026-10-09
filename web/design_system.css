@@ -448,3 +448,64 @@ html[data-ac43-density="compact"] #main-content > section {padding:.55rem}
     border:1px solid CanvasText;
   }
 }
+
+/* Section 44.5: exact, shared real Web/Online/Spectator/subscription shells.
+   These selectors apply to existing service DOM; no second board/provider UI. */
+.ac44-web-page, .ac44-subscription-page {
+  min-height:100vh; max-width:100%; color:var(--ac-text);
+  background:var(--ac-bg); overflow-wrap:anywhere;
+}
+.ac44-web-page :is(header,nav,#workspace),
+.ac44-subscription-page :is(header,#main) {
+  max-width:var(--ac-content); margin-inline:auto;
+}
+.ac44-web-page #routes {display:flex;flex-wrap:wrap;gap:.5rem;align-items:stretch}
+.ac44-web-page #routes li {min-width:0}
+.ac44-web-page #routes .route-button {
+  min-height:2.75rem; border:2px solid var(--ac-border);
+  border-radius:var(--ac-radius-sm); background:var(--ac-surface);
+  color:var(--ac-text);
+}
+.ac44-web-page #routes .route-button[aria-current="page"] {
+  background:var(--ac-accent-soft);border-color:var(--ac-accent-strong);
+  color:var(--ac-accent-strong);font-weight:700;
+}
+.ac44-web-page #workspace > section,
+.ac44-subscription-page #main > section {
+  padding:1rem; margin-block:1rem; border:1px solid var(--ac-border);
+  border-radius:var(--ac-radius);background:var(--ac-surface);
+  box-shadow:var(--ac-shadow-soft);
+}
+.ac44-web-page :is(#status,#error,#route-description,#content,#progress-text,#commands),
+.ac44-subscription-page :is(#status,#error,#account-state,#plan-details,#confirmation,#data-safety) {
+  max-width:100%;overflow-wrap:anywhere;white-space:pre-wrap;
+}
+.ac44-web-page #board-grid {max-width:min(100%,56rem);min-width:0}
+.ac44-web-page #board-grid [role="gridcell"] {
+  min-width:0; min-height:2.75rem; overflow-wrap:anywhere;
+}
+.ac44-web-page :is(button,select,textarea,input,a):focus-visible,
+.ac44-subscription-page :is(button,select,textarea,input,a):focus-visible {
+  outline:3px solid var(--ac-focus);outline-offset:3px;
+}
+.ac44-subscription-page #plan-form :is(select,button),
+.ac44-subscription-page #cancel-confirmation :is(button) {max-width:100%}
+@media(max-width:42rem){
+ .ac44-web-page #routes {display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,9rem),1fr))}
+ .ac44-web-page #workspace > section,
+ .ac44-subscription-page #main > section {padding:.7rem}
+}
+@media(forced-colors:active){
+ .ac44-web-page #routes .route-button[aria-current="page"] {
+   border:2px solid Highlight;background:Canvas;color:CanvasText;
+ }
+ .ac44-web-page #workspace > section,
+ .ac44-subscription-page #main > section {
+   background:Canvas;color:CanvasText;border-color:CanvasText;box-shadow:none;
+ }
+}
+@media(prefers-reduced-motion:reduce){
+ .ac44-web-page *, .ac44-subscription-page * {
+   animation:none!important;transition:none!important;scroll-behavior:auto!important;
+ }
+}

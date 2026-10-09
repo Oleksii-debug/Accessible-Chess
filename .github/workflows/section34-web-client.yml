@@ -1,0 +1,100 @@
+name: Section 34 Full Web Client
+
+on:
+  pull_request:
+    paths:
+      - 'acs/web_client_gateway.py'
+      - 'acs/web_client_http.py'
+      - 'web/accessible_chess_web.html'
+      - 'web/accessible_chess_web.js'
+      - 'tests/test_section34_web_client.py'
+      - 'docs/automation/SECTION34_CLOSURE_AUDIT.md'
+      - '.github/workflows/section34-web-client.yml'
+  push:
+    branches:
+      - 'work/section34-full-web-client-20261007-sol56'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  section34-web-client:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 2
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Prove exact checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected='${{ github.event.pull_request.head.sha || github.sha }}'
+          test "$(git rev-parse HEAD)" = "$expected"
+          git diff --check HEAD^
+
+      - name: Compile Section 34 Python
+        run: >-
+          python -m py_compile
+          acs/web_client_gateway.py
+          acs/web_client_http.py
+          tests/test_section34_web_client.py
+
+      - name: Run Section 34 acceptance contract
+        run: python -m unittest -v tests.test_section34_web_client
+
+      - name: JavaScript syntax
+        run: node --check web/accessible_chess_web.js
+
+      - name: Preserve shared application authorities
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          source = (
+              Path("acs/web_client_gateway.py").read_text(encoding="utf-8")
+              + Path("acs/web_client_http.py").read_text(encoding="utf-8")
+          )
+          forbidden = (
+              "from .chesscore", "import chesscore", "from .gametree",
+              "from .notation", "legal_moves(", "parse_fen",
+          )
+          for token in forbidden:
+              assert token not in source, token
+          print("SECTION34_NO_SECOND_CHESS_AUTHORITY=PASS")
+          PY
+
+      - name: Browser accessibility static contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          html = Path("web/accessible_chess_web.html").read_text(encoding="utf-8")
+          js = Path("web/accessible_chess_web.js").read_text(encoding="utf-8")
+          required = (
+              "<main", "<nav", 'role="status"', 'role="alert"', "<progress",
+              'role="grid"', 'data-route="media"', 'data-route="classes"',
+              'data-route="online"', 'data-route="spectator"',
+          )
+          for token in required:
+              assert token in html, token
+          assert "window.pywebview" not in html + js
+          assert "innerHTML" not in js
+          assert "textContent" in js
+          print("SECTION34_SEMANTIC_BROWSER_UI=PASS")
+          PY
