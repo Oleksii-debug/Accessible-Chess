@@ -208,6 +208,34 @@
       "rights": {"read": false, "test": false, "redistribute": false},
       "status": "PARTIAL_CBV_REAL_FILE_PINNED_EXTERNAL_READBACK_REQUIRED",
       "evidence": ["docs/FORMATS_COMMERCIAL_SCOPE_20261005_UA.md", "tools/section37_real_corpus_evidence.py", ".github/workflows/section37-real-corpus-readback.yml"]
+    },
+    {
+      "id": "lichess-cc0-annotated-4-games-test-only",
+      "kind": "derived_real_corpus",
+      "format": "PGN",
+      "language": "game metadata: English",
+      "source_url": "https://github.com/mcognetta/lichess-combined-puzzle-game-db",
+      "author_or_owner": "Original Lichess game players; mcognetta dataset aggregation",
+      "license": "CC0-1.0 (upstream combined source dataset declaration)",
+      "expected_sha256": "9fa990a0e332f86d0ea7c5fe5c2fa3bb6d6784ec47a6277c75a58fb903ecf8f3",
+      "actual_sha256": "9fa990a0e332f86d0ea7c5fe5c2fa3bb6d6784ec47a6277c75a58fb903ecf8f3",
+      "counts": {
+        "test_games": 4,
+        "utf8_bytes": 20121,
+        "eval_comment_markers": 265,
+        "variation_markers": 142
+      },
+      "rights": {
+        "read": true,
+        "test": true,
+        "redistribute_archive": false
+      },
+      "status": "IN_MAIN_TEST_ONLY_SHA256_STATIC_VERIFIED_NO_SEMANTIC_IMPORT_PASS",
+      "evidence": [
+        "tests/real_corpus/advanced_training/lichess_cc0_2200_both_players_annotated_original_games.pgn",
+        "tests/real_corpus/advanced_training/lichess_cc0_2200_both_players_annotated_original_games_manifest.json",
+        "https://github.com/mcognetta/lichess-combined-puzzle-game-db/blob/main/LICENSE"
+      ]
     }
   ],
   "closure": {
