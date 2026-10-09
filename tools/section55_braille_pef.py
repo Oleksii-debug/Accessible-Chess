@@ -174,7 +174,7 @@ def run(args: argparse.Namespace) -> int:
         )
         # Independently re-open exact emitted bytes before publishing; failure
         # destroys only the private unpublished temporary directory.
-        verified = verify_provisional_bundle(temporary, source_path)
+        verified = verify_provisional_bundle(temporary, source_path, table_file=args.table_file)
         if not verified.internal_consistency or verified.qualified_print_ready:
             raise BrailleFactoryError("Independent provisional package gate failed")
         # Atomic no-clobber directory reservation. A plain rename into an
