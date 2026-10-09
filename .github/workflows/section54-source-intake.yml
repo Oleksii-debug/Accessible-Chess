@@ -7,18 +7,22 @@ on:
       - 'acs/format_factory_intake.py'
       - 'acs/format_factory_tokens.py'
       - 'acs/format_factory_policy.py'
+      - 'acs/format_factory_queue.py'
       - 'tests/test_section54_source_intake.py'
       - 'tests/test_section54_factory_tokens.py'
       - 'tests/test_section54_factory_policy.py'
+      - 'tests/test_section54_factory_queue.py'
       - '.github/workflows/section54-source-intake.yml'
   pull_request:
     paths:
       - 'acs/format_factory_intake.py'
       - 'acs/format_factory_tokens.py'
       - 'acs/format_factory_policy.py'
+      - 'acs/format_factory_queue.py'
       - 'tests/test_section54_source_intake.py'
       - 'tests/test_section54_factory_tokens.py'
       - 'tests/test_section54_factory_policy.py'
+      - 'tests/test_section54_factory_queue.py'
       - '.github/workflows/section54-source-intake.yml'
   workflow_dispatch:
 jobs:
@@ -39,6 +43,6 @@ jobs:
         with:
           python-version: '3.11'
       - name: Compile exact Python sources
-        run: python -m py_compile acs/format_factory_intake.py acs/format_factory_tokens.py acs/format_factory_policy.py tests/test_section54_source_intake.py tests/test_section54_factory_tokens.py tests/test_section54_factory_policy.py
+        run: python -m py_compile acs/format_factory_intake.py acs/format_factory_tokens.py acs/format_factory_policy.py acs/format_factory_queue.py tests/test_section54_source_intake.py tests/test_section54_factory_tokens.py tests/test_section54_factory_policy.py tests/test_section54_factory_queue.py
       - name: Execute Section 54 unit and negative tests
         run: python -m unittest discover -s tests -p 'test_section54_*.py' -v
