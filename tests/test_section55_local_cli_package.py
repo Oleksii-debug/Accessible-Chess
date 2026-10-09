@@ -96,5 +96,28 @@ class Section55LocalCLITests(unittest.TestCase):
             self.assertTrue((args.output_folder / "chess-book-unverified.pef").exists())
             self.assertFalse((args.output_folder / "chess-book-unverified.brf").exists())
 
+    def test_mismatched_table_path_fails_before_translation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            args = self.args(Path(tmp))
+            args.table_id = str(Path(tmp) / "missing.ctb")
+            with patch.dict("sys.modules", {"louis": SyntheticLouis("louis")}):
+                with self.assertRaises(BrailleFactoryError):
+                    run(args)
+            self.assertFalse(args.output_folder.exists())
+
+    def test_mid_run_table_drift_cannot_publish_output(self):
+        class DriftLouis(SyntheticLouis):
+            @staticmethod
+            def translateString(tables, source, mode):
+                Path(tables[0]).write_bytes(b"CHANGED DURING TRANSLATION")
+                return "\u2801" * len(source)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            args = self.args(Path(tmp))
+            with patch.dict("sys.modules", {"louis": DriftLouis("louis")}):
+                with self.assertRaises(BrailleFactoryError):
+                    run(args)
+            self.assertFalse(args.output_folder.exists())
+
 if __name__ == "__main__":
     unittest.main()
