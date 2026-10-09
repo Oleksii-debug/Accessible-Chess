@@ -916,6 +916,8 @@ class AccessibleChessAPI:
             preferences=self._section42_preferences(),
             cells=cells,
             selected_square=state["selectedSquare"],
+            last_move=(sq_name(board.last_move.frm), sq_name(board.last_move.to))
+            if board.last_move is not None else None,
         )
         return snapshot.as_dict()
 
