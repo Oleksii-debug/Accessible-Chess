@@ -16,10 +16,11 @@ from acs.chess_braille_factory import BrailleFactoryError
 
 class SyntheticLouis(types.ModuleType):
     ucBrl = 1
+    dotsIO = 2
 
     @staticmethod
     def translateString(tables, source, mode):
-        if mode != SyntheticLouis.ucBrl or not tables:
+        if mode != (SyntheticLouis.ucBrl | SyntheticLouis.dotsIO) or not tables:
             raise ValueError("Wrong synthetic mode/table")
         return "\u2801" * len(source)  # fixture only, never readable language Braille
 
