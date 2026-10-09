@@ -156,9 +156,13 @@ class Section54SourceIntakeTests(unittest.TestCase):
 
     def test_pgn_chessbase_and_binary_do_not_create_books(self) -> None:
         data = b'[Event "Game"]\n[White "A"]\n[Black "B"]\n\n1. e4 *'
-        self.assertEqual(
-            inspect_factory_source(data, source_name="games.pgn").import_status, "PARTIAL",
-        )
+        receipt = inspect_factory_source(data, source_name="games.pgn")
+        self.assertEqual(receipt.import_status, "SUPPORTED_BOOK_INGRESS")
+        book = import_factory_book(data, source_name="games.pgn")
+        self.assertEqual(book.importer, "acs.format_factory_pgn_book")
+        self.assertEqual(len(book.document.blocks), 1)
+        self.assertEqual(book.document.blocks[0].kind, "Game")
+        self.assertEqual(book.source.sha256, sha256(data).hexdigest())
         self.assertEqual(
             inspect_factory_source(b"\x00\x01\x02", source_name="legacy.cbh").import_status,
             "UNSUPPORTED",
