@@ -117,15 +117,15 @@ class Section38SourceBoundReadbackTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "lost semantic content"):
                     gate._book_readback(source, digest)
 
-    def test_unqualified_companion_families_remain_blocked(self):
+    def test_absent_original_source_never_reaches_library_ingress(self):
         with tempfile.TemporaryDirectory() as raw:
-            with mock.patch.object(gate, "PGN_SOURCES", {}), mock.patch.object(
-                gate, "_library_gate", return_value={"status": "PASS"}
-            ):
-                # Two mandatory original PGNs are intentionally absent, so
-                # a fake success from an unrelated library job is insufficient.
-                with self.assertRaises(KeyError):
+            with mock.patch.object(
+                gate, "_library_gate",
+                side_effect=AssertionError("Library must never see absent original"),
+            ) as importer:
+                with self.assertRaisesRegex(RuntimeError, "missing or indirect"):
                     gate.collect(Path(raw))
+                importer.assert_not_called()
 
 
 if __name__ == "__main__":
