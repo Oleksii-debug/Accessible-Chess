@@ -12,18 +12,26 @@ class FakeSvg {
     this.attributes = new Map();
     this.dataset = {};
     this.css = new Map();
-    this.style = {setProperty: (name, value) => this.css.set(name, value)};
+    this.style = {setProperty: (name, value) => this.css.set(name, value),
+      removeProperty: name => this.css.delete(name)};
     this.classList = {add: name => {this.cssClass = name;}};
   }
   setAttribute(name, value) {this.attributes.set(name, String(value));}
-  appendChild(node) {this.children.push(node);return node;}
+  appendChild(node) {this.children.push(node);node.parentElement=this;return node;}
+  remove() {if(this.parentElement){
+    const items=this.parentElement.children;
+    const index=items.indexOf(this);
+    if(index>=0)items.splice(index,1);
+    this.parentElement=null;
+  }}
 }
 function freshBoard() {
   const nodes = Array.from({length:64},()=>new FakeSvg("gridcell"));
   const grid = new FakeSvg("grid");
   grid.querySelectorAll = selector => {
-    assert.equal(selector, '[role="gridcell"]');
-    return nodes;
+    if(selector === '[role="gridcell"]')return nodes;
+    if(selector === ".ac42-board-arrows")return grid.children.filter(x=>x.cssClass==="ac42-board-arrows");
+    throw Error("unexpected selector "+selector);
   };
   return {grid,nodes};
 }
@@ -91,5 +99,22 @@ const valid={highlights:[{square:"e4",purpose:"attack",color:"#123abc"}],
  projector.project(grid,squares,bounded);
  assert.equal(grid.children.length,1);
  assert.equal(grid.children[0].children.length,96,"only 48 arrow pairs allowed");
+}
+{
+ const {grid,nodes}=freshBoard();
+ const idx=squares.findIndex(x=>x.square==="e4");
+ projector.project(grid,squares,valid);
+ projector.project(grid,squares,valid);
+ assert.equal(grid.children.length,1,"duplicate projection must replace SVG, not append");
+ assert.equal(nodes[idx].dataset.ac42Highlight,"true");
+ projector.project(grid,squares,{highlights:[],arrows:[]});
+ assert.equal(grid.children.length,0,"stale projection must clear previous graphics");
+ assert.equal(nodes[idx].dataset.ac42Highlight,undefined,"stale highlight cleared");
+ assert.equal(nodes[idx].dataset.ac42HighlightPurpose,undefined);
+ assert.equal(nodes[idx].css.has("--ac42-highlight-color"),false);
+ projector.project(grid,squares,valid);
+ projector.project(grid,squares.slice(1),valid);
+ assert.equal(grid.children.length,0,"malformed new board clears old arrows");
+ assert.equal(nodes[idx].dataset.ac42Highlight,undefined,"malformed board clears old highlights");
 }
 console.log("section42_overlay_runtime_test: PASS; real VM, bounds, safe SVG, rejection and ARIA");
