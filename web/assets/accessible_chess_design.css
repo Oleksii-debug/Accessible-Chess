@@ -566,3 +566,39 @@ body:has(#routes) > #error:not(:empty){
     animation:none!important;transition:none!important
   }
 }
+
+
+/* Section 44 complementary service contracts, layered AFTER the canonical
+   Book/Library/Training/Teacher CSS. Keep every real service and ARIA owner. */
+#v2-workspace #pgn-selection-context{
+  min-width:0;max-width:100%;margin-block:var(--ac41-space-3);
+  padding:var(--ac41-space-3);border:1px solid var(--ac41-border);
+  border-radius:var(--ac41-radius);background:var(--ac41-bg);
+}
+#v2-workspace .pgn-comments{
+  margin-block:var(--ac41-space-2);
+  padding:var(--ac41-space-2) var(--ac41-space-3);
+  border-inline-start:4px solid var(--ac41-border);
+  white-space:pre-wrap;overflow-wrap:anywhere;
+}
+#v2-workspace #library-export-selection label{
+  display:inline-block;max-width:70ch;overflow-wrap:anywhere;
+}
+#v2-workspace #teacher-visual-board button[data-pointer="true"]{
+  outline:4px solid var(--ac41-focus)!important;outline-offset:-4px;
+}
+#v2-workspace #teacher-pointer-input{max-width:100%;min-width:min(18rem,100%)}
+#workspace #progress-text{white-space:pre-wrap;overflow-wrap:anywhere}
+@media(forced-colors:active){
+  #v2-workspace #pgn-selection-context{
+    background:Canvas!important;color:CanvasText!important;
+    border-color:CanvasText!important;
+  }
+  #v2-workspace #teacher-visual-board button[data-pointer="true"]{
+    outline:4px solid Highlight!important;
+  }
+  #v2-workspace #teacher-visual-board button[data-highlight]:not([data-highlight=""]){
+    border:3px dashed Highlight!important;
+    background:Canvas!important;color:CanvasText!important;
+  }
+}
