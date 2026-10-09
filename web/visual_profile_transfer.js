@@ -192,7 +192,22 @@
   global.addEventListener("pywebviewready", function () {
     if (bridge()) observedNative = true;
   });
+  function labels() {
+    const english = en();
+    const items = {
+      "visual-transfer-label": ["Перенесення візуального профілю JSON вручну", "Manually transfer a visual JSON profile"],
+      "visual-transfer-export": ["Підготувати для копіювання", "Prepare profile for copying"],
+      "visual-transfer-import": ["Імпортувати вставлений профіль", "Import pasted profile"]
+    };
+    Object.keys(items).forEach(id => {
+      const el = doc.getElementById(id);
+      if (el) el.textContent = items[id][english ? 1 : 0];
+    });
+  }
+  const language = doc.getElementById("language-select");
+  if (language) language.addEventListener("change", labels);
   initializeWeb();
+  labels();
   global.AccessibleChessVisualTransfer = Object.freeze({
     encode: encode, decode: decode, validate: validate
   });
