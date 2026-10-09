@@ -206,8 +206,7 @@ class Section55LocalCLITests(unittest.TestCase):
                 args.output_folder, args.book_json, table_file=args.table_file,
             )
             self.assertTrue(completed.table_inventory_verified)
-            nested.write_text("# Modified after package
-", encoding="utf-8")
+            nested.write_text("# Modified after package\n", encoding="utf-8")
             with self.assertRaises(BrailleFactoryError):
                 verify_provisional_bundle(
                     args.output_folder, args.book_json, table_file=args.table_file,
