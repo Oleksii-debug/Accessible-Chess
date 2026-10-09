@@ -73,6 +73,13 @@ def run(args: argparse.Namespace) -> int:
     if type(payload) is not dict:
         raise BrailleFactoryError("Book source must be canonical BookDocument JSON")
     document = BookDocument.from_dict(payload)
+    # Never fingerprint one table and invoke a different one through Liblouis.
+    try:
+        matches = Path(args.table_id).samefile(args.table_file)
+    except (OSError, ValueError):
+        matches = False
+    if not matches:
+        raise BrailleFactoryError("The selected Liblouis table ID must identify the exact pinned local table file")
     table_data = bounded_read(args.table_file, MAX_TABLE_BYTES)
     translator = LiblouisTranslator(
         table_id=args.table_id, table_version=args.table_version,
@@ -96,6 +103,8 @@ def run(args: argparse.Namespace) -> int:
     if not args.emit_brf and args.display_table is not None:
         raise BrailleFactoryError("BRF display mapping was selected without --emit-brf")
     brf = pef_to_provisional_brf(result, display_table=args.display_table) if args.emit_brf else None
+    if bounded_read(args.table_file, MAX_TABLE_BYTES) != table_data:
+        raise BrailleFactoryError("Braille table changed during translation; no output published")
     # Refuse clobber or partial publication into a previously accepted folder.
     # A new private temporary folder is assembled on the destination filesystem.
     target = args.output_folder
