@@ -7,6 +7,8 @@ on:
   pull_request:
     paths:
       - 'tests/test_section51_cross_surface_recovery.py'
+      - 'tests/test_section51_owner_data_transfer.py'
+      - 'acs/user_data_transfer.py'
       - '.github/workflows/section51-cross-surface-recovery.yml'
       - 'acs/version2_upgrade.py'
       - 'acs/version2_upgrade_base.py'
@@ -46,9 +48,9 @@ jobs:
         with:
           python-version: '3.12.10'
       - name: Compile exact test
-        run: python -m compileall -q tests/test_section51_cross_surface_recovery.py
+        run: python -m compileall -q acs/user_data_transfer.py tests/test_section51_cross_surface_recovery.py tests/test_section51_owner_data_transfer.py
       - name: Cross-surface data preservation, migration and rollback
-        run: python -m unittest -v tests.test_section51_cross_surface_recovery
+        run: python -m unittest -v tests.test_section51_cross_surface_recovery tests.test_section51_owner_data_transfer
       - name: Retained upgrade correctness and tamper-recovery contracts
         run: >-
           python -m unittest -v
