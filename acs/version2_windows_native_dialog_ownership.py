@@ -50,9 +50,9 @@ _DIALOG_TEXT: dict[str, dict[str, str]] = {
             "The most recent saved progress may be lost."
         ),
         "book_filter": (
-            "Supported books (*.epub;*.html;*.htm;*.xhtml;*.txt;*.md;*.markdown)|"
-            "*.epub;*.html;*.htm;*.xhtml;*.txt;*.md;*.markdown|"
-            "EPUB books (*.epub)|*.epub|"
+            "Supported books (*.epub;*.epub3;*.html;*.htm;*.xhtml;*.txt;*.md;*.markdown)|"
+            "*.epub;*.epub3;*.html;*.htm;*.xhtml;*.txt;*.md;*.markdown|"
+            "EPUB books (*.epub;*.epub3)|*.epub;*.epub3|"
             "HTML books (*.html;*.htm;*.xhtml)|*.html;*.htm;*.xhtml|"
             "Text and Markdown (*.txt;*.md;*.markdown)|*.txt;*.md;*.markdown"
         ),
@@ -82,9 +82,9 @@ _DIALOG_TEXT: dict[str, dict[str, str]] = {
             "резервну копію? Останній збережений прогрес може бути втрачено."
         ),
         "book_filter": (
-            "Підтримувані книги (*.epub;*.html;*.htm;*.xhtml;*.txt;*.md;*.markdown)|"
-            "*.epub;*.html;*.htm;*.xhtml;*.txt;*.md;*.markdown|"
-            "Книги EPUB (*.epub)|*.epub|"
+            "Підтримувані книги (*.epub;*.epub3;*.html;*.htm;*.xhtml;*.txt;*.md;*.markdown)|"
+            "*.epub;*.epub3;*.html;*.htm;*.xhtml;*.txt;*.md;*.markdown|"
+            "Книги EPUB (*.epub;*.epub3)|*.epub;*.epub3|"
             "Книги HTML (*.html;*.htm;*.xhtml)|*.html;*.htm;*.xhtml|"
             "Текст і Markdown (*.txt;*.md;*.markdown)|*.txt;*.md;*.markdown"
         ),
