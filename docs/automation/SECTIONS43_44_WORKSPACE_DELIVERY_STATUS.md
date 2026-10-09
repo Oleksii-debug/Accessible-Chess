@@ -134,3 +134,26 @@ open/partial. **TERMINAL_DONE=NO; CI_VERIFIED_ON_LATEST_SHA=NO;
 WINDOWS_UIA_VERIFIED=NO; DPI_ZOOM_SCREENSHOT_VERIFIED=NO;
 HUMAN_NVDA_VERIFIED=NO.** Do not write `DONE` into the canonical plan without
 real evidence for every section gate and source integration.
+
+## Section 43 independent real Windows UIA harness — 2026-10-09
+
+Commit `ed8a2a74274529f161d44ba080ac95381daf8d1d` introduced
+`scripts/section43_workspace_real_uia_probe.ps1`, and
+`dea0ff58b3e37bd6958bf57413f689b50dadb6ea` tightened genuine UIA
+enumeration/name matching. New exact-source Windows workflow
+`.github/workflows/section43-real-windows-uia.yml` was added at
+`c0976671d5246aef5e80e09ec6fdb80db89f906d` with pinned Python
+3.12/pywebview/pythonnet, real source UI startup, out-of-process operating
+system UIA inspection, actual 12-panel focusable button discovery, the real
+Move edit, panel collapse/restore UIA invocation and evidence PNG. This
+workflow explicitly records `packaged_executable_tested=false` and
+`nvda_verified=false`. It does not silently replace the canonical native
+menu implementation or chess state with a proxy.
+
+**Current qualification:** workflow run
+`37995050983` for commit `c0976671d5246aef5e80e09ec6fdb80db89f906d`
+is **QUEUED**, not PASS. No successful source-hosted Windows UIA
+observation has been claimed; no actual packaged executable or owner
+NVDA/DPI/visual baseline qualification yet exists for Section43.
+43.4–43.6 and terminal integration remain OPEN. Any failing UIA probe must
+remain an actionable failure rather than a waived check.
