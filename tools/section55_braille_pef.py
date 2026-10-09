@@ -21,6 +21,11 @@ import shutil
 import sys
 import tempfile
 
+# Support direct command invocation from the repository checkout, with no pip install.
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 from acs.bookdocument import BookDocument
 from acs.chess_braille_factory import (
     BrailleFactoryError, BrailleProfile, LiblouisTranslator, prepare_chess_book_pef,
