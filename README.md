@@ -13,3 +13,5 @@ Canonical product truth:
 The Windows/NVDA release and Formats/Library/ChessBase work remain active delivery foundations. The 2026-10-05 owner amendment also authorizes parallel active development of Media Intelligence, synchronized live/recorded chess media, the Universal Chess Agent, and simplified Classroom/teaching core.
 
 New domain/application work must preserve one canonical chess/application truth so Windows, future Web, Media, Agent, Library, Books, Teacher/Classroom and training capabilities compose rather than being rewritten as separate products.
+
+Optional, inactive owner-gated future capabilities: **Section 54** (AI Format Factory for accessible chess books) and **Section 55** (chess Braille publishing/embosser-ready and digital reading). They are documented in the canonical Drive plan and in `docs/OPTIONAL_FORMAT_FACTORY_AND_CHESS_BRAILLE_ENGINEERING.md`, but **not** part of required Sections 0–53 or current worker/release scope; do not start without an explicit new owner command.
