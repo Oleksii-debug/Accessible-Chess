@@ -142,5 +142,31 @@ class TestSection55ProvisionalPEF(unittest.TestCase):
         self.assertEqual(len(adaptor.table_sha256), 64)
 
 
+    def test_lossy_leading_and_double_braille_blanks_fail_closed(self) -> None:
+        class LeadingBlank(SyntheticSixDotTranslator):
+            def translate(self, source: str) -> str:
+                return "\u2800\u2801"
+
+        class DoubleBlank(SyntheticSixDotTranslator):
+            def translate(self, source: str) -> str:
+                return "\u2801\u2800\u2800\u2801"
+
+        for fake in (LeadingBlank(), DoubleBlank()):
+            with self.subTest(fake=type(fake).__name__):
+                with self.assertRaises(BrailleFactoryError):
+                    prepare(translator=fake)
+
+    def test_direct_cli_help_is_available_without_optional_liblouis(self) -> None:
+        from pathlib import Path
+        import subprocess
+        import sys
+        cli = Path(__file__).resolve().parents[1] / "tools" / "section55_braille_pef.py"
+        response = subprocess.run(
+            [sys.executable, str(cli), "--help"], capture_output=True,
+            text=True, timeout=15, check=False,
+        )
+        self.assertEqual(response.returncode, 0, response.stderr)
+        self.assertIn("--rights-confirmed", response.stdout)
+
 if __name__ == "__main__":
     unittest.main()
