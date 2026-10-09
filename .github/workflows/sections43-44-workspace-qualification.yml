@@ -13,6 +13,7 @@ on:
       - 'acs/stage1_release_ui.py'
       - 'tests/test_sections43_44_native_layout_persistence.py'
       - 'tests/js/sections43_44_workspace_contract_test.js'
+      - 'tests/js/section44_real_presenters_design_test.js'
       - '.github/workflows/sections43-44-workspace-qualification.yml'
   push:
     branches:
@@ -50,8 +51,11 @@ jobs:
           node --check web/full_product_teacher.js
           node --check web/full_product_education.js
           node --check tests/js/sections43_44_workspace_contract_test.js
+          node --check tests/js/section44_real_presenters_design_test.js
       - name: Exercise real packaged HTML layout + recovery and service CSS contracts
         run: node tests/js/sections43_44_workspace_contract_test.js
+      - name: Qualify Section 44 real canonical module presentation and interactive media
+        run: node tests/js/section44_real_presenters_design_test.js
       - name: Native persistence in existing upgrade-locked Settings
         run: |
           python -m py_compile acs/settings.py acs/stage1_release_ui.py tests/test_sections43_44_native_layout_persistence.py
