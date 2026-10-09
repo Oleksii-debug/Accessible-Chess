@@ -1,5 +1,5 @@
 /* Shared, presentation-only SVG overlay projector for native WebView and Web.
-   No fetch, no innerHTML, no persistent state or chess-rule authority. */
+   Uses only local, trusted DOM nodes; never writes markup or chess state. */
 (() => {
   "use strict";
   const SVG = "http://www.w3.org/2000/svg";
