@@ -19,7 +19,10 @@ import shutil
 import stat
 import tempfile
 
-from .version2_package_assembler import (\n    Version2PackageAssemblyError,\n    _publish_directory_no_replace,\n)
+from .version2_package_assembler import (
+    Version2PackageAssemblyError,
+    _publish_directory_no_replace,
+)
 from .version2_upgrade import (
     UserDataLayout,
     Version2UpgradeCoordinator,
@@ -136,7 +139,6 @@ def import_owner_profile(backup: str | Path, destination: str | Path) -> str:
     profile_published = False
     try:
         data = source / "data"
-        count = 0
         for entry in manifest["entries"]:
             relative = PurePosixPath(entry["path"])
             copied = stage.joinpath(*relative.parts)
@@ -181,8 +183,15 @@ def import_owner_profile(backup: str | Path, destination: str | Path) -> str:
         profile_published = True
         _fsync_dir(target.parent)
         return migrated.status
-    except (OSError, Version2UpgradeError, Version2UpgradeRecoveryError) as exc:
-        raise UserDataTransferError("profile import failed; existing data was not replaced") from exc
+    except (
+        OSError,
+        Version2UpgradeError,
+        Version2UpgradeRecoveryError,
+        Version2PackageAssemblyError,
+    ) as exc:
+        raise UserDataTransferError(
+            "profile import failed; existing profile data was not replaced"
+        ) from exc
     finally:
         if not profile_published:
             # Never touch an existing destination profile on failure. Staging
