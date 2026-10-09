@@ -6,8 +6,11 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 from acs.acsdb import ACSDB_SCHEMA_VERSION, AcsDatabase
+import acs.user_data_transfer as transfer_module
+from acs.version2_package_assembler import Version2PackageAssemblyError
 from acs.user_data_transfer import (
     UserDataTransferError,
     export_owner_profile,
@@ -117,6 +120,32 @@ class OwnerDataTransferTests(unittest.TestCase):
             with self.assertRaisesRegex(UserDataTransferError, "already exists"):
                 import_owner_profile(exported, target)
             self.assertEqual((target / "owner.txt").read_bytes(), b"preserve")
+
+    def test_publication_race_never_overwrites_foreign_new_profile(self):
+        with tempfile.TemporaryDirectory() as td:
+            parent = Path(td)
+            source = self._source(parent)
+            exported = export_owner_profile(UserDataLayout(source))
+            destination = parent / "new-owner"
+            real_publish = transfer_module._publish_directory_no_replace
+
+            def foreign_profile_appears(stage: Path, output: Path) -> None:
+                if output == destination:
+                    destination.mkdir()
+                    (destination / "foreign.txt").write_bytes(b"never overwrite")
+                    raise Version2PackageAssemblyError("destination appeared")
+                return real_publish(stage, output)
+
+            with mock.patch.object(
+                transfer_module,
+                "_publish_directory_no_replace",
+                side_effect=foreign_profile_appears,
+            ):
+                with self.assertRaises(UserDataTransferError):
+                    import_owner_profile(exported, destination)
+            self.assertEqual(
+                (destination / "foreign.txt").read_bytes(), b"never overwrite"
+            )
 
     def test_future_schema_blocks_staged_import_without_touching_target(self):
         with tempfile.TemporaryDirectory() as td:
