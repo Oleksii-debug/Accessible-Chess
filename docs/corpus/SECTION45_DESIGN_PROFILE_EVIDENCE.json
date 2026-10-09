@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "section": 45,
-  "status": "INTERNAL_COMPLETE_EXTERNAL_BLOCKED",
+  "status": "PARTIAL_45_5_INTEGRATED_45_6_OPEN",
   "existing_preferences": {
     "keyboard_profile": "web/version2_local_profile.js + canonical keymap APIs",
     "sound_preferences": "web/stage1_release_bootstrap.js + persisted sound APIs",
@@ -10,11 +10,51 @@
   },
   "design_profile_studio": {
     "apply_cancel_reset": "IMPLEMENTED as one keyboard-accessible Settings surface",
-    "named_profiles": ["Classic", "Studio Dark", "Tournament", "Low Vision", "Minimal"],
-    "editable_dimensions": ["theme", "board theme", "density"],
+    "named_profiles": [
+      "Classic",
+      "Studio Dark",
+      "Tournament",
+      "Low Vision",
+      "Minimal"
+    ],
+    "editable_dimensions": [
+      "theme",
+      "board theme",
+      "density"
+    ],
     "persistence": "one validated visual_profile_json settings value",
     "runtime_application": "document theme/density/profile attributes plus canonical board theme class"
   },
-  "verification": {"source_and_persistence_tests": "PASS tests.test_visual_profiles plus design/theme suites", "forced_colors_and_reduced_motion": "PRESERVED", "physical_nvda": "NOT_RUN"},
-  "blocked": ["physical Windows DPI screenshot matrix", "human NVDA visual-settings acceptance"]
+  "verification": {
+    "source_and_persistence_tests": "PASS tests.test_visual_profiles plus design/theme suites",
+    "forced_colors_and_reduced_motion": "PRESERVED",
+    "physical_nvda": "NOT_RUN"
+  },
+  "blocked": [
+    "physical Windows DPI screenshot matrix",
+    "human NVDA visual-settings acceptance"
+  ],
+  "subsections": {
+    "45.1": "PROTECTED_DONE",
+    "45.2": "PROTECTED_DONE",
+    "45.3": "PROTECTED_DONE",
+    "45.4": "PROTECTED_DONE",
+    "45.5": "SOURCE_INTEGRATED_WITH_V8_QUALIFICATION",
+    "45.6": "PARTIAL_OPEN"
+  },
+  "integrated_transfer": {
+    "pr": 2535,
+    "source_pr": 2528,
+    "commit": "cbbbdebe1b03c1402f4eb797afec2ad190e1370b",
+    "source_test_assertions_passed": 2143,
+    "profile_combinations": 300,
+    "native_python": "NOT_RUN",
+    "hosted_actions": "QUEUED",
+    "windows_nvda": "NOT_RUN"
+  },
+  "open_requirements": [
+    "Complete six-preset and custom-profile design studio convergence with a single canonical Settings authority",
+    "All pieces, scale, orientation and layout combinations together with functional UI routes",
+    "Fully executed exact code-sha Python/Node CI and current-source integration checks when runner available; human owner acceptance remains final product"
+  ]
 }
