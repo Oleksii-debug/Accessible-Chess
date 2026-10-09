@@ -46,6 +46,7 @@ DEFAULTS: dict[str, Any] = {
     "video_sessions_json": "{}",
     "ai_profiles_json": "{}",
     "visual_profile_json": "{\"board_theme\":\"wood\",\"density\":\"comfortable\",\"profile\":\"classic\",\"theme\":\"system\"}",
+    "visual_board_preferences_json": "{\"animateMoves\":false,\"coordinateMode\":\"edges\",\"fitToWindow\":false,\"lowPowerMode\":false,\"orientation\":\"white\",\"pieceTheme\":\"unicode\",\"presentationMode\":false,\"scalePercent\":100,\"showLastMove\":true}",
 }
 
 _ALLOWED_LANGUAGE = {"uk", "en"}
@@ -502,6 +503,30 @@ def _validated_value(key: str, value: Any) -> Any:
     if key == "engine_path":
         if type(value) is not str:
             raise SettingsError("engine_path must be a string")
+        return value
+    if key == "visual_board_preferences_json":
+        if type(value) is not str or len(value) > 2048:
+            raise SettingsError("visual board preferences must be bounded JSON text")
+        try:
+            parsed = _parse_settings_json(value)
+            if type(parsed) is not dict or set(parsed) != {
+                "pieceTheme", "orientation", "coordinateMode", "scalePercent",
+                "showLastMove", "fitToWindow", "presentationMode",
+                "animateMoves", "lowPowerMode",
+            }:
+                raise SettingsError("invalid visual board preferences shape")
+            from .visual_board_contract import VisualBoardPreferences
+            validated = VisualBoardPreferences(
+                piece_theme=parsed["pieceTheme"], orientation=parsed["orientation"],
+                coordinate_mode=parsed["coordinateMode"], scale_percent=parsed["scalePercent"],
+                show_last_move=parsed["showLastMove"], fit_to_window=parsed["fitToWindow"],
+                presentation_mode=parsed["presentationMode"], animate_moves=parsed["animateMoves"],
+                low_power_mode=parsed["lowPowerMode"],
+            ).as_dict()
+            if {key: item for key, item in validated.items() if key != "boardTheme"} != parsed:
+                raise SettingsError("invalid visual board preferences values")
+        except (TypeError, ValueError, KeyError, json.JSONDecodeError) as exc:
+            raise SettingsError("invalid visual board preferences") from exc
         return value
     if key in {"video_sessions_json", "ai_profiles_json", "visual_profile_json"}:
         if type(value) is not str or len(value) > 900_000:
