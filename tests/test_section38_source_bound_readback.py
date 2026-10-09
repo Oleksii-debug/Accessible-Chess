@@ -6,6 +6,7 @@ the separately downloaded pinned corpus in section38-real-corpus-integration.yml
 from __future__ import annotations
 
 from hashlib import sha256
+import io
 from pathlib import Path
 from types import SimpleNamespace
 import tempfile
@@ -30,6 +31,41 @@ class Section38SourceBoundReadbackTests(unittest.TestCase):
             self.assertEqual(len(games_again), 1)
             self.assertEqual(record["sha256"], pinned["expected_sha256"])
             self.assertEqual(record["status"], "PASS_SOURCE_PINNED")
+
+    def test_pgn_growth_after_stat_is_bounded_and_rejected(self):
+        with tempfile.TemporaryDirectory() as raw:
+            source = Path(raw) / "original.pgn"
+            source.write_bytes(SMALL_PGN)
+            pinned = {"expected_sha256": sha256(SMALL_PGN).hexdigest(), "expected_games": 1}
+            original_open = Path.open
+            observed_limits = []
+
+            class GrowingSource(io.BytesIO):
+                def read(self, size=-1):
+                    observed_limits.append(size)
+                    return super().read(size)
+
+            def growing_open(path, *args, **kwargs):
+                if path == source and args == ("rb",):
+                    return GrowingSource(SMALL_PGN + b"X" * 100)
+                return original_open(path, *args, **kwargs)
+
+            cap = len(SMALL_PGN) + 4
+            with (
+                mock.patch.object(gate, "MAX_REAL_PGN_BYTES", cap),
+                mock.patch.object(Path, "open", autospec=True, side_effect=growing_open),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "changed size during bounded read"):
+                    gate._verified_pgn_games(source, pinned)
+            self.assertEqual(observed_limits, [cap + 1])
+
+    def test_checksum_recheck_rejects_oversized_source(self):
+        with tempfile.TemporaryDirectory() as raw:
+            source = Path(raw) / "oversized.pgn"
+            source.write_bytes(SMALL_PGN)
+            with mock.patch.object(gate, "MAX_REAL_PGN_BYTES", len(SMALL_PGN) - 1):
+                with self.assertRaisesRegex(RuntimeError, "bounded hash budget"):
+                    gate._sha256(source)
 
     def test_stale_bytes_never_upgrade_a_pgn_receipt(self):
         with tempfile.TemporaryDirectory() as raw:
