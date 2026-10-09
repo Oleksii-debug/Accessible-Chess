@@ -1739,6 +1739,52 @@ def _validate_required_runtime_resources(
             ):
                 _fail("Section 41 packaged CSS has a remote/unsafe dependency")
 
+    # Section 42: a shipping UI using the CC0 RhosGFX piece pack must
+    # include all 12 exact original source files plus license/provenance.
+    # A rewritten package checksum manifest must never legitimize tampering.
+    if b"assets/pieces/rhosgfx/" in packed_index:
+        section42_base = "AccessibleChess/web/assets/pieces/rhosgfx/"
+        section42_pieces = {
+            "wK.svg": "a21a5ebbf3fb4923abfd4cbd2e27a1b7e65e6ea2",
+            "wQ.svg": "c0af0ab868e5532eb6e471b300be14a4ea695af2",
+            "wR.svg": "ba3d4e319796699e2ff2aacc7b1a8639a7771edd",
+            "wB.svg": "16fc2ea40277d52a6cd0ab36e292834671283406",
+            "wN.svg": "9650e7496606543f9f9ceca488c89af26f33b5e5",
+            "wP.svg": "ceb32e2aa286bac4aa5581aa230d87088d9c0cdf",
+            "bK.svg": "a726621988e47742852743ecc3c0d75a6f2ad80e",
+            "bQ.svg": "cb352ffd1a3741bf72254ef39a9baa1571f622b2",
+            "bR.svg": "5ce91a9f86301141aba7a540c4356a2138410208",
+            "bB.svg": "b2aeb13166399342d5fba9f38d773f7bf6b43301",
+            "bN.svg": "0bf9be862a0a65241aaa5afc0aae5a5a38b55e54",
+            "bP.svg": "e97fce610f9e2dc35c14061e6e28d4a1f1da005d",
+        }
+        section42_evidence = {
+            "SECTION42_PROVENANCE.json": "55b27fa30df76af2cb68642198b4e10653b3cff5",
+            "SOURCE_COPYING.md": "def9deca8bceae28cf83d2074a3b09534ae88f6f",
+        }
+        for name, expected in {**section42_pieces, **section42_evidence}.items():
+            art = _require_package_file(
+                root, inventory, section42_base + name,
+                label="Section 42 licensed original artwork",
+            )
+            content = _read_stable_bytes_file(
+                art, label="Section 42 licensed original artwork",
+                max_bytes=128 * 1024,
+            )
+            blob = hashlib.sha1(
+                b"blob " + str(len(content)).encode("ascii") + bytes([0]) + content
+            ).hexdigest()
+            if blob != expected:
+                _fail("Section 42 packaged CC0 artwork/provenance mismatch")
+            if name.endswith(".svg") and (
+                b"<svg" not in content.lower()
+                or any(token in content.lower() for token in (
+                    b"<script", b"<foreignobject", b"<!entity",
+                    b"url(http", b"<iframe",
+                ))
+            ):
+                _fail("Section 42 packaged SVG contains unsafe active content")
+
     stockfish = _require_package_file(
         root,
         inventory,
