@@ -12,7 +12,9 @@
     "observed_text_characters": 2197766,
     "observed_rows": 24595,
     "duplicate_ids": 0,
-    "license_boundary": "Lichess CC0 puzzle records, not the FeXd GPL-3.0 application"
+    "license_boundary": "Lichess CC0 puzzle records, not the FeXd GPL-3.0 application",
+    "original_bytes_sha256": "ae5a175d444edbec50f79aae420df2ebe2dde475ea540ac3decf44d1d90f14a0",
+    "sha256_computation": "Pure JS SHA-256 over exact ASCII GitHub blob text; 3 standard known-answer vectors passed, 24,595 original newline-separated rows, no normalization applied"
   },
   "selected": {
     "path": "tests/real_corpus/advanced_training/lichess_cc0_extreme_3000_3166_original_puzzles.json",
@@ -87,7 +89,7 @@
     }
   ],
   "limitations": [
-    "Executed direct remote Git blob/text comparison; no local checkout, SHA-256 content digest, PGN/FEN chess-legal semantic replay, ACSDB import/restart, Windows/NVDA or Section37 hosted CI pass claimed.",
+    "Executed direct remote Git blob/text and SHA-256 comparison, with 3 digest known-answer tests; no local repository checkout, PGN/FEN chess-legal semantic replay, ACSDB import/restart, Windows/NVDA or Section37 hosted CI pass claimed.",
     "All 37.1-37.4 remain PARTIAL; 37.5 and 37.6 remain locked DONE; parent Section 37 is NOT TERMINAL DONE.",
     "This source-receipt evidence does not clear genuine complete CBF+CBI, 2CBH, CBONE independent sources/rights or their import oracles.",
     "No third-party binaries embedded; do not treat research data as permission to redistribute proprietary databases."
