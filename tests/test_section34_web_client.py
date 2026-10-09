@@ -211,6 +211,26 @@ class Section34WebClientTests(unittest.TestCase):
         self.assertNotIn("innerHTML", js)
         self.assertNotIn("remote desktop", (html + js).lower())
 
+
+    def test_section44_real_web_premium_stylesheet_is_authenticated_and_exact(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        html = (root / "web/accessible_chess_web.html").read_text(encoding="utf-8")
+        self.assertIn('class="ac44-web-page"', html)
+        self.assertIn('href="/assets/accessible_chess_web_design.css"', html)
+        self.assertIn('data-route="online"', html)
+        self.assertIn('data-route="spectator"', html)
+        route = "/assets/accessible_chess_web_design.css"
+        ok = self._asgi("GET", route)
+        self.assertEqual(ok[0]["status"], 200)
+        headers = dict(ok[0]["headers"])
+        self.assertEqual(headers[b"content-type"], b"text/css; charset=utf-8")
+        self.assertEqual(headers[b"cache-control"], b"no-store")
+        self.assertEqual(headers[b"x-content-type-options"], b"nosniff")
+        self.assertIn(b".ac44-web-page", ok[1]["body"])
+        self.assertEqual(self._asgi("GET", route, principal=False)[0]["status"], 401)
+        self.assertEqual(self._asgi("GET", route, query=b"user=other")[0]["status"], 400)
+        self.assertEqual(self._asgi("GET", "/assets/../design_system.css")[0]["status"], 404)
+
     def test_web_boundary_does_not_import_chess_or_duplicate_domain_logic(self) -> None:
         root = Path(__file__).resolve().parent.parent
         source = "\n".join(
