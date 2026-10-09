@@ -38,14 +38,14 @@
       "author": "Jose Raul Capablanca",
       "format": "epub",
       "source_page": "https://www.gutenberg.org/ebooks/33870",
-      "download_url": null,
+      "download_url": "https://www.gutenberg.org/ebooks/33870.epub3.images",
       "sha256": null,
       "max_bytes": 16777216,
       "license": "US public domain; verify jurisdiction and Project Gutenberg redistribution conditions",
       "redistribution": "NOT_CLEARED",
-      "acquisition": "SOURCE_PAGE_ONLY",
-      "canonical_qa": "BookDocument EPUB3; download link requires exact current endpoint verification",
-      "notes": "Do not invent EPUB file URL or claim import support"
+      "acquisition": "OFFICIAL_DIRECT_EPUB3_LINK_VERIFIED_BYTES_NOT_ACQUIRED",
+      "canonical_qa": "BookDocument EPUB3 actual original-byte acquisition/hash + canonical Book import and restart still required",
+      "notes": "Official Gutenberg eBook #33870 directly links to this EPUB3 resource (verified 2026-10-09). Connector fetched the official page but binary read failed as unsupported application/epub+zip; separate container download also failed. No original bytes, SHA-256, parser/restart/CI PASS, or redistribution rights are established."
     },
     {
       "id": "chessbase_family_complete_real_samples",
