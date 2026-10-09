@@ -1,0 +1,82 @@
+from __future__ import annotations
+
+"""Real filesystem tests for conservative Liblouis include closure, no Liblouis binary."""
+from pathlib import Path
+import tempfile
+import unittest
+
+from acs.chess_braille_factory import BrailleFactoryError
+from acs.chess_braille_tables import scan_local_liblouis_table_closure
+
+
+class TestSection55TableClosure(unittest.TestCase):
+    def test_main_and_transitive_include_are_pinned_deterministically(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            main = base / "main.ctb"
+            nested = base / "nested.cti"
+            final = base / "final.cti"
+            main.write_text("# Main\ninclude nested.cti\n", encoding="utf-8")
+            nested.write_text("include final.cti\n", encoding="utf-8")
+            final.write_text("# End\n", encoding="utf-8")
+            first = scan_local_liblouis_table_closure(main)
+            second = scan_local_liblouis_table_closure(main)
+            self.assertEqual(first, second)
+            self.assertEqual(len(first.files), 3)
+            self.assertEqual(len(first.closure_sha256), 64)
+            self.assertEqual(first.status, "LOCAL_PIN_ONLY_NOT_LANGUAGE_CERTIFICATION")
+            final.write_text("# Altered\n", encoding="utf-8")
+            changed = scan_local_liblouis_table_closure(main)
+            self.assertNotEqual(first.closure_sha256, changed.closure_sha256)
+
+    def test_absolute_and_traversal_include_fail_closed(self):
+        for operand in ("../unsafe.ctb", "/other/unsafe.ctb", "dir/../unsafe.ctb"):
+            with self.subTest(operand=operand), tempfile.TemporaryDirectory() as tmp:
+                main = Path(tmp) / "main.ctb"
+                main.write_text("include " + operand + "\n", encoding="utf-8")
+                with self.assertRaises(BrailleFactoryError):
+                    scan_local_liblouis_table_closure(main)
+
+    def test_include_cycles_fail_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            main = base / "main.ctb"
+            child = base / "child.cti"
+            main.write_text("include child.cti\n", encoding="utf-8")
+            child.write_text("include main.ctb\n", encoding="utf-8")
+            with self.assertRaises(BrailleFactoryError):
+                scan_local_liblouis_table_closure(main)
+
+    def test_missing_include_and_ambiguous_directive_fail_closed(self):
+        for text in ("include missing.cti", "include", "include child.cti ignored"):
+            with self.subTest(text=text), tempfile.TemporaryDirectory() as tmp:
+                main = Path(tmp) / "main.ctb"
+                main.write_text(text + "\n", encoding="utf-8")
+                with self.assertRaises(BrailleFactoryError):
+                    scan_local_liblouis_table_closure(main)
+
+    def test_utf16_and_binary_input_are_not_silently_guessed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            main = Path(tmp) / "main.ctb"
+            main.write_bytes("\ufeffinclude child.cti\n".encode("utf-16"))
+            with self.assertRaises(BrailleFactoryError):
+                scan_local_liblouis_table_closure(main)
+
+    def test_symlink_inside_pinned_folder_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            target = base / "real.cti"
+            target.write_text("# data", encoding="utf-8")
+            link = base / "link.cti"
+            try:
+                link.symlink_to(target)
+            except (OSError, NotImplementedError):
+                self.skipTest("Symlinks require elevated permissions on this OS")
+            main = base / "main.ctb"
+            main.write_text("include link.cti\n", encoding="utf-8")
+            with self.assertRaises(BrailleFactoryError):
+                scan_local_liblouis_table_closure(main)
+
+
+if __name__ == "__main__":
+    unittest.main()
