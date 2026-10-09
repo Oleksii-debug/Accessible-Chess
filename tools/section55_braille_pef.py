@@ -30,6 +30,7 @@ if str(ROOT) not in sys.path:
 from acs.bookdocument import BookDocument
 from acs.book_text_import import import_text_book
 from acs.chess_braille_bundle import verify_provisional_bundle
+from acs.chess_braille_tables import scan_local_liblouis_table_closure
 from acs.chess_braille_brf import NABCC_DISPLAY_TABLE, pef_to_provisional_brf
 from acs.chess_braille_factory import (
     BrailleFactoryError, BrailleProfile, LiblouisTranslator, prepare_chess_book_pef,
@@ -106,6 +107,7 @@ def run(args: argparse.Namespace) -> int:
         matches = False
     if not matches:
         raise BrailleFactoryError("The selected Liblouis table ID must identify the exact pinned local table file")
+    closure_before = scan_local_liblouis_table_closure(args.table_file)
     table_data = bounded_read(args.table_file, MAX_TABLE_BYTES)
     translator = LiblouisTranslator(
         table_id=args.table_id, table_version=args.table_version,
@@ -133,6 +135,16 @@ def run(args: argparse.Namespace) -> int:
         raise BrailleFactoryError("Source book changed during preparation; no output published")
     if bounded_read(args.table_file, MAX_TABLE_BYTES) != table_data:
         raise BrailleFactoryError("Braille table changed during translation; no output published")
+    closure_after = scan_local_liblouis_table_closure(args.table_file)
+    if closure_before != closure_after:
+        raise BrailleFactoryError("Liblouis table dependency closure changed during processing")
+    result.manifest["table_closure_sha256"] = closure_after.closure_sha256
+    result.manifest["table_closure_files"] = [
+        {"relative_path": name, "sha256": digest}
+        for name, digest in closure_after.files
+    ]
+    result.manifest["table_closure_total_bytes"] = closure_after.total_bytes
+    result.manifest["table_closure_status"] = closure_after.status
     # Refuse clobber or partial publication into a previously accepted folder.
     # A new private temporary folder is assembled on the destination filesystem.
     target = args.output_folder
