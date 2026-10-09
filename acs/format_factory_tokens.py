@@ -113,12 +113,18 @@ class FactoryTokenGovernor:
             raise FactoryTokenLimitError("Invalid reservation")
         values = (actual_input_tokens, actual_output_tokens,
                   cached_input_tokens, reasoning_output_tokens)
-        if any(type(v) is not int or v < 0 or v > 2**63 - 1 for v in values):
-            raise FactoryTokenLimitError("Reported usage is invalid")
-        if cached_input_tokens > actual_input_tokens:
-            raise FactoryTokenLimitError("Cached input exceeds reported total")
-        if reasoning_output_tokens > actual_output_tokens:
-            raise FactoryTokenLimitError("Reasoning output exceeds reported total")
+        invalid = any(type(v) is not int or v < 0 or v > 2**63 - 1 for v in values)
+        if not invalid:
+            invalid = (cached_input_tokens > actual_input_tokens or
+                       reasoning_output_tokens > actual_output_tokens)
+        if invalid:
+            # A malformed billing report after dispatch is not a free retry.
+            # Keep the reservation held and block all new paid calls until a
+            # trusted provider reconciliation has resolved the unknown spend.
+            with self._lock:
+                if self._reserved.get(reservation.request_id) == reservation:
+                    self._blocked = "UNRELIABLE_PROVIDER_USAGE"
+            raise FactoryTokenLimitError("Provider token usage cannot be verified")
         usage = FactoryTokenUsage(*values)
         with self._lock:
             prior = self._reserved.get(reservation.request_id)
