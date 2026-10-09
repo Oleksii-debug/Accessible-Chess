@@ -160,6 +160,17 @@ def _canonical_lines(document: BookDocument) -> tuple[list[str], str]:
     return result, digest
 
 
+def _xml10_text(value: str, label: str) -> str:
+    # PEF is XML 1.0; a validated BookDocument may legitimately contain an
+    # unusual control code that cannot be serialized in XML. Fail closed.
+    for character in value:
+        code = ord(character)
+        if not (code in {9, 10, 13} or 0x20 <= code <= 0xD7FF
+                or 0xE000 <= code <= 0xFFFD or 0x10000 <= code <= 0x10FFFF):
+            raise BrailleFactoryError(f"{label} contains characters invalid in XML 1.0")
+    return value
+
+
 def _braille_lines(segments: list[str], translator: FormalBrailleTranslator,
                    columns: int) -> list[str]:
     lines: list[str] = []
@@ -217,6 +228,8 @@ def prepare_chess_book_pef(
            for key in ("table_id", "table_version", "table_sha256")):
         raise BrailleFactoryError("Unpinned or mismatched formal translation table")
     segments, source_sha = _canonical_lines(document)
+    _xml10_text(document.title, "Title")
+    _xml10_text(profile.language, "Language")
     rows = _braille_lines(segments, translator, profile.cells_per_line)
     # A production-grade publisher will replace this bounded single-volume
     # preparation with verified multi-volume/device/duplex layout.
@@ -245,7 +258,10 @@ def prepare_chess_book_pef(
             ET.SubElement(page, f"{{{PEF_NS}}}row").text = text
     pef = ET.tostring(root, encoding="utf-8", xml_declaration=True)
     # Structural independent reparse proves page dimensions only, not print readiness.
-    check = ET.fromstring(pef)
+    try:
+        check = ET.fromstring(pef)
+    except ET.ParseError as exc:
+        raise BrailleFactoryError("Generated PEF failed XML parsing") from exc
     fmt = check.find(f"./{{{PEF_NS}}}head/{{{PEF_NS}}}meta/{{{DC_NS}}}format")
     identifier = check.find(f"./{{{PEF_NS}}}head/{{{PEF_NS}}}meta/{{{DC_NS}}}identifier")
     if fmt is None or fmt.text != "application/x-pef+xml" or identifier is None or identifier.text != "urn:sha256:" + source_sha:
