@@ -148,6 +148,17 @@ async function settle(){for(let i=0;i<12;i++)await Promise.resolve();}
  input.dispatchEvent({type:"change"});await settle();
  assert.equal(app.get("ac45-profile").value,"Low Vision");
  assert.equal(JSON.parse(app.store["accessible-chess.design-profiles.v1"]).selected,"Low Vision");
+ // Cross-platform contract: Python permits braces and square brackets in
+ // profile names; those characters inside JSON strings must not corrupt
+ // Web's duplicate-key scanner or cause silent restart fallback.
+ app.get("ac45-name").value="Study {window [";
+ app.get("ac45-copy").click();await settle();
+ assert.equal(app.get("ac45-profile").value,"Study {window [");
+ const withPunctuation=app.store["accessible-chess.design-profiles.v1"];
+ assert.equal(mount({storage:app.store}).get("ac45-profile").value,"Study {window [");
+ app.get("ac45-name").value="Study ]} view";
+ app.get("ac45-copy").click();await settle();
+ assert.equal(mount({storage:app.store}).get("ac45-profile").value,"Study ]} view");
  const beforeMalicious=app.store["accessible-chess.design-profiles.v1"];
  const maliciousImport='{"version":1,"version":2,"selected":"Classic","profiles":{}}';
  input.files=[{size:maliciousImport.length,text:async()=>maliciousImport}];
