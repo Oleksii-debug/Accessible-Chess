@@ -222,7 +222,10 @@ def prepare_chess_book_pef(
     root = ET.Element(f"{{{PEF_NS}}}pef", {"version": "2008-1"})
     head = ET.SubElement(root, f"{{{PEF_NS}}}head")
     meta = ET.SubElement(head, f"{{{PEF_NS}}}meta")
+    ET.SubElement(meta, f"{{{DC_NS}}}format").text = "application/x-pef+xml"
+    ET.SubElement(meta, f"{{{DC_NS}}}identifier").text = "urn:sha256:" + source_sha
     ET.SubElement(meta, f"{{{DC_NS}}}title").text = document.title
+    ET.SubElement(meta, f"{{{DC_NS}}}language").text = profile.language
     body = ET.SubElement(root, f"{{{PEF_NS}}}body")
     volume = ET.SubElement(body, f"{{{PEF_NS}}}volume", {
         "cols": str(profile.cells_per_line), "rows": str(profile.lines_per_page),
@@ -236,6 +239,10 @@ def prepare_chess_book_pef(
     pef = ET.tostring(root, encoding="utf-8", xml_declaration=True)
     # Structural independent reparse proves page dimensions only, not print readiness.
     check = ET.fromstring(pef)
+    fmt = check.find(f"./{{{PEF_NS}}}head/{{{PEF_NS}}}meta/{{{DC_NS}}}format")
+    identifier = check.find(f"./{{{PEF_NS}}}head/{{{PEF_NS}}}meta/{{{DC_NS}}}identifier")
+    if fmt is None or fmt.text != "application/x-pef+xml" or identifier is None or identifier.text != "urn:sha256:" + source_sha:
+        raise BrailleFactoryError("PEF required metadata failed qualification")
     actual = check.findall(f".//{{{PEF_NS}}}page")
     if len(actual) != len(pages) or any(
         len(page.findall(f"{{{PEF_NS}}}row")) > profile.lines_per_page
