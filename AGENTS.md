@@ -10,6 +10,8 @@
 
 **NO GREEN INVENTION:** Keep known failing checks as real blockers. Queued/cancelled/unavailable hosted CI is not green; apply Simplified Section Closure v3 only with honestly executed and sufficient available evidence. Respect final physical Windows/NVDA and external-provider gates and do not ask the owner to do routine developer work. No paid compute without explicit permission.
 
+**OPTIONAL OWNER-GATED PRODUCT EXTENSIONS — Sections 54 and 55:** The single canonical Google Drive plan now also documents Section 54 (AI Format Factory) and Section 55 (chess-literature Braille print/digital factory). They are **OPTIONAL / NOT STARTED / NOT DONE / NOT ACTIONABLE** until a *new explicit owner activation*. Normal worker selection, closure and the final required shipping gates remain **Sections 0–53 exclusively**. Do not schedule, implement, PR, research-launch, run paid API, alter an existing Section or auto-advance to 54/55 when 53 completes. Their full approved product and technical design is in `docs/OPTIONAL_FORMAT_FACTORY_AND_CHESS_BRAILLE_ENGINEERING.md`; that file is **not** a replacement plan. Section 55 is primarily for **chess** publishing; generic book compatibility is incidental and future market surveys also require owner instruction.
+
 
 ## Simplified Section Closure Protocol v3 — owner directive 2026-10-07
 
