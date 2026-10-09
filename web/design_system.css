@@ -336,3 +336,84 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   #v2-workspace [role="toolbar"] :focus-visible,
   #teacher-visual-board [role="gridcell"] button:focus-visible { outline-color: Highlight; }
 }
+
+
+/* Section 43: canonical workspace composition; visual only, no state authority.
+   Preserve logical DOM/tab order, native text selection and keyboard focus. */
+#ac43-workspace-controls {
+  grid-column:1/-1;
+  display:flex;flex-wrap:wrap;align-items:center;gap:.75rem;
+  padding:1rem;border:1px solid var(--ac-border);
+  border-radius:var(--ac-radius-sm);background:var(--ac-surface-raised);
+}
+#ac43-workspace-controls label {font-weight:650}
+#ac43-workspace-controls select {min-width:7rem;max-width:100%}
+#main-content {
+  max-width:100rem;display:grid;grid-template-columns:minmax(0,1.5fr) minmax(19rem,1fr);
+  align-items:start;gap:1rem;
+}
+#main-content > section {
+  min-width:0;overflow-wrap:anywhere;min-height:0;
+  border:1px solid var(--ac-border);border-radius:var(--ac-radius-sm);
+  background:var(--ac-surface);padding:1rem;
+  max-height:none;box-shadow:var(--ac-shadow-soft);
+}
+#main-content > section[aria-labelledby="h-board"],
+#main-content > section[aria-labelledby="h-media"],
+#main-content > section[aria-labelledby="h-ai-agent"] {grid-column:1/-1}
+#main-content > section:not([data-ac43-collapsed="true"]) {
+  min-height:var(--ac43-panel-size,auto);
+}
+#ac43-workspace-controls :is(button,select):focus-visible,
+.ac43-panel-actions button:focus-visible,
+#ac43-product-layout select:focus-visible {
+  outline:3px solid var(--ac-focus);outline-offset:3px;
+}
+.ac43-panel-actions {
+  display:inline-flex;flex-wrap:wrap;gap:.35rem;
+  margin-inline-start:.75rem;vertical-align:middle;
+}
+.ac43-panel-actions button {font-size:.875em;min-height:2.4rem;padding:.35rem .65rem}
+#main-content section[data-ac43-collapsed="true"] > :not(h2):not(h3){
+  display:none!important;
+}
+html[data-ac43-layout="single"] #main-content {grid-template-columns:minmax(0,1fr)}
+html[data-ac43-layout="single"] #main-content > section {grid-column:1/-1}
+html[data-ac43-density="compact"] #main-content > section {padding:.55rem}
+#ac43-product-layout {
+  display:flex;gap:.65rem;align-items:center;flex-wrap:wrap;
+  padding:.75rem;margin-block:.75rem;
+  border:1px solid var(--ac-border);border-radius:var(--ac-radius-sm);
+  background:var(--ac-surface);
+}
+#v2-workspace[data-ac43-presentation="reading"] {
+  font-size:1.2rem;line-height:1.65;max-width:76rem;
+}
+#v2-workspace[data-ac43-presentation="compact"] {
+  font-size:.95rem;line-height:1.35;
+}
+#v2-workspace[data-ac43-presentation="compact"] :is(section,article) {padding:.65rem}
+@media (max-width:900px) {
+  #main-content {grid-template-columns:minmax(0,1fr)}
+  #main-content > section {grid-column:1/-1}
+}
+@media (forced-colors:active) {
+  #main-content > section,#ac43-workspace-controls,#ac43-product-layout {
+    border:1px solid CanvasText;background:Canvas;color:CanvasText;box-shadow:none;
+  }
+}
+@media (prefers-reduced-motion:reduce) {
+  #main-content *,#ac43-workspace-controls *,#ac43-product-layout * {
+    transition:none!important;animation:none!important;
+  }
+}
+
+/* Section 43.3: per-module actual workspaces, not demo route panels.
+   Controls remain in the preceding navigation toolbar while collapsed. */
+#v2-workspace[data-ac43-collapsed="true"] {display:none!important}
+#v2-workspace[data-ac43-size="medium"],
+#v2-workspace[data-ac43-size="large"] {overflow:auto;resize:vertical}
+#v2-workspace[data-ac43-size="medium"] {max-height:40rem}
+#v2-workspace[data-ac43-size="large"] {max-height:75rem}
+#v2-workspace[data-ac43-size="auto"] {max-height:none;overflow:visible;resize:none}
+#ac43-product-layout button {min-height:2.65rem}

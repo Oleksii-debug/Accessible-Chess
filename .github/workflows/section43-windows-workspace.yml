@@ -1,0 +1,95 @@
+name: Section 43 Windows Workspace Qualification
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "web/index.html"
+      - "web/version2_final_product_bootstrap.js"
+      - "web/design_system.css"
+      - "acs/settings.py"
+      - "acs/stage1_release_ui.py"
+      - "tests/js/sections43_44_workspace_contract_test.js"
+      - "tests/test_sections43_44_native_layout_persistence.py"
+      - "scripts/section43_windows_visual_smoke.py"
+      - ".github/workflows/section43-windows-workspace.yml"
+  push:
+    branches:
+      - "section43/**"
+  workflow_dispatch: {}
+permissions:
+  contents: read
+jobs:
+  workspace-source-contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - name: Check out the exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Exact SHA and whitespace
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          git diff --check HEAD
+      - name: Compile current Windows UI and layout Python
+        run: python -m py_compile acs/settings.py acs/stage1_release_ui.py tests/test_sections43_44_native_layout_persistence.py
+      - name: Native bounded and atomic layout persistence
+        run: python -m unittest -v tests.test_sections43_44_native_layout_persistence tests.test_settings
+      - name: Protect Windows UIA, focus, editable text and semantic copy regressions
+        run: >-
+          python -m unittest -v
+          tests.test_stage1_webview2_accessibility_boundary
+          tests.test_stage1_packaged_focus_origin_contract
+          tests.test_premium_visual_design
+          tests.test_version2_release_accessibility_contract
+      - name: Install pinned Windows WinForms and WebView2 UIA probe dependencies
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -m pip install --disable-pip-version-check pywebview==6.2.1 pythonnet==3.1.0 clr-loader==0.3.1 cffi==2.1.1 pycparser==3.0 typing-extensions==4.16.0
+          if($LASTEXITCODE -ne 0){ throw "Pinned Windows native UIA probe dependencies failed" }
+      - name: Execute real WinForms MenuBar UIA and Windows dialogs/keyboard oracles
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS='--force-renderer-accessibility'
+          python scripts/p0_native_menubar_uia_oracle.py
+          if($LASTEXITCODE -ne 0){ throw "Real Windows process-scoped MenuBar UIA oracle failed" }
+          python -m unittest -v tests.test_v2_windows_native_dialog_ownership tests.test_v2_windows_nvda_file_workflows tests.test_v2_remapped_keyboard_native_editing
+          if($LASTEXITCODE -ne 0){ throw "Windows native dialog and keyboard oracles failed" }
+      - name: Save real Windows external UIA probe receipt
+        if: always() && runner.os == 'Windows'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: section43-winforms-external-uia-source-evidence
+          path: p0-native-menubar-uia-source-summary.json
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Exact source real Windows Edge DPI, screenshot and live DOM smoke
+        if: runner.os == 'Windows'
+        run: python scripts/section43_windows_visual_smoke.py
+      - name: Save bounded render evidence, including on visual failure
+        if: always() && runner.os == 'Windows'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: section43-windows-real-render-visual-evidence
+          path: section43-windows-visual-evidence/
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Validate actual composed navigation/layout JavaScript
+        run: |
+          node --check web/version2_final_product_bootstrap.js
+          node --check web/version2_release_bootstrap.js
+          node --check tests/js/sections43_44_workspace_contract_test.js
+          node --check tests/js/section44_premium_service_surfaces_contract_test.js
+          node tests/js/sections43_44_workspace_contract_test.js
+          node tests/js/section44_premium_service_surfaces_contract_test.js
