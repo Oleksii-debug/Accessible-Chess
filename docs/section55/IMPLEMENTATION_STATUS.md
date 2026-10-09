@@ -63,3 +63,12 @@ All results are UNVERIFIED_REQUIRES_DECISION; no print-ready certification is al
 - docs/section55/LOCAL_BRAILLE_PREPARATION.md records NVDA-oriented local commands, scope, explicit proof limits and a source-hash verification step.
 - Scoped GitHub Actions test both platforms but the exact-head checks were still QUEUED, NOT GREEN when last inspected. Hardware qualification, licensed real table-closure, formal chess-Braille transliteration, lawfully usable source corpus, reader/device tests, OCR/eBraille and product integration remain unsatisfied.
 - **SECTION 55: 0/16 independently DONE, terminal NOT DONE. Do not move to another section yet.**
+
+## Third continuation checkpoint — local Liblouis dependency closure
+
+- Added acs/chess_braille_tables.py: bounded recursive UTF-8 local Liblouis include scan, deterministic SHA-256 dependency closure, relative path evidence, cycles/escaped/symlink/invalid rules rejected; this is file-inventory assurance, NOT proof of actual compiled Liblouis semantics or standardized chess Braille notation.
+- The generator now scans closure before and after translation, rejects any file drift, adds table_closure_sha256, table_closure_files, total_bytes and LOCAL_PIN_ONLY_NOT_LANGUAGE_CERTIFICATION to output manifest, then independently rechecks its unpublished package including live table.
+- Public verifier tools/section55_verify_bundle.py supports optional --table-file to recheck exact transitive source dependencies against archived manifest.
+- Added tests/test_section55_liblouis_tables.py and expanded local CLI tests for legitimate recursive includes, cycles/traversal/symlinks, unsupported binary files, changed nested dependency during/after generation, source/page/BRF consistency. Updated 2-OS scoped Actions.
+- Fixed platform-native Path type rejection in verifier and multiline source/PGN blank-line PEF handling.
+- A draft GitHub PR is not a released product; GitHub Actions jobs remained queued at the last observation, and real chess Braille codes, physical paper/embosser, publisher rights, independent reader proof, eBraille, OCR, full queue/product integration remain open. **0/16 DONE.**
