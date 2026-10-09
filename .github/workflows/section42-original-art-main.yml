@@ -8,10 +8,12 @@ on:
       - 'web/board_themes.css'
       - 'web/board_overlay_renderer.js'
       - 'acs/settings.py'
+      - 'acs/version2_package_preflight.py'
       - 'acs/webapp.py'
       - 'acs/visual_board_contract.py'
       - 'tests/test_section42_main_presentation_contract.py'
       - 'tests/test_section42_shipping_runtime.py'
+      - 'tests/test_section42_package_artifacts.py'
       - 'tests/js/section42_overlay_runtime_test.js'
       - 'tools/revised_section42_render_piece_pack.py'
       - 'tests/test_revised_section42_raster_qualification.py'
@@ -42,7 +44,7 @@ jobs:
           node tests/js/section42_overlay_runtime_test.js
       - name: Genuine asset, presentation, shipping UI, settings restart and compatibility tests
         run: |
-          python -m unittest -v tests.test_revised_section42_raster_qualification tests.test_section42_main_presentation_contract tests.test_section42_shipping_runtime tests.test_visual_profiles tests.test_section42_board_themes
+          python -m unittest -v tests.test_revised_section42_raster_qualification tests.test_section42_main_presentation_contract tests.test_section42_shipping_runtime tests.test_section42_package_artifacts tests.test_visual_profiles tests.test_section42_board_themes
 
   raster:
     runs-on: ubuntu-24.04
