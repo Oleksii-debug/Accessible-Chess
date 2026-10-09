@@ -5,7 +5,11 @@ on:
       - 'work/section54-*'
     paths:
       - 'acs/format_factory_intake.py'
+      - 'acs/format_factory_tokens.py'
+      - 'acs/format_factory_tokens.py'
       - 'tests/test_section54_source_intake.py'
+      - 'tests/test_section54_factory_tokens.py'
+      - 'tests/test_section54_factory_tokens.py'
       - '.github/workflows/section54-source-intake.yml'
   pull_request:
     paths:
@@ -31,6 +35,6 @@ jobs:
         with:
           python-version: '3.11'
       - name: Compile Python source
-        run: python -m py_compile acs/format_factory_intake.py tests/test_section54_source_intake.py
+        run: python -m py_compile acs/format_factory_intake.py acs/format_factory_tokens.py tests/test_section54_source_intake.py tests/test_section54_factory_tokens.py
       - name: Run section 54 tests
-        run: python -m unittest discover -s tests -p 'test_section54_source_intake.py' -v
+        run: python -m unittest discover -s tests -p 'test_section54_*.py' -v
