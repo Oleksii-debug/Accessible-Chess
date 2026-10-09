@@ -36,6 +36,7 @@ _REQUIRED_WEB = (
     "index.html",
     "design_system.css",
     "board_themes.css",
+    "visual_profile_transfer.js",
     "youtube_iframe_adapter.js",
     "video_board_sync.js",
     "ai_voice.js",
