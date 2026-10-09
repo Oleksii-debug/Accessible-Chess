@@ -67,6 +67,8 @@ def _canonical_library_item(item: object) -> GameSearchItem:
     ):
         value = getattr(item, name)
         if type(value) is not int or not minimum <= value <= maximum:
+            if name == "game_id":
+                raise ValueError("library game_id is not browser-safe")
             raise ValueError(f"library {name} is invalid")
 
     required = {
@@ -159,6 +161,8 @@ def _canonical_library_page(
 
 def _safe_source_label(value: object) -> str:
     """Keep useful source identity without projecting local directory paths."""
+    if value is None:
+        return ""
     if type(value) is not str:
         raise TypeError("library source label must be text")
     if len(value) > _MAX_LIBRARY_PROVIDER_TEXT:
@@ -1120,13 +1124,14 @@ class TrainingPresenter:
 
     def submit(self, answer: str) -> tuple[ExerciseResult, TrainingView]:
         result = self._session.submit(answer)
-        if result.completed:
+        if result.accepted and result.explanation:
+            # Authored feedback remains valuable on the final step and must pass
+            # through the same bounded WebView transaction as intermediate steps.
+            self._set_authored_message(result.explanation)
+        elif result.completed:
             self._set_presentation_message("completed")
         elif result.accepted:
-            if result.explanation:
-                self._set_authored_message(result.explanation)
-            else:
-                self._set_presentation_message("accepted")
+            self._set_presentation_message("accepted")
         else:
             self._set_presentation_message("retry")
         return result, self.view()

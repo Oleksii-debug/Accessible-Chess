@@ -374,6 +374,27 @@ class TrainingProgressStore:
         except (AttributeError, OSError):
             return (first.st_dev, first.st_ino) == (second.st_dev, second.st_ino)
 
+    @classmethod
+    def _same_owned_path_instance(
+        cls,
+        first: os.stat_result,
+        second: os.stat_result,
+    ) -> bool:
+        """Bind cleanup to the exact prepared pathname instance.
+
+        Device/inode identity alone is insufficient after unlink because a
+        filesystem may immediately recycle the inode for attacker-controlled
+        replacement bytes at the same name.
+        """
+
+        return (
+            cls._same_file_identity(first, second)
+            and first.st_mode == second.st_mode
+            and first.st_size == second.st_size
+            and getattr(first, "st_ctime_ns", None)
+            == getattr(second, "st_ctime_ns", None)
+        )
+
     def _storage_path_component_identities(
         self,
         *,
@@ -501,7 +522,7 @@ class TrainingProgressStore:
             validator(current)
         except (FileNotFoundError, OSError, ValueError, TrainingProgressBusyError):
             return
-        if not cls._same_file_identity(expected, current):
+        if not cls._same_owned_path_instance(expected, current):
             return
 
         quarantine: Path | None = None
@@ -529,7 +550,7 @@ class TrainingProgressStore:
             return
         # Retain quarantine even when it is still our inode. A second
         # check-then-unlink would recreate the substitution race.
-        if not cls._same_file_identity(expected, moved):
+        if not cls._same_owned_path_instance(expected, moved):
             return
 
     def _require_active_lock(self) -> None:
@@ -575,6 +596,10 @@ class TrainingProgressStore:
 
         try:
             opened = os.fstat(descriptor)
+            if int(getattr(opened, "st_nlink", 1)) != 1:
+                raise ValueError(
+                    "training progress storage changed while being opened"
+                )
             self._require_regular_progress(opened)
             if opened.st_size > MAX_TRAINING_PROGRESS_BYTES:
                 raise TrainingProgressResourceError(

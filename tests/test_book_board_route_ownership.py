@@ -16,7 +16,7 @@ from acs.bookdocument import BookDocument, Exercise
 from acs.bookreader import BookReader
 from acs.chesscore import Board
 from acs.engine_assisted_workflows import EngineAssistedWorkflowService
-from acs.pgn_service import open_pgn
+from acs.pgn_document import PgnDocumentSession
 from acs.version2_application import Version2Application
 
 
@@ -55,7 +55,7 @@ class BookBoardRouteOwnershipTests(unittest.TestCase):
     def _load_pgn_workspace(self):
         source = self.root / "route-owner.pgn"
         source.write_text(_BOOK_PGN, encoding="utf-8")
-        self.app.set_document(open_pgn(source))
+        self.app.set_document(PgnDocumentSession.open(source))
         self.app.shell.open_route("pgn")
         return source
 
@@ -112,7 +112,7 @@ class BookBoardRouteOwnershipTests(unittest.TestCase):
         self.app.shell.open_route("books")
         self.app._focus = self.app.shell.restore_focus_target()
         self.app._repair_book_block_focus_after_rebind()
-        return reader
+        return self.app.reader
 
     def test_open_route_failure_rolls_back_before_release_board_projection(self):
         origin = self._open_game_book()
@@ -803,7 +803,7 @@ class BookBoardRouteOwnershipTests(unittest.TestCase):
             '[Event "Replacement"]\n[Result "*"]\n\n1. d4 *\n',
             encoding="utf-8",
         )
-        replacement = open_pgn(candidate)
+        replacement = PgnDocumentSession.open(candidate)
         real_open_route = self.app.shell.open_route
 
         def reject_pgn_route(route_id, *, current_focus_id=""):
@@ -836,7 +836,7 @@ class BookBoardRouteOwnershipTests(unittest.TestCase):
             '[Event "Replacement partial"]\n[Result "*"]\n\n1. c4 *\n',
             encoding="utf-8",
         )
-        replacement = open_pgn(candidate)
+        replacement = PgnDocumentSession.open(candidate)
         real_open_route = self.app.shell.open_route
 
         def fail_after_pgn_commit(route_id, *, current_focus_id=""):

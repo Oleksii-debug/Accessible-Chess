@@ -390,7 +390,7 @@
       "format": "tsv (ECO, opening name, PGN move sequence)",
       "language": "multilingual/technical notation",
       "source_url": "https://github.com/lichess-org/chess-openings/blob/a6189a30dc273ccb21fc2536a9a2fefd5592a67a/a.tsv",
-      "download_url": "https://raw.githubusercontent.com/lichess-org/chess-openings/a6189a30dc273ccb21fc2536a9a2fefd5592a67a/a.tsv",
+      "download_url": null,
       "author_or_owner": "Lichess chess-openings contributors",
       "license": "CC0",
       "upstream_commit": "a6189a30dc273ccb21fc2536a9a2fefd5592a67a",
@@ -411,8 +411,7 @@
         "tests/real_corpus/lichess_openings_a.tsv",
         "tests/real_corpus/lichess_openings_COPYING.txt",
         "docs/corpus/revised_sections37_40_sources.json",
-        "SEQUENTIAL_CLOSURE_STATE.md",
-        "docs/corpus/SECTION37_LICHESS_ECO_STRUCTURAL_READBACK_20261009.json"
+        "SEQUENTIAL_CLOSURE_STATE.md"
       ],
       "qualification_note": "Existing original source and license Git blobs matched pinned upstream. This registry convergence does not run semantic import, recovery or packaging tests; no whole Section or subsection DONE is claimed."
     },
@@ -422,7 +421,7 @@
       "format": "tsv (ECO, opening name, PGN move sequence)",
       "language": "multilingual/technical notation",
       "source_url": "https://github.com/lichess-org/chess-openings/blob/a6189a30dc273ccb21fc2536a9a2fefd5592a67a/b.tsv",
-      "download_url": "https://raw.githubusercontent.com/lichess-org/chess-openings/a6189a30dc273ccb21fc2536a9a2fefd5592a67a/b.tsv",
+      "download_url": null,
       "author_or_owner": "Lichess chess-openings contributors",
       "license": "CC0",
       "upstream_commit": "a6189a30dc273ccb21fc2536a9a2fefd5592a67a",
@@ -443,8 +442,7 @@
         "tests/real_corpus/lichess_openings_b.tsv",
         "tests/real_corpus/lichess_openings_COPYING.txt",
         "docs/corpus/revised_sections37_40_sources.json",
-        "SEQUENTIAL_CLOSURE_STATE.md",
-        "docs/corpus/SECTION37_LICHESS_ECO_STRUCTURAL_READBACK_20261009.json"
+        "SEQUENTIAL_CLOSURE_STATE.md"
       ],
       "qualification_note": "Existing original source and license Git blobs matched pinned upstream. This registry convergence does not run semantic import, recovery or packaging tests; no whole Section or subsection DONE is claimed."
     },
@@ -454,7 +452,7 @@
       "format": "tsv (ECO, opening name, PGN move sequence)",
       "language": "multilingual/technical notation",
       "source_url": "https://github.com/lichess-org/chess-openings/blob/a6189a30dc273ccb21fc2536a9a2fefd5592a67a/c.tsv",
-      "download_url": "https://raw.githubusercontent.com/lichess-org/chess-openings/a6189a30dc273ccb21fc2536a9a2fefd5592a67a/c.tsv",
+      "download_url": null,
       "author_or_owner": "Lichess chess-openings contributors",
       "license": "CC0",
       "upstream_commit": "a6189a30dc273ccb21fc2536a9a2fefd5592a67a",
@@ -475,8 +473,7 @@
         "tests/real_corpus/lichess_openings_c.tsv",
         "tests/real_corpus/lichess_openings_COPYING.txt",
         "docs/corpus/revised_sections37_40_sources.json",
-        "SEQUENTIAL_CLOSURE_STATE.md",
-        "docs/corpus/SECTION37_LICHESS_ECO_STRUCTURAL_READBACK_20261009.json"
+        "SEQUENTIAL_CLOSURE_STATE.md"
       ],
       "qualification_note": "Existing original source and license Git blobs matched pinned upstream. This registry convergence does not run semantic import, recovery or packaging tests; no whole Section or subsection DONE is claimed."
     },
@@ -486,7 +483,7 @@
       "format": "tsv (ECO, opening name, PGN move sequence)",
       "language": "multilingual/technical notation",
       "source_url": "https://github.com/lichess-org/chess-openings/blob/a6189a30dc273ccb21fc2536a9a2fefd5592a67a/d.tsv",
-      "download_url": "https://raw.githubusercontent.com/lichess-org/chess-openings/a6189a30dc273ccb21fc2536a9a2fefd5592a67a/d.tsv",
+      "download_url": null,
       "author_or_owner": "Lichess chess-openings contributors",
       "license": "CC0",
       "upstream_commit": "a6189a30dc273ccb21fc2536a9a2fefd5592a67a",
@@ -507,8 +504,7 @@
         "tests/real_corpus/lichess_openings_d.tsv",
         "tests/real_corpus/lichess_openings_COPYING.txt",
         "docs/corpus/revised_sections37_40_sources.json",
-        "SEQUENTIAL_CLOSURE_STATE.md",
-        "docs/corpus/SECTION37_LICHESS_ECO_STRUCTURAL_READBACK_20261009.json"
+        "SEQUENTIAL_CLOSURE_STATE.md"
       ],
       "qualification_note": "Existing original source and license Git blobs matched pinned upstream. This registry convergence does not run semantic import, recovery or packaging tests; no whole Section or subsection DONE is claimed."
     },
@@ -518,7 +514,7 @@
       "format": "tsv (ECO, opening name, PGN move sequence)",
       "language": "multilingual/technical notation",
       "source_url": "https://github.com/lichess-org/chess-openings/blob/a6189a30dc273ccb21fc2536a9a2fefd5592a67a/e.tsv",
-      "download_url": "https://raw.githubusercontent.com/lichess-org/chess-openings/a6189a30dc273ccb21fc2536a9a2fefd5592a67a/e.tsv",
+      "download_url": null,
       "author_or_owner": "Lichess chess-openings contributors",
       "license": "CC0",
       "upstream_commit": "a6189a30dc273ccb21fc2536a9a2fefd5592a67a",
@@ -539,8 +535,7 @@
         "tests/real_corpus/lichess_openings_e.tsv",
         "tests/real_corpus/lichess_openings_COPYING.txt",
         "docs/corpus/revised_sections37_40_sources.json",
-        "SEQUENTIAL_CLOSURE_STATE.md",
-        "docs/corpus/SECTION37_LICHESS_ECO_STRUCTURAL_READBACK_20261009.json"
+        "SEQUENTIAL_CLOSURE_STATE.md"
       ],
       "qualification_note": "Existing original source and license Git blobs matched pinned upstream. This registry convergence does not run semantic import, recovery or packaging tests; no whole Section or subsection DONE is claimed."
     },
@@ -550,7 +545,7 @@
       "format": "epd.zip",
       "language": "multilingual/technical notation",
       "source_url": "https://github.com/official-stockfish/books/blob/65815ccdbc7727cd4f6aee252ba8f67fb740e92f/startpos.epd.zip",
-      "download_url": "https://raw.githubusercontent.com/official-stockfish/books/65815ccdbc7727cd4f6aee252ba8f67fb740e92f/startpos.epd.zip",
+      "download_url": null,
       "author_or_owner": "official-stockfish/books contributors",
       "license": "CC0-1.0 (original official-stockfish/books repository LICENSE)",
       "upstream_commit": "65815ccdbc7727cd4f6aee252ba8f67fb740e92f",
@@ -581,7 +576,7 @@
       "format": "epd.zip",
       "language": "multilingual/technical notation",
       "source_url": "https://github.com/official-stockfish/books/blob/65815ccdbc7727cd4f6aee252ba8f67fb740e92f/FRC_openings.epd.zip",
-      "download_url": "https://raw.githubusercontent.com/official-stockfish/books/65815ccdbc7727cd4f6aee252ba8f67fb740e92f/FRC_openings.epd.zip",
+      "download_url": null,
       "author_or_owner": "official-stockfish/books contributors",
       "license": "CC0-1.0 (original official-stockfish/books repository LICENSE)",
       "upstream_commit": "65815ccdbc7727cd4f6aee252ba8f67fb740e92f",
@@ -612,7 +607,7 @@
       "format": "epd.zip",
       "language": "multilingual/technical notation",
       "source_url": "https://github.com/official-stockfish/books/blob/65815ccdbc7727cd4f6aee252ba8f67fb740e92f/4mvs_%2B90_%2B99.epd.zip",
-      "download_url": "https://raw.githubusercontent.com/official-stockfish/books/65815ccdbc7727cd4f6aee252ba8f67fb740e92f/4mvs_+90_+99.epd.zip",
+      "download_url": null,
       "author_or_owner": "official-stockfish/books contributors",
       "license": "CC0-1.0 (original official-stockfish/books repository LICENSE)",
       "upstream_commit": "65815ccdbc7727cd4f6aee252ba8f67fb740e92f",
@@ -643,7 +638,7 @@
       "format": "pgn.zip",
       "language": "multilingual/technical notation",
       "source_url": "https://github.com/official-stockfish/books/blob/65815ccdbc7727cd4f6aee252ba8f67fb740e92f/2moves_v2.pgn.zip",
-      "download_url": "https://raw.githubusercontent.com/official-stockfish/books/65815ccdbc7727cd4f6aee252ba8f67fb740e92f/2moves_v2.pgn.zip",
+      "download_url": null,
       "author_or_owner": "official-stockfish/books contributors",
       "license": "CC0-1.0 (original official-stockfish/books repository LICENSE)",
       "upstream_commit": "65815ccdbc7727cd4f6aee252ba8f67fb740e92f",
@@ -667,6 +662,33 @@
         "SEQUENTIAL_CLOSURE_STATE.md"
       ],
       "qualification_note": "Existing original source and license Git blobs matched pinned upstream. This registry convergence does not run semantic import, recovery or packaging tests; no whole Section or subsection DONE is claimed."
+    },
+    {
+      "id": "historical_reti_1921_original_bilingual_study_pgn",
+      "kind": "historical_original_study_with_project_authored_bilingual_notes",
+      "format": "PGN",
+      "language": "uk/en",
+      "source_url": "https://www.arves.org/arves/index.php/en/endgamestudies/studies-by-composer/1550-reti-s-study-is-100-years-old",
+      "author_or_owner": "Richard Réti (1921 composition); Accessible Chess original UK/EN commentary",
+      "license": "Historic composition; authored bilingual commentary; external modern annotations not reproduced; rights must be reassessed for each distribution jurisdiction",
+      "expected_sha256": "f0bb51066fde9d103406773666100977d6e2d2fc48ff71887dacbbb3ad0e8c83",
+      "actual_sha256": null,
+      "size_bytes": 2077,
+      "counts": {
+        "expected_games": 1,
+        "expected_san_plies": 11
+      },
+      "rights": {
+        "read": true,
+        "test": true,
+        "redistribute": false
+      },
+      "status": "CANDIDATE_TEST_ONLY_SEMANTIC_AND_RECOVERY_CI_PENDING",
+      "evidence": [
+        "docs/corpus/revised_sections37_40_sources.json",
+        "tests/real_corpus/advanced_training/reti_1921_historical_study_bilingual.pgn",
+        "tests/test_revised_section37_genuine_advanced_study_readback.py"
+      ]
     }
   ],
   "closure": {

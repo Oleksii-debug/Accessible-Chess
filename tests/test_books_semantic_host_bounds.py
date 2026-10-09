@@ -559,13 +559,12 @@ class BooksSemanticHostBoundsTests(unittest.TestCase):
         presenter.assert_not_called()
         self.assert_accessible_fallback(snapshot, reader, workflow, before)
 
-    def test_empty_nag_join_boundary_is_accepted(self):
+    def test_excessive_empty_nag_collection_falls_back_at_graph_guard(self):
         reader, workflow, bridge = self.compose()
         before = reader.snapshot()
         game = self.semantic_game()
-        # Base label "1 e4" costs four units. 1,196 empty NAG elements create
-        # 1,195 join separators plus the presenter's one annotation separator:
-        # exactly 1,200 raw label units.
+        # Even empty NAGs consume graph resources. The canonical presenter guard
+        # rejects this collection before label construction.
         game.line.moves[0].nags = [""] * 1_196
 
         with patch.object(
@@ -575,11 +574,7 @@ class BooksSemanticHostBoundsTests(unittest.TestCase):
         ):
             snapshot = bridge.projection.snapshot()
 
-        self.assertIsInstance(snapshot["semantic_tree"], dict)
-        self.assertEqual(snapshot["semantic_tree"]["items"][0]["label"], "1 e4")
-        self.assertFalse(workflow.active)
-        self.assertEqual(workflow.revision, 0)
-        self.assertEqual(reader.snapshot(), before)
+        self.assert_accessible_fallback(snapshot, reader, workflow, before)
 
     def test_empty_nag_join_overflow_falls_back_before_presenter(self):
         reader, workflow, bridge = self.compose()

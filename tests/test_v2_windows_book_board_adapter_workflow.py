@@ -95,9 +95,15 @@ class BookBoardAdapterWorkflowTests(unittest.TestCase):
     def test_non_bookboard_current_apex_successors_use_application_compatibility_mode(self) -> None:
         self.assertIn("BOOK_BOARD_TOPOLOGY=EXACT_NARROW_SUCCESSOR", self.workflow)
         self.assertIn("BOOK_BOARD_TOPOLOGY=APPLICATION_COMPATIBILITY", self.workflow)
-        compatibility = self.workflow.split(
-            "Other current-apex successors may legitimately change the", 1
-        )[1].split("BOOK_BOARD_TOPOLOGY=APPLICATION_COMPATIBILITY", 1)[0]
+        compatibility_marker = "BOOK_BOARD_TOPOLOGY=APPLICATION_COMPATIBILITY"
+        compatibility_end = self.workflow.index(compatibility_marker)
+        compatibility_start = self.workflow.rfind(
+            'git diff --quiet "$live_base" HEAD --',
+            0,
+            compatibility_end,
+        )
+        self.assertGreaterEqual(compatibility_start, 0)
+        compatibility = self.workflow[compatibility_start:compatibility_end]
         for path in (
             "run_accessible_chess.py",
             "run_accessible_chess_v2.py",

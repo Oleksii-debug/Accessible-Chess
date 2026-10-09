@@ -40,6 +40,7 @@ from .version2_windows_book_board_adapter import BookBoardUiEvent, BookBoardUiEv
 _MAX_BOOK_SEMANTIC_ITEMS = 10_000
 _MAX_BOOK_SEMANTIC_DEPTH = 256
 _MAX_BOOK_SEMANTIC_TEXT_ENTRIES = 50_000
+_MAX_BOOK_SEMANTIC_RAW_TEXT_ENTRIES = 50_000
 _MAX_BOOK_SEMANTIC_SECTION_LABEL_UNITS = 360
 _MAX_BOOK_SEMANTIC_FIELD_LABEL_UNITS = 120
 _MAX_BOOK_SEMANTIC_PLAYERS_UNITS = 720
@@ -168,7 +169,7 @@ class Version2BookWebViewProjection(BookWebViewProjection):
             if units > max_units:
                 raise _BookSemanticProjectionError("semantic raw text is invalid")
             raw_text_entries += 1
-            if raw_text_entries > _MAX_BOOK_SEMANTIC_TEXT_ENTRIES:
+            if raw_text_entries > _MAX_BOOK_SEMANTIC_RAW_TEXT_ENTRIES:
                 raise _BookSemanticProjectionError("semantic raw text-entry limit exceeded")
             raw_text_units += units
             if raw_text_units > _MAX_BOOK_BLOCK_VISIBLE_CHARS:
@@ -176,7 +177,7 @@ class Version2BookWebViewProjection(BookWebViewProjection):
             return units
 
         def claim_comment_list(values: object) -> None:
-            if type(values) is not list or len(values) > _MAX_BOOK_SEMANTIC_TEXT_ENTRIES:
+            if type(values) is not list or len(values) > _MAX_BOOK_SEMANTIC_RAW_TEXT_ENTRIES:
                 raise _BookSemanticProjectionError("semantic raw comment collection is invalid")
             for comment in values:
                 if type(comment) is not Comment:
@@ -262,7 +263,7 @@ class Version2BookWebViewProjection(BookWebViewProjection):
                     if move.move_number:
                         label_units += move_number_units + 1
 
-                if type(move.nags) is not list or len(move.nags) > _MAX_BOOK_SEMANTIC_TEXT_ENTRIES:
+                if type(move.nags) is not list or len(move.nags) > _MAX_BOOK_SEMANTIC_RAW_TEXT_ENTRIES:
                     raise _BookSemanticProjectionError("semantic move NAGs are invalid")
                 # PgnTreePresenter uses " ".join(move.nags): every adjacent
                 # pair contributes one separator even when one or both NAG

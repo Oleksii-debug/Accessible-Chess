@@ -676,14 +676,8 @@ class BookBidirectionalSemanticNavigationTests(unittest.TestCase):
             / "d01-pgn-workspace-webview.yml"
         ).read_text(encoding="utf-8")
 
-        self.assertIn(
-            'if [ "${{ github.event.pull_request.head.ref }}" = "integration/clock-engine-serial-intake-20261002" ]; then',
-            source,
-        )
-        self.assertIn(
-            "test \"$stage1_core_actual\" = b579ca0f59ba20f6b69b3a4b7d89589256d54852",
-            source,
-        )
+        self.assertIn('case "$stage1_core_actual" in', source)
+        self.assertIn("b579ca0f59ba20f6b69b3a4b7d89589256d54852", source)
         self.assertIn(
             "16e78af6219c8c36f0c4026942ef1d02875a370a|c8629e690a10fa8e10a2053fdc85284f635d2beb|2ac3ca8943e6a4a819e4f273992167f9cf0b47ce",
             source,

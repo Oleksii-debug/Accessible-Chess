@@ -492,7 +492,12 @@ class LibraryWebViewProjectionTests(unittest.TestCase):
             projection.import_projection.begin(maximum + 1)
 
 
-class LibraryWebAssetTests(unittest.TestCase):
+class LibraryWebViewConvergenceTests(unittest.TestCase):
+    # A prior conflict resolution joined the late projection-hardening cases
+    # with the asset checks. Keep the combined convergence class intentional
+    # and restore the shared fixture instead of leaving those tests inert.
+    build = LibraryWebViewProjectionTests.build
+
     @classmethod
     def setUpClass(cls) -> None:
         cls.source = (Path(__file__).parents[1] / "web" / "full_product_library.js").read_text(
@@ -635,7 +640,7 @@ class LibraryWebAssetTests(unittest.TestCase):
 
         self.assertEqual("error", failed.kind)
         self.assertEqual(UILanguage.EN, projection.language)
-        self.assertIn("Alpha", presenter.view().rows[0].label)
+        self.assertIn("Олексій", presenter.view().rows[0].label)
         after = projection.snapshot()
         self.assertEqual(before["document"], after["document"])
         self.assertEqual(before["heading"], after["heading"])

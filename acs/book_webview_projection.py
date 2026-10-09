@@ -155,6 +155,8 @@ def _safe_visible_block_text(value: object, *, language: UILanguage) -> str:
         raise TypeError("book presentation text must be text")
     if len(value) > _MAX_BOOK_BLOCK_VISIBLE_CHARS:
         raise ValueError("book presentation block exceeds the visible-text budget")
+    if not value:
+        return ""
     # Two UTF-16 units are enough to retain one complete non-BMP scalar beyond
     # the canonical WebView budget, making oversize detection exact without
     # slicing through a surrogate pair on the browser side.
@@ -304,13 +306,6 @@ class BookWebViewProjection:
         ):
             if type(field_value) is not str:
                 raise TypeError(f"book block {field_name} must be text")
-            # The visible body already owns the 12 MiB release envelope. Reuse
-            # that envelope as the absolute trusted-side scalar ceiling for
-            # presentation metadata too, so malformed presenter state cannot
-            # force replace/strip/path-redaction to scan an unbounded string
-            # before the smaller WebView-specific truncation is applied.
-            if len(field_value) > _MAX_BOOK_BLOCK_VISIBLE_CHARS:
-                raise ValueError(f"book block {field_name} exceeds the raw text budget")
         if block.position_fen is not None:
             # Raw FEN never crosses the WebView boundary, but it still reaches
             # this presentation preflight. Bound it before strip/dispatch so a
@@ -329,17 +324,13 @@ class BookWebViewProjection:
         for part in block.heading_path:
             if type(part) is not str:
                 raise ValueError("book heading path is invalid")
-            if len(part) > _MAX_BOOK_BLOCK_VISIBLE_CHARS:
-                raise ValueError("book heading path exceeds the raw text budget")
-            if not part.strip():
-                raise ValueError("book heading path is invalid")
+        if (block.position_fen is not None) != (block.kind in _POSITION_KINDS):
+            raise ValueError("book block position presence disagrees with semantic kind")
         if block.kind == "Heading":
             if block.heading_level is None:
                 raise ValueError("book heading block requires a heading level")
         elif block.heading_level is not None:
             raise ValueError("non-heading book block contains a heading level")
-        if (block.position_fen is not None) != (block.kind in _POSITION_KINDS):
-            raise ValueError("book block position presence disagrees with semantic kind")
         if type(block.list_items) is not tuple:
             raise ValueError("book list items are invalid")
         if len(block.list_items) > _MAX_BOOK_LIST_ITEMS:
@@ -367,6 +358,34 @@ class BookWebViewProjection:
                 raise ValueError("book list must contain items")
         elif block.list_items or block.list_ordered or block.list_start is not None:
             raise ValueError("non-list book block contains list metadata")
+        # Lists own an aggregate visible-text budget. Validate it before the
+        # carried title/path metadata so lowering that budget cannot make an
+        # unrelated truncated field mask the authoritative list failure.
+        safe_list_items = (
+            _safe_visible_list_items(block.list_items, language=self._language)
+            if role == "list"
+            else ()
+        )
+        # For other blocks, title is the first metadata scalar in reading order;
+        # reject an impossible raw title before any sanitizer scan, then validate
+        # the complete visible body before secondary source/warning metadata.
+        if len(block.title) > _MAX_BOOK_BLOCK_VISIBLE_CHARS:
+            raise ValueError("book block title exceeds the raw text budget")
+        safe_block_text = _safe_visible_block_text(
+            block.text,
+            language=self._language,
+        )
+        for part in block.heading_path:
+            if len(part) > _MAX_BOOK_BLOCK_VISIBLE_CHARS:
+                raise ValueError("book heading path exceeds the raw text budget")
+            if not part.strip():
+                raise ValueError("book heading path is invalid")
+        for field_name, field_value in (
+            ("source anchor", block.source_anchor),
+            ("warning", block.warning),
+        ):
+            if len(field_value) > _MAX_BOOK_BLOCK_VISIBLE_CHARS:
+                raise ValueError(f"book block {field_name} exceeds the raw text budget")
         safe_heading_path = tuple(
             _safe_text(part, language=self._language, limit=360)
             for part in block.heading_path
@@ -395,16 +414,10 @@ class BookWebViewProjection:
                 "kind": _safe_text(block.kind, language=self._language, limit=80),
                 "role": role,
                 "title": _safe_text(block.title, language=self._language, limit=360),
-                "text": _safe_visible_block_text(
-                    block.text,
-                    language=self._language,
-                ),
+                "text": safe_block_text,
                 "list": (
                     {
-                        "items": _safe_visible_list_items(
-                            block.list_items,
-                            language=self._language,
-                        ),
+                        "items": safe_list_items,
                         "ordered": block.list_ordered,
                         "start": block.list_start,
                     }
