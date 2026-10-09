@@ -105,6 +105,8 @@ const key = "accessible-chess.workspace-layout.v1";
   const app = mount();
   assert.equal(app.main.firstChild.id, "ac43-workspace-controls");
   for (const {section, h2} of app.panels.values()) {
+    assert.equal(h2.getAttribute("aria-label"), "Panel " + h2.id,
+      "semantic panel heading must retain its original accessible name");
     assert.equal(h2.children.length, 1, "toolbar added to semantic heading");
     assert.equal(h2.children[0].children[0].tagName, "BUTTON");
     assert.equal(h2.children[0].children[0].getAttribute("aria-expanded"), "true");
