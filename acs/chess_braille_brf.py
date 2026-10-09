@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from hashlib import sha256
 from xml.etree import ElementTree as ET
 
-from .chess_braille_factory import BrailleFactoryError, BraillePreparation, PEF_NS
+from .chess_braille_factory import BrailleFactoryError, BraillePreparation, PEF_NS, DC_NS
 
 # North American Braille ASCII in Unicode six-dot sequence, not ASCII text.
 # Ordered by increasing braille pattern bitmask 0 through 63.
@@ -75,6 +75,22 @@ def pef_to_provisional_brf(
         raise BrailleFactoryError("Unsupported PEF root or version")
     if [child.tag for child in root] != [ns + "head", ns + "body"]:
         raise BrailleFactoryError("Unsupported PEF document structure")
+    head = root[0]
+    if head.attrib or len(head) != 1 or head[0].tag != ns + "meta":
+        raise BrailleFactoryError("PEF required header metadata is missing or altered")
+    meta = head[0]
+    dc = "{" + DC_NS + "}"
+    if meta.attrib or [child.tag for child in meta] != [
+        dc + "format", dc + "identifier", dc + "title", dc + "language",
+    ] or any(child.attrib or len(child) for child in meta):
+        raise BrailleFactoryError("PEF metadata schema differs from generated source")
+    expected_source = preparation.manifest.get("source_book_sha256")
+    if type(expected_source) is not str or len(expected_source) != 64:
+        raise BrailleFactoryError("PEF source hash metadata is invalid")
+    if meta[0].text != "application/x-pef+xml" or meta[1].text != "urn:sha256:" + expected_source:
+        raise BrailleFactoryError("PEF mandatory metadata does not match source manifest")
+    if meta[3].text != preparation.manifest.get("language"):
+        raise BrailleFactoryError("PEF language changed after source preparation")
     body = root[1]
     if list(body) == [] or len(body) != 1 or body[0].tag != ns + "volume":
         raise BrailleFactoryError("One PEF volume is supported")
@@ -87,6 +103,8 @@ def pef_to_provisional_brf(
         raise BrailleFactoryError("Non-numeric PEF dimensions") from exc
     if not 10 <= cols <= MAX_ROW_COLS or not 10 <= rows_per_page <= MAX_PAGE_ROWS:
         raise BrailleFactoryError("PEF dimensions are outside supported bounds")
+    if cols != preparation.manifest.get("cells_per_line") or rows_per_page != preparation.manifest.get("lines_per_page"):
+        raise BrailleFactoryError("PEF row/page capacity does not match declared manifest")
     if volume.attrib["duplex"] != "false" or volume.attrib["rowgap"] != "0":
         raise BrailleFactoryError("Duplex or raised row-gap layout is unsupported")
     if len(volume) != 1 or volume[0].tag != ns + "section" or volume[0].attrib:
@@ -111,6 +129,8 @@ def pef_to_provisional_brf(
                 raise BrailleFactoryError("PEF row contains unsupported eight-dot/plaintext cells")
             lines.append("".join(_BRAILLE_ASCII[ord(cell) - 0x2800] for cell in cells).encode("ascii"))
         pages.append(b"\r\n".join(lines))
+    if len(pages) != preparation.manifest.get("pages"):
+        raise BrailleFactoryError("PEF page count differs from source manifest")
     # Form feed retains the boundary between source PEF pages. Output is BRF-
     # style bytes only; a concrete device still needs profile qualification.
     result = b"\f".join(pages)
