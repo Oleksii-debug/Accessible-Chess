@@ -1,0 +1,95 @@
+{
+  "schema_version": 1,
+  "section": "37.1-37.2",
+  "status": "ORIGINAL_SOURCE_TEXT_READBACK_PASS_ONLY_NOT_SUBSECTION_DONE",
+  "date": "2026-10-09",
+  "main_source_sha_before_evidence": "a860bb0a27847e2d6aa3d080850e8420ea858c78",
+  "source": {
+    "repository": "FeXd/puzzle-chess",
+    "commit": "cddfa24b1a5a9013b99622d6d5e7093a64b1d55a",
+    "path": "puzzles/offline/puzzles.csv",
+    "git_blob": "acb74625e5ebd0ae9b454779a371ac87091c8c0e",
+    "observed_text_characters": 2197766,
+    "observed_rows": 24595,
+    "duplicate_ids": 0,
+    "license_boundary": "Lichess CC0 puzzle records, not the FeXd GPL-3.0 application"
+  },
+  "selected": {
+    "path": "tests/real_corpus/advanced_training/lichess_cc0_extreme_3000_3166_original_puzzles.json",
+    "git_blob": "4deaebb9f6854fa9fdf13bbae89935dc3499d870",
+    "exact_matches": [
+      {
+        "puzzle_id": "2zH3K",
+        "source_zero_based_line": 24560,
+        "source_rating": 3000,
+        "verified": [
+          "id",
+          "fen",
+          "uci_opponent_first_moves",
+          "rating",
+          "source_line_index"
+        ]
+      },
+      {
+        "puzzle_id": "VvOSE",
+        "source_zero_based_line": 24579,
+        "source_rating": 3030,
+        "verified": [
+          "id",
+          "fen",
+          "uci_opponent_first_moves",
+          "rating",
+          "source_line_index"
+        ]
+      },
+      {
+        "puzzle_id": "NgGRN",
+        "source_zero_based_line": 24593,
+        "source_rating": 3164,
+        "verified": [
+          "id",
+          "fen",
+          "uci_opponent_first_moves",
+          "rating",
+          "source_line_index"
+        ]
+      },
+      {
+        "puzzle_id": "gWyMk",
+        "source_zero_based_line": 24594,
+        "source_rating": 3166,
+        "verified": [
+          "id",
+          "fen",
+          "uci_opponent_first_moves",
+          "rating",
+          "source_line_index"
+        ]
+      }
+    ]
+  },
+  "negative_control_cases": [
+    {
+      "name": "mutated_id",
+      "rejected": true
+    },
+    {
+      "name": "mutated_rating",
+      "rejected": true
+    },
+    {
+      "name": "mutated_fen",
+      "rejected": true
+    },
+    {
+      "name": "mutated_move_sequence",
+      "rejected": true
+    }
+  ],
+  "limitations": [
+    "Executed direct remote Git blob/text comparison; no local checkout, SHA-256 content digest, PGN/FEN chess-legal semantic replay, ACSDB import/restart, Windows/NVDA or Section37 hosted CI pass claimed.",
+    "All 37.1-37.4 remain PARTIAL; 37.5 and 37.6 remain locked DONE; parent Section 37 is NOT TERMINAL DONE.",
+    "This source-receipt evidence does not clear genuine complete CBF+CBI, 2CBH, CBONE independent sources/rights or their import oracles.",
+    "No third-party binaries embedded; do not treat research data as permission to redistribute proprietary databases."
+  ]
+}
