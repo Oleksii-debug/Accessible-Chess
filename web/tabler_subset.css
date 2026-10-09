@@ -1,0 +1,46 @@
+/*
+ * Accessible Chess restricted offline adaptation of Tabler's MIT badge component.
+ * Tabler @tabler/core@1.6.1, commit ec33733290bd0f314ca19f6be58bc69a6ab3e4fa.
+ * Original: core/scss/ui/_badges.scss, Git blob a29128215ce13d3ae74ced9534aaacfce65339a6.
+ * Uses native HTML elements; no Bootstrap runtime, CDN, JavaScript or chess logic.
+ * MIT notices: SECTION41_THIRD_PARTY_NOTICES.txt
+ */
+.ac-tb-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: .35em;
+  min-width: 0;
+  max-width: 100%;
+  padding-inline: .75em;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  vertical-align: middle;
+}
+.ac-tb-search-label { display: inline-flex; align-items: center; gap: .4em; }
+.ac-tb-search-label::before {
+  content: "";
+  flex: none;
+  display: inline-block;
+  width: 1.2em;
+  height: 1.2em;
+  background: currentColor;
+  -webkit-mask: url("tabler-icons-search.svg") center / contain no-repeat;
+  mask: url("tabler-icons-search.svg") center / contain no-repeat;
+}
+.ac-tb-settings-heading::after {
+  content: "";
+  flex: none;
+  display: inline-block;
+  width: 1.1em;
+  height: 1.1em;
+  background: currentColor;
+  -webkit-mask: url("tabler-icons-settings.svg") center / contain no-repeat;
+  mask: url("tabler-icons-settings.svg") center / contain no-repeat;
+}
+@media (forced-colors: active) {
+  .ac-tb-search-label::before, .ac-tb-settings-heading::after { background: CanvasText; forced-color-adjust: auto; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ac-tb-badge, .ac-tb-search-label::before, .ac-tb-settings-heading::after { animation: none !important; transition: none !important; }
+}
