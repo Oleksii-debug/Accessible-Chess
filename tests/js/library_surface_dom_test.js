@@ -603,8 +603,8 @@ async function runPendingLibraryResponseContract() {
   check(pendingRoot.__accessibleChessLibrarySnapshot.heading === "Search during import", "independent import progress discarded current search results");
   check(pendingRoot.__accessibleChessLibrarySnapshot.import.phase === "completed", "late search snapshot regressed canonical import completion");
 }
-// A host command is dispatched asynchronously by the canonical serialized queue.
-// One event-loop turn allows both serialization and invoke microtasks to run.
+// The canonical host command is dispatched asynchronously, not in the submit handler.
+// One event-loop turn allows pending invoke microtasks to run before assertions.
 Promise.resolve().then(function () { return new Promise(setImmediate); }).then(function () {
   check(dateCalls.length === 1 && dateCalls[0][0] === "library.search", "date search did not dispatch");
   check(dateCalls[0][1].date_from === "2026.01.01" && dateCalls[0][1].date_to === "2026.12.31", "date bounds lost on submit");
