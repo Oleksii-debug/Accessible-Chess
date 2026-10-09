@@ -58,7 +58,11 @@ jobs:
           tests.test_section42_board_themes
           tests.test_settings
           tests.test_settings_corruption_security
+      - name: Generate exact Python-to-JavaScript interchange oracle
+        run: python tools/section45_transfer_oracle.py section45_python_oracle.json
       - name: Execute Web DOM native and browser-local transfer matrix
+        env:
+          SECTION45_PYTHON_ORACLE: section45_python_oracle.json
         run: |
           node --check web/visual_profile_transfer.js
           node --check tests/js/section45_visual_transfer_matrix.js
