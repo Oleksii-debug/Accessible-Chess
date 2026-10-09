@@ -22,3 +22,7 @@
 - Status updates must make a clear distinction between `DONE IN MAIN`, `SUBSECTION DONE (WORKING LINEAGE)`, `WORKER LOCKED / PENDING INTEGRATION`, `PARTIAL`, and `BLOCKED`. This prevents both lost work and false product completion.
 
 **Authority order for truthful closure:** current canonical Drive plan defines scope; root `AGENTS.md` and this directive define conduct; live accepted-main `SEQUENTIAL_CLOSURE_STATE.md` defines integrated closure; protected working-lineage evidence defines work that must be preserved pending convergence. Disagreements are to be reconciled, not erased.
+
+## Optional Sections 54–55: only on separate owner command
+
+The canonical Drive plan additionally describes **Section 54 — AI Format Factory** and **Section 55 — chess-Braille printing/digital reading factory**. Both are **OPTIONAL / NOT STARTED / NOT DONE**, excluded from the required **0–53** shipping/dependency/worker closure sequence. A new explicit owner instruction is required separately to activate either Section. No autonomous task, PR, implementation, token spend, auto-start or work reassignment for 54/55 is authorized by this specification. Do not let an inactive Section become the next actionable Section when Section 53 closes. Preserve all existing completed work. Details: `docs/OPTIONAL_FORMAT_FACTORY_AND_CHESS_BRAILLE_ENGINEERING.md`.
