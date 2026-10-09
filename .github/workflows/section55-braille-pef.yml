@@ -7,6 +7,7 @@ on:
       - "tools/section55_braille_pef.py"
       - "tests/test_section55_chess_braille_factory.py"
       - "tests/test_section55_chess_braille_brf.py"
+      - "tests/test_section55_local_cli_package.py"
       - ".github/workflows/section55-braille-pef.yml"
   push:
     branches:
@@ -17,6 +18,7 @@ on:
       - "tools/section55_braille_pef.py"
       - "tests/test_section55_chess_braille_factory.py"
       - "tests/test_section55_chess_braille_brf.py"
+      - "tests/test_section55_local_cli_package.py"
       - ".github/workflows/section55-braille-pef.yml"
   workflow_dispatch:
 jobs:
@@ -34,8 +36,9 @@ jobs:
         with:
           python-version: "3.11"
       - name: Check syntax
-        run: python -m compileall -q acs/chess_braille_factory.py acs/chess_braille_brf.py tools/section55_braille_pef.py tests/test_section55_chess_braille_factory.py tests/test_section55_chess_braille_brf.py
+        run: python -m compileall -q acs/chess_braille_factory.py acs/chess_braille_brf.py tools/section55_braille_pef.py tests/test_section55_chess_braille_factory.py tests/test_section55_chess_braille_brf.py tests/test_section55_local_cli_package.py
       - name: Run synthetic structural and negative-path tests
         run: |
           python -m unittest discover -s tests -p test_section55_chess_braille_factory.py -v
           python -m unittest discover -s tests -p test_section55_chess_braille_brf.py -v
+          python -m unittest discover -s tests -p test_section55_local_cli_package.py -v
