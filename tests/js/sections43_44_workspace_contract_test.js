@@ -230,7 +230,7 @@ const key = "accessible-chess.workspace-layout.v1";
     const harness = [
       "const productRoutes = new Set(['pgn','library','books','training','teacher','classes']);",
       "let currentRouteId='books';",
-      "const workspace={dataset:{},removeAttribute(k){delete this.dataset[k.replace(/^data-/, "").replace(/-([a-z])/g,(_,x)=>x.toUpperCase())]}};",
+      "const workspace={dataset:{},removeAttribute(k){delete this.dataset[k.replace(/^data-/, '').replace(/-([a-z])/g,(_,x)=>x.toUpperCase())]}};",
       "const workspaceLayout={hidden:true};",
       "const workspaceLayoutLabel={textContent:''};",
       "const workspaceCollapse={setAttribute(k,v){this[k]=v},focus(){},addEventListener(type,fn){this.event=fn}};",
