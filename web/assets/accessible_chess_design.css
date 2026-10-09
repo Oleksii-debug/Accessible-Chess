@@ -455,3 +455,77 @@ body:has(#routes) > #error:not(:empty){
     background:Canvas!important;color:CanvasText!important
   }
 }
+
+
+/* Section 44 service-bound finishing: these are the actual existing presenter
+   nodes. Presentation never changes the live Library/Book/Training/Teacher
+   snapshots, chess authority, DOM focus identity or Web media controls. */
+#v2-workspace #library-import-region,
+#v2-workspace #library-export-selection,
+#v2-workspace #pgn-selection-context{
+  min-width:0;max-width:100%;margin-block:var(--ac41-space-4);
+  padding:var(--ac41-space-3);border:1px solid var(--ac41-border);
+  border-radius:var(--ac41-radius);background:var(--ac41-bg);
+}
+#v2-workspace #library-import-region :is(progress,meter){
+  width:100%;max-width:100%;
+}
+#v2-workspace #library-export-selection label{
+  display:inline-block;max-width:70ch;overflow-wrap:anywhere;
+}
+#v2-workspace .pgn-comments{
+  margin-block:var(--ac41-space-2);
+  padding:var(--ac41-space-2) var(--ac41-space-3);
+  border-inline-start:4px solid var(--ac41-border);
+  white-space:pre-wrap;overflow-wrap:anywhere;
+}
+#v2-workspace #training-solution{
+  min-width:0;max-width:100%;overflow-wrap:anywhere;
+}
+#v2-workspace #teacher-visual-region{max-width:100%;min-width:0}
+#v2-workspace #teacher-board-wrap{
+  max-width:100%;overflow:auto;overscroll-behavior:contain;
+  border:2px solid var(--ac41-border);border-radius:var(--ac41-radius);
+  padding:var(--ac41-space-2);background:var(--ac41-bg);
+}
+#v2-workspace #teacher-visual-board{
+  width:min(100%,46rem);max-width:100%;gap:2px;
+}
+#v2-workspace #teacher-visual-board button[data-square]{
+  min-width:0;min-height:2.5rem;aspect-ratio:1 / 1;
+  overflow-wrap:anywhere;
+}
+#v2-workspace #teacher-visual-board button[data-pointer="true"]{
+  outline:4px solid var(--ac41-focus)!important;
+  outline-offset:-4px;
+}
+#v2-workspace #teacher-accessible-summary{
+  max-width:85ch;white-space:pre-wrap;overflow-wrap:anywhere;
+  padding:var(--ac41-space-3);margin-block:var(--ac41-space-3);
+  border-inline-start:4px solid var(--ac41-action);
+  background:var(--ac41-bg);user-select:text;-webkit-user-select:text;
+}
+#v2-workspace #teacher-pointer-input{max-width:100%;min-width:min(18rem,100%)}
+#workspace #progress-text{white-space:pre-wrap;overflow-wrap:anywhere}
+@media(max-width:32rem){
+  #v2-workspace #teacher-board-wrap{padding:var(--ac41-space-1)}
+  #v2-workspace #teacher-visual-board{min-width:20rem}
+}
+@media(forced-colors:active){
+  #v2-workspace #library-import-region,
+  #v2-workspace #library-export-selection,
+  #v2-workspace #pgn-selection-context,
+  #v2-workspace #teacher-board-wrap,
+  #v2-workspace #teacher-accessible-summary{
+    background:Canvas!important;color:CanvasText!important;
+    border-color:CanvasText!important;
+  }
+  #v2-workspace #teacher-visual-board button[data-pointer="true"]{
+    outline:4px solid Highlight!important;
+  }
+  #v2-workspace #teacher-visual-board button[data-highlight]:not([data-highlight=""]){
+    border:3px dashed Highlight!important;
+    background:Canvas!important;color:CanvasText!important;
+  }
+  #v2-workspace #teacher-arrow-overlay{display:none!important}
+}
