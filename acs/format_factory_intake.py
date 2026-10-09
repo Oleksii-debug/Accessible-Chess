@@ -28,8 +28,8 @@ _EXTENSIONS = {
     ".cbh": "chessbase", ".cbf": "chessbase",
     ".2cbh": "chessbase", ".cbone": "chessbase",
 }
-_BOOK_FORMATS = frozenset(("txt", "markdown", "html", "epub"))
-_PARTIAL_FORMATS = frozenset(("pgn", "docx", "pdf", "png", "jpeg"))
+_BOOK_FORMATS = frozenset(("txt", "markdown", "html", "epub", "pgn"))
+_PARTIAL_FORMATS = frozenset(("docx", "pdf", "png", "jpeg"))
 
 
 class FactoryIntakeError(ValueError):
@@ -207,6 +207,12 @@ def import_factory_book(
             source, source_format=receipt.detected_format, **common,
         )
         importer = "acs.book_text_import"
+    elif receipt.detected_format == "pgn":
+        from .format_factory_pgn_book import import_pgn_as_book
+        document = import_pgn_as_book(source, **common)
+        return FactoryImportedBook(
+            receipt, document, "acs.format_factory_pgn_book", tuple(document.warnings),
+        )
     elif receipt.detected_format == "html":
         from .book_html_import import import_html_book
         result = import_html_book(source, **common)
