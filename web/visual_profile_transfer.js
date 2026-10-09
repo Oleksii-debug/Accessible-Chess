@@ -90,7 +90,8 @@
     // Fail closed if the Windows host exists but its pywebview bridge is still
     // initializing: never create a second, browser-local persistence owner.
     return observedNative || !!global.pywebview ||
-      !!(global.chrome && global.chrome.webview);
+      !!(global.chrome && global.chrome.webview) ||
+      !!(global.location && global.location.protocol === "file:");
   }
   function localRaw() {
     try { return global.localStorage.getItem(storageKey); }
