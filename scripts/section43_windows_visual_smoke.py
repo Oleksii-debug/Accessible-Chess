@@ -14,7 +14,6 @@ import shutil
 import struct
 import subprocess
 import sys
-import tempfile
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -35,7 +34,7 @@ def edge_executable() -> Path:
 
 def png_dimensions(path: Path) -> tuple[int, int]:
     data = path.read_bytes()
-    if len(data) < 10000 or data[:8] != b"\x89PNG\r\n\x1a\\n" or data[12:16] != b"IHDR":
+    if len(data) < 10000 or data[:8] != b"\x89PNG\r\n\x1a\n" or data[12:16] != b"IHDR":
         raise RuntimeError(f"Missing, malformed or unexpectedly empty screenshot: {path.name}")
     width, height = struct.unpack(">II", data[16:24])
     if width < 400 or height < 240 or width > 8000 or height > 8000:
