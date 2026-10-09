@@ -88,5 +88,8 @@ jobs:
       - name: Validate actual composed navigation/layout JavaScript
         run: |
           node --check web/version2_final_product_bootstrap.js
+          node --check web/version2_release_bootstrap.js
           node --check tests/js/sections43_44_workspace_contract_test.js
+          node --check tests/js/section44_premium_service_surfaces_contract_test.js
           node tests/js/sections43_44_workspace_contract_test.js
+          node tests/js/section44_premium_service_surfaces_contract_test.js
