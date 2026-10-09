@@ -7,6 +7,13 @@ on:
     paths:
       - "web/design_system.css"
       - "web/index.html"
+      - "web/accessible_chess_web.*"
+      - "web/accessible_chess_subscription.*"
+      - "acs/web_client_*.py"
+      - "acs/subscription_*.py"
+      - "tests/test_section34_web_client.py"
+      - "tests/test_section35_subscription_closure.py"
+      - "tests/js/section44_web_online_premium_contract_test.js"
       - "web/full_product_*.js"
       - "web/version2_final_product_bootstrap.js"
       - "web/version2_release_bootstrap.js"
@@ -17,6 +24,13 @@ on:
     paths:
       - "web/design_system.css"
       - "web/index.html"
+      - "web/accessible_chess_web.*"
+      - "web/accessible_chess_subscription.*"
+      - "acs/web_client_*.py"
+      - "acs/subscription_*.py"
+      - "tests/test_section34_web_client.py"
+      - "tests/test_section35_subscription_closure.py"
+      - "tests/js/section44_web_online_premium_contract_test.js"
       - "web/full_product_*.js"
       - "web/version2_final_product_bootstrap.js"
       - "web/version2_release_bootstrap.js"
@@ -37,7 +51,15 @@ jobs:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Verify source SHA and reject whitespace errors
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          git diff --check HEAD
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -45,6 +67,7 @@ jobs:
         shell: bash
         run: |
           node --check tests/js/section44_premium_service_surfaces_contract_test.js
+          node --check tests/js/section44_web_online_premium_contract_test.js
           node --check web/version2_release_bootstrap.js
           for file in web/full_product_books_training.js web/full_product_library.js web/full_product_education.js web/full_product_teacher.js web/full_product_classroom.js web/full_product_pgn.js web/version2_final_product_bootstrap.js; do
             node --check "$file"
