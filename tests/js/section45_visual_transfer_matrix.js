@@ -14,7 +14,7 @@ const presets = {
   board_theme: ["wood", "graphite", "blue", "minimal", "high-contrast"],
   density: ["comfortable", "compact", "spacious"]
 };
-function createHarness(nativeApi) {
+function createHarness(nativeApi, protocol) {
   const items = Object.create(null);
   const listeners = {};
   for (const id of ["visual-apply", "visual-cancel", "visual-transfer-status",
@@ -43,6 +43,7 @@ function createHarness(nativeApi) {
   };
   const window = {
     document: doc, TextEncoder, console,
+    location: protocol ? {protocol} : undefined,
     localStorage: {
       getItem(key) {return store.has(key)? store.get(key) : null;},
       setItem(key, value) {store.set(key, String(value));}
@@ -136,6 +137,12 @@ async function main() {
   await lateHost.click("visual-transfer-import");
   await lateHost.click("visual-apply");
   assert.equal(lateHost.store.size, 0, "late Windows host must suppress Web persistence");
+
+  const packaged = createHarness(null, "file:");
+  packaged.items["visual-transfer-json"].value = previous;
+  await packaged.click("visual-transfer-import");
+  await packaged.click("visual-apply");
+  assert.equal(packaged.store.size, 0, "file-packaged Windows must not get a Web profile store");
 
   const nativeValues = {profile:"classic", theme:"system", board_theme:"wood", density:"comfortable"};
   let nativePayload = codec.encode(nativeValues), rev = "revision-1", saves = 0;
