@@ -137,6 +137,14 @@ class TestSection55ProvisionalPEF(unittest.TestCase):
         self.assertIn("Piece k on e8", segments)
         self.assertEqual(len(source_digest), 64)
 
+    def test_xml_invalid_title_and_language_fail_closed(self) -> None:
+        invalid_title = BookDocument(title="Chess\u0000",
+                                     blocks=[Paragraph(text="Text")])
+        with self.assertRaises(BrailleFactoryError):
+            prepare(invalid_title)
+        with self.assertRaises(BrailleFactoryError):
+            prepare(language="en\u0000")
+
     def test_detached_game_and_unresolvable_pgn_cannot_pass(self) -> None:
         from acs.bookdocument import Game
         document = BookDocument(title="Chess", blocks=[Game(game_id=123)])
