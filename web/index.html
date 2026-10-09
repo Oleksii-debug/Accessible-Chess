@@ -263,7 +263,7 @@ window.addEventListener('pywebviewready',async()=>{await refreshState();await lo
     toggle.setAttribute("aria-controls",section.id);
     const size=document.createElement("button");
     size.type="button";
-    const panel={heading,section,toggle,size};
+    const panel={heading,section,toggle,size,actions};
     toggle.addEventListener("click",()=>{
       collapsed(panel,section.dataset.ac43Collapsed!=="true");persist();
     });
@@ -345,7 +345,48 @@ window.addEventListener('pywebviewready',async()=>{await refreshState();await lo
     window.addEventListener("pywebviewready",hydrateNative);
     if(nativeBridge())hydrateNative();
   }
-})()
+  // Existing language renderers replace heading.textContent during UI updates.
+  // Reattach the SAME buttons and refresh labels without duplicate event owners.
+  if(typeof MutationObserver==="function"){
+    function refreshPanelHeading(panel){
+      if(panel.actions.parentElement!==panel.heading){
+        panel.heading.appendChild(panel.actions);
+      }
+      const text=Array.from(panel.heading.childNodes||[])
+        .filter(node=>node.nodeType===3).map(node=>node.textContent||"").join("").trim();
+      if(text)panel.heading.dataset.ac43Heading=text;
+      const yes=panel.section.dataset.ac43Collapsed==="true";
+      panel.toggle.textContent=yes?labels("Розгорнути","Expand"):labels("Згорнути","Collapse");
+      panel.toggle.setAttribute("aria-label",panel.heading.dataset.ac43Heading+" — "+panel.toggle.textContent);
+      setSize(panel,state.sizes[panel.heading.id]);
+    }
+    function refreshWorkspaceLanguage(){
+      toolbar.setAttribute("aria-label",labels("Налаштування робочої області","Workspace layout"));
+      const densityLabel=toolbar.querySelector('label[for="ac43-density"]');
+      const columnsLabel=toolbar.querySelector('label[for="ac43-layout"]');
+      if(densityLabel)densityLabel.textContent=labels("Щільність","Density");
+      if(columnsLabel)columnsLabel.textContent=labels("Колонки","Columns");
+      const densityInput=document.getElementById("ac43-density");
+      if(densityInput&&densityInput.options.length===2){
+        densityInput.options[0].textContent=labels("Звичайна","Comfortable");
+        densityInput.options[1].textContent=labels("Компактна","Compact");
+      }
+      const layoutInput=document.getElementById("ac43-layout");
+      if(layoutInput&&layoutInput.options.length===2){
+        layoutInput.options[0].textContent=labels("Автоматично","Automatic");
+        layoutInput.options[1].textContent=labels("Одна колонка","Single column");
+      }
+      reset.textContent=labels("Відновити макет","Restore layout");
+      for(const panel of entries)refreshPanelHeading(panel);
+    }
+    const localeObserver=new MutationObserver(refreshWorkspaceLanguage);
+    localeObserver.observe(document.documentElement,{attributes:true,attributeFilter:["lang"]});
+    for(const panel of entries){
+      const headingObserver=new MutationObserver(()=>refreshPanelHeading(panel));
+      headingObserver.observe(panel.heading,{childList:true});
+    }
+  }
+})();
 
 
 // Section 43: explicit focus return for existing accessible dialogs.
