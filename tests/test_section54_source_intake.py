@@ -1,0 +1,124 @@
+from __future__ import annotations
+
+from hashlib import sha256
+from io import BytesIO
+import unittest
+from zipfile import ZipFile, ZIP_DEFLATED
+
+from acs.format_factory_intake import (
+    FactoryIntakeError, import_factory_book, inspect_factory_source,
+)
+
+
+def make_zip(entries: dict[str, bytes]) -> bytes:
+    output = BytesIO()
+    with ZipFile(output, "w", compression=ZIP_DEFLATED) as archive:
+        for name, body in entries.items():
+            archive.writestr(name, body)
+    return output.getvalue()
+
+
+class Section54SourceIntakeTests(unittest.TestCase):
+    def test_markdown_imports_through_canonical_model(self) -> None:
+        data = "# Chapter 1\n\nA chess paragraph.\n".encode()
+        result = import_factory_book(data, source_name="lesson.md")
+        self.assertEqual(result.source.sha256, sha256(data).hexdigest())
+        self.assertEqual(result.source.import_status, "SUPPORTED_BOOK_INGRESS")
+        self.assertEqual(result.importer, "acs.book_text_import")
+        self.assertTrue(result.document.blocks)
+
+    def test_plain_text_is_not_guessed_into_a_game(self) -> None:
+        result = import_factory_book(
+            b"Hello.\n\n1. e4 e5 appears only in prose.", source_name="note.txt",
+        )
+        self.assertEqual(result.source.detected_format, "txt")
+        self.assertFalse(any(x.__class__.__name__ == "Game" for x in result.document.blocks))
+
+    def test_html_uses_existing_ingress(self) -> None:
+        data = b"<html><body><h1>Chapter</h1><p>Study</p></body></html>"
+        result = import_factory_book(data, source_name="a.html")
+        self.assertEqual(result.source.detected_format, "html")
+        self.assertTrue(result.document.blocks)
+
+    def test_pdf_and_image_bytes_cannot_claim_semantic_success(self) -> None:
+        for data, name, expected in (
+            (b"%PDF-1.7\nx", "a.pdf", "pdf"),
+            (b"\x89PNG\r\n\x1a\nx", "a.png", "png"),
+            (b"\xff\xd8\xffx", "a.jpeg", "jpeg"),
+        ):
+            receipt = inspect_factory_source(data, source_name=name)
+            self.assertEqual(receipt.detected_format, expected)
+            self.assertEqual(receipt.import_status, "PARTIAL")
+            with self.assertRaises(FactoryIntakeError):
+                import_factory_book(data, source_name=name)
+
+    def test_zip_family_detection_remains_unqualified_when_needed(self) -> None:
+        docx = make_zip({
+            "[Content_Types].xml": b"<Types/>", "word/document.xml": b"<doc/>",
+        })
+        self.assertEqual(
+            inspect_factory_source(docx, source_name="actual.docx").import_status, "PARTIAL",
+        )
+        epub = make_zip({
+            "mimetype": b"application/epub+zip",
+            "META-INF/container.xml": b"<container/>",
+        })
+        receipt = inspect_factory_source(epub, source_name="sample.epub")
+        self.assertEqual(receipt.detected_format, "epub")
+        self.assertTrue(receipt.can_import_as_book)
+
+    def test_extension_spoof_and_generic_zip_fail_closed(self) -> None:
+        receipt = inspect_factory_source(b"%PDF-1.7\n", source_name="fake.epub")
+        self.assertTrue(receipt.extension_mismatch)
+        self.assertEqual(receipt.import_status, "UNSUPPORTED")
+        with self.assertRaises(FactoryIntakeError):
+            import_factory_book(b"%PDF-1.7\n", source_name="fake.epub")
+        generic = inspect_factory_source(
+            make_zip({"other.txt": b"text"}), source_name="a.zip",
+        )
+        self.assertEqual(generic.import_status, "UNSUPPORTED")
+
+    def test_traversal_and_duplicate_archive_names_rejected(self) -> None:
+        for entries in (
+            {"../outside.txt": b"x"}, {"/root/file": b"x"},
+            {"C:/private": b"x"}, {"bad\\member": b"x"},
+        ):
+            with self.assertRaises(FactoryIntakeError):
+                inspect_factory_source(make_zip(entries), source_name="bad.zip")
+        dest = BytesIO()
+        with ZipFile(dest, "w") as archive:
+            archive.writestr("A.txt", "first")
+            archive.writestr("a.txt", "second")
+        with self.assertRaises(FactoryIntakeError):
+            inspect_factory_source(dest.getvalue(), source_name="duplicate.zip")
+
+    def test_bad_epub_and_truncated_zip_rejected(self) -> None:
+        with self.assertRaises(FactoryIntakeError):
+            inspect_factory_source(b"PK\x03\x04garbage", source_name="bad.zip")
+        with self.assertRaises(FactoryIntakeError):
+            inspect_factory_source(
+                make_zip({"mimetype": b"application/epub+zip"}),
+                source_name="missing.epub",
+            )
+
+    def test_private_path_removed_from_provenance(self) -> None:
+        data = b"First paragraph.\n"
+        result = inspect_factory_source(
+            data, source_name=r"C:\secret\parent\book.txt",
+        )
+        self.assertEqual(result.source_name, "book.txt")
+        self.assertEqual(result.sha256, sha256(data).hexdigest())
+
+    def test_pgn_chessbase_and_binary_do_not_create_books(self) -> None:
+        data = b'[Event "Game"]\n[White "A"]\n[Black "B"]\n\n1. e4 *'
+        self.assertEqual(
+            inspect_factory_source(data, source_name="games.pgn").import_status, "PARTIAL",
+        )
+        self.assertEqual(
+            inspect_factory_source(b"\x00\x01\x02", source_name="legacy.cbh").import_status,
+            "UNSUPPORTED",
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()
