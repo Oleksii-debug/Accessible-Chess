@@ -13,6 +13,8 @@ on:
       - 'web/visual_profile_transfer.js'
       - 'web/index.html'
       - 'tests/test_section45_transfer_matrix.py'
+      - 'tests/test_version2_package_assembler.py'
+      - 'tests/test_version2_package_preflight.py'
       - 'tests/js/section45_visual_transfer_matrix.js'
       - '.github/workflows/section45-transfer-matrix.yml'
   workflow_dispatch: {}
@@ -58,6 +60,8 @@ jobs:
           tests.test_section42_board_themes
           tests.test_settings
           tests.test_settings_corruption_security
+          tests.test_version2_package_assembler
+          tests.test_version2_package_preflight
       - name: Generate exact Python-to-JavaScript interchange oracle
         run: python tools/section45_transfer_oracle.py section45_python_oracle.json
       - name: Execute Web DOM native and browser-local transfer matrix
