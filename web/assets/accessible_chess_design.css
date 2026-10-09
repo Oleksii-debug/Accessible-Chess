@@ -173,6 +173,12 @@
 #main-content > section[data-ac43-collapsed="true"]{
   resize:none;min-height:0!important;
 }
+/* A late chess/service repaint may add children after a panel was collapsed.
+   CSS must continue to hide them from both pixels and the accessibility tree;
+   the JS hidden-state tracker still restores only content it originally hid. */
+#main-content > section[data-ac43-collapsed="true"] > :not(h2){
+  display:none!important;
+}
 #main-content > section:has(#board-grid),
 #main-content > section:has(#move-input),
 #main-content > section:has(#engine-status),
