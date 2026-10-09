@@ -238,6 +238,9 @@ async function settle(){for(let i=0;i<12;i++)await Promise.resolve();}
  assert.equal(durable.selected,"Tournament",
    "Late host must converge through the canonical native Settings writer");
  assert.equal(late.store["accessible-chess.design-profiles.v1"],undefined);
+ // Reset the shared mock durable state before existing native CAS tests.
+ durable={version:1,selected:"Coach",profiles:{}};
+ revision="first";
 
  const win=mount({native});await settle();
  assert.equal(win.get("ac45-profile").value,"Coach");
