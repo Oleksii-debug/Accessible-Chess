@@ -9,6 +9,8 @@ on:
       - "tests/test_section39_external_book_semantic.py"
       - "tests/test_section39_external_position_semantic.py"
       - "tests/test_section39_stockfish_original_chess960_epd_qualification.py"
+      - "tools/section39_real_official_gutenberg_epub_html.py"
+      - "tests/test_section39_real_official_gutenberg_epub_html.py"
       - ".github/workflows/section39-shipping-original-source.yml"
   workflow_dispatch:
 
@@ -35,9 +37,11 @@ jobs:
           tools/section39_external_book_semantic.py
           tools/section39_external_position_semantic.py
           tools/section39_stockfish_original_chess960_epd_qualification.py
+          tools/section39_real_official_gutenberg_epub_html.py
       - name: Original books, EPD/FEN and Stockfish real-byte negative/recovery
         run: >-
           python -m unittest -v
           tests.test_section39_external_book_semantic
           tests.test_section39_external_position_semantic
           tests.test_section39_stockfish_original_chess960_epd_qualification
+          tests.test_section39_real_official_gutenberg_epub_html
