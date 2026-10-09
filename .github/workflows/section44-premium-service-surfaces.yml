@@ -9,6 +9,8 @@ on:
       - "web/index.html"
       - "web/full_product_*.js"
       - "web/version2_final_product_bootstrap.js"
+      - "web/version2_release_bootstrap.js"
+      - "tests/js/library_surface_dom_test.js"
       - "tests/js/section44_premium_service_surfaces_contract_test.js"
       - ".github/workflows/section44-premium-service-surfaces.yml"
   pull_request:
@@ -17,6 +19,8 @@ on:
       - "web/index.html"
       - "web/full_product_*.js"
       - "web/version2_final_product_bootstrap.js"
+      - "web/version2_release_bootstrap.js"
+      - "tests/js/library_surface_dom_test.js"
       - "tests/js/section44_premium_service_surfaces_contract_test.js"
       - ".github/workflows/section44-premium-service-surfaces.yml"
   workflow_dispatch:
@@ -41,6 +45,7 @@ jobs:
         shell: bash
         run: |
           node --check tests/js/section44_premium_service_surfaces_contract_test.js
+          node --check web/version2_release_bootstrap.js
           for file in web/full_product_books_training.js web/full_product_library.js web/full_product_education.js web/full_product_teacher.js web/full_product_classroom.js web/full_product_pgn.js web/version2_final_product_bootstrap.js; do
             node --check "$file"
           done
