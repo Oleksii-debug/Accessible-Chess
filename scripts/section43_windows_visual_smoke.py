@@ -35,7 +35,7 @@ def edge_executable() -> Path:
 
 def png_dimensions(path: Path) -> tuple[int, int]:
     data = path.read_bytes()
-    if len(data) < 10000 or data[:8] != b"\\x89PNG\\r\\n\\x1a\\n" or data[12:16] != b"IHDR":
+    if len(data) < 10000 or data[:8] != b"\x89PNG\r\n\x1a\\n" or data[12:16] != b"IHDR":
         raise RuntimeError(f"Missing, malformed or unexpectedly empty screenshot: {path.name}")
     width, height = struct.unpack(">II", data[16:24])
     if width < 400 or height < 240 or width > 8000 or height > 8000:
@@ -129,7 +129,7 @@ def main() -> int:
         "samples": results,
     }
     receipt_path = evidence_dir / "section43-visual-receipt.json"
-    receipt_path.write_text(json.dumps(receipt, indent=2, ensure_ascii=False) + "\\n", encoding="utf-8")
+    receipt_path.write_text(json.dumps(receipt, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     print("SECTION43_REAL_EDGE_DOM_AND_DPI_SCREENSHOTS_PASS", len(results), receipt_path)
     return 0
 
