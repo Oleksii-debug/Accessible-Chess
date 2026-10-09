@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "section": "37.4",
+  "status": "PARTIAL_SOURCE_BYTES_ONLY_NOT_TERMINAL",
+  "observed_date": "2026-10-09",
+  "original_repository": "Yarin78/morphy",
+  "original_commit": "c721bacb53dac9619f268346454d419667497f51",
+  "original_path": "test-databases/wch2",
+  "method": "GitHub connector fetched base64 original file content by immutable commit; decoded bytes locally in tool runtime; asserted pinned Git blob SHA-1 metadata and independently asserted decoded original byte length; SHA-256 computed over decoded bytes with SHA-256 implementation validated on 3 known-answer vectors: empty input, abc, hello world.",
+  "validated_originals": [
+    {
+      "file": "wch2.2cbh",
+      "bytes": 199488,
+      "git_blob_sha1": "f553f17e96acbb035ac62b979ee14e498122bf37",
+      "sha256": "1c6ea3c599eb4578b53eaebaeba5edac46fec686575b3e345000cbd317c29b6d"
+    },
+    {
+      "file": "wch2.2lid",
+      "bytes": 504074,
+      "git_blob_sha1": "63d1359d1ad2119418f60f2300b916967f02bacc",
+      "sha256": "a1ae5632dd68670523dd449936f54325a5fc7d334f34f3b493f148f51c1638f3"
+    },
+    {
+      "file": "wch2.2lgd",
+      "bytes": 84492,
+      "git_blob_sha1": "307f26f6de27b4292b973c3f5fef0a2ea49a16d6",
+      "sha256": "cd59ba3a5f828de334bb0b00f242dfb505c50554ddd8103a5280361c42a758df"
+    },
+    {
+      "file": "wch2.2lcd",
+      "bytes": 57344,
+      "git_blob_sha1": "b8e37f652b2588233e670fe9092321d280ef4104",
+      "sha256": "1f981bd9bdf20c911eab29057822bcff2bab4145f29d891a5d2336f35a407426"
+    },
+    {
+      "file": "wch2.ini",
+      "bytes": 3305,
+      "git_blob_sha1": "152fbd777d30c09601e7f4fa75ff540ec02ab27d",
+      "sha256": "4bc69bea6adc14189145be246dcf7ff43bb641726b7d49a166eebe5a713c1dd4"
+    }
+  ],
+  "metadata_only_unverified_originals": [
+    {
+      "file": "wch2.2cbg",
+      "upstream_size": 5161008,
+      "git_blob_sha1": "faa816d982f373ca8025fa2599678a93dd887fab",
+      "reason": "GitHub connector returned empty base64 content for file over size limit; decoded bytes and SHA-256 not observed."
+    },
+    {
+      "file": "wch2.2cba",
+      "upstream_size": 2116760,
+      "git_blob_sha1": "8079d5dde3e93f6279e0a9d26405c2340ff1f324",
+      "reason": "GitHub connector returned empty base64 content for file over size limit; decoded bytes and SHA-256 not observed."
+    }
+  ],
+  "checks": {
+    "sha256_algorithm_known_answer_vectors": "3/3 PASS",
+    "fetched_byte_sha256": "5/7 PASS; 2 UNAVAILABLE_NOT_FAILED",
+    "pinned_git_blob_identity": "7/7 PROVIDER_METADATA; 5/7 BYTE_CONTENT_RECEIVED",
+    "canonical_chessbase_import": "NOT_RUN",
+    "negative_chess_semantics": "NOT_RUN",
+    "restart_recovery": "NOT_RUN",
+    "hosted_ci": "NOT_VERIFIED",
+    "original_data_redistribution_rights": "NOT_ESTABLISHED"
+  },
+  "policy": {
+    "test_access": "PRIVATE_EPHEMERAL_ONLY",
+    "public_release": "EXCLUDED",
+    "no_new_parser": true,
+    "no_change_to_terminal_subsections": [
+      "37.5",
+      "37.6"
+    ],
+    "other_sections_untouched": true
+  },
+  "remaining": "Retrieve the other two original files via a permitted full-size read; verify per-database testing rights; run full-family canonical 2CBH semantic and negative/restart qualification with an independent oracle; separately obtain/qualify CBF+CBI and CBONE genuine lawful fixtures; do not mark subsection or Section DONE."
+}
