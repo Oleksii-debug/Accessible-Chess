@@ -186,5 +186,40 @@ class Section55LocalCLITests(unittest.TestCase):
             self.assertFalse(args.output_folder.exists())
             self.assertEqual(list(root.glob(".section55-unverified-*")), [])
 
+    def test_transitive_liblouis_closure_is_in_package_provenance(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            args = self.args(root)
+            nested = root / "included.cti"
+            nested.write_text("# dependent rule file\n", encoding="utf-8")
+            args.table_file.write_text("include included.cti\n", encoding="utf-8")
+            with patch.dict("sys.modules", {"louis": SyntheticLouis("louis")}):
+                self.assertEqual(run(args), 0)
+            report = json.loads((args.output_folder / "quality-report.json").read_text(encoding="utf-8"))
+            provenance = report["manifest"]
+            self.assertEqual(len(provenance["table_closure_files"]), 2)
+            self.assertEqual(len(provenance["table_closure_sha256"]), 64)
+            self.assertEqual(provenance["table_closure_status"],
+                             "LOCAL_PIN_ONLY_NOT_LANGUAGE_CERTIFICATION")
+
+    def test_modified_included_table_during_translation_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            args = self.args(root)
+            nested = root / "included.cti"
+            nested.write_text("# Original\n", encoding="utf-8")
+            args.table_file.write_text("include included.cti\n", encoding="utf-8")
+
+            class DriftIncluded(SyntheticLouis):
+                @staticmethod
+                def translateString(tables, source, mode):
+                    nested.write_text("# MODIFIED\n", encoding="utf-8")
+                    return "\u2801" * len(source)
+
+            with patch.dict("sys.modules", {"louis": DriftIncluded("louis")}):
+                with self.assertRaises(BrailleFactoryError):
+                    run(args)
+            self.assertFalse(args.output_folder.exists())
+
 if __name__ == "__main__":
     unittest.main()
