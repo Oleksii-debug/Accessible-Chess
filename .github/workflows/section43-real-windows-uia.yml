@@ -1,0 +1,103 @@
+name: Section 43 Actual Windows WebView2 UIA
+on:
+  push:
+    branches:
+      - feature/sections43-44-workspace-skin-20261008
+    paths:
+      - 'scripts/section43_workspace_real_uia_probe.ps1'
+      - '.github/workflows/section43-real-windows-uia.yml'
+      - 'web/index.html'
+      - 'web/assets/accessible_chess_design.css'
+      - 'acs/stage1_release_ui.py'
+      - 'acs/settings.py'
+      - 'tests/js/sections43_44_workspace_contract_test.js'
+      - 'tests/test_sections43_44_native_layout_persistence.py'
+  pull_request:
+    branches:
+      - feature/revised-37-42-corpus-visual-20261008
+    paths:
+      - 'scripts/section43_workspace_real_uia_probe.ps1'
+      - '.github/workflows/section43-real-windows-uia.yml'
+      - 'web/index.html'
+      - 'web/assets/accessible_chess_design.css'
+      - 'acs/stage1_release_ui.py'
+      - 'acs/settings.py'
+      - 'tests/js/sections43_44_workspace_contract_test.js'
+      - 'tests/test_sections43_44_native_layout_persistence.py'
+  workflow_dispatch: {}
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  actual-ui-automation:
+    runs-on: windows-2025
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact triggering source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Establish exact source provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          git diff --check HEAD
+      - name: Install pinned Python runtime
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+      - name: Install Windows WebView2 host dependencies
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -m pip install -q pywebview==6.2.1 pythonnet==3.1.0 clr-loader==0.3.1 cffi==2.1.1 pycparser==3.0 typing-extensions==4.16.0
+          if($LASTEXITCODE -ne 0){throw 'Pinned WebView2 dependencies failed to install'}
+      - name: Source and persistent-layout regression preflight
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          node --check tests/js/sections43_44_workspace_contract_test.js
+          if($LASTEXITCODE -ne 0){throw 'Section43 JS syntax is invalid'}
+          node tests/js/sections43_44_workspace_contract_test.js
+          if($LASTEXITCODE -ne 0){throw 'Section43 UI contract regressions failed'}
+          python -m unittest -v tests.test_sections43_44_native_layout_persistence
+          if($LASTEXITCODE -ne 0){throw 'Section43 native Settings regression failed'}
+      - name: Launch real Stage1 WebView2 and query independent OS UIA
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root=Join-Path $PWD 'section43-actual-uia-evidence'
+          New-Item -ItemType Directory -Path $root -Force | Out-Null
+          $env:APPDATA=Join-Path $root 'Roaming'
+          $env:LOCALAPPDATA=Join-Path $root 'Local'
+          New-Item -ItemType Directory -Path $env:APPDATA,$env:LOCALAPPDATA -Force | Out-Null
+          $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS='--force-renderer-accessibility'
+          $exe=(Get-Command python).Source
+          $stdout=Join-Path $root 'app-stdout.txt'
+          $stderr=Join-Path $root 'app-stderr.txt'
+          $json=Join-Path $root 'section43-real-uia.json'
+          $process=Start-Process -FilePath $exe -ArgumentList @('run_accessible_chess.py') -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          try {
+            & pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/section43_workspace_real_uia_probe.ps1 -TargetProcessId $process.Id -OutputPath $json -TimeoutSeconds 65
+            if($LASTEXITCODE -ne 0){throw 'External Windows UIA panel/edit/focus/screenshot test failed'}
+            if(-not (Test-Path -LiteralPath $json)){throw 'No UIA JSON evidence'}
+            $report=Get-Content -Raw -LiteralPath $json | ConvertFrom-Json
+            if($report.status -ne 'PASS' -or $report.nvda_verified -ne $false -or $report.packaged_executable_tested -ne $false){throw 'Section43 evidence flags inconsistent'}
+            Write-Host 'SECTION43_REAL_WEBVIEW_UIA_MACHINE_PASS (not packaged, not human NVDA)'
+          }
+          finally {
+            $live=Get-Process -Id $process.Id -ErrorAction SilentlyContinue
+            if($live){Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue}
+          }
+      - name: Publish genuine Windows evidence, including on failure
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: section43-real-webview-uia-source
+          path: section43-actual-uia-evidence/
+          if-no-files-found: warn
+          retention-days: 14
