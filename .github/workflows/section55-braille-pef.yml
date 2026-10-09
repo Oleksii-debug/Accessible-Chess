@@ -30,4 +30,4 @@ jobs:
       - name: Check syntax
         run: python -m compileall -q acs/chess_braille_factory.py tests/test_section55_chess_braille_factory.py
       - name: Run synthetic structural and negative-path tests
-        run: python -m unittest tests.test_section55_chess_braille_factory -v
+        run: python -m unittest discover -s tests -p test_section55_chess_braille_factory.py -v
