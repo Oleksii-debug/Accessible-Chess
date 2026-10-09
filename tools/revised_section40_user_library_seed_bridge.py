@@ -1,0 +1,324 @@
+"""Connect the genuine Section-40 offline TEST_BUILD collection to the existing
+runtime user-Library-seed seam, without installing a second Library importer.
+
+This prepares a *test-only drop-in*, not a public Windows release. It validates
+the entire original collection receipt before producing any output, then uses
+the real runtime seed validator and atomic canonical ACSDB importer.
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+from pathlib import Path, PurePosixPath
+import stat
+import tempfile
+import zipfile
+
+from acs.acsdb import AcsDatabase
+from acs.lawful_corpus_registry import load_catalog, read_verified_source_snapshot, read_verified_zip_member
+from acs.gametree import CanonicalPgnGameFramer, serialize_game
+from acs.pgn_roundtrip import parse_pgn_text
+from acs.user_library_seed import (
+    BUNDLE_KIND, MANIFEST_NAME, SCHEMA_VERSION,
+    import_user_library_seed, load_user_library_seed,
+)
+from .revised_section40_offline_test_library import OfflineCollectionError, ROOT
+from .revised_sections37_38_offline_manifest import _source_head
+
+_MAX_COLLECTION_BYTES = 80 * 1024 * 1024
+_MAX_UNCOMPRESSED_BYTES = 80 * 1024 * 1024
+_MAX_MEMBERS = 120
+_LIBRARY_PGN = "library/real-stockfish-first-512.pgn"
+_ADVANCED_PGN = "library/real-lichess-four-annotated-original-games.pgn"
+_SEED_PGN = "section40-stockfish-512-real-games.pgn"
+_SEED_ADVANCED = "section40-lichess-4-annotated-games.pgn"
+_SEED_ROOT = "release-content/user-library-seed/"
+
+
+def _sha(raw: bytes) -> str:
+    return hashlib.sha256(raw).hexdigest()
+
+
+def _read_qualified_collection(source: Path) -> tuple[bytes, bytes]:
+    """Fail closed on changed/unsafe ZIPs, metadata, rights, or corpus identity."""
+    try:
+        before = source.lstat()
+        if (not stat.S_ISREG(before.st_mode) or stat.S_ISLNK(before.st_mode)
+            or getattr(before, "st_file_attributes", 0)
+                & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+            or not 1 <= before.st_size <= _MAX_COLLECTION_BYTES):
+            raise OfflineCollectionError("unsafe Section 40 input ZIP")
+        with source.open("rb") as stream:
+            opened = os.fstat(stream.fileno())
+            if not os.path.samestat(before, opened) or opened.st_size != before.st_size:
+                raise OfflineCollectionError("Section 40 source identity changed")
+            with zipfile.ZipFile(stream) as archive:
+                entries = archive.infolist()
+                if not 1 <= len(entries) <= _MAX_MEMBERS:
+                    raise OfflineCollectionError("Section 40 ZIP member count invalid")
+                names = set()
+                total = 0
+                for info in entries:
+                    name = info.filename
+                    parts = PurePosixPath(name).parts
+                    if (not name or name.startswith("/") or "\\" in name
+                        or any(part in {"", ".", ".."} for part in name.split("/"))
+                        or PurePosixPath(name).as_posix() != name
+                        or ":" in name or name.casefold() in names
+                        or info.is_dir()
+                        or (info.external_attr >> 16) & 0o170000
+                           not in (0, stat.S_IFREG)
+                        or info.compress_type != zipfile.ZIP_DEFLATED
+                        or info.file_size > _MAX_UNCOMPRESSED_BYTES):
+                        raise OfflineCollectionError("unsafe Section 40 ZIP member")
+                    names.add(name.casefold())
+                    total += info.file_size
+                    if total > _MAX_UNCOMPRESSED_BYTES:
+                        raise OfflineCollectionError("Section 40 expanded budget exceeded")
+                if "catalog/checksums.json" not in archive.namelist():
+                    raise OfflineCollectionError("Section 40 receipts absent")
+                receipts = json.loads(archive.read("catalog/checksums.json"))
+                if (type(receipts) is not list
+                    or len(receipts) != len(entries) - 1):
+                    raise OfflineCollectionError("Section 40 receipts malformed")
+                receipt_names = set()
+                for row in receipts:
+                    if (type(row) is not dict
+                        or set(row) != {"path", "sha256", "bytes"}
+                        or type(row["path"]) is not str
+                        or row["path"] == "catalog/checksums.json"
+                        or row["path"] in receipt_names
+                        or type(row["sha256"]) is not str
+                        or len(row["sha256"]) != 64
+                        or type(row["bytes"]) is not int
+                        or row["bytes"] < 0):
+                        raise OfflineCollectionError("Section 40 receipt identity invalid")
+                    receipt_names.add(row["path"])
+                    content = archive.read(row["path"])
+                    if len(content) != row["bytes"] or _sha(content) != row["sha256"]:
+                        raise OfflineCollectionError("Section 40 archive content changed")
+                if receipt_names != set(archive.namelist()) - {"catalog/checksums.json"}:
+                    raise OfflineCollectionError("Section 40 receipt inventory mismatch")
+                report = json.loads(archive.read("catalog/materials.json"))
+                if (type(report) is not dict
+                    or report.get("profile") != "TEST_BUILD"
+                    or report.get("schema") != "acs-revised-section40-offline-collection-v1"
+                    or type(report.get("real_import_readback")) is not dict
+                    or report["real_import_readback"].get("game_count") != 512):
+                    raise OfflineCollectionError("only verified 512-game TEST_BUILD is seedable")
+                # The test payload must have been built from precisely the
+                # checked-out candidate. A stale source snapshot or a manually
+                # re-signed archive is not eligible for owner-package ingress.
+                if (type(report.get("source_commit_sha")) is not str
+                    or report["source_commit_sha"] != _source_head()):
+                    raise OfflineCollectionError(
+                        "Section40 owner collection source commit is not the exact checked-out HEAD"
+                    )
+                sources = [
+                    x for x in report["materials"]
+                    if x.get("id") == "stockfish_2moves_v2_pgn_zip"
+                ]
+                if (len(sources) != 1
+                    or not str(sources[0].get("license", "")).startswith("CC0")
+                    or not str(sources[0].get("redistribution", "")).startswith("permitted")):
+                    raise OfflineCollectionError("Section 40 source rights unverified")
+                raw = archive.read(_LIBRARY_PGN)
+                if _sha(raw) != report["real_import_readback"]["derivative_pgn_sha256"]:
+                    raise OfflineCollectionError("Section 40 game corpus identity invalid")
+                if (report["real_import_readback"].get("advanced_annotated_game_count") != 4
+                    or report["real_import_readback"].get("total_database_games") != 516):
+                    raise OfflineCollectionError("annotated 4-game Library identity missing")
+                annotated = archive.read(_ADVANCED_PGN)
+                if _sha(annotated) != report["real_import_readback"]["advanced_annotated_source_sha256"]:
+                    raise OfflineCollectionError("annotated 4-game source checksum mismatch")
+                # ZIP manifests and per-file checksums are self-consistent,
+                # not an independent source authority. Bind the actual game
+                # bytes to Section37's separately SHA-pinned original source.
+                pinned = [row for row in load_catalog(
+                    ROOT / "docs/corpus/revised_sections37_40_sources.json"
+                ) if row["id"] == "lichess_cc0_high_level_4_original_annotated_games"]
+                if len(pinned) != 1:
+                    raise OfflineCollectionError("annotated original source authority missing")
+                origin = pinned[0]
+                # Stockfish source is a deterministic *derivative* of the
+                # separately pinned original ZIP, not an independently signed
+                # producer-supplied PGN. Reproduce the bounded 512-game frame
+                # selection against that exact original archive before seed
+                # generation, rejecting self-consistent counterfeit ZIPs.
+                stockfish = [row for row in load_catalog(
+                    ROOT / "docs/corpus/revised_sections37_40_sources.json"
+                ) if row["id"] == "stockfish_2moves_v2_pgn_zip"]
+                if len(stockfish) != 1:
+                    raise OfflineCollectionError("original Stockfish source authority missing")
+                stockfish_record = stockfish[0]
+                if (stockfish_record.get("acquisition") != "VENDORED_SOURCE_VERIFIED"
+                    or not str(stockfish_record.get("license", "")).startswith("CC0")
+                    or not str(stockfish_record.get("redistribution", "")).startswith("permitted")):
+                    raise OfflineCollectionError("independently verified Stockfish source rights missing")
+                member = read_verified_zip_member(
+                    ROOT / stockfish_record["local_source"], stockfish_record,
+                    expected_member=stockfish_record["zip_member"],
+                    max_unpacked_bytes=stockfish_record["max_unpacked_bytes"],
+                )
+                framer = CanonicalPgnGameFramer(max_frame_bytes=256 * 1024)
+                frames: list[str] = []
+                for line in member.decode("utf-8-sig", errors="strict").splitlines():
+                    frame = framer.feed_line(line)
+                    if frame is not None:
+                        frames.append(frame.text)
+                        if len(frames) == 512:
+                            break
+                if (len(frames) != 512
+                    or raw != ("\n".join(frames)).encode("utf-8")):
+                    raise OfflineCollectionError(
+                        "Section40 owner seed original Stockfish PGN is not the independently verified 512-game source"
+                    )
+                if (origin.get("acquisition") != "VENDORED_SOURCE_VERIFIED"
+                    or not str(origin.get("license", "")).startswith("CC0")
+                    or not str(origin.get("redistribution", "")).startswith("permitted")
+                    or origin.get("sha256") != _sha(annotated)
+                    or read_verified_source_snapshot(
+                        ROOT / origin["local_source"], origin
+                    ) != annotated):
+                    raise OfflineCollectionError(
+                        "Section40 owner seed ZIP does not match the independently verified original"
+                    )
+            after_open = os.fstat(stream.fileno())
+        after = source.lstat()
+        if (not os.path.samestat(before, after_open)
+            or not os.path.samestat(before, after)
+            or before.st_size != after.st_size
+            or before.st_mtime_ns != after.st_mtime_ns
+            or before.st_ctime_ns != after.st_ctime_ns):
+            raise OfflineCollectionError("Section 40 input mutated during audit")
+        return raw, annotated
+    except (OSError, ValueError, KeyError, TypeError, zipfile.BadZipFile) as exc:
+        if isinstance(exc, OfflineCollectionError):
+            raise
+        raise OfflineCollectionError("Section 40 input collection cannot be trusted") from exc
+
+
+def build_owner_test_seed(collection_zip: Path, output_zip: Path) -> dict:
+    """Publish validated runtime-ready QA seed as a separate no-overwrite ZIP.
+
+    Its release-content folder is copied *beside* the application executable by
+    a packaging integrator. Never replaces the owner's existing Library seed.
+    """
+    output_zip = Path(output_zip)
+    if output_zip.exists() or output_zip.is_symlink():
+        raise OfflineCollectionError("Section 40 seed output already exists")
+    original, annotated_original = _read_qualified_collection(Path(collection_zip))
+    try:
+        original_games = parse_pgn_text(original.decode("utf-8"), strict=False)
+        if len(original_games) != 512 or any(not game.line.moves for game in original_games):
+            raise OfflineCollectionError("original corpus lost canonical games")
+        # This exact normalization is required by the existing startup seed
+        # contract. The original 512-game PGN may parse in recovery mode but
+        # fail strict; reuse the canonical serializer instead of hand-repairing.
+        canonical = ("\n\n".join(serialize_game(game).rstrip()
+                                     for game in original_games) + "\n").encode("utf-8")
+        checked = parse_pgn_text(canonical.decode("utf-8"), strict=True)
+        if len(checked) != 512 or any(not game.line.moves for game in checked):
+            raise OfflineCollectionError("normalized owner Library seed is not strict PGN")
+        annotated_games = parse_pgn_text(
+            annotated_original.decode("utf-8"), strict=False)
+        if len(annotated_games) != 4 or any(not g.line.moves for g in annotated_games):
+            raise OfflineCollectionError("original annotated game sample is invalid")
+        # Same original canonical serializer used for the Stockfish seed.
+        canonical_annotated = (
+            (chr(10) * 2).join(serialize_game(g).rstrip() for g in annotated_games)
+            + chr(10)
+        ).encode("utf-8")
+        checked_annotated = parse_pgn_text(
+            canonical_annotated.decode("utf-8"), strict=True)
+        if len(checked_annotated) != 4 or any(not g.line.moves for g in checked_annotated):
+            raise OfflineCollectionError("annotated games do not meet strict runtime ingress")
+    except (UnicodeError, ValueError) as exc:
+        raise OfflineCollectionError("canonical Library seed normalization failed") from exc
+    pgn = canonical
+    output_zip.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="section40-seed-", dir=output_zip.parent) as scratch:
+        work = Path(scratch)
+        seed = work / "release-content" / "user-library-seed"
+        seed.mkdir(parents=True)
+        (seed / _SEED_PGN).write_bytes(pgn)
+        (seed / _SEED_ADVANCED).write_bytes(canonical_annotated)
+        manifest = {
+            "schema_version": SCHEMA_VERSION,
+            "bundle_kind": BUNDLE_KIND,
+            "runtime_network_required": False,
+            "ai_required": False,
+            "files": [{
+                "file": _SEED_PGN,
+                "display_name": "Accessible Chess Section 40: 512 verified Stockfish CC0 games",
+                "bytes": len(pgn),
+                "sha256": _sha(pgn),
+            }, {
+                "file": _SEED_ADVANCED,
+                "display_name": "Accessible Chess Section 40: four genuine annotated Lichess CC0 games",
+                "bytes": len(canonical_annotated),
+                "sha256": _sha(canonical_annotated),
+            }],
+        }
+        (seed / MANIFEST_NAME).write_text(
+            json.dumps(manifest, ensure_ascii=False, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        validated = load_user_library_seed(seed)
+        with AcsDatabase(work / "qa-import.acsdb") as db:
+            first = import_user_library_seed(db, validated)
+            db.verify_integrity()
+        # Actual SQLite process-boundary readback, not same-handle reimport.
+        with AcsDatabase(work / "qa-import.acsdb") as reopened:
+            again = import_user_library_seed(reopened, validated)
+            reopened.verify_integrity()
+        if (first.source_count != 2 or first.game_count != 516
+            or first.reused_source_count != 0
+            or again.reused_source_count != 2
+            or again.game_count != 516):
+            raise OfflineCollectionError("runtime seed import/restart/reuse failed")
+        temp_zip = work / "seed.zip"
+        with zipfile.ZipFile(temp_zip, "x", compression=zipfile.ZIP_DEFLATED) as out:
+            for path in (seed / MANIFEST_NAME, seed / _SEED_PGN, seed / _SEED_ADVANCED):
+                name = _SEED_ROOT + path.name
+                info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
+                info.compress_type = zipfile.ZIP_DEFLATED
+                info.external_attr = (stat.S_IFREG | 0o644) << 16
+                out.writestr(info, path.read_bytes(), compress_type=zipfile.ZIP_DEFLATED)
+        with zipfile.ZipFile(temp_zip) as check:
+            if set(check.namelist()) != {
+                _SEED_ROOT + MANIFEST_NAME, _SEED_ROOT + _SEED_PGN,
+                _SEED_ROOT + _SEED_ADVANCED
+            } or (check.read(_SEED_ROOT + _SEED_PGN) != pgn
+                  or check.read(_SEED_ROOT + _SEED_ADVANCED) != canonical_annotated):
+                raise OfflineCollectionError("runtime seed output ZIP readback failed")
+        try:
+            os.link(temp_zip, output_zip)
+        except OSError as exc:
+            raise OfflineCollectionError("runtime seed atomic publish failed") from exc
+    return {
+        "profile": "OWNER_TEST_LIBRARY_SEED",
+        "game_count": 516, "source_count": 2,
+        "readback": "CANONICAL_RUNTIME_SEED_ACSDB_RESTART_AND_REUSE_PASS",
+        "archive_sha256": _sha(output_zip.read_bytes()),
+        "source_pgn_sha256": _sha(original),
+        "normalized_strict_pgn_sha256": _sha(pgn),
+        "annotated_source_sha256": _sha(annotated_original),
+        "normalized_annotated_strict_sha256": _sha(canonical_annotated),
+        "owner_accepted": False, "section40_done": False,
+    }
+
+
+def main() -> None:
+    import argparse
+    parser = argparse.ArgumentParser(description="Prepare actual runtime Library seed from Section 40 QA ZIP")
+    parser.add_argument("collection_zip", type=Path)
+    parser.add_argument("output_zip", type=Path)
+    args = parser.parse_args()
+    print(json.dumps(build_owner_test_seed(args.collection_zip, args.output_zip),
+                     ensure_ascii=False, sort_keys=True))
+
+
+if __name__ == "__main__":
+    main()

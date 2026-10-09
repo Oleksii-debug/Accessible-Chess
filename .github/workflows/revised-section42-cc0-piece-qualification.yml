@@ -1,0 +1,96 @@
+name: Revised Section 42 Licensed Chess Art, Offline Raster and Windows Gate
+on:
+  push:
+    branches:
+      - feature/revised-37-42-corpus-visual-20261008
+    paths:
+      - 'web/assets/pieces/rhosgfx/**'
+      - 'tools/revised_section42_render_piece_pack.py'
+      - 'tests/js/section42_*'
+      - 'tests/test_revised_section42_*'
+      - '.github/workflows/revised-section42-cc0-piece-qualification.yml'
+  pull_request:
+    branches:
+      - converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
+    paths:
+      - 'web/assets/pieces/rhosgfx/**'
+      - 'web/index.html'
+      - 'web/accessible_chess_web.js'
+      - 'web/board_overlay_renderer.js'
+      - 'tests/js/section42_overlay_runtime_test.js'
+      - 'tests/js/section42_route_scope_runtime_test.js'
+      - 'acs/web_client_http.py'
+      - 'acs/teacher_webview_projection.py'
+      - 'web/accessible_chess_web.html'
+      - 'web/assets/accessible_chess_design.css'
+      - 'acs/visual_board_contract.py'
+      - 'acs/version2_package_preflight.py'
+      - 'tools/revised_section42_render_piece_pack.py'
+      - 'tests/test_revised_section42_cc0_pieces.py'
+      - 'tests/test_revised_section42_raster_qualification.py'
+      - 'tests/test_revised_section42_web_projection.py'
+      - 'tests/test_section42_board_palette_contrast.py'
+      - 'tests/test_revised_section42_overlay_contract.py'
+      - 'tests/test_revised_section42_overlay_http.py'
+      - '.github/workflows/revised-section42-cc0-piece-qualification.yml'
+  workflow_dispatch: {}
+concurrency:
+  # Keep a fixed-SHA qualification alive despite unrelated corpus-worker pushes.
+  group: section42-source-qualified-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: false
+permissions:
+  contents: read
+jobs:
+  original-art-and-contract:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+      - name: Exercise actual DOM overlay renderer in sandboxed Node VM
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check web/board_overlay_renderer.js
+          node --check tests/js/section42_overlay_runtime_test.js
+          node tests/js/section42_overlay_runtime_test.js
+          node --check tests/js/section42_route_scope_runtime_test.js
+          node tests/js/section42_route_scope_runtime_test.js
+      - name: Compile source and exercise exact CC0 / NVDA-safe board acceptance
+        run: |
+          python -m py_compile tools/revised_section42_render_piece_pack.py tests/test_revised_section42_cc0_pieces.py tests/test_revised_section42_raster_qualification.py tests/test_revised_section42_web_projection.py tests/test_section42_board_palette_contrast.py tests/test_revised_section42_overlay_contract.py tests/test_revised_section42_overlay_http.py
+          python -m unittest -v tests.test_revised_section42_cc0_pieces tests.test_revised_section42_raster_qualification tests.test_revised_section42_web_projection tests.test_section42_board_palette_contrast tests.test_revised_section42_overlay_contract tests.test_revised_section42_overlay_http tests.test_section15_visual_board_contract tests.test_revised_sections41_42_design
+  original-art-raster:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+      - name: Install pinned build-only raster libraries
+        run: |
+          python -m pip install --only-binary=:all: "CairoSVG==2.7.1" "Pillow==11.3.0"
+      - name: Convert pinned originals to optimized PNG and lossless WebP
+        run: python -m tools.revised_section42_render_piece_pack --output artifacts/section42-rhosgfx
+      - name: Verify actual raster receipt and 48 output files
+        run: |
+          python -c "import json,pathlib,hashlib; p=pathlib.Path('artifacts/section42-rhosgfx'); r=json.loads((p/'RASTER_RECEIPT.json').read_text()); assert r['originals']==12 and r['outputs']==48; assert all((p/a['file']).is_file() and hashlib.sha256((p/a['file']).read_bytes()).hexdigest()==a['sha256'] for a in r['assets'])"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: section42-source-pinned-cc0-rhosgfx-png-webp
+          path: artifacts/section42-rhosgfx/
+          retention-days: 14
+          if-no-files-found: error

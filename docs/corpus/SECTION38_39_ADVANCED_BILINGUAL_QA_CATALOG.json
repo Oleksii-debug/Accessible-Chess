@@ -1,0 +1,403 @@
+{
+  "schema": "accessible-chess-section38-39-advanced-bilingual-curation-v1",
+  "official_plan_section_numbers": [
+    38,
+    39
+  ],
+  "authority": "Drive Accessible Chess 0–53; existing canonical FORMAT_CAPABILITIES and corpus register only",
+  "artifact_kind": "METADATA_AND_HUMAN_QA_SPECIFICATION_NOT_BOOK_CONTENT_NOT_SOURCE_FILE",
+  "explanation_uk": "Лише високорівнева підбірка КМС—МС—GM; український текст карток створено окремо, а англомовні професійні видання залишаються зовнішніми бібліографічними посиланнями без перепублікації. Один рейтинг задачі Lichess не присвоює FIDE-звання.",
+  "explanation_en": "Advanced candidate-master to GM-aspiration training only. Original Ukrainian briefs are not purported translations of protected books. Publisher links are metadata only, never downloaded or bundled.",
+  "owner_floor": {
+    "exclude_training_below_lichess_puzzle_rating": 2200,
+    "rating_scale": "Lichess puzzle difficulty NOT FIDE Elo",
+    "exclude_terms": [
+      "beginner",
+      "kids",
+      "mateIn1",
+      "first moves",
+      "learn rules"
+    ],
+    "allow_general_format_regressions_at_any_level": true
+  },
+  "languages": [
+    "uk",
+    "en"
+  ],
+  "tracks": [
+    {
+      "id": "calculation",
+      "title_uk": "Глибокий розрахунок",
+      "title_en": "Advanced calculation",
+      "testing_brief_uk": "Розрахуйте дерево ходів-кандидатів із тихими захисними ресурсами і повертайтеся до вузла розгалуження; без автоматичного показу рішення.",
+      "testing_brief_en": "Calculate multi-branch candidate-move trees with quiet defensive resources and deterministic variation returns.",
+      "professional_level": "CM_MASTER_IM_GM_aspiration_not_certified_titles",
+      "lower_level_material_permitted": false,
+      "original_source_candidates": [
+        {
+          "catalog_source_id": "lichess_cc0_advanced_16_original_derived",
+          "purpose": "calculation",
+          "rights": "CC0_OR_SOURCE_PROVENANCE_BOUND_VERIFY_BEFORE_RELEASE",
+          "origin_bytes_in_this_catalog": false
+        },
+        {
+          "catalog_source_id": "lichess_cc0_extreme_4_original_derived_puzzles",
+          "purpose": "calculation",
+          "rights": "CC0_OR_SOURCE_PROVENANCE_BOUND_VERIFY_BEFORE_RELEASE",
+          "origin_bytes_in_this_catalog": false
+        }
+      ],
+      "bibliography": [
+        {
+          "title": "Grandmaster Preparation: Calculation",
+          "author": "Jacob Aagaard",
+          "url": "https://qualitychess.co.uk/ebooks/CALCULATION-excerpt.pdf",
+          "kind": "PUBLISHER_REFERENCE_NOT_IMPORTED",
+          "rights": "COPYRIGHT_OR_EDITIONS_UNVERIFIED_NO_BYTES_INCLUDED"
+        }
+      ]
+    },
+    {
+      "id": "tactical_sacrifices",
+      "title_uk": "Складна тактика й жертви",
+      "title_en": "High-level tactics and sacrifices",
+      "testing_brief_uk": "Перевірте комбінації КМС+ із довгими продовженнями, контржертвами та захисними ресурсами; попередній хід суперника застосовується перед задачею.",
+      "testing_brief_en": "Verify multi-move master-strength combinations, counter-sacrifices, defensive resources and correct opponent-first puzzle setup.",
+      "professional_level": "CM_MASTER_IM_GM_aspiration_not_certified_titles",
+      "lower_level_material_permitted": false,
+      "original_source_candidates": [
+        {
+          "catalog_source_id": "lichess_cc0_advanced_16_original_derived",
+          "purpose": "tactical_sacrifices",
+          "rights": "CC0_OR_SOURCE_PROVENANCE_BOUND_VERIFY_BEFORE_RELEASE",
+          "origin_bytes_in_this_catalog": false
+        },
+        {
+          "catalog_source_id": "lichess_cc0_extreme_4_original_derived_puzzles",
+          "purpose": "tactical_sacrifices",
+          "rights": "CC0_OR_SOURCE_PROVENANCE_BOUND_VERIFY_BEFORE_RELEASE",
+          "origin_bytes_in_this_catalog": false
+        }
+      ],
+      "bibliography": [
+        {
+          "title": "Тактика для всіх — тільки блок 200 задач КМС/МС/ММ",
+          "author": "Микола Боднар",
+          "url": "https://bodnarchess.com.ua/tactics.html",
+          "kind": "UKRAINIAN_PUBLISHER_PAGE_ADVANCED_SUBSET_ONLY",
+          "rights": "COPYRIGHT_OR_EDITIONS_UNVERIFIED_NO_BYTES_INCLUDED"
+        },
+        {
+          "title": "Grandmaster Preparation: Attack & Defence",
+          "author": "Jacob Aagaard",
+          "url": "https://qualitychess.co.uk/wp-content/uploads/2024/02/AttackDefence-excerpt.pdf",
+          "kind": "PUBLISHER_REFERENCE_NOT_IMPORTED",
+          "rights": "COPYRIGHT_OR_EDITIONS_UNVERIFIED_NO_BYTES_INCLUDED"
+        }
+      ],
+      "ua_book_language_status": "PUBLISHER_PAGE_IN_UKRAINIAN_BOOK_PRINT_LANGUAGE_NOT_INDEPENDENTLY_VERIFIED"
+    },
+    {
+      "id": "composed_studies",
+      "title_uk": "Складні шахові етюди",
+      "title_en": "Advanced composed endgame studies",
+      "testing_brief_uk": "Зберігайте автора, вимогу виграш/нічия, авторські побічні варіанти, FEN та повернення на дошку. Практична задача Lichess не є авторським етюдом.",
+      "testing_brief_en": "Retain study composer, win/draw stipulation, authored sidelines, exact initial FEN and board return. Practical puzzles are not attributed studies.",
+      "professional_level": "CM_MASTER_IM_GM_aspiration_not_certified_titles",
+      "lower_level_material_permitted": false,
+      "original_source_candidates": [
+        {
+          "catalog_source_id": "original_1851_kling_horwitz_endgame_studies_arves_archive_pdf",
+          "purpose": "composed_studies",
+          "rights": "CC0_OR_SOURCE_PROVENANCE_BOUND_VERIFY_BEFORE_RELEASE",
+          "origin_bytes_in_this_catalog": false
+        }
+      ],
+      "bibliography": [
+        {
+          "title": "Studies for Practical Players",
+          "author": "Mark Dvoretsky and Oleg Pervakov",
+          "url": "https://www.russell-enterprises.com/russell-enterprises/studies-for-practical-players",
+          "kind": "PUBLISHER_REFERENCE_NOT_IMPORTED",
+          "rights": "COPYRIGHT_OR_EDITIONS_UNVERIFIED_NO_BYTES_INCLUDED"
+        },
+        {
+          "title": "The Art of The Endgame",
+          "author": "Jan Timman",
+          "url": "https://www.simonandschuster.com/books/The-Art-of-The-Endgame/Jan-Timman/9789083328409",
+          "kind": "PUBLISHER_REFERENCE_NOT_IMPORTED",
+          "rights": "COPYRIGHT_OR_EDITIONS_UNVERIFIED_NO_BYTES_INCLUDED"
+        }
+      ]
+    },
+    {
+      "id": "positional_structure",
+      "title_uk": "Позиційна гра й пішакові структури",
+      "title_en": "Grandmaster pawn structures and positional plans",
+      "testing_brief_uk": "Перевірте схеми маневрування, слабкі поля, профілактику та зміну пішакової структури на модельних партіях.",
+      "testing_brief_en": "Test pawn-structure plans, manoeuvres, weak squares, prophylaxis and annotated model games.",
+      "professional_level": "CM_MASTER_IM_GM_aspiration_not_certified_titles",
+      "lower_level_material_permitted": false,
+      "original_source_candidates": [
+        {
+          "catalog_source_id": "lichess_openings_original_eco_d_tsv",
+          "purpose": "positional_structure",
+          "rights": "CC0_OR_SOURCE_PROVENANCE_BOUND_VERIFY_BEFORE_RELEASE",
+          "origin_bytes_in_this_catalog": false
+        }
+      ],
+      "bibliography": [
+        {
+          "title": "Chess Structures: A Grandmaster Guide",
+          "author": "Mauricio Flores Rios",
+          "url": "https://www.simonandschuster.com/books/Chess-Structures/Mauricio-Flores-Rios/9781784830007",
+          "kind": "PUBLISHER_REFERENCE_NOT_IMPORTED",
+          "rights": "COPYRIGHT_OR_EDITIONS_UNVERIFIED_NO_BYTES_INCLUDED"
+        }
+      ]
+    },
+    {
+      "id": "opening_preparation",
+      "title_uk": "Глибока дебютна підготовка",
+      "title_en": "Advanced opening repertoire and theoretical novelties",
+      "testing_brief_uk": "Використати ECO A–E як перевірене джерело назв, але для розгалужених новинок вимагати реальні анотовані PGN, NAG і GameTree без втрат.",
+      "testing_brief_en": "Use original ECO A–E for opening metadata only; genuinely annotated PGN/RAV/NAG are required for variation-rich theoretical novelty qualifications.",
+      "professional_level": "CM_MASTER_IM_GM_aspiration_not_certified_titles",
+      "lower_level_material_permitted": false,
+      "original_source_candidates": [
+        {
+          "catalog_source_id": "lichess_openings_original_eco_a_tsv",
+          "purpose": "opening_preparation",
+          "rights": "CC0_OR_SOURCE_PROVENANCE_BOUND_VERIFY_BEFORE_RELEASE",
+          "origin_bytes_in_this_catalog": false
+        },
+        {
+          "catalog_source_id": "lichess_openings_original_eco_b_tsv",
+          "purpose": "opening_preparation",
+          "rights": "CC0_OR_SOURCE_PROVENANCE_BOUND_VERIFY_BEFORE_RELEASE",
+          "origin_bytes_in_this_catalog": false
+        },
+        {
+          "catalog_source_id": "lichess_openings_original_eco_c_tsv",
+          "purpose": "opening_preparation",
+          "rights": "CC0_OR_SOURCE_PROVENANCE_BOUND_VERIFY_BEFORE_RELEASE",
+          "origin_bytes_in_this_catalog": false
+        },
+        {
+          "catalog_source_id": "lichess_openings_original_eco_d_tsv",
+          "purpose": "opening_preparation",
+          "rights": "CC0_OR_SOURCE_PROVENANCE_BOUND_VERIFY_BEFORE_RELEASE",
+          "origin_bytes_in_this_catalog": false
+        },
+        {
+          "catalog_source_id": "lichess_openings_original_eco_e_tsv",
+          "purpose": "opening_preparation",
+          "rights": "CC0_OR_SOURCE_PROVENANCE_BOUND_VERIFY_BEFORE_RELEASE",
+          "origin_bytes_in_this_catalog": false
+        }
+      ],
+      "bibliography": [
+        {
+          "title": "Perfect Your Chess",
+          "author": "Andrei Volokitin and Vladimir Grabinsky",
+          "url": "https://www.newinchess.com/perfect-your-chess",
+          "kind": "PUBLISHER_REFERENCE_NOT_IMPORTED",
+          "rights": "COPYRIGHT_OR_EDITIONS_UNVERIFIED_NO_BYTES_INCLUDED"
+        }
+      ]
+    },
+    {
+      "id": "advanced_endgames",
+      "title_uk": "Складний практичний ендшпіль",
+      "title_en": "Advanced practical endgames",
+      "testing_brief_uk": "Ладейні, легкофігурні й ферзеві закінчення, фортеці, цугцванг та техніка реалізації; не видавайте шахову оцінку рушія за етюд.",
+      "testing_brief_en": "Rook, minor-piece and queen endings, fortresses, zugzwang and conversion technique; distinguish tablebase analysis from authored studies.",
+      "professional_level": "CM_MASTER_IM_GM_aspiration_not_certified_titles",
+      "lower_level_material_permitted": false,
+      "original_source_candidates": [
+        {
+          "catalog_source_id": "lichess_cc0_extreme_4_original_derived_puzzles",
+          "purpose": "advanced_endgames",
+          "rights": "CC0_OR_SOURCE_PROVENANCE_BOUND_VERIFY_BEFORE_RELEASE",
+          "origin_bytes_in_this_catalog": false
+        }
+      ],
+      "bibliography": [
+        {
+          "title": "Dvoretsky's Endgame Manual (5th Edition)",
+          "author": "Mark Dvoretsky; revised by Karsten Müller",
+          "url": "https://www.newinchess.com/dvoretsky-s-endgame-manual-6270",
+          "kind": "PUBLISHER_REFERENCE_NOT_IMPORTED",
+          "rights": "COPYRIGHT_OR_EDITIONS_UNVERIFIED_NO_BYTES_INCLUDED"
+        },
+        {
+          "title": "100 Endgame Patterns You Must Know",
+          "author": "Jesus de la Villa",
+          "url": "https://www.newinchess.com/100-endgame-patterns",
+          "kind": "PUBLISHER_REFERENCE_NOT_IMPORTED",
+          "rights": "COPYRIGHT_OR_EDITIONS_UNVERIFIED_NO_BYTES_INCLUDED"
+        }
+      ]
+    },
+    {
+      "id": "master_game_analysis",
+      "title_uk": "Аналіз партій майстрів",
+      "title_en": "Annotated master-game analysis",
+      "testing_brief_uk": "Перевірте партії високого рівня: метадані, ходи, оригінальні коментарі, NAG, кількарівневі варіанти, зв’язок із Library/Search/Board.",
+      "testing_brief_en": "Preserve real master-game metadata, moves, authored comments, NAG, nested RAV, and Library/Search/Board entry points.",
+      "professional_level": "CM_MASTER_IM_GM_aspiration_not_certified_titles",
+      "lower_level_material_permitted": false,
+      "original_source_candidates": [
+        {
+          "catalog_source_id": "lichess_cc0_high_level_4_original_annotated_games",
+          "purpose": "master_game_analysis",
+          "rights": "CC0_OR_SOURCE_PROVENANCE_BOUND_VERIFY_BEFORE_RELEASE",
+          "origin_bytes_in_this_catalog": false
+        }
+      ],
+      "bibliography": [
+        {
+          "title": "Perfect Your Chess",
+          "author": "Andrei Volokitin and Vladimir Grabinsky",
+          "url": "https://www.newinchess.com/perfect-your-chess",
+          "kind": "PUBLISHER_REFERENCE_NOT_IMPORTED",
+          "rights": "COPYRIGHT_OR_EDITIONS_UNVERIFIED_NO_BYTES_INCLUDED"
+        }
+      ]
+    },
+    {
+      "id": "defensive_resourcefulness",
+      "title_uk": "Захист, профілактика та контргра",
+      "title_en": "Defence, prophylaxis and counterplay",
+      "testing_brief_uk": "Знайдіть єдиний захисний ресурс, переконливо перевіряйте хибні кандидати й не підміняйте еталон двигуном без незалежної перевірки.",
+      "testing_brief_en": "Find singular defensive resources, prove refutations of candidate moves and retain independent solution oracles.",
+      "professional_level": "CM_MASTER_IM_GM_aspiration_not_certified_titles",
+      "lower_level_material_permitted": false,
+      "original_source_candidates": [
+        {
+          "catalog_source_id": "lichess_cc0_advanced_16_original_derived",
+          "purpose": "defensive_resourcefulness",
+          "rights": "CC0_OR_SOURCE_PROVENANCE_BOUND_VERIFY_BEFORE_RELEASE",
+          "origin_bytes_in_this_catalog": false
+        }
+      ],
+      "bibliography": [
+        {
+          "title": "Grandmaster Preparation: Attack & Defence",
+          "author": "Jacob Aagaard",
+          "url": "https://qualitychess.co.uk/wp-content/uploads/2024/02/AttackDefence-excerpt.pdf",
+          "kind": "PUBLISHER_REFERENCE_NOT_IMPORTED",
+          "rights": "COPYRIGHT_OR_EDITIONS_UNVERIFIED_NO_BYTES_INCLUDED"
+        }
+      ]
+    }
+  ],
+  "format_qa": [
+    {
+      "format": "PGN",
+      "required_real_object": "annotated authentic multi-game master PGN with NAG, nested RAV, SetUp/FEN/Chess960",
+      "semantic_readback": "tag + move + authored comment + variation graph; loss metric; reopen via Library and Board",
+      "outcome": "BLOCKED_UNTIL_EXACT_SOURCE_EVIDENCE"
+    },
+    {
+      "format": "FEN",
+      "required_real_object": "source-pinned advanced composition or study initial position",
+      "semantic_readback": "canonical FEN exact parse/serialize + legality/position authority",
+      "outcome": "PARTIAL_RECORDED_CORPUS"
+    },
+    {
+      "format": "SAN",
+      "required_real_object": "original advanced game movetext",
+      "semantic_readback": "chess-core SAN canonical move and comments separation",
+      "outcome": "PARTIAL_RECORDED_CORPUS"
+    },
+    {
+      "format": "EPD",
+      "required_real_object": "verified advanced tactical EPD benchmark",
+      "semantic_readback": "operation metadata + FEN + engine-independent position oracle",
+      "outcome": "PARTIAL_RECORDED_CORPUS"
+    },
+    {
+      "format": "ACSDB",
+      "required_real_object": "derived from verified annotated master PGN",
+      "semantic_readback": "source-id exact SHA + SQLite restart + Library/Search readback",
+      "outcome": "PARTIAL_RECORDED_CORPUS"
+    },
+    {
+      "format": "EPUB",
+      "required_real_object": "genuinely licensed advanced chess ebook EPUB3",
+      "semantic_readback": "chapters + headings + figures/alt + original variant links + BookReader return",
+      "outcome": "MISSING_ADVANCED_REAL_SOURCE"
+    },
+    {
+      "format": "HTML",
+      "required_real_object": "genuinely licensed advanced chess analysis HTML",
+      "semantic_readback": "heading + images + comments + BookReader return; hostile HTML rejection",
+      "outcome": "MISSING_ADVANCED_REAL_SOURCE"
+    },
+    {
+      "format": "TXT",
+      "required_real_object": "advanced public-domain source with review of locale rights",
+      "semantic_readback": "original UTF-8 text + stable paragraphs; no invented chess state",
+      "outcome": "EXISTING_GENERIC_SOURCE_NOT_MASTER_PROVEN"
+    },
+    {
+      "format": "Markdown",
+      "required_real_object": "licensed advanced authored Markdown chess chapter",
+      "semantic_readback": "headings + explicit PGN/FEN fences; source notes",
+      "outcome": "ORIGINAL_EXTERNAL_SOURCE_CHECK_REQUIRED"
+    },
+    {
+      "format": "DOCX",
+      "required_real_object": "independently licensed advanced authored DOCX book",
+      "semantic_readback": "genuine OPC package, headings + paragraphs + image alt-text notes + restart; no invented diagram/FEN",
+      "outcome": "CURRENTLY_DERIVED_ONLY_NOT_GENUINE_SOURCE"
+    },
+    {
+      "format": "PDF",
+      "required_real_object": "licensed advanced text/diagram PDF",
+      "semantic_readback": "accessible text source and verified diagram mapping; do not call PDF/OCR supported in current application",
+      "outcome": "UNSUPPORTED_REAL_PDF_IMPORT"
+    },
+    {
+      "format": "CBH",
+      "required_real_object": "licensed complete CBH + official companion family",
+      "semantic_readback": "commented master games + nested RAV/NAG + source hashes + read-only decoder",
+      "outcome": "EXTERNAL_SOURCE_ONLY_PARTIAL"
+    },
+    {
+      "format": "CBV",
+      "required_real_object": "licensed original CBV compressed database",
+      "semantic_readback": "decompression + metadata/variations and zero silent loss",
+      "outcome": "ORIGINAL_FULL_IMPORT_UNVERIFIED"
+    },
+    {
+      "format": "CBF",
+      "required_real_object": "licensed actual CBF+CBI indexed source",
+      "semantic_readback": "pair integrity + game index + read and restart",
+      "outcome": "UNSUPPORTED_NO_LAWFUL_SAMPLE"
+    },
+    {
+      "format": "2CBH",
+      "required_real_object": "licensed original 2CBH database",
+      "semantic_readback": "full multi-game/annotation/variation qualification",
+      "outcome": "UNSUPPORTED_NO_LAWFUL_SAMPLE"
+    },
+    {
+      "format": "CBONE",
+      "required_real_object": "licensed original CBONE database",
+      "semantic_readback": "full multi-game/annotation/variation qualification",
+      "outcome": "UNSUPPORTED_NO_LAWFUL_SAMPLE"
+    }
+  ],
+  "distribution_policy": {
+    "publisher_links_only": true,
+    "protected_full_book_bytes_in_repository": false,
+    "external_source_checkout_is_not_runtime_bundling": true,
+    "test_material_requires_hash_license_and_rights_readback": true,
+    "no_unsupported_format_promoted_to_pass": true,
+    "no_FIDE_rating_or_title_from_Lichess_puzzle_rating": true,
+    "user_personalized_books_minimum": "Candidate Master track or selected advanced chapters only",
+    "all_tracks_have_uk_en_accessible_briefs": true
+  }
+}

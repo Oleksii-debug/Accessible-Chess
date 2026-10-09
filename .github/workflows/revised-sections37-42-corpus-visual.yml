@@ -1,0 +1,909 @@
+name: Revised Sections 37-42 Corpus and Visual Contracts
+on:
+  pull_request:
+    branches:
+      - converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
+    paths:
+      - 'acs/lawful_corpus_registry.py'
+      - 'acs/book_docx_import.py'
+      - 'acs/version2_application.py'
+      - 'acs/version2_windows_native_dialog_ownership.py'
+      - 'acs/format_capabilities.py'
+      - 'acs/visual_board_contract.py'
+      - 'docs/corpus/revised_sections37_40_sources.json'
+      - 'docs/automation/REVISED_SECTIONS37_42_PROGRESS_AND_ASSET_PROVENANCE.md'
+      - 'web/index.html'
+      - 'tests/test_revised_sections37_40_corpus.py'
+      - 'tools/revised_section37_real_cc0_readback.py'
+      - 'tests/test_revised_section37_live_report_safety.py'
+      - 'tests/test_revised_section37_real_book_txt.py'
+      - 'tests/test_revised_section37_offline_collection_readback.py'
+      - 'tests/test_revised_section38_official_openings_library.py'
+      - 'tests/test_revised_section38_stockfish_real_library.py'
+      - 'tests/test_revised_section38_docx_book_integration.py'
+      - 'tests/test_section38_39_advanced_bilingual_qa_catalog.py'
+      - 'docs/corpus/SECTION38_39_ADVANCED_BILINGUAL_QA_CATALOG.json'
+      - 'tools/revised_section38_stockfish_owner_seed.py'
+      - 'tests/test_revised_section38_owner_seed.py'
+      - 'tests/test_section0_format_capabilities.py'
+      - 'tests/test_revised_section37_38_offline_manifest.py'
+      - 'tests/test_revised_section38_real_cbh_oracles.py'
+      - 'tools/revised_sections37_38_offline_manifest.py'
+      - 'tools/revised_section37_external_book_acquisition.py'
+      - 'tests/test_revised_section37_external_book_acquisition.py'
+      - 'tests/test_revised_section37_nwc_2026_source_discovery.py'
+      - 'tools/revised_section37_external_position_acquisition.py'
+      - 'tools/section39_external_position_semantic.py'
+      - 'tests/test_section39_ci_evidence_aggregate.py'
+      - 'tools/section39_ci_evidence_aggregate.py'
+      - 'tools/section39_real_cbh_oracle_receipt.py'
+      - 'tests/test_section39_real_cbh_oracle_receipt.py'
+      - 'tools/section39_new_section37_annotated_pgn_qualification.py'
+      - 'tests/test_section39_new_section37_annotated_pgn_qualification.py'
+      - 'tools/section39_real_section37_advanced_training_qualification.py'
+      - 'tests/test_section39_real_section37_advanced_training_qualification.py'
+      - 'tools/section39_real_official_gutenberg_epub_html.py'
+      - 'tests/test_section39_real_official_gutenberg_epub_html.py'
+      - 'tools/section39_stockfish_original_chess960_epd_qualification.py'
+      - 'tests/test_section39_stockfish_original_chess960_epd_qualification.py'
+      - 'tools/section39_reti_historical_bilingual_study.py'
+      - 'tests/test_section39_reti_historical_bilingual_study.py'
+      - 'tools/section39_real_chess_docx_interoperability.py'
+      - 'tests/test_section39_real_chess_docx_interoperability.py'
+      - 'tools/section39_section37_bilingual_workbook_qualification.py'
+      - 'tests/test_section39_section37_bilingual_workbook_qualification.py'
+      - 'acs/section40_bilingual_master_workbook_runtime.py'
+      - 'tests/test_section40_bilingual_master_workbook_product.py'
+      - 'acs/version2_starter_content_application.py'
+      - 'tools/revised_section37_bilingual_workbook_pack.py'
+      - 'tests/real_corpus/advanced_training/section37_master_workbook_bilingual.json'
+      - 'tests/test_section39_external_book_semantic.py'
+      - 'tools/section39_external_book_semantic.py'
+      - 'tests/test_section39_external_position_semantic.py'
+      - 'tools/section39_real_format_qualification.py'
+      - 'tests/test_section39_real_format_qualification.py'
+      - 'tests/test_revised_section37_external_position_acquisition.py'
+      - 'tools/revised_section37_release_exclusion.py'
+      - 'tools/revised_section37_advanced_puzzle_curator.py'
+      - 'tools/revised_section37_extreme_licensed_puzzles.py'
+      - 'tests/test_revised_section37_extreme_3000_real_licensed.py'
+      - 'tests/test_revised_section37_advanced_puzzle_curator.py'
+      - 'tests/test_revised_section37_advanced_owner_training_source_policy.py'
+      - 'tests/test_revised_section37_advanced_annotated_game_corpus.py'
+      - 'docs/corpus/SECTION37_ADVANCED_MASTER_TRAINING_UK.md'
+      - 'tests/real_corpus/advanced_training/**'
+      - 'tools/revised_section37_bilingual_workbook_pack.py'
+      - 'tests/test_revised_section37_bilingual_advanced_formats.py'
+      - 'tests/test_revised_section37_bilingual_in_application.py'
+      - 'tests/test_revised_section37_owner_readable_only.py'
+      - 'tests/test_revised_section38_real_advanced_source_crossroute.py'
+      - 'tests/test_revised_section37_uk_en_reference_matrix.py'
+      - 'tests/test_revised_section37_genuine_advanced_study_readback.py'
+      - 'tools/revised_section37_bilingual_pdf_pack.py'
+      - 'tests/test_revised_section37_bilingual_pdf_pack.py'
+      - 'docs/corpus/SECTION37_UK_EN_HIGH_LEVEL_REFERENCE_MATRIX.json'
+      - 'tests/test_revised_section37_release_exclusion.py'
+      - 'tools/revised_section37_cbh_original_family_inventory.py'
+      - 'tests/test_revised_section37_cbh_original_family_inventory.py'
+      - '.gitattributes'
+      - 'tests/real_corpus/**'
+      - 'tests/test_revised_sections41_42_design.py'
+      - 'tests/test_section15_visual_board_contract.py'
+      - '.github/workflows/revised-sections37-42-corpus-visual.yml'
+  workflow_dispatch: {}
+# Keep the latest exact product SHA when many Section37 collaborators share
+# the same PR; old queued runs cannot certify a newer product revision.
+concurrency:
+  group: ${{ github.workflow }}-pr-${{ github.event.pull_request.number || github.ref }}
+  # Many parallel workers update the same PR while a 37-42 source run is queued.
+  # Keep the first executing candidate alive long enough to produce real
+  # exact-SHA evidence; GitHub still limits one running + one pending per group.
+  cancel-in-progress: false
+permissions:
+  contents: read
+jobs:
+  source-and-presentation:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+      - name: Compile revised source and existing canonical board
+        run: >-
+          python -m py_compile
+          acs/lawful_corpus_registry.py
+          acs/book_docx_import.py
+          acs/version2_application.py
+          acs/format_capabilities.py
+          tests/test_revised_section38_docx_book_integration.py
+          tests/test_section38_39_advanced_bilingual_qa_catalog.py
+          tools/revised_section38_stockfish_owner_seed.py
+          tests/test_revised_section38_owner_seed.py
+          acs/visual_board_contract.py
+          tests/test_revised_sections37_40_corpus.py
+          tools/revised_section37_real_cc0_readback.py
+          tests/test_revised_section37_live_report_safety.py
+          tests/test_revised_section37_real_book_txt.py
+          tests/test_revised_section37_offline_collection_readback.py
+          tests/test_revised_section38_official_openings_library.py
+          tests/test_revised_section38_stockfish_real_library.py
+          tests/test_revised_section37_38_offline_manifest.py
+          tools/revised_sections37_38_offline_manifest.py
+          tools/revised_section37_external_book_acquisition.py
+          tests/test_revised_section37_external_book_acquisition.py
+          tests/test_revised_section37_nwc_2026_source_discovery.py
+          tools/revised_section37_external_position_acquisition.py
+          tests/test_revised_section37_external_position_acquisition.py
+          tools/revised_section37_release_exclusion.py
+          tests/test_revised_section37_release_exclusion.py
+          tools/revised_section37_advanced_puzzle_curator.py
+          tests/test_revised_section37_advanced_puzzle_curator.py
+          tests/test_revised_section37_advanced_owner_training_source_policy.py
+          tests/test_revised_section37_advanced_annotated_game_corpus.py
+          tools/revised_section37_cbh_original_family_inventory.py
+          tests/test_revised_section37_cbh_original_family_inventory.py
+          tools/revised_section37_bilingual_workbook_pack.py
+          tests/test_revised_section37_bilingual_advanced_formats.py
+          tests/test_revised_section37_bilingual_in_application.py
+          tests/test_revised_section37_owner_readable_only.py
+          tests/test_revised_section38_real_advanced_source_crossroute.py
+          tests/test_revised_section37_uk_en_reference_matrix.py
+          tests/test_revised_section37_genuine_advanced_study_readback.py
+          tests/test_revised_sections41_42_design.py
+      - name: Test real source catalog authorization and existing visual authority
+        run: >-
+          python -m unittest -v
+          tests.test_revised_sections37_40_corpus
+          tests.test_revised_section37_real_book_txt
+          tests.test_revised_section37_offline_collection_readback
+          tests.test_revised_section38_official_openings_library
+          tests.test_revised_section38_stockfish_real_library
+          tests.test_revised_section38_docx_book_integration
+          tests.test_section38_39_advanced_bilingual_qa_catalog
+          tests.test_revised_section38_owner_seed
+          tests.test_section0_format_capabilities
+          tests.test_revised_section37_38_offline_manifest
+          tests.test_revised_section37_external_book_acquisition
+          tests.test_revised_section37_nwc_2026_source_discovery
+          tests.test_revised_section37_external_position_acquisition
+          tests.test_revised_section37_release_exclusion
+          tests.test_revised_section37_advanced_puzzle_curator
+          tests.test_revised_section37_extreme_3000_real_licensed
+          tests.test_revised_section37_advanced_owner_training_source_policy
+          tests.test_revised_section37_advanced_annotated_game_corpus
+          tests.test_revised_section37_bilingual_advanced_formats
+          tests.test_revised_section37_bilingual_in_application
+          tests.test_revised_section37_owner_readable_only
+          tests.test_revised_section38_real_advanced_source_crossroute
+          tests.test_revised_section37_uk_en_reference_matrix
+          tests.test_revised_section37_genuine_advanced_study_readback
+          tests.test_revised_section37_cbh_original_family_inventory
+          tests.test_revised_sections41_42_design
+          tests.test_section15_visual_board_contract
+      - name: Materialize original Stockfish CC0 games into canonical owner-test Library seed
+        run: python -m tools.revised_section38_stockfish_owner_seed
+      - name: Preserve actual test-only Library seed and real-source checksum receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: section38-owner-test-library-seed-${{ matrix.os }}
+          path: _section38_owner_seed_ci/
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Build exact-checkout offline corpus manifest with real semantic results
+        env:
+          ACCESSIBLE_CHESS_EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: python -m tools.revised_sections37_38_offline_manifest
+      - name: Preserve Windows and Linux offline source/readback proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: section37-38-offline-manifest-${{ matrix.os }}
+          path: revised-sections37-38-offline-manifest.json
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Test current-plan Section 39 actual-format and false-PASS qualification
+        run: python -m unittest -v tests.test_section39_real_format_qualification
+      - name: Produce exact-checkout real-file qualification receipt (NOT Section DONE)
+        env:
+          ACCESSIBLE_CHESS_EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: python -m tools.section39_real_format_qualification
+      - name: Test newly added Section 37 genuine 2200+ annotated chess games and negative provenance
+        run: |
+          python -m py_compile tools/section39_new_section37_annotated_pgn_qualification.py tests/test_section39_new_section37_annotated_pgn_qualification.py
+          python -m unittest -v tests.test_section39_new_section37_annotated_pgn_qualification
+      - name: Generate exact-source four-game NAG/RAV/ACSDB search and restart proof
+        env:
+          ACCESSIBLE_CHESS_EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: python -m tools.section39_new_section37_annotated_pgn_qualification
+      - name: Verify newly acquired Section 37 advanced/endgame CC0 originals and bilingual chessboard
+        run: |
+          python -m py_compile tools/section39_real_section37_advanced_training_qualification.py tests/test_section39_real_section37_advanced_training_qualification.py
+          python -m unittest -v tests.test_section39_real_section37_advanced_training_qualification
+      - name: Original 2200+ and 3000-3166 Source37 puzzle semantics into Section 39 evidence
+        env:
+          ACCESSIBLE_CHESS_EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: python -m tools.section39_real_section37_advanced_training_qualification
+      - name: Original source-bound Stockfish Chess960/FRC EPD records and negative provenance
+        run: |
+          python -m py_compile tools/section39_stockfish_original_chess960_epd_qualification.py tests/test_section39_stockfish_original_chess960_epd_qualification.py
+          python -m unittest -v tests.test_section39_stockfish_original_chess960_epd_qualification
+      - name: Prove every original Chess960/FRC record against canonical EPD/FEN adapters
+        env:
+          ACCESSIBLE_CHESS_EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: python -m tools.section39_stockfish_original_chess960_epd_qualification
+      - name: Real Réti 1921 authored composed endgame study SAN/UK+EN comments/Library replay
+        run: |
+          python -m py_compile tools/section39_reti_historical_bilingual_study.py tests/test_section39_reti_historical_bilingual_study.py
+          python -m unittest -v tests.test_section39_reti_historical_bilingual_study
+      - name: Exact-HEAD receipt for historical Réti original study, not a Lichess puzzle
+        env:
+          ACCESSIBLE_CHESS_EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: python -m tools.section39_reti_historical_bilingual_study
+      - name: Test actual source-bound Capablanca chess prose imported into DOCX Books and restart
+        run: |
+          python -m py_compile tools/section39_real_chess_docx_interoperability.py tests/test_section39_real_chess_docx_interoperability.py
+          python -m unittest -v tests.test_section39_real_chess_docx_interoperability
+      - name: Record generated-docx-versus-genuine-original source truth and exact SHA
+        env:
+          ACCESSIBLE_CHESS_EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: python -m tools.section39_real_chess_docx_interoperability
+      - name: Qualify all Section37 authentic-puzzle-derived bilingual books as actual native files
+        run: |
+          python -m py_compile tools/section39_section37_bilingual_workbook_qualification.py tests/test_section39_section37_bilingual_workbook_qualification.py
+          python -m unittest -v tests.test_section39_section37_bilingual_workbook_qualification
+      - name: Evidence for ten UK/EN source-derived EPUB3 HTML Markdown DOCX TXT Books imports
+        env:
+          ACCESSIBLE_CHESS_EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: python -m tools.section39_section37_bilingual_workbook_qualification
+      - name: Production Books bilingual source37 native menu keyboard Board Training restart contract
+        run: |
+          python -m py_compile acs/section40_bilingual_master_workbook_runtime.py tests/test_section40_bilingual_master_workbook_product.py
+          python -m unittest -v tests.test_section40_bilingual_master_workbook_product
+      - name: Preserve actual per-format readback and known unsupported coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: section39-real-format-qualification-${{ matrix.os }}
+          path: |
+            section39-real-format-qualification.json
+            section39-new-section37-annotated-pgn-qualification.json
+            section39-new-section37-training-position-semantic-evidence.json
+            section39-stockfish-chess960-epd-qualification.json
+            section39-historic-reti-study-bilingual-source-readback.json
+            section39-original-chess-derived-docx-qualification.json
+            section39-section37-bilingual-ten-native-books-qualification.json
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Exercise canonical chess core
+        run: python -m acs.selftest
+
+  live-lawful-5000:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+      - name: Pin real-source decompression dependency
+        run: python -m pip install 'zstandard==0.25.0'
+      - name: Refuse stale PASS reports after failed live source attempts (offline negative regression)
+        run: python -m unittest -v tests.test_revised_section37_live_report_safety
+      - name: Actually fetch SHA256-verified CC0 Lichess file and import 5000 real games
+        run: python -m tools.v2_library_source_catalog_real_corpus
+      - name: Acquire four official SHA-pinned CC0 corpora and parse real samples
+        env:
+          ACCESSIBLE_CHESS_EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: python -m tools.revised_section37_real_cc0_readback
+      - name: Preserve non-private exact corpus qualification facts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: revised-section38-39-real-corpus-evidence
+          path: |
+            source-catalog-real-evidence.json
+            revised-section37-live-cc0-readback.json
+          if-no-files-found: ignore
+          retention-days: 14
+
+  real-cbh-gpl-upstream-readback:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      LIBCBH_COMMIT: 9641c5c3949d8fb210b17dd9aa54455645843696
+    steps:
+      - name: Checkout exact product candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          path: product
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+      - name: Checkout original pinned GPL licensed external decoder and legal CBH fixtures
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: rolandlo/libcbh
+          ref: 9641c5c3949d8fb210b17dd9aa54455645843696
+          path: upstream/libcbh
+          fetch-depth: 1
+      - name: Assert immutable source identities and genuine complete fixture families
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C product rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(git -C upstream/libcbh rev-parse HEAD)" = "$LIBCBH_COMMIT"
+          test -s upstream/libcbh/gtest/Annotation/TestBase.cbh
+          test -s upstream/libcbh/gtest/Annotation/TestBaseExport.pgn
+          test -s upstream/libcbh/gtest/WithVariations/WithVariations.cbh
+          test -s upstream/libcbh/gtest/WithVariations/GamesWithVariations.pgn
+          test -s upstream/libcbh/gtest/UnusualStart/UnusualStartBytes.cbh
+          test -s upstream/libcbh/gtest/UnusualStart/UnusualStart.pgn
+          sha256sum upstream/libcbh/gtest/Annotation/TestBase.cbh upstream/libcbh/gtest/Annotation/TestBaseExport.pgn upstream/libcbh/gtest/WithVariations/WithVariations.cbh upstream/libcbh/gtest/WithVariations/GamesWithVariations.pgn upstream/libcbh/gtest/UnusualStart/UnusualStartBytes.cbh upstream/libcbh/gtest/UnusualStart/UnusualStart.pgn
+      - name: Python 3.12 for canonical source
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+      - name: Inspect genuine complete multi-file ChessBase source and independent PGN oracles (source-only Section 37)
+        working-directory: product
+        env:
+          ACS_37_LIBCBH_ORIGINAL_SOURCE_ROOT: ${{ github.workspace }}/upstream/libcbh
+          ACCESSIBLE_CHESS_EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          python -m unittest -v tests.test_revised_section37_cbh_original_family_inventory
+          python -m tools.revised_section37_cbh_original_family_inventory
+      - name: Preserve safe source-only complete CBH companion and GPL receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: revised-section37-original-cbh-companions
+          path: product/revised-section37-original-cbh-companion-evidence.json
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Build pinned GPL decoder externally without packaging it
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S upstream/libcbh -B upstream/libcbh/build -DCMAKE_BUILD_TYPE=Release -DGTEST=OFF
+          cmake --build upstream/libcbh/build --config Release --parallel 2
+          mkdir -p product/build/libcbh
+          c++ -std=c++20 -O2 \
+            -DLIBCBH_SOURCE_COMMIT=\"$LIBCBH_COMMIT\" \
+            -I upstream/libcbh/include \
+            product/tools/optional/libcbh_json_bridge.cpp \
+            -L upstream/libcbh/build -lcbh \
+            -Wl,-rpath,'$ORIGIN' \
+            -o product/build/libcbh/libcbh-json-bridge
+          cp -a upstream/libcbh/build/libcbh.so* product/build/libcbh/
+          test -x product/build/libcbh/libcbh-json-bridge
+      - name: Execute real CBH annotations, nested RAV, NAG, ACSDB search, export and restart oracles
+        working-directory: product
+        env:
+          LIBCBH_BRIDGE: ${{ github.workspace }}/product/build/libcbh/libcbh-json-bridge
+          LIBCBH_ANNOTATION_DIR: ${{ github.workspace }}/upstream/libcbh/gtest/Annotation
+          LIBCBH_VARIATION_DIR: ${{ github.workspace }}/upstream/libcbh/gtest/WithVariations
+          LIBCBH_UNUSUAL_DIR: ${{ github.workspace }}/upstream/libcbh/gtest/UnusualStart
+        run: |
+          python -m py_compile tests/test_revised_section38_real_cbh_oracles.py
+          python -m unittest -v tests.test_revised_section38_real_cbh_oracles
+      - name: Existing canonical ChessBase decoder/integrity regressions
+        working-directory: product
+        run: >-
+          python -m unittest -v
+          tests.test_chessbase_decoder
+          tests.test_chessbase_integrity
+          tests.test_chessbase_libcbh_external_fixture
+
+      - name: Repeat genuine CBH annotation/NAG/RAV/ACSDB restart oracles and preserve SHA receipts
+        working-directory: product
+        env:
+          LIBCBH_BRIDGE: ${{ github.workspace }}/product/build/libcbh/libcbh-json-bridge
+          LIBCBH_ANNOTATION_DIR: ${{ github.workspace }}/upstream/libcbh/gtest/Annotation
+          LIBCBH_VARIATION_DIR: ${{ github.workspace }}/upstream/libcbh/gtest/WithVariations
+          LIBCBH_UNUSUAL_DIR: ${{ github.workspace }}/upstream/libcbh/gtest/UnusualStart
+          ACCESSIBLE_CHESS_EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          python -m py_compile tools/section39_real_cbh_oracle_receipt.py tests/test_section39_real_cbh_oracle_receipt.py
+          python -m unittest -v tests.test_section39_real_cbh_oracle_receipt
+          python -m tools.section39_real_cbh_oracle_receipt
+      - name: Preserve Section 39 genuine original eleven-component CBH family hashes
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: section39-genuine-cbh-real-oracle
+          path: product/section39-genuine-cbh-annotation-variation-semantic.json
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Erase GPL decoder binaries and source-only CBH fixtures
+        if: always()
+        shell: bash
+        run: |
+          rm -rf -- upstream/libcbh product/build/libcbh
+          test ! -e upstream/libcbh
+          test ! -e product/build/libcbh
+
+  original-books-test-only-provenance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact product source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          path: product
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Checkout original Staunton book
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: GITenberg/The-Blue-Book-of-Chess--13-Teaching-the-Rudiments-of-the-Game-and-Giving-an-Analysis-of-All-t__16377
+          path: upstream/blue
+          persist-credentials: false
+      - name: Checkout original Bird historical chess book
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: GITenberg/Chess-History-and-Reminiscences_4902
+          path: upstream/bird
+          persist-credentials: false
+      - name: Checkout original Fishburne chess positions
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: GITenberg/Checkmates-for-Three-Pieces_4542
+          path: upstream/checkmates
+          persist-credentials: false
+      - name: Checkout CC0 chess PDF source without publication
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: lordlinks/Chess_Fundamentals
+          path: upstream/pdf
+          persist-credentials: false
+      - name: Checkout author-attributed GPL chess Markdown source at exact historical commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: chastitywhiterose/Chastity-Chess-Chapters
+          ref: 69f3b151c8c6230ff1ebb252a24eb09a9e015f60
+          path: upstream/markdown
+          persist-credentials: false
+      - name: Assert exact product SHA and pinned original Git object identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C product rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(git -C upstream/blue rev-parse HEAD:16377.txt)" = "d946777f0eaee2b5f8f7a73afb9c1dd104eb4142"
+          test "$(git -C upstream/bird rev-parse HEAD:4902.txt)" = "fe18ddf36538952c95c62052b5d05464ca64abe7"
+          test "$(git -C upstream/checkmates rev-parse HEAD:4542.txt)" = "ab6af427f4de27d8e98c0cc25e025b1984cc60cb"
+          test "$(git -C upstream/pdf rev-parse HEAD:chess_fundamentals.pdf)" = "eab7c13bdd5a21a33fa2bef863781e4c40794c2c"
+          test "$(git -C upstream/pdf rev-parse HEAD:LICENSE)" = "0e259d42c996742e9e3cba14c677129b2c1b6311"
+          test "$(git -C upstream/markdown rev-parse HEAD)" = "69f3b151c8c6230ff1ebb252a24eb09a9e015f60"
+          test "$(git -C upstream/markdown rev-parse HEAD:book/ebook/ChastityChessChapters-ebook.md)" = "67839e7768b2df1e54ce7136f010f93883bdf170"
+          test "$(git -C upstream/markdown rev-parse HEAD:LICENSE)" = "f288702d2fa16d3cdf0035b15a9fcbc552cd88e7"
+          test "$(git -C upstream/markdown rev-parse HEAD:README.md)" = "1b729a364e62d58718b0fa5dde9f07c0ffe49242"
+          for directory in blue bird checkmates; do
+            test "$(git -C upstream/$directory rev-parse HEAD:LICENSE)" = "8d062dda262bcdc42d45b861bd796117feb6d0fe"
+          done
+      - name: Stage verified raw original Git objects into ephemeral test root
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p source-originals/blue source-originals/bird source-originals/checkmates source-originals/capablanca_pdf source-originals/chess_markdown
+          git -C upstream/blue show HEAD:16377.txt > source-originals/blue/16377.txt
+          git -C upstream/blue show HEAD:LICENSE > source-originals/blue/LICENSE
+          git -C upstream/bird show HEAD:4902.txt > source-originals/bird/4902.txt
+          git -C upstream/bird show HEAD:LICENSE > source-originals/bird/LICENSE
+          git -C upstream/checkmates show HEAD:4542.txt > source-originals/checkmates/4542.txt
+          git -C upstream/checkmates show HEAD:LICENSE > source-originals/checkmates/LICENSE
+          git -C upstream/pdf show HEAD:chess_fundamentals.pdf > source-originals/capablanca_pdf/chess_fundamentals.pdf
+          git -C upstream/pdf show HEAD:LICENSE > source-originals/capablanca_pdf/LICENSE
+          git -C upstream/markdown show HEAD:book/ebook/ChastityChessChapters-ebook.md > source-originals/chess_markdown/ChastityChessChapters-ebook.md
+          git -C upstream/markdown show HEAD:LICENSE > source-originals/chess_markdown/LICENSE
+          git -C upstream/markdown show HEAD:README.md > source-originals/chess_markdown/README.md
+      - name: Setup Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+      - name: Verify true external book and license bytes without redistribution
+        working-directory: product
+        env:
+          ACS_37_GITENBERG_ROOT: ${{ github.workspace }}/source-originals
+          ACCESSIBLE_CHESS_EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          python -m unittest -v tests.test_revised_section37_external_book_acquisition
+          python -m tools.revised_section37_external_book_acquisition
+      - name: Validate Section 39 real-book format regression and negative tests
+        working-directory: product
+        run: |
+          python -m py_compile tools/section39_external_book_semantic.py tests/test_section39_external_book_semantic.py
+          python -m unittest -v tests.test_section39_external_book_semantic
+      - name: Perform licensed original TXT and Markdown books semantic import and restart
+        working-directory: product
+        env:
+          ACS_37_GITENBERG_ROOT: ${{ github.workspace }}/source-originals
+          ACCESSIBLE_CHESS_EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: python -m tools.section39_external_book_semantic
+      - name: Preserve path-free source-only receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: revised-section37-original-book-evidence
+          path: |
+            product/revised-section37-original-books-readback.json
+            product/section39-original-books-semantic-evidence.json
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Erase every original book and license test copy
+        if: always()
+        shell: bash
+        run: |
+          rm -rf -- source-originals upstream
+          test ! -e source-originals
+          test ! -e upstream
+
+  original-epd-fen-licensed-sources:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact Accessible Chess candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          path: product
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Checkout original GPL-authored EPD/FEN corpus
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: fsmosca/epd2doc
+          path: upstream/epd2doc
+          persist-credentials: false
+      - name: Validate exact candidate and external immutable source object identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C product rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(git -C upstream/epd2doc rev-parse HEAD:7men_human.epd)" = "28b416e56d2aadf65681e9a0b81413bf05e19209"
+          test "$(git -C upstream/epd2doc rev-parse HEAD:opening.fen)" = "25044ea22bfc28b41ec46c5d23e090602a9ba662"
+          test "$(git -C upstream/epd2doc rev-parse HEAD:LICENSE)" = "f288702d2fa16d3cdf0035b15a9fcbc552cd88e7"
+      - name: Stage original EPD/FEN files and full GPL attribution only in temporary runner root
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p source-originals/epd2doc
+          git -C upstream/epd2doc show HEAD:7men_human.epd > source-originals/epd2doc/7men_human.epd
+          git -C upstream/epd2doc show HEAD:opening.fen > source-originals/epd2doc/opening.fen
+          git -C upstream/epd2doc show HEAD:LICENSE > source-originals/epd2doc/LICENSE
+      - name: Python 3.12 for canonical provenance implementation
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+      - name: Verify SHA256, exact bytes, 1110 authentic EPD puzzle records and four genuine FEN positions
+        working-directory: product
+        env:
+          ACS_37_EPD2DOC_ROOT: ${{ github.workspace }}/source-originals
+          ACCESSIBLE_CHESS_EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          python -m unittest -v tests.test_revised_section37_external_position_acquisition
+          python -m tools.revised_section37_external_position_acquisition
+      - name: Run current Section 39 EPD/FEN canonical format regression
+        working-directory: product
+        run: |
+          python -m py_compile tools/section39_external_position_semantic.py tests/test_section39_external_position_semantic.py
+          python -m unittest -v tests.test_section39_external_position_semantic
+      - name: Real original-source semantic reimport, exact source HEAD
+        working-directory: product
+        env:
+          ACS_37_EPD2DOC_ROOT: ${{ github.workspace }}/source-originals
+          ACCESSIBLE_CHESS_EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: python -m tools.section39_external_position_semantic
+      - name: Preserve source-only nonprivate exact-checkout puzzle provenance
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: revised-section37-authentic-epd-fen-source-evidence
+          path: |
+            product/revised-section37-original-epd-fen-source-evidence.json
+            product/section39-original-epd-fen-semantic-evidence.json
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Always destroy temporary source and external licensed corpus bytes
+        if: always()
+        shell: bash
+        run: |
+          rm -rf -- source-originals upstream
+          test ! -e source-originals
+          test ! -e upstream
+
+  original-cc0-gm-track-puzzles:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact Accessible Chess source candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          path: product
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Acquire original historical CC0 50k chess puzzles and full original games
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: mcognetta/lichess-combined-puzzle-game-db
+          path: upstream/licensed-puzzles
+          persist-credentials: false
+      - name: Pin source Git object and CC0 license independently before any decompression
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C product rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(git -C upstream/licensed-puzzles rev-parse HEAD:combined_puzzle_db_first_50k.ndjson.bz2)" = "c72d5988f2aa5caf634d90e130688b26525be33e"
+          test "$(git -C upstream/licensed-puzzles rev-parse HEAD:combined_puzzle_db_first_100.ndjson)" = "d7b86f83c1a355fa511420a36dbdc656a3cc6fef"
+          test "$(git -C upstream/licensed-puzzles rev-parse HEAD:LICENSE)" = "0e259d42c996742e9e3cba14c677129b2c1b6311"
+      - name: Install stable Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+      - name: Verify advanced-source filters, real sample subset and malformed puzzle cases
+        working-directory: product
+        run: |
+          python -m py_compile tools/revised_section37_advanced_puzzle_curator.py tests/test_revised_section37_advanced_puzzle_curator.py
+          python -m unittest -v tests.test_revised_section37_advanced_puzzle_curator
+      - name: Actually curate 50k original licensed puzzles into three advanced and GM-level bands
+        working-directory: product
+        env:
+          ACS_37_ADVANCED_CC0_SOURCE_ROOT: ${{ github.workspace }}/upstream/licensed-puzzles
+          ACCESSIBLE_CHESS_EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: python -m tools.revised_section37_advanced_puzzle_curator
+      - name: Preserve CC0 selected advanced source evidence, not full 50k original games
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: section37-advanced-tactics-2200-2600-3000-lichess-original
+          path: |
+            product/section37-high-level-puzzles-source-receipt.json
+            product/section37-high-level-puzzles-curated.json
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Remove all original 50k source/game bytes after selection
+        if: always()
+        shell: bash
+        run: |
+          rm -rf -- upstream/licensed-puzzles
+          test ! -e upstream/licensed-puzzles
+
+  section39-cross-job-evidence:
+    name: Section 39 exact-SHA original-file evidence join (NOT terminal DONE)
+    needs:
+      - source-and-presentation
+      - original-books-test-only-provenance
+      - original-epd-fen-licensed-sources
+      - real-cbh-gpl-upstream-readback
+      - original-gutenberg-epub-html-source-test-only
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Exact source checkout from pull request, not default branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Python 3.12 for canonical evidence join
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+      - name: Download real per-format source-and-presentation receipt
+        uses: actions/download-artifact@v4
+        with:
+          name: section39-real-format-qualification-ubuntu-24.04
+          path: section39-join-inputs/base
+      - name: Download original GPL EPD/FEN semantic file receipts
+        uses: actions/download-artifact@v4
+        with:
+          name: revised-section37-authentic-epd-fen-source-evidence
+          path: section39-join-inputs/positions
+      - name: Download original third-party books semantic file receipts
+        uses: actions/download-artifact@v4
+        with:
+          name: revised-section37-original-book-evidence
+          path: section39-join-inputs/books
+      - name: Download genuine 33-file CBH annotated/variation evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: section39-genuine-cbh-real-oracle
+          path: section39-join-inputs/cbh
+      - name: Download actual Project Gutenberg EPUB3 and HTML real-book readback
+        uses: actions/download-artifact@v4
+        with:
+          name: section39-original-gutenberg-epub3-html-license-restricted
+          path: section39-join-inputs/gutenberg
+      - name: Deny synthetic or stale cross-job original-file evidence
+        run: |
+          python -m py_compile tools/section39_ci_evidence_aggregate.py tests/test_section39_ci_evidence_aggregate.py
+          python -m unittest -v tests.test_section39_ci_evidence_aggregate
+      - name: Generate SHA-locked joined genuine-file format matrix
+        env:
+          ACCESSIBLE_CHESS_EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: >-
+          python -m tools.section39_ci_evidence_aggregate
+          --base section39-join-inputs/base/section39-real-format-qualification.json
+          --positions section39-join-inputs/positions/section39-original-epd-fen-semantic-evidence.json
+          --books section39-join-inputs/books/section39-original-books-semantic-evidence.json
+          --cbh section39-join-inputs/cbh/section39-genuine-cbh-annotation-variation-semantic.json
+          --advanced section39-join-inputs/base/section39-new-section37-annotated-pgn-qualification.json
+          --training section39-join-inputs/base/section39-new-section37-training-position-semantic-evidence.json
+          --gutenberg section39-join-inputs/gutenberg/section39-official-original-epub-html-observation.json
+          --chess960 section39-join-inputs/base/section39-stockfish-chess960-epd-qualification.json
+          --reti section39-join-inputs/base/section39-historic-reti-study-bilingual-source-readback.json
+          --docx section39-join-inputs/base/section39-original-chess-derived-docx-qualification.json
+          --workbook section39-join-inputs/base/section39-section37-bilingual-ten-native-books-qualification.json
+      - name: Preserve merged source IDs, actual SHA256, format outcomes and remaining gaps
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: section39-exact-SHA-real-format-matrix
+          path: section39-ci-joined-real-format-evidence.json
+          if-no-files-found: ignore
+          retention-days: 14
+
+  original-cc0-extreme-3000-puzzles:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact product code
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          path: product
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Checkout original frozen offline 24,595 Lichess CC0 source and attribution
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: FeXd/puzzle-chess
+          path: external-source
+          ref: cddfa24b1a5a9013b99622d6d5e7093a64b1d55a
+          persist-credentials: false
+      - name: Verify original source Git revision plus original unmodified CSV and license blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C product rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(git -C external-source rev-parse HEAD)" = "cddfa24b1a5a9013b99622d6d5e7093a64b1d55a"
+          test "$(git -C external-source hash-object puzzles/offline/puzzles.csv)" = "acb74625e5ebd0ae9b454779a371ac87091c8c0e"
+          test "$(git -C external-source hash-object LICENSE.md)" = "f288702d2fa16d3cdf0035b15a9fcbc552cd88e7"
+      - name: Python 3.12 for original CC0 source and literal extreme readback
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+      - name: Assert original extreme 3000-3166 rows against actual external source bytes
+        working-directory: product
+        env:
+          ACS_37_EXTREME_CC0_CHECKOUT: ${{ github.workspace }}/external-source
+          ACCESSIBLE_CHESS_EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          python -m unittest -v tests.test_revised_section37_extreme_3000_real_licensed
+          python -m tools.revised_section37_extreme_licensed_puzzles
+      - name: Preserve source only original 3000+ independent witness
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: section37-original-cc0-extreme-3000-3166
+          path: product/section37-extreme-3000-original-source-readback.json
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Always purge source GPL app and original licensed puzzles
+        if: always()
+        shell: bash
+        run: |
+          rm -rf -- external-source
+          test ! -e external-source
+
+  bilingual-uk-en-advanced-books:
+    name: Section37 bilingual UK/EN advanced 12-lesson five-format canonical import
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact candidate with real CC0 corpus
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Install stable Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+      - name: Validate original English and Ukrainian positions and importer/BookReader integration
+        shell: bash
+        run: |
+          python -m py_compile tools/revised_section37_bilingual_workbook_pack.py tests/test_revised_section37_bilingual_advanced_formats.py tests/test_revised_section37_bilingual_in_application.py tests/test_revised_section37_uk_en_reference_matrix.py tests/test_revised_section37_genuine_advanced_study_readback.py
+          python -m unittest -v tests.test_revised_section37_bilingual_advanced_formats
+          python -m unittest -v tests.test_revised_section37_bilingual_in_application tests.test_revised_section37_uk_en_reference_matrix tests.test_revised_section37_genuine_advanced_study_readback
+          python -m unittest -v tests.test_revised_section37_owner_readable_only
+          python -m unittest -v tests.test_revised_section38_real_advanced_source_crossroute
+      - name: Materialize actual five format bilingual user testing books
+        shell: bash
+        run: python -m tools.revised_section37_bilingual_workbook_pack --output-dir section37-bilingual-shareable-advanced-books --zip-output section37-advanced-uk-en-tested-corpus.zip
+      - name: Validate generated zip-based EPUB3 and DOCX are readable containers with actual contents
+        shell: bash
+        run: |
+          python -c 'from pathlib import Path; import zipfile; p=Path("section37-bilingual-shareable-advanced-books"); files=sorted(p.glob("section37-advanced-workbook-*.*")); assert len(files)==10, files; [(lambda z: z.testzip() is None or (_ for _ in ()).throw(ValueError("ZIP corrupt")))(zipfile.ZipFile(file)) for file in files if file.suffix in (".epub",".docx")]; print("Pack contains 10 valid real files")'
+      - name: Upload bilingual shareable advanced chess books after all canonical tests pass
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: section37-uk-en-advanced-tactics-positional-endgame-books-${{ matrix.os }}
+          path: |
+            section37-bilingual-shareable-advanced-books/
+            section37-advanced-uk-en-tested-corpus.zip
+          if-no-files-found: error
+          retention-days: 21
+
+  bilingual-uk-en-external-pdf-pack:
+    name: Section37 real bilingual Unicode PDFs (external PDF reader, not ACS PDF import)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact candidate and registered CC0 source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Install Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+      - name: Install pinned Unicode PDF author/extractor requirements
+        run: python -m pip install reportlab==4.2.5 pypdf==5.5.0
+      - name: Render English and Ukrainian real PDFs and extract all 12 FEN exercises
+        run: |
+          python -m py_compile tools/revised_section37_bilingual_pdf_pack.py tests/test_revised_section37_bilingual_pdf_pack.py
+          python -m unittest -v tests.test_revised_section37_bilingual_pdf_pack
+      - name: Produce genuine external-PDF-reader testing copies
+        run: python -m tools.revised_section37_bilingual_pdf_pack --output-dir section37-bilingual-advanced-PDF
+      - name: Preserve metadata receipt ONLY — native Accessible Chess cannot open PDFs
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: section37-uk-en-PDF-source-only-qualification-NOT-SHAREABLE
+          path: section37-bilingual-advanced-PDF/section37-bilingual-pdf-receipt.json
+          retention-days: 14
+          if-no-files-found: error
+
+  original-gutenberg-epub-html-source-test-only:
+    name: Section 39 genuine Gutenberg EPUB3 and HTML, rights restricted
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact original product source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Python 3.12 canonical Books readers
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+      - name: Original external-source HTTPS and malicious archive negative controls
+        run: |
+          python -m py_compile tools/section39_real_official_gutenberg_epub_html.py tests/test_section39_real_official_gutenberg_epub_html.py
+          python -m unittest -v tests.test_section39_real_official_gutenberg_epub_html
+      - name: Read original Gutenberg Capablanca EPUB3 and Lasker HTML ZIP without redistribution
+        env:
+          ACCESSIBLE_CHESS_EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: python -m tools.section39_real_official_gutenberg_epub_html
+      - name: Preserve only source URL, observed SHA256 and semantic readback not original book bytes
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: section39-original-gutenberg-epub3-html-license-restricted
+          path: section39-official-original-epub-html-observation.json
+          if-no-files-found: ignore
+          retention-days: 14

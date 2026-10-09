@@ -1744,6 +1744,225 @@ def _validate_required_runtime_resources(
             label="packaged Version 2 web resource",
         )
 
+    # The new first-party local UI stylesheet is loaded by the existing
+    # canonical WebView index.html. Earlier already-shipped package fixtures
+    # without that opt-in link remain valid, but any NEW candidate advertising
+    # the local design system must contain its exact same-volume offline
+    # assets, MIT notice and source manifest. It cannot silently fall back to
+    # an unstyled page or remote CDN after the release preflight says PASS.
+    web_index = root / "AccessibleChess" / "web" / "index.html"
+    index_bytes = _read_stable_bytes_file(
+        web_index,
+        label="packaged HTML theme entrypoint",
+        max_bytes=4 * 1024 * 1024,
+    )
+    design_link = b'<link rel="stylesheet" href="assets/accessible_chess_design.css">'
+    if b'assets/accessible_chess_design.css' in index_bytes:
+        if index_bytes.count(design_link) != 1:
+            _fail("packaged first-party local CSS is not linked exactly once")
+        for relative in (
+            "AccessibleChess/web/assets/accessible_chess_design.css",
+            "AccessibleChess/web/assets/tabler/chess-rook.svg",
+            "AccessibleChess/web/assets/tabler/adjustments.svg",
+            "AccessibleChess/web/assets/tabler/LICENSE",
+            "AccessibleChess/web/assets/tabler/SECTION41_PROVENANCE.json",
+        ):
+            _require_package_file(
+                root, inventory, relative,
+                label="packaged Section 41 offline MIT design resource",
+            )
+        # A rewritten checksum list cannot legitimize a remote CSS fetch in
+        # a product whose core operation promises complete offline access.
+        local_styles = _read_stable_bytes_file(
+            root / "AccessibleChess/web/assets/accessible_chess_design.css",
+            label="packaged Section 41 first-party theme CSS",
+            max_bytes=128 * 1024,
+        )
+        if not local_styles:
+            _fail("packaged Section 41 first-party CSS is empty")
+        lowered_styles = local_styles.lower().replace(b" ", b"")
+        if any(disallowed in lowered_styles for disallowed in (
+            b"@import", b"url(", b"expression(", b"javascript:",
+            b"http://", b"https://",
+        )):
+            _fail("packaged Section 41 offline CSS has an external or executable dependency")
+        for control in (
+            b'--ac41-bg:', b'--ac41-ink:',
+            b'data-ac-ui-theme="dark"', b'data-ac-ui-theme="contrast"',
+            b'@media(prefers-reduced-motion:reduce)',
+            b'@media(forced-colors:active)',
+        ):
+            if control not in lowered_styles:
+                _fail("packaged Section 41 mandatory accessible theme control is absent")
+        for file_name, git_blob_sha, size in (
+            ("chess-rook.svg", "accb4f7b7ea39eb1a023b6e2ad8589453fcdb305", 575),
+            ("adjustments.svg", "ef63f0fb0065937722a5ffd59cc5355b96b38045", 670),
+            ("LICENSE", "3e82379dab3fe93d9ee22251949604ed63ddea39", 1073),
+        ):
+            raw = _read_stable_bytes_file(
+                root / "AccessibleChess/web/assets/tabler" / file_name,
+                label=f"packaged original MIT Tabler Icons {file_name}",
+                max_bytes=16 * 1024,
+            )
+            if len(raw) != size:
+                _fail("packaged MIT Tabler Icons size differs from original")
+            pinned_blob = hashlib.sha1(
+                b"blob " + str(len(raw)).encode("ascii") + b"\0" + raw
+            ).hexdigest()
+            if pinned_blob != git_blob_sha:
+                _fail("packaged MIT Tabler Icons bytes differ from pinned originals")
+        icons_receipt_raw = _read_stable_bytes_file(
+            root / "AccessibleChess/web/assets/tabler/SECTION41_PROVENANCE.json",
+            label="packaged Tabler Icons MIT source record",
+            max_bytes=16 * 1024,
+        )
+        try:
+            icons_record = json.loads(icons_receipt_raw)
+        except (UnicodeError, json.JSONDecodeError) as exc:
+            _fail(f"packaged Tabler Icons provenance malformed: {type(exc).__name__}")
+        if (type(icons_record) is not dict
+            or type(icons_record.get("release_pinning")) is not dict
+            or type(icons_record["release_pinning"].get("tabler_icons")) is not dict):
+            _fail("packaged Tabler Icons provenance root is invalid")
+        source_identity = icons_record["release_pinning"]["tabler_icons"]
+        if (source_identity.get("release_tag") != "v3.49.0"
+            or source_identity.get("commit_sha") !=
+                "bbed884d15354b5cebf2493371f20dc2d5e83eaf"
+            or source_identity.get("license") != "MIT"):
+            _fail("packaged Tabler Icons source identity changed")
+
+    # A reviewed Tabler Core *component* is bundled as dependency-free CSS,
+    # rather than loading unknown Tabler/npm/Bootstrap dist files. Its original
+    # MIT notice and exact-source receipt must match the pinned upstream even
+    # if a malicious package writer also rewrites SHA256SUMS.txt.
+    core_link = b'<link rel="stylesheet" href="assets/tabler-core/accessibility.css">'
+    if b'assets/tabler-core/accessibility.css' in index_bytes:
+        if index_bytes.count(core_link) != 1:
+            _fail("packaged MIT Tabler Core local CSS is not linked exactly once")
+        core_base = root / "AccessibleChess" / "web" / "assets" / "tabler-core"
+        for filename in ("accessibility.css", "LICENSE", "SECTION41_CORE_PROVENANCE.json"):
+            _require_package_file(
+                root, inventory,
+                f"AccessibleChess/web/assets/tabler-core/{filename}",
+                label="packaged Section 41 pinned Tabler Core MIT component",
+            )
+        core_manifest_bytes = _read_stable_bytes_file(
+            core_base / "SECTION41_CORE_PROVENANCE.json",
+            label="packaged Tabler Core license and source record",
+            max_bytes=16 * 1024,
+        )
+        try:
+            core_record = json.loads(core_manifest_bytes)
+        except (UnicodeError, json.JSONDecodeError) as exc:
+            _fail(f"packaged Tabler Core provenance malformed: {type(exc).__name__}")
+        if (type(core_record) is not dict
+            or core_record.get("release_tag") != "@tabler/core@1.6.1"
+            or core_record.get("source_commit") != "ec33733290bd0f314ca19f6be58bc69a6ab3e4fa"
+            or core_record.get("source_git_blob") != "047720ee79039e213612cfbadd6af357534a7735"
+            or core_record.get("original_license_git_blob") != "aa69649cde83c2d6517ec2498a9c10f5bb3bf54c"
+            or core_record.get("compiled_css_git_blob") != "0fe8f69f90411731513c9926827fb609bf51b267"
+            or core_record.get("upstream_license") != "MIT"):
+            _fail("packaged Section 41 Tabler Core provenance differs from pinned source")
+        for name, expected_blob, max_size in (
+            ("accessibility.css", "0fe8f69f90411731513c9926827fb609bf51b267", 64 * 1024),
+            ("LICENSE", "aa69649cde83c2d6517ec2498a9c10f5bb3bf54c", 16 * 1024),
+        ):
+            content = _read_stable_bytes_file(
+                core_base / name,
+                label=f"packaged Tabler Core {name}",
+                max_bytes=max_size,
+            )
+            fingerprint = hashlib.sha1(
+                b"blob " + str(len(content)).encode("ascii") + b"\0" + content
+            ).hexdigest()
+            if fingerprint != expected_blob:
+                _fail(f"packaged Section 41 {name} differs from pinned MIT component")
+
+
+    # Advertised original CC0 art must be present in the packaged EXE.
+    # The source git-blob checks are independent of package-authored hashes.
+    if b'value="rhosgfx"' in index_bytes:
+        pack_root = root / "AccessibleChess" / "web" / "assets" / "pieces" / "rhosgfx"
+        for name in ("SECTION42_PROVENANCE.json", "SOURCE_COPYING.md"):
+            _require_package_file(root, inventory,
+                f"AccessibleChess/web/assets/pieces/rhosgfx/{name}",
+                label="packaged Section 42 CC0 rights evidence")
+        try:
+            pack = json.loads(_read_stable_bytes_file(
+                pack_root / "SECTION42_PROVENANCE.json",
+                label="pinned Section 42 CC0 manifest", max_bytes=32 * 1024))
+        except (UnicodeError, json.JSONDecodeError) as exc:
+            _fail(f"Section 42 CC0 manifest malformed: {type(exc).__name__}")
+        if (type(pack) is not dict
+            or pack.get("schema") != "accessible-chess-section42-cc0-piece-pack-v1"
+            or pack.get("id") != "rhosgfx"
+            or pack.get("upstream_commit") != "f5b261e3d8ece6f511484e398cb8d81e37735bea"
+            or pack.get("original_copying_git_blob_sha1") != "def9deca8bceae28cf83d2074a3b09534ae88f6f"
+            or pack.get("license") != "CC0-1.0"
+            or type(pack.get("assets")) is not list
+            or len(pack["assets"]) != 12):
+            _fail("unqualified Section 42 source or rights")
+        def piece_git_blob(data: bytes) -> str:
+            return hashlib.sha1(b"blob " + str(len(data)).encode("ascii")
+                + bytes([0]) + data).hexdigest()
+        copyright_bytes = _read_stable_bytes_file(
+            pack_root / "SOURCE_COPYING.md",
+            label="pinned upstream Lichess COPYING", max_bytes=32 * 1024)
+        if (piece_git_blob(copyright_bytes) != "def9deca8bceae28cf83d2074a3b09534ae88f6f"
+            or b"public/piece/rhosgfx" not in copyright_bytes
+            or b"CC0 1.0" not in copyright_bytes):
+            _fail("Section 42 source license evidence corrupted")
+        expected = {"wK.svg", "wQ.svg", "wR.svg", "wB.svg", "wN.svg", "wP.svg",
+                    "bK.svg", "bQ.svg", "bR.svg", "bB.svg", "bN.svg", "bP.svg"}
+        pinned_originals = {"wK.svg": "a21a5ebbf3fb4923abfd4cbd2e27a1b7e65e6ea2",
+            "wQ.svg": "c0af0ab868e5532eb6e471b300be14a4ea695af2",
+            "wR.svg": "ba3d4e319796699e2ff2aacc7b1a8639a7771edd",
+            "wB.svg": "16fc2ea40277d52a6cd0ab36e292834671283406",
+            "wN.svg": "9650e7496606543f9f9ceca488c89af26f33b5e5",
+            "wP.svg": "ceb32e2aa286bac4aa5581aa230d87088d9c0cdf",
+            "bK.svg": "a726621988e47742852743ecc3c0d75a6f2ad80e",
+            "bQ.svg": "cb352ffd1a3741bf72254ef39a9baa1571f622b2",
+            "bR.svg": "5ce91a9f86301141aba7a540c4356a2138410208",
+            "bB.svg": "b2aeb13166399342d5fba9f38d773f7bf6b43301",
+            "bN.svg": "0bf9be862a0a65241aaa5afc0aae5a5a38b55e54",
+            "bP.svg": "e97fce610f9e2dc35c14061e6e28d4a1f1da005d"}
+        observed = set()
+        for asset in pack["assets"]:
+            if (type(asset) is not dict
+                or set(asset) != {"file", "upstream_path", "git_blob_sha1", "bytes"}
+                or asset.get("file") not in expected
+                or asset.get("file") in observed
+                or asset.get("upstream_path") != "public/piece/rhosgfx/" + asset["file"]
+                or type(asset.get("bytes")) is not int
+                or not 100 <= asset["bytes"] <= 128 * 1024
+                or asset.get("git_blob_sha1") != pinned_originals[asset["file"]]
+                or type(asset.get("git_blob_sha1")) is not str
+                or len(asset["git_blob_sha1"]) != 40):
+                _fail("Section 42 artwork source mismatch or duplicate")
+            observed.add(asset["file"])
+            relative = "AccessibleChess/web/assets/pieces/rhosgfx/" + asset["file"]
+            _require_package_file(root, inventory, relative,
+                label="packaged Section 42 original CC0 chess artwork")
+            art = _read_stable_bytes_file(pack_root / asset["file"],
+                label="pinned Section 42 original SVG", max_bytes=128 * 1024)
+            if (len(art) != asset["bytes"]
+                or piece_git_blob(art) != asset["git_blob_sha1"]
+                or b"<svg" not in art
+                or b"<script" in art.lower()
+                or b"<foreignobject" in art.lower()):
+                _fail("Section 42 packaged original CC0 artwork altered")
+        if observed != expected:
+            _fail("Section 42 CC0 pack incomplete")
+
+    # One offline visual annotation implementation is shared by Web and
+    # Windows WebView. Missing script must reject advertised package release.
+    if b'board_overlay_renderer.js' in index_bytes:
+        _require_package_file(
+            root, inventory,
+            "AccessibleChess/web/board_overlay_renderer.js",
+            label="packaged Section 42 shared offline annotation projector",
+        )
+
     stockfish = _require_package_file(
         root,
         inventory,

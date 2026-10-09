@@ -2,3 +2,20 @@
 # These files are verified by Git blob SHA in the cross-platform saturation contract.
 acs/stage1_release_ui_core.py -text
 acs/webapp_keymap_core.py -text
+# Section 37 exact upstream Git object verification must survive Windows checkout.
+tests/real_corpus/lichess_openings_a.tsv -text
+tests/real_corpus/lichess_openings_b.tsv -text
+tests/real_corpus/lichess_openings_c.tsv -text
+tests/real_corpus/lichess_openings_d.tsv -text
+tests/real_corpus/lichess_openings_e.tsv -text
+tests/real_corpus/lichess_openings_COPYING.txt -text
+tests/real_corpus/books/gitenberg_capablanca_33870.txt -text
+tests/real_corpus/stockfish/LICENSE -text
+tests/real_corpus/stockfish/*.zip -text
+# Original Section 37 bilingual Chess/Study assets are byte-pinned and
+# used as byte-identical QA/product publication inputs on Windows and Linux.
+tests/real_corpus/advanced_training/*.json -text
+tests/real_corpus/advanced_training/*.pgn -text
+tests/real_corpus/advanced_training/*.md -text
+# Section 42 original Lichess Git objects: preserve UTF-8 bytes (including COPYING) on Windows.
+web/assets/pieces/rhosgfx/** -text

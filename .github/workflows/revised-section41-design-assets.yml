@@ -1,0 +1,75 @@
+name: Revised Section 41 Local Design and MIT Asset Qualification
+on:
+  pull_request:
+    branches:
+      - converge/current-shipping-recovery-hardening-v2-20261006-c2mbezb
+    paths:
+      - 'web/index.html'
+      - 'web/accessible_chess_web.html'
+      - 'web/section41_components.html'
+      - 'web/assets/accessible_chess_design.css'
+      - 'web/assets/tabler/**'
+      - 'web/assets/tabler-core/**'
+      - 'docs/third_party/tabler-core-1.6.1-accessibility.scss'
+      - 'tools/revised_section41_mit_asset_qualification.py'
+      - 'tests/js/section41_semantic_component_dom_test.js'
+      - 'tests/js/section41_production_theme_bridge_dom_test.js'
+      - 'tests/test_revised_section41_design_system.py'
+      - 'tests/test_revised_section41_tabler_core.py'
+      - 'tests/test_revised_sections41_42_design.py'
+      - 'acs/spdx_sbom.py'
+      - 'acs/version2_package_preflight.py'
+      - 'tests/test_version2_package_preflight.py'
+      - '.github/workflows/revised-section41-design-assets.yml'
+  workflow_dispatch: {}
+concurrency:
+  group: ${{ github.workflow }}-pr-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+jobs:
+  exact-ui-assets:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+      - name: Exact source tree, not stale main
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+      - name: Compile and run real asset, accessibility, design regression
+        run: |
+          python -m py_compile tools/revised_section41_mit_asset_qualification.py tests/test_revised_section41_design_system.py tests/test_revised_section41_tabler_core.py
+          python -m unittest -v tests.test_revised_section41_design_system tests.test_revised_section41_tabler_core tests.test_revised_sections41_42_design tests.test_v2_package_required_resources
+      - name: Execute semantic component focus and theme DOM tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check tests/js/section41_semantic_component_dom_test.js
+          node tests/js/section41_semantic_component_dom_test.js
+          node --check tests/js/section41_production_theme_bridge_dom_test.js
+          node tests/js/section41_production_theme_bridge_dom_test.js
+      - name: Create precise source-only MIT asset SPDX 2.3 and actual bytes receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m tools.revised_section41_mit_asset_qualification --head "$(git rev-parse HEAD)" --output artifacts/section41-icons
+      - name: Publish CI evidence but NOT final Section 41 DONE
+        uses: actions/upload-artifact@v4
+        with:
+          name: section41-real-local-mit-design-${{ matrix.os }}
+          path: artifacts/section41-icons/*.json
+          retention-days: 14
+          if-no-files-found: error

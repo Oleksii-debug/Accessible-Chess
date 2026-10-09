@@ -18,6 +18,25 @@ _MAX_EVENTS = 32
 _JSON_TYPE = b"application/json; charset=utf-8"
 _HTML_TYPE = b"text/html; charset=utf-8"
 _JS_TYPE = b"text/javascript; charset=utf-8"
+_CSS_TYPE = b"text/css; charset=utf-8"
+_SVG_TYPE = b"image/svg+xml"
+_ASSET_LIMIT = 512 * 1024
+
+# Exact, source-pinned public surface. No user-controlled filesystem paths.
+_LOCAL_VISUAL_ASSETS: dict[str, tuple[str, bytes]] = {
+    "/assets/accessible_chess_design.css": ("assets/accessible_chess_design.css", _CSS_TYPE),
+    "/assets/tabler-core/accessibility.css": ("assets/tabler-core/accessibility.css", _CSS_TYPE),
+    "/assets/tabler/chess-rook.svg": ("assets/tabler/chess-rook.svg", _SVG_TYPE),
+    "/assets/tabler/adjustments.svg": ("assets/tabler/adjustments.svg", _SVG_TYPE),
+    "/assets/board_overlay_renderer.js": ("board_overlay_renderer.js", _JS_TYPE),
+}
+for _color in ("w", "b"):
+    for _piece in ("K", "Q", "R", "B", "N", "P"):
+        _filename = f"{_color}{_piece}.svg"
+        _LOCAL_VISUAL_ASSETS[f"/assets/pieces/rhosgfx/{_filename}"] = (
+            f"assets/pieces/rhosgfx/{_filename}", _SVG_TYPE)
+        # The selector is not a route glob: only these twelve literal files exist.
+
 _NO_STORE = (b"cache-control", b"no-store")
 _NOSNIFF = (b"x-content-type-options", b"nosniff")
 _REFERRER = (b"referrer-policy", b"no-referrer")
@@ -33,6 +52,22 @@ class WebClientHttpError(ValueError):
 def _asset_bytes(name: str) -> bytes:
     root = Path(__file__).resolve().parent.parent / "web"
     return (root / name).read_bytes()
+
+
+def _local_visual_asset(name: str) -> bytes:
+    root = Path(__file__).resolve().parent.parent / "web"
+    target = root / name
+    # All names originate from _LOCAL_VISUAL_ASSETS, never from URL input.
+    if (target.is_symlink()
+        or any(p.is_symlink() for p in target.parents if p != root and root in p.parents)):
+        raise WebClientHttpError(503, "Local visual asset unavailable.")
+    try:
+        data = target.read_bytes()
+    except OSError as exc:
+        raise WebClientHttpError(503, "Local visual asset unavailable.") from exc
+    if len(data) == 0 or len(data) > _ASSET_LIMIT:
+        raise WebClientHttpError(503, "Local visual asset invalid.")
+    return data
 
 
 def _trusted_principal(scope: Mapping[str, object]) -> WebPrincipal:
@@ -176,6 +211,11 @@ class AccessibleChessWebAsgi:
             if method == "GET" and path == "/assets/accessible_chess_web.js":
                 _trusted_principal(scope)
                 await _respond(send, 200, self._javascript, _JS_TYPE)
+                return
+            if method == "GET" and type(path) is str and path in _LOCAL_VISUAL_ASSETS:
+                _trusted_principal(scope)
+                local_name, content_type = _LOCAL_VISUAL_ASSETS[path]
+                await _respond(send, 200, _local_visual_asset(local_name), content_type)
                 return
             if method == "GET" and path == "/v1/snapshot":
                 principal = _trusted_principal(scope)
