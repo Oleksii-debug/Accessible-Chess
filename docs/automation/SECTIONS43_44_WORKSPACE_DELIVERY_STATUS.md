@@ -97,3 +97,40 @@ Created genuine two-parent merge commit `e77a5abf8a2d5397bebf6664326f52cd5f961c7
 Merge readback: PR #2499 remained open on its existing canonical integration lineage. Both inline Stage1 scripts passed V8 syntax parsing; 12-panel Section43 Workspace function was then actually executed in a V8 DOM fixture. Checked panel-fold focus retention, saved-state restoration in the English-language workspace, and reset to expanded/default layout. All assertions passed. The worker's original `tests/js/sections43_44_workspace_contract_test.js` and Python native Settings tests remain part of this same PR, without duplicate authority.
 
 **Do not mistake this for terminal Section43 or 44 DONE.** Newer upstream worker commits may advance the #2494 base; confirm mergeability and exact-source readback at the final merge. Required unverified evidence: real Windows executable workspace route and UIA/NVDA keyboard recovery, DPI/zoom/screenshot baselines, complete module journeys, exact-head CI, and final owner acceptance. This note records real *integration progress* only.
+
+## Section 43 focused correction — 2026-10-09 (not terminal)
+
+On the existing PR #2499 feature branch, the Section43 workspace now retains
+its collapsed visibility contract even when chess/status/service code repaints
+or inserts new direct section children *after* the user collapsed a panel.
+The new scoped CSS selector in `web/assets/accessible_chess_design.css` hides
+all non-heading immediate content in a collapsed section by actual CSS
+`display:none!important`, while the preexisting JavaScript preserves the
+previously hidden/visible content state on expansion. The browser layout-only
+state, keyboard buttons, native WinForms menu and canonical chess state remain
+unchanged. A DOM regression in
+`tests/js/sections43_44_workspace_contract_test.js` creates a late service
+child, asserts the collapsed-state and stylesheet boundary, and verifies
+re-expansion. This is a *source-level guard*, not an executed browser/UIA pass.
+
+The Section43/44 Actions pipeline now executes native Settings restart/stale-
+writer/negative tests and retained Web keyboard tests **before** the multi-
+module DOM suite. That preserves visibility of Section43 qualification even
+when a different module fails. It does not suppress or waive the latter
+failures, and the workflow still fails if any required step fails.
+
+Last observed previous exact-head run `37846980929` at head
+`a7927d433cd5c95559177434d624c7b0352f10a4` failed on both Ubuntu and
+Windows in the retained Library DOM test with `date search did not dispatch`;
+its Section43 inline workspace test had passed 9 groups before that failure,
+but native/Web steps were skipped. The current feature head at this update
+`a1dc4eb90018938bddaff511bb28514bbd616e08` has a new queued run
+`37994486680`, not yet an executed PASS. Follow-up head changes must be
+read back again. As of this record, upstream #2494 and #2499 are diverged,
+so the feature cannot be honestly represented as integrated/merged shipping.
+
+**Section 43 acceptance status:** 43.1–43.3 implemented slices; 43.4–43.6
+open/partial. **TERMINAL_DONE=NO; CI_VERIFIED_ON_LATEST_SHA=NO;
+WINDOWS_UIA_VERIFIED=NO; DPI_ZOOM_SCREENSHOT_VERIFIED=NO;
+HUMAN_NVDA_VERIFIED=NO.** Do not write `DONE` into the canonical plan without
+real evidence for every section gate and source integration.
