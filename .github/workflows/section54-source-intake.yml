@@ -14,6 +14,8 @@ on:
       - 'tests/test_section54_factory_policy.py'
       - 'tests/test_section54_factory_queue.py'
       - 'tests/test_section54_factory_export.py'
+      - 'web/format_factory_policy_form.js'
+      - 'tests/js/format_factory_policy_form_test.js'
       - '.github/workflows/section54-source-intake.yml'
   pull_request:
     paths:
@@ -27,6 +29,8 @@ on:
       - 'tests/test_section54_factory_policy.py'
       - 'tests/test_section54_factory_queue.py'
       - 'tests/test_section54_factory_export.py'
+      - 'web/format_factory_policy_form.js'
+      - 'tests/js/format_factory_policy_form_test.js'
       - '.github/workflows/section54-source-intake.yml'
   workflow_dispatch:
 jobs:
@@ -50,3 +54,5 @@ jobs:
         run: python -m py_compile acs/format_factory_intake.py acs/format_factory_tokens.py acs/format_factory_policy.py acs/format_factory_queue.py acs/format_factory_export.py tests/test_section54_source_intake.py tests/test_section54_factory_tokens.py tests/test_section54_factory_policy.py tests/test_section54_factory_queue.py tests/test_section54_factory_export.py
       - name: Execute Section 54 unit and negative tests
         run: python -m unittest discover -s tests -p 'test_section54_*.py' -v
+      - name: Check and execute accessible policy form DOM tests
+        run: node tests/js/format_factory_policy_form_test.js
