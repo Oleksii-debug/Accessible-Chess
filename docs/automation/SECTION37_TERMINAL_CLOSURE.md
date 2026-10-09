@@ -1,12 +1,20 @@
-# Section 37 terminal closure candidate
+# Section 37 terminal closure
 
-Date: 2026-10-09  
-Canonical finisher: PR #2512, `integrate/section37-preserve-tested-corpus-sources-20261009`  
-Qualified implementation candidate: `3e2f816a3a47c7532c246af6e5d585030e587392`
+Date: 2026-10-09
+
+Status: `DONE — TERMINAL`
+
+Canonical finisher: PR #2512, `integrate/section37-preserve-tested-corpus-sources-20261009`
+
+Hosted candidate: `0feef7013c480e136b5e2fefea9792cec51fa42e`
+
+Integrated main: `b415da00fb35644bc5d0735b771496fbf5f31c2a`
+
+Exact candidate/integration tree: `94a3888c94fde8a72d7834fc100ad8b913f19d99`
 
 ## Acceptance result
 
-Sections 37.1–37.6 are repository-complete on the candidate. The terminal gate is
+Sections 37.1–37.6 are repository-complete and integrated. The terminal gate is
 `tools/section37_closure_gate.py`; its deterministic receipt is
 `docs/corpus/SECTION37_TERMINAL_CLOSURE_EVIDENCE.json`.
 
@@ -31,7 +39,9 @@ Sections 37.1–37.6 are repository-complete on the candidate. The terminal gate
 
 ## Executed qualification
 
-On candidate `3e2f816a3a47c7532c246af6e5d585030e587392`:
+On the local candidate whose tree is byte-identical to hosted candidate
+`0feef7013c480e136b5e2fefea9792cec51fa42e` and integrated main
+`b415da00fb35644bc5d0735b771496fbf5f31c2a`:
 
 - Section 37 authenticity, rights, negative, archive, recovery and readback suite:
   **56/56 PASS**, zero skips, using three independently checked-out pinned
@@ -40,6 +50,11 @@ On candidate `3e2f816a3a47c7532c246af6e5d585030e587392`:
   receipt byte-for-byte.
 - `python -m acs.selftest`: **PASS**.
 - JSON validation, Python compilation and `git diff --check`: **PASS**.
+
+Post-merge readback proves the candidate and main tree SHAs are identical and
+candidate→integration has zero file delta. Exact-head hosted runs `37990624695`
+and `37990624769` remained queued/unexecuted and are not called green; the closure
+uses the sufficient available exact-tree evidence allowed by Simplified Closure v3.
 
 An adjacent 138-test diagnostic was also executed. Eight failures reproduced
 identically on untouched `origin/main`: five cancellation-harness failures caused
