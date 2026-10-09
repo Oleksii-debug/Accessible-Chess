@@ -9,10 +9,12 @@ Workers, Codex Cloud and Work must not rely on stale prompt text as the current 
 ## Coordination hierarchy
 
 1. Global coordinator master: cross-project priorities for Nika Core, 12-6 AI, Accessible Chess and future projects.
-2. Project-local plan: `coordination/AUTONOMOUS_ROUTING.md` — current Accessible Chess priority, completed work, do-not-repeat items, active temporary ownership and next unowned packages.
+2. Project-local current Section scope: the canonical Google Drive plan for Sections **0–53**, mirrored in root [`CURRENT_SECTION_INDEX_0_53.md`](../CURRENT_SECTION_INDEX_0_53.md); live accepted statuses in `SEQUENTIAL_CLOSURE_STATE.md`. `coordination/AUTONOMOUS_ROUTING.md` is archived evidence, not a current plan or numbered Section authority.
 3. Worker execution: each run takes only current useful work and leaves durable evidence.
 
 ## Current activation
+
+**CURRENT WORKER RULE:** Only the fixed current Sections 0–53 are selectable. One actionable parent Section per launch, as controlled by root `AGENTS.md` and `SECTION_CLOSURE_IMMUTABILITY.md`. Preserve earlier completed code; do not use historical numbering or reconstruct another Section scope from this archived coordination snapshot. The execution-mode description below records a prior coordination configuration and is not an authorization to deviate from current owner policy.
 
 Accessible Chess was explicitly reactivated by Oleksii on 2026-09-07. The active operating mode is five productive hourly workers using one shared live routing plan. This replaces the previous low-frequency/paused posture while the owner keeps this project active.
 
