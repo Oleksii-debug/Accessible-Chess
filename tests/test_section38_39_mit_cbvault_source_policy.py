@@ -139,7 +139,8 @@ class MITCbvaultNoFalsePassTests(unittest.TestCase):
                 self.assertIsNot(kwargs["stderr"], m.subprocess.PIPE)
                 self.assertIs(kwargs["shell"], False)
                 self.assertEqual(tuple(args[:3]), (str(binary), "pgn", str(source)))
-                self.assertEqual(len(args), 4, "cbvault requires an explicit PGN output path")
+                self.assertEqual(len(args), 5, "cbvault requires output path and structured report flag")
+                self.assertEqual(args[4], "--json")
                 self.assertEqual(Path(args[3]).suffix, ".pgn")
                 observed.append(tuple(args))
                 child = MagicMock()
@@ -182,6 +183,23 @@ class MITCbvaultNoFalsePassTests(unittest.TestCase):
 
             with patch.object(m.subprocess, "Popen", side_effect=stderr_bomb):
                 with self.assertRaisesRegex(LawfulCorpusError, "bounded complete PGN"):
+                    m._run_external_pgn(binary, source)
+
+            def genuine_decoder_failed(args, **kwargs):
+                Path(args[3]).write_bytes(exact)
+                kwargs["stderr"].write(
+                    b'{"records":3,"games":2,"failures":1}\\n'
+                )
+                kwargs["stderr"].flush()
+                child = complete_child(args, **kwargs)
+                child.returncode = 1
+                return child
+
+            with patch.object(m.subprocess, "Popen", side_effect=genuine_decoder_failed):
+                with self.assertRaisesRegex(
+                    LawfulCorpusError,
+                    r"export failed closed \\(exit=1; records=3, games=2, failures=1\\)",
+                ):
                     m._run_external_pgn(binary, source)
 
             def directory_attack(args, **kwargs):
