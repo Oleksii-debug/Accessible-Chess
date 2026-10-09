@@ -100,6 +100,24 @@ class TestSection55LocalBatch(unittest.TestCase):
                 with self.assertRaises(BrailleFactoryError):
                     process_batch(manifest, root, max_per_run=1)
 
+    def test_forged_journal_completion_is_rejected_without_overwrite(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest = setup_queue(root, count=1)
+            with patch.dict("sys.modules", {"louis": FakeLouis("louis")}):
+                self.assertEqual(process_batch(manifest, root, max_per_run=1), (1, 0))
+            journal_path = root / ".section55-batch-journal.json"
+            journal = json.loads(journal_path.read_text(encoding="utf-8"))
+            journal["completed"]["foreign"] = {
+                "source_sha256": "a" * 64,
+                "pef_sha256": "b" * 64,
+                "brf_sha256": None,
+            }
+            journal_path.write_text(json.dumps(journal), encoding="utf-8")
+            with self.assertRaises(BrailleFactoryError):
+                process_batch(manifest, root, max_per_run=1)
+            self.assertFalse((root / ".section55-batch.lock").exists())
+
     def test_stale_lock_requires_review_and_preserves_other_worker_lock(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
