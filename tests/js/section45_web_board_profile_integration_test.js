@@ -126,4 +126,40 @@ assert.equal(boardGrid.dataset.theme,"classic");
 assert.equal(boardGrid.dataset.pieceTheme,"unicode");
 assert.equal(boardGrid.children[0].dataset.square,"a8");
 assert.equal(JSON.stringify(snapshot),before);
-console.log("section45_web_board_profile_integration_test: PASS; actual Web renderer, board/64 labels, font theme, orientation, SVG, focus, keyboard, rejected poisoned values, unchanged canonical chess state");
+// Exercise the actual Web board render path across the six design presets,
+// four interface themes, three piece sets, six board sizes, both orientations,
+// densities and layouts (6*4*3*6*2*2*2 = 3456). Presentation-only fields that
+// belong to the studio's page layout remain inert to the chess board renderer.
+const presetBoards=[
+  "classic","tournament_blue","classic","classic","high_contrast","high_contrast"
+];
+let matrixCount=0;
+for(const board_theme of presetBoards)
+ for(const theme of ["system","light","dark","contrast"])
+  for(const piece_theme of ["unicode","letters","rhosgfx"])
+   for(const board_scale of [75,100,125,150,175,200])
+    for(const orientation of ["white","black"])
+     for(const density of ["comfortable","compact"])
+      for(const layout of ["auto","single"]){
+       window.accessibleChessDesignPreferences={
+         theme,board_theme,piece_theme,font_percent:board_scale,board_scale,
+         density,layout,coordinates:"every_square",orientation,
+         highlight:true,animations:false,sound:true
+       };
+       sandbox.productionRenderBoard(snapshot);
+       assert.equal(boardGrid.children.length,64);
+       assert.equal(boardGrid.dataset.theme,board_theme);
+       assert.equal(boardGrid.dataset.pieceTheme,piece_theme);
+       assert.equal(boardGrid.children[0].dataset.square,
+                    orientation==="white"?"a8":"h1");
+       assert.equal(boardGrid.children[0].getAttribute("aria-label"),
+                    "Canonical square "+(orientation==="white"?"a8":"h1"));
+       assert.equal(boardGrid.style.maxWidth,String(52*board_scale/100)+"rem");
+       assert.equal(boardGrid.children[0].children.length,2,
+                    "all-squares coordinates remain decorative");
+       matrixCount++;
+      }
+assert.equal(matrixCount,3456);
+assert.equal(JSON.stringify(snapshot),before,
+             "3,456 real renderer scenarios must not mutate canonical chess data");
+console.log("section45_web_board_profile_integration_test: PASS; 3456 rendered combinations, actual Web renderer, board/64 labels, font theme, orientation, SVG, focus, keyboard, rejected poisoned values, unchanged canonical chess state");
