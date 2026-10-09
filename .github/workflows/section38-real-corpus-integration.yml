@@ -11,6 +11,8 @@ on:
       - 'tools/section38_real_corpus_integration.py'
       - 'tests/test_book_library_import_journey.py'
       - 'tests/test_section38_source_bound_readback.py'
+      - 'tests/test_section38_bounded_zip_member.py'
+      - 'tools/section38_bounded_zip_member.py'
       - 'tests/test_revised_section38_stockfish_real_library.py'
       - 'tests/test_revised_section38_official_openings_library.py'
       - 'tests/test_revised_section38_owner_seed.py'
@@ -28,6 +30,8 @@ on:
       - 'tools/section38_real_corpus_integration.py'
       - 'tests/test_book_library_import_journey.py'
       - 'tests/test_section38_source_bound_readback.py'
+      - 'tests/test_section38_bounded_zip_member.py'
+      - 'tools/section38_bounded_zip_member.py'
       - 'tests/test_revised_section38_stockfish_real_library.py'
       - 'tests/test_revised_section38_official_openings_library.py'
       - 'tests/test_revised_section38_owner_seed.py'
@@ -59,10 +63,10 @@ jobs:
           mkdir -p "$RUNNER_TEMP/section38/chessit" "$RUNNER_TEMP/section38/extracted/alekhine" "$RUNNER_TEMP/section38/gutenberg-33870/html"
           curl --fail --location --retry 3 --max-time 90 -o "$RUNNER_TEMP/section38/chessit/cotswold_2023.pgn" https://www.chessit.co.uk/Congresses/Cotswold/2023/Cotswold_Open_2023.pgn
           curl --fail --location --retry 3 --max-time 90 -o "$RUNNER_TEMP/alekhine.zip" https://www.pgnmentor.com/players/Alekhine.zip
-          unzip -p "$RUNNER_TEMP/alekhine.zip" Alekhine.pgn > "$RUNNER_TEMP/section38/extracted/alekhine/Alekhine.pgn"
+          python -m tools.section38_bounded_zip_member "$RUNNER_TEMP/alekhine.zip" Alekhine.pgn "$RUNNER_TEMP/section38/extracted/alekhine/Alekhine.pgn" --max-bytes 134217728
           curl --fail --location --retry 3 --max-time 90 -o "$RUNNER_TEMP/section38/gutenberg-33870/pg33870.txt" https://www.gutenberg.org/cache/epub/33870/pg33870.txt
           curl --fail --location --retry 3 --max-time 90 -o "$RUNNER_TEMP/gutenberg.zip" https://www.gutenberg.org/cache/epub/33870/pg33870-h.zip
-          unzip -q "$RUNNER_TEMP/gutenberg.zip" 'pg33870-images.html' -d "$RUNNER_TEMP/section38/gutenberg-33870/html"
+          python -m tools.section38_bounded_zip_member "$RUNNER_TEMP/gutenberg.zip" pg33870-images.html "$RUNNER_TEMP/section38/gutenberg-33870/html/pg33870-images.html" --max-bytes 67108864
           curl --fail --location --retry 3 --max-time 90 -o "$RUNNER_TEMP/section38/gutenberg-33870/pg33870.epub3" https://www.gutenberg.org/ebooks/33870.epub3.images
       - name: Run Section 38 readback
         run: |
@@ -88,6 +92,7 @@ jobs:
             tests.test_book_library_import_journey \
             tests.test_book_open_preparation \
             tests.test_section38_source_bound_readback \
+            tests.test_section38_bounded_zip_member \
             tests.test_revised_section38_docx_book_integration
       - name: Run genuine vendored Stockfish and Lichess ECO sources through canonical Library
         env:
@@ -121,4 +126,4 @@ jobs:
         env:
           PYTHONPATH: tests
         run: |
-          python -m unittest -v tests.test_book_open_preparation tests.test_section38_source_bound_readback tests.test_revised_section38_docx_book_integration
+          python -m unittest -v tests.test_book_open_preparation tests.test_section38_source_bound_readback tests.test_section38_bounded_zip_member tests.test_revised_section38_docx_book_integration
