@@ -41,3 +41,14 @@ All results are UNVERIFIED_REQUIRES_DECISION; no print-ready certification is al
 4. Qualify real embosser and Braille reading configurations, independent correction and negative/recovery/performance/legal/privacy tests.
 5. Integrate user-facing Windows/Web and institution bundle into canonical main, verify exact-main source and acceptance.
 6. ONLY after every 55.1–55.16 requirement and evidence is satisfied, record terminal DONE in GitHub state, Drive plan and live registry. Preserve current NOT DONE until then.
+
+## Continuation checkpoint — 2026-10-09, after initial PR
+
+- Added acs/chess_braille_brf.py: provisional NABCC six-dot Braille ASCII BRF from source-hash-pinned PEF with strict page/row/metadata/layout validation; explicit no-print-readiness result.
+- PEF creator now emits mandatory PEF 1.0 Dublin Core dc:format and dc:identifier, checks XML legality, includes canonical FEN/side-to-move/piece-square inventory, and uses Liblouis dotsIO | ucBrl together as required for Unicode Braille.
+- CLI now supports either one canonical BookDocument JSON or one local .txt/.md via the existing acs.book_text_import parser. Unproven images/content, unsupported formats, source change during work, table mismatch or table drift fail closed. Optional --emit-brf and explicitly selected en-us-brf.dis create an unverified BRF companion. Both original source bytes and output files receive SHA-256 fingerprints.
+- No-clobber output folder creation uses exclusive mkdir; pre-existing files/directories are preserved. Quality report is emitted last. No remote providers, paid work or automatic printing.
+- Added tests/test_section55_chess_braille_brf.py and tests/test_section55_local_cli_package.py, including source/content/metadata mutation negatives, Liblouis synthetic mode flags, Markdown intake and output preservation.
+- Sections 55.2 and 55.6 therefore have PARTIAL source-format/format-output progress, not closure. Neither a synthetic Liblouis module nor an arbitrary table filename is a certified translation.
+- Exact GitHub Actions results must be read from latest PR head. The latest observed runs were QUEUED, NOT GREEN. No test execution, real device, legal real-book sample, specialist acceptance or main integration is claimed.
+- Keep this PR as canonical single Section 55 finisher, watch live main changes, and never promote any subsection without its full own acceptance evidence.
