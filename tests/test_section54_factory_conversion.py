@@ -94,7 +94,7 @@ class FactoryPrivateConversionTests(unittest.TestCase):
             )
 
     def test_unimplemented_formats_and_external_calls_refuse(self) -> None:
-        for p in (policy(CHAPTER_BOOK, formats=("html", "epub3")),
+        for p in (policy(CHAPTER_BOOK, formats=("html", "docx")),
                   policy(CHAPTER_BOOK, allowed_external_search=True),
                   policy(CHAPTER_BOOK, allowed_external_ai=True, provider_id="provider",
                          model_id="model", max_input_tokens=30, max_output_tokens=20)):
@@ -114,6 +114,24 @@ class FactoryPrivateConversionTests(unittest.TestCase):
         self.assertEqual([o.output_format for o in result.outputs], ["html", "txt"])
         self.assertIn("TEXT_STRUCTURE_NOT_MACHINE_NAVIGABLE", result.outputs[1].losses)
         self.assertEqual(result.outputs[0].losses, ())
+
+    def test_epub3_private_pipeline_requires_timestamp_and_has_semantic_toc(self) -> None:
+        from io import BytesIO
+        from zipfile import ZipFile
+        p = policy(CHAPTER_BOOK, formats=("html", "epub3"))
+        with self.assertRaises(FactoryConversionError):
+            convert_factory_book_private(
+                CHAPTER_BOOK, source_name="chapters.md", policy=p, source_language="en",
+            )
+        result = convert_factory_book_private(
+            CHAPTER_BOOK, source_name="chapters.md", policy=p, source_language="en",
+            epub_modified_utc="2026-10-09T22:00:00Z",
+        )
+        self.assertEqual([x.output_format for x in result.outputs], ["html", "epub3"])
+        with ZipFile(BytesIO(result.outputs[1].output_bytes)) as archive:
+            self.assertIn(b"First chapter", archive.read("OEBPS/nav.xhtml"))
+            self.assertIn(b"Second unique text.", archive.read("OEBPS/book.xhtml"))
+        self.assertFalse(result.public_release_approved)
 
     def test_private_html_source_prevents_script_injection(self) -> None:
         data = b"<html><body><h1>Study</h1><p>&lt;script&gt;bad&lt;/script&gt;</p></body></html>"
