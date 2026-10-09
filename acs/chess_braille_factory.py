@@ -57,7 +57,7 @@ class BrailleProfile:
             raise BrailleFactoryError("cells_per_line must be in [10, 80]")
         if type(self.lines_per_page) is not int or not 10 <= self.lines_per_page <= 60:
             raise BrailleFactoryError("lines_per_page must be in [10, 60]")
-        if self.dots != 6:
+        if type(self.dots) is not int or self.dots != 6:
             raise BrailleFactoryError("Only unqualified six-dot PEF preparation is supported")
 
 
@@ -168,6 +168,8 @@ def _braille_lines(segments: list[str], translator: FormalBrailleTranslator,
         if any(not ("\u2800" <= c <= "\u283f") for c in translated):
             raise BrailleFactoryError("Translator output is not six-dot Unicode Braille")
         # PEF is a prepaginated cell format. Never silently cut words or cells.
+        if translated.startswith(blank) or translated.endswith(blank) or blank + blank in translated:
+            raise BrailleFactoryError("Ambiguous Braille whitespace cannot be paginated losslessly")
         words = translated.split(blank)
         row = ""
         for word in words:
