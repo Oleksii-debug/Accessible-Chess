@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from hashlib import sha256
 from pathlib import Path
 import shutil
 import sys
@@ -71,8 +72,11 @@ def run(args: argparse.Namespace) -> int:
         raise BrailleFactoryError("Use --rights-confirmed only for an authorized source")
     # This CLI does not make remote requests or send sources to hosted models.
     if args.book_json is not None:
+        source_path = args.book_json
+        source_limit = MAX_JSON_BYTES
+        original_source = bounded_read(source_path, source_limit)
         try:
-            payload = json.loads(bounded_read(args.book_json, MAX_JSON_BYTES).decode("utf-8"))
+            payload = json.loads(original_source.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise BrailleFactoryError("Invalid UTF-8 canonical BookDocument JSON") from exc
         if type(payload) is not dict:
@@ -82,7 +86,10 @@ def run(args: argparse.Namespace) -> int:
         extension = args.source_file.suffix.lower()
         if extension not in {".txt", ".md"}:
             raise BrailleFactoryError("Direct book source must be TXT or Markdown; all other formats require canonical import first")
-        original = bounded_read(args.source_file, 8 * 1024 * 1024)
+        source_path = args.source_file
+        source_limit = 8 * 1024 * 1024
+        original = bounded_read(source_path, source_limit)
+        original_source = original
         imported = import_text_book(
             original, source_name=args.source_file.name,
             source_format="txt" if extension == ".txt" else "markdown",
@@ -121,6 +128,8 @@ def run(args: argparse.Namespace) -> int:
     if not args.emit_brf and args.display_table is not None:
         raise BrailleFactoryError("BRF display mapping was selected without --emit-brf")
     brf = pef_to_provisional_brf(result, display_table=args.display_table) if args.emit_brf else None
+    if bounded_read(source_path, source_limit) != original_source:
+        raise BrailleFactoryError("Source book changed during preparation; no output published")
     if bounded_read(args.table_file, MAX_TABLE_BYTES) != table_data:
         raise BrailleFactoryError("Braille table changed during translation; no output published")
     # Refuse clobber or partial publication into a previously accepted folder.
@@ -136,7 +145,10 @@ def run(args: argparse.Namespace) -> int:
         if brf is not None:
             (temporary / "chess-book-unverified.brf").write_bytes(brf.data)
         report = {
-            "manifest": {**result.manifest, **({
+            "manifest": {**result.manifest,
+                "original_source_sha256": sha256(original_source).hexdigest(),
+                "original_source_size_bytes": len(original_source),
+                **({
                 "output_brf_sha256": brf.sha256, "brf_display_table": brf.display_table,
                 "brf_print_ready": False,
             } if brf is not None else {})},
