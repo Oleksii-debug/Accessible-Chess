@@ -72,6 +72,34 @@ jobs:
       - name: Verify source SHA, Git blob, size and stage untracked test-only original
         run: >-
           python -c "import hashlib,pathlib; p=pathlib.Path('_section37_source_only/33870.txt'); b=p.read_bytes(); assert len(b)==262824; assert hashlib.sha256(b).hexdigest()=='dfbd48d5b513ea45f07a3701a9148b7aa2a473080a82f39728dbd62b5019c160'; assert hashlib.sha1(b'blob '+str(len(b)).encode()+bytes([0])+b).hexdigest()=='c9a674d3281ccd8a39de7ca673467b79902a103a'; q=pathlib.Path('tests/real_corpus/books/gitenberg_capablanca_33870.txt'); q.parent.mkdir(parents=True,exist_ok=True); q.write_bytes(b)"
+      - name: Diagnose Windows file-identity metadata for actual sources
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          @'
+          import os, pathlib, stat
+          paths = (
+              pathlib.Path("tests/real_corpus/lichess_openings_a.tsv"),
+              pathlib.Path("tests/real_corpus/lichess_openings_COPYING.txt"),
+              pathlib.Path("_section37_external_books/blue/LICENSE"),
+              pathlib.Path("_section37_external_books/bird/LICENSE"),
+          )
+          for p in paths:
+              before = p.lstat()
+              with p.open("rb") as f:
+                  opened = os.fstat(f.fileno())
+              print({
+                  "path": str(p), "size": before.st_size,
+                  "mode": oct(before.st_mode),
+                  "attributes": getattr(before, "st_file_attributes", None),
+                  "is_regular": stat.S_ISREG(before.st_mode),
+                  "is_symlink": stat.S_ISLNK(before.st_mode),
+                  "is_reparse": bool(getattr(before, "st_file_attributes", 0) & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)),
+                  "samestat_open": os.path.samestat(before, opened),
+                  "path_ino": before.st_ino, "opened_ino": opened.st_ino,
+                  "path_dev": before.st_dev, "opened_dev": opened.st_dev,
+              })
+          '@ | python -
       - name: Compile preserved original Section 37 modules and tests
         run: >-
           python -m py_compile
