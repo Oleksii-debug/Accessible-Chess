@@ -1,0 +1,91 @@
+name: Board Service Passive Root Boundary
+
+on:
+  pull_request:
+    branches:
+      - fix/current-board-passive-mapping-ingress-20261004-ooxple7
+    paths:
+      - 'acs/board_service.py'
+      - 'tests/test_board_service_passive_boundary.py'
+      - '.github/workflows/board-service-passive-root-boundary.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: board-service-passive-root-boundary-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove exact serial geometry and bounded scope
+        shell: bash
+        env:
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          expected="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
+          test "$(git rev-parse HEAD)" = "$expected"
+          if [ -n "${EVENT_BASE_REF:-}" ]; then
+            git fetch --no-tags origin "+refs/heads/$EVENT_BASE_REF:refs/remotes/origin/$EVENT_BASE_REF"
+            live_base="$(git rev-parse "refs/remotes/origin/$EVENT_BASE_REF")"
+            test -n "$EVENT_BASE_SHA"
+            test "$EVENT_BASE_SHA" = "$live_base"
+          else
+            base_ref="fix/current-board-passive-mapping-ingress-20261004-ooxple7"
+            git fetch --no-tags origin "+refs/heads/$base_ref:refs/remotes/origin/$base_ref"
+            live_base="$(git rev-parse "refs/remotes/origin/$base_ref")"
+          fi
+          test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+          git diff --check "$live_base"...HEAD
+          changed="$(git diff --name-only "$live_base"...HEAD | sort)"
+          expected_paths="$(printf '%s\n' \
+            '.github/workflows/board-service-passive-root-boundary.yml' \
+            'acs/board_service.py' \
+            'tests/test_board_service_passive_boundary.py' | sort)"
+          test "$changed" = "$expected_paths" || {
+            printf 'Unexpected board passive-root scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile bounded board surfaces
+        run: >-
+          python -m compileall -q
+          acs/board_service.py
+          acs/squares.py
+          tests/test_board_service.py
+          tests/test_board_service_passive_boundary.py
+
+      - name: Execute board and passive-root regressions
+        run: >-
+          python -m unittest -v
+          tests.test_board_service
+          tests.test_board_service_passive_boundary
+          tests.test_squares
+          tests.test_square_passive_boundary
+          tests.test_position_editor
+          tests.test_position_editor_passive_boundary
+
+      - name: Core selftest
+        run: python -m acs.selftest

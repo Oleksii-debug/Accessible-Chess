@@ -1,0 +1,142 @@
+{
+  "blocked": [
+    "lawful Ukrainian third-party literature",
+    "PDF",
+    "DOCX",
+    "CBF+CBI",
+    "2CBH",
+    "CBONE",
+    "clean Windows packaged owner acceptance"
+  ],
+  "collection_policy": "TEST_COLLECTION is isolated and reloadable; PUBLIC_RELEASE contains links/notices, not uncleared third-party bytes.",
+  "entries": [
+    {
+      "author_or_owner": "Accessible Chess project",
+      "format": "BookDocument/Training",
+      "import_status": "READY",
+      "language": "uk",
+      "reload": "download to an isolated test workspace and rerun the Section 38/39 gates",
+      "rights": "project-authored; redistributable with notice",
+      "sha256": "b844c4e2cd6ae3394ddf007297a6f8229d6688144c159e39cc47e11963ff575a",
+      "size_bytes": 45865,
+      "source_id": "starter-books-training-uk",
+      "source_url": "repo://acs/starter_books_training_content.py",
+      "title": "Accessible Chess starter books and training"
+    },
+    {
+      "author_or_owner": "Accessible Chess project",
+      "format": "PGN",
+      "import_status": "READY",
+      "language": "uk",
+      "reload": "download to an isolated test workspace and rerun the Section 38/39 gates",
+      "rights": "project-authored; redistributable with notice",
+      "sha256": "8118eb8f9897e2f13ef029a533ba22dae2e1f66d8c73feba9dccd9bd4ccf623b",
+      "size_bytes": 17227,
+      "source_id": "starter-games-uk",
+      "source_url": "repo://acs/starter_content.py",
+      "title": "Accessible Chess starter games"
+    },
+    {
+      "author_or_owner": "external source",
+      "format": "TXT",
+      "import_status": "READ_PASS",
+      "language": "en",
+      "reload": "download to an isolated test workspace and rerun the Section 38/39 gates",
+      "rights": "public-domain-in-USA source; test-only copy",
+      "sha256": "86f8bbe769853ddac506c65f6b4fb2e78cb5f00761e6bee06c4d7a415b042639",
+      "size_bytes": 262949,
+      "source_id": "gutenberg-33870-txt",
+      "source_url": "https://www.gutenberg.org/cache/epub/33870/pg33870.txt",
+      "title": "Chess Fundamentals / Gutenberg text corpus"
+    },
+    {
+      "author_or_owner": "external source",
+      "format": "HTML",
+      "import_status": "READ_PASS",
+      "language": "en",
+      "reload": "download to an isolated test workspace and rerun the Section 38/39 gates",
+      "rights": "public-domain-in-USA source; test-only copy",
+      "sha256": "491d869b06d2e330554f0dd401d697c2bd0af5e4ccdd7abdb3fd0765a1116043",
+      "size_bytes": 639357,
+      "source_id": "gutenberg-33870-html",
+      "source_url": "https://www.gutenberg.org/cache/epub/33870/pg33870-h.zip",
+      "title": "Chess Fundamentals / Gutenberg HTML with images"
+    },
+    {
+      "author_or_owner": "external source",
+      "format": "EPUB3",
+      "import_status": "READ_PASS",
+      "language": "en",
+      "reload": "download to an isolated test workspace and rerun the Section 38/39 gates",
+      "rights": "public-domain-in-USA source; test-only copy",
+      "sha256": "d0d23372a6bbe47a2cdda030d9e13a8ff80f54a1a0cc7d38ac052a867825ab74",
+      "size_bytes": 14604041,
+      "source_id": "gutenberg-33870-epub3",
+      "source_url": "https://www.gutenberg.org/ebooks/33870.epub3.images",
+      "title": "Chess Fundamentals / Gutenberg EPUB3"
+    },
+    {
+      "author_or_owner": "external source",
+      "format": "PGN",
+      "import_status": "READ_WRITE_ROUNDTRIP_PASS",
+      "language": "en",
+      "reload": "download to an isolated test workspace and rerun the Section 38/39 gates",
+      "rights": "source terms not stated; test-only copy",
+      "sha256": "3053909b99d30e4d430995553b0b9db4f131c5518fa50d62167c1f0fae5bfe34",
+      "size_bytes": 86012,
+      "source_id": "chessit-cotswold-2023",
+      "source_url": "https://www.chessit.co.uk/Congresses/Cotswold/2023/Cotswold_Open_2023.pgn",
+      "title": "Cotswold Open 2023"
+    },
+    {
+      "author_or_owner": "external source",
+      "format": "PGN",
+      "import_status": "READ_WRITE_ROUNDTRIP_PASS",
+      "language": "multilingual metadata",
+      "reload": "download to an isolated test workspace and rerun the Section 38/39 gates",
+      "rights": "free download; redistribution unclear; test-only copy",
+      "sha256": "d3fd8dcd9fb308d7636856c6538b386191f87738d8908ebe85fa064f48b5a8a0",
+      "size_bytes": 1080504,
+      "source_id": "pgnmentor-alekhine",
+      "source_url": "https://www.pgnmentor.com/players/Alekhine.zip",
+      "title": "Alekhine games"
+    },
+    {
+      "author_or_owner": "external source",
+      "format": "CBV/CBH",
+      "import_status": "EXTERNAL_READBACK_PASS",
+      "language": "en",
+      "reload": "download to an isolated test workspace and rerun the Section 38/39 gates",
+      "rights": "source terms not stated; test-only copy",
+      "sha256": "d1fe221cda73ede12acdc23dc0fa4c922962b62d00ba88381f7085c3e0620902",
+      "size_bytes": 24039,
+      "source_id": "chessit-cotswold-2023-cbv",
+      "source_url": "https://www.chessit.co.uk/Congresses/Cotswold/2023/Cotswold_Open_2023.cbv",
+      "title": "Cotswold Open 2023 database"
+    }
+  ],
+  "generated_at": "2026-10-09",
+  "languages": {
+    "en": "real Gutenberg and game corpora present",
+    "uk": "project-owned starter corpus present"
+  },
+  "schema_version": 1,
+  "section": 40,
+  "size_bands": {
+    "large": [
+      "gutenberg-33870-epub3"
+    ],
+    "medium": [
+      "gutenberg-33870-html",
+      "pgnmentor-alekhine"
+    ],
+    "small": [
+      "starter-books-training-uk",
+      "starter-games-uk",
+      "gutenberg-33870-txt",
+      "chessit-cotswold-2023",
+      "chessit-cotswold-2023-cbv"
+    ]
+  },
+  "status": "INTERNAL_COMPLETE_EXTERNAL_BLOCKED"
+}

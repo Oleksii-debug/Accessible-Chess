@@ -1,0 +1,94 @@
+name: Integration Hardened Browser Authority
+
+on:
+  push:
+    branches:
+      - integration/hardened-browser-authority-20261004
+  pull_request:
+    branches:
+      - integration/hardened-training-reconcile-20261004
+    paths:
+      - 'web/full_product_books_training.js'
+      - 'web/version2_release_bootstrap.js'
+      - 'tests/js/books_training_surface_dom_test.js'
+      - 'tests/js/version2_release_bootstrap_dom_test.js'
+      - '.github/workflows/integration-hardened-browser-authority.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: integration-hardened-browser-authority-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 75
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Prove exact parent and hardened browser identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_head='${{ github.event.pull_request.head.sha || github.sha }}'
+          test "$(git rev-parse HEAD)" = "$expected_head"
+          parent='2e30c6fd7dbaf287eaba21e4178fffdfbeedfcf1'
+          source='ec37ce81d526f2a76e326712ed350ac8196ac968'
+          git merge-base --is-ancestor "$parent" HEAD
+          test "$(git merge-base "$parent" HEAD)" = "$parent"
+          git cat-file -e "$source^{commit}"
+          git diff --check "$parent" HEAD
+
+          changed="$(git diff --name-only "$parent" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/integration-hardened-browser-authority.yml' \
+            'tests/js/books_training_surface_dom_test.js' \
+            'tests/js/version2_release_bootstrap_dom_test.js' \
+            'web/full_product_books_training.js' \
+            'web/version2_release_bootstrap.js' | sort)"
+          test "$changed" = "$expected"
+
+          test "$(git rev-parse HEAD:web/full_product_books_training.js)" = '460d2287d24dc004535af93bb7f8b9a2066cbe7d'
+          test "$(git rev-parse HEAD:web/version2_release_bootstrap.js)" = '53574e235524581dc343db0b123df845c15a13f4'
+          test "$(git rev-parse HEAD:tests/js/books_training_surface_dom_test.js)" = 'aebc8630ac6807c753de8ad9fc97baf7fcae7149'
+          test "$(git rev-parse HEAD:tests/js/version2_release_bootstrap_dom_test.js)" = '1ac6c9adfe44af442d3b8e5b15ddf49310d8ac1d'
+
+          echo 'HARDENED_BROWSER_AUTHORITY_SCOPE=PASS'
+
+      - name: Validate JavaScript syntax and DOM contracts
+        run: |
+          node --check web/full_product_books_training.js
+          node --check web/version2_release_bootstrap.js
+          node --check tests/js/books_training_surface_dom_test.js
+          node --check tests/js/version2_release_bootstrap_dom_test.js
+          node tests/js/books_training_surface_dom_test.js
+          node tests/js/version2_release_bootstrap_dom_test.js
+
+      - name: Validate adjacent Python accessibility/runtime authority
+        run: >-
+          python -m unittest -v
+          tests.test_version2_release_accessibility_contract
+          tests.test_version2_book_board_refresh_focus_order_evidence
+          tests.test_dev1_books_training_webview_projection
+          tests.test_dev1_books_training_webview_bridge
+          tests.test_version2_training_current_runtime
+          tests.test_version2_application
+
+      - name: Core selftest
+        run: python -m acs.selftest

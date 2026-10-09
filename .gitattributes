@@ -1,0 +1,4 @@
+# Preserve exact frozen Stage 1 core blob bytes on Windows checkouts.
+# These files are verified by Git blob SHA in the cross-platform saturation contract.
+acs/stage1_release_ui_core.py -text
+acs/webapp_keymap_core.py -text

@@ -1,0 +1,193 @@
+name: Version 2 Windows PGN Save Worker
+
+on:
+  push:
+    branches:
+      - work/windows-pgn-save-bg-20261005-k7m4q2
+  pull_request:
+    branches:
+      - converge/current-product-books-provider-20261005-ooxple7
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v2-windows-pgn-save-worker-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  exact-save-worker:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      BASE_BRANCH: converge/current-product-books-provider-20261005-ooxple7
+      BASE_SHA: d0e14b998bb57b5c3b53609ecef41ab646b213a3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Prove exact Product ancestry and integrated worker scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          head_sha="$(git rev-parse HEAD)"
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            test "$head_sha" = "${{ github.event.pull_request.head.sha }}"
+          else
+            test "$head_sha" = "${{ github.sha }}"
+          fi
+
+          git fetch --no-tags origin "$BASE_BRANCH"
+          live_base="$(git rev-parse FETCH_HEAD)"
+          test "$live_base" = "$BASE_SHA"
+          git cat-file -e "$BASE_SHA^{commit}"
+          test "$(git merge-base "$BASE_SHA" HEAD)" = "$BASE_SHA"
+          git diff --check "$BASE_SHA"...HEAD
+
+          mapfile -t paths < <(git diff --name-only "$BASE_SHA"...HEAD | sort)
+          expected=(
+            ".github/workflows/pgn-context-atomicity.yml"
+            ".github/workflows/pgn-conversion-prepublish-cancel.yml"
+            ".github/workflows/pgn-document-new-game-position-integrity.yml"
+            ".github/workflows/pgn-save-snapshot-transaction.yml"
+            ".github/workflows/v2-windows-pgn-open-worker.yml"
+            ".github/workflows/v2-windows-pgn-save-worker.yml"
+            ".github/workflows/version2-windows-composition.yml"
+            "acs/full_product_actions.py"
+            "acs/full_product_native_menu.py"
+            "acs/import_contract.py"
+            "acs/pgn_document.py"
+            "acs/pgn_save_snapshot.py"
+            "acs/pgn_service.py"
+            "acs/pgn_workspace.py"
+            "acs/pgn_workspace_webview_adapter.py"
+            "acs/version2_application.py"
+            "acs/version2_windows_file_workflows.py"
+            "acs/version2_windows_host_runtime.py"
+            "acs/version2_windows_import_event_mailbox.py"
+            "acs/version2_windows_import_ui_pump.py"
+            "acs/version2_windows_pgn_streaming_host.py"
+            "tests/test_dev4_pgn_export_concurrency_security.py"
+            "tests/test_full_product_native_menu.py"
+            "tests/test_import_contract.py"
+            "tests/test_pgn_concurrent_save.py"
+            "tests/test_pgn_document_passive_ingress.py"
+            "tests/test_pgn_save_snapshot.py"
+            "tests/test_pgn_save_snapshot_cancel.py"
+            "tests/test_pgn_service.py"
+            "tests/test_pgn_service_passive_overwrite.py"
+            "tests/test_pgn_workspace.py"
+            "tests/test_v2_windows_file_worker_preflight.py"
+            "tests/test_v2_windows_file_worker_shutdown_fence.py"
+            "tests/test_v2_windows_host_runtime.py"
+            "tests/test_v2_windows_import_event_mailbox.py"
+            "tests/test_v2_windows_import_ui_pump.py"
+            "tests/test_v2_windows_nvda_file_workflows.py"
+            "tests/test_v2_windows_pgn_open_invalid_session.py"
+            "tests/test_v2_windows_pgn_open_worker.py"
+            "tests/test_v2_windows_pgn_save_terminal_truth.py"
+            "tests/test_v2_windows_pgn_save_worker.py"
+            "tests/test_version2_application.py"
+          )
+          printf '%s\n' "${paths[@]}"
+          test "${#paths[@]}" -eq "${#expected[@]}"
+          for i in "${!expected[@]}"; do
+            test "${paths[$i]}" = "${expected[$i]}"
+          done
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned test runner
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Compile save transaction and Windows host boundary
+        run: >-
+          python -m compileall -q
+          acs/import_contract.py
+          acs/pgn_document.py
+          acs/pgn_save_snapshot.py
+          acs/pgn_service.py
+          acs/pgn_workspace.py
+          acs/pgn_workspace_webview_adapter.py
+          acs/version2_windows_file_workflows.py
+          acs/version2_windows_host_runtime.py
+          acs/version2_windows_import_event_mailbox.py
+          acs/version2_windows_import_ui_pump.py
+          acs/version2_application.py
+          acs/full_product_actions.py
+          acs/full_product_native_menu.py
+          tests/test_dev4_pgn_export_concurrency_security.py
+          tests/test_pgn_concurrent_save.py
+          tests/test_pgn_document.py
+          tests/test_pgn_document_context_atomicity.py
+          tests/test_pgn_document_setup_fen_integrity.py
+          tests/test_pgn_document_passive_ingress.py
+          tests/test_pgn_save_snapshot.py
+          tests/test_pgn_save_snapshot_cancel.py
+          tests/test_pgn_service.py
+          tests/test_pgn_service_passive_overwrite.py
+          tests/test_pgn_workspace.py
+          tests/test_v2_windows_pgn_save_terminal_truth.py
+          tests/test_v2_windows_pgn_save_worker.py
+          tests/test_v2_windows_pgn_open_worker.py
+          tests/test_v2_windows_import_event_mailbox.py
+          tests/test_v2_windows_import_ui_pump.py
+          tests/test_v2_windows_host_runtime.py
+          tests/test_v2_windows_nvda_file_workflows.py
+          tests/test_version2_application.py
+          tests/test_full_product_native_menu.py
+
+      - name: Execute PGN save worker qualification
+        run: >-
+          python -m unittest -v
+          tests.test_pgn_document_passive_ingress
+          tests.test_pgn_document
+          tests.test_pgn_document_context_atomicity
+          tests.test_pgn_document_setup_fen_integrity
+          tests.test_pgn_save_snapshot
+          tests.test_pgn_save_snapshot_cancel
+          tests.test_dev4_pgn_export_concurrency_security
+          tests.test_pgn_concurrent_save
+          tests.test_pgn_service
+          tests.test_pgn_service_passive_overwrite
+          tests.test_pgn_workspace
+          tests.test_v2_windows_pgn_save_terminal_truth
+          tests.test_v2_windows_pgn_save_worker
+          tests.test_v2_windows_pgn_open_worker
+          tests.test_v2_windows_pgn_open_invalid_session
+          tests.test_v2_windows_file_worker_preflight
+          tests.test_v2_windows_file_worker_shutdown_fence
+          tests.test_v2_windows_import_event_mailbox
+          tests.test_v2_windows_import_ui_pump
+          tests.test_v2_windows_host_runtime
+          tests.test_v2_windows_nvda_file_workflows
+          tests.test_version2_application
+          tests.test_full_product_native_menu
+
+      - name: Pytest focused background-save boundary
+        run: >-
+          pytest -q
+          tests/test_pgn_document_passive_ingress.py
+          tests/test_pgn_save_snapshot.py
+          tests/test_pgn_save_snapshot_cancel.py
+          tests/test_dev4_pgn_export_concurrency_security.py
+          tests/test_pgn_concurrent_save.py
+          tests/test_pgn_service.py
+          tests/test_pgn_service_passive_overwrite.py
+          tests/test_v2_windows_pgn_save_terminal_truth.py
+          tests/test_v2_windows_pgn_save_worker.py
+          tests/test_v2_windows_import_event_mailbox.py
+          tests/test_v2_windows_import_ui_pump.py
+          tests/test_v2_windows_host_runtime.py
+
+      - name: Core selftest
+        run: python -m acs.selftest

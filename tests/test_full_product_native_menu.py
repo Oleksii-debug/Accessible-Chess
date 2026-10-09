@@ -1,0 +1,503 @@
+from __future__ import annotations
+
+from contextlib import contextmanager
+from types import ModuleType, SimpleNamespace
+import sys
+import unittest
+from unittest.mock import patch
+
+from acs.full_product_actions import FullProductActionRouter, build_full_product_action_registry
+from acs.full_product_native_menu import (
+    FullProductNativeMenuController,
+    NativeMenuItemKind,
+    build_full_product_menu_spec,
+    install_full_product_windows_native_menu,
+)
+from acs.full_product_ui_shell import AccessibleShellState, UILanguage
+from acs.full_product_webview_adapter import FullProductWebViewAdapter
+from acs.ui_native_menu import native_menu_attachment_state
+from acs.version2_profile import build_version2_action_registry, build_version2_menu_spec
+
+
+class EventHook:
+    def __init__(self) -> None:
+        self.handlers = []
+
+    def __iadd__(self, handler):
+        self.handlers.append(handler)
+        return self
+
+    def fire(self) -> None:
+        for handler in tuple(self.handlers):
+            handler(None, None)
+
+
+class ItemCollection(list):
+    def Add(self, item) -> None:
+        self.append(item)
+
+
+class FakeMenuItem:
+    def __init__(self, label: str) -> None:
+        self.Text = label
+        self.DropDownItems = ItemCollection()
+        self.Click = EventHook()
+        self.DropDownOpening = EventHook()
+
+
+class FakeSeparator:
+    pass
+
+
+class FakeMenuStrip:
+    def __init__(self) -> None:
+        self.Name = ""
+        self.AccessibleName = ""
+        self.AccessibleRole = None
+        self.Dock = None
+        self.TabStop = True
+        self.Visible = False
+        self.Enabled = False
+        self.Parent = None
+        self.Items = ItemCollection()
+
+    def BringToFront(self) -> None:
+        pass
+
+
+class FakeControls(list):
+    def __init__(self, owner) -> None:
+        super().__init__()
+        self.owner = owner
+
+    def Add(self, item) -> None:
+        item.Parent = self.owner
+        self.append(item)
+
+    def Remove(self, item) -> None:
+        item.Parent = None
+        super().remove(item)
+
+
+class FakeForm:
+    def __init__(self) -> None:
+        self.TopLevel = True
+        self.MainMenuStrip = None
+        self.InvokeRequired = False
+        self.Controls = FakeControls(self)
+
+    def SuspendLayout(self) -> None:
+        pass
+
+    def ResumeLayout(self, _perform: bool) -> None:
+        pass
+
+    def PerformLayout(self) -> None:
+        pass
+
+
+@contextmanager
+def fake_winforms():
+    names = ("clr", "System", "System.Windows.Forms")
+    previous = {name: sys.modules.get(name) for name in names}
+    clr = ModuleType("clr")
+    clr.AddReference = lambda _name: None
+    system = ModuleType("System")
+    system.Action = lambda callback: callback
+    forms = ModuleType("System.Windows.Forms")
+    forms.AccessibleRole = SimpleNamespace(MenuBar="MenuBar")
+    forms.DockStyle = SimpleNamespace(Top="Top")
+    forms.MenuStrip = FakeMenuStrip
+    forms.ToolStripMenuItem = FakeMenuItem
+    forms.ToolStripSeparator = FakeSeparator
+    sys.modules.update({"clr": clr, "System": system, "System.Windows.Forms": forms})
+    try:
+        yield
+    finally:
+        for name, value in previous.items():
+            if value is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = value
+
+
+def make_controller(*, language=UILanguage.EN, bindings=None):
+    calls = []
+    commands = []
+    exits = []
+    shell = AccessibleShellState(language=language)
+    registry = build_full_product_action_registry(bindings=bindings)
+
+    def delegate(action_id, payload):
+        calls.append((action_id, dict(payload)))
+        return {"ok": True}
+
+    adapter = FullProductWebViewAdapter(
+        shell,
+        FullProductActionRouter(shell, delegate, registry=registry),
+    )
+    controller = FullProductNativeMenuController(
+        adapter,
+        commands.append,
+        exit_callback=lambda: exits.append(True),
+        current_focus_provider=lambda: "board-square-e4",
+    )
+    return controller, calls, commands, exits
+
+
+class FullProductNativeMenuTests(unittest.TestCase):
+    def test_conversion_is_a_trusted_native_copy_workflow_with_live_language(self):
+        controller, calls, commands, exits = make_controller()
+        item = next(item for menu in controller.spec() for item in menu.items if item.host_command == "pgn.convert_utf8")
+        self.assertIn("new copy", item.label)
+        with patch("acs.pgn_conversion_windows.show_pgn_conversion_dialog") as dialog:
+            controller.activate(item)
+            dialog.assert_called_once_with(language="en", owner=None)
+        self.assertEqual((calls, commands, exits), ([], [], []))
+        ua = build_full_product_menu_spec(build_full_product_action_registry(), language=UILanguage.UA)
+        self.assertIn("нова копія", next(item.label for menu in ua for item in menu.items if item.host_command == "pgn.convert_utf8"))
+
+    def test_conversion_dialog_uses_real_menu_owner(self):
+        controller, _calls, _commands, _exits = make_controller()
+        form = FakeForm()
+        window = SimpleNamespace(native=form)
+        with fake_winforms():
+            self.assertTrue(install_full_product_windows_native_menu(window, controller))
+        item = next(item for menu in controller.spec() for item in menu.items if item.host_command == "pgn.convert_utf8")
+        with patch("acs.pgn_conversion_windows.show_pgn_conversion_dialog") as dialog:
+            controller.activate(item)
+            dialog.assert_called_once_with(language="en", owner=form)
+
+    def test_inventory_is_complete_localized_and_registry_validated(self) -> None:
+        registry = build_full_product_action_registry(
+            bindings={"analysis.restart": "Ctrl+Alt+R"}
+        )
+        menus = build_full_product_menu_spec(registry, language=UILanguage.EN)
+        self.assertEqual(
+            [
+                "file", "game", "position", "pgn", "library", "import", "export",
+                "engine", "analysis", "books", "training", "teacher", "settings", "help",
+            ],
+            [menu.menu_id for menu in menus],
+        )
+        self.assertEqual("&Teacher/Classroom", menus[11].label)
+        actions = [
+            item
+            for menu in menus
+            for item in menu.items
+            if item.kind is NativeMenuItemKind.ACTION
+        ]
+        for item in actions:
+            registry.definition(item.action_id)
+        restart = next(item for item in menus[7].items if item.action_id == "analysis.restart")
+        self.assertTrue(restart.label.endswith("\tCtrl+Alt+R"))
+        ua = build_full_product_menu_spec(registry, language=UILanguage.UA)
+        self.assertEqual("&Файл", ua[0].label)
+        self.assertEqual("&Учитель/Клас", ua[11].label)
+
+    def test_books_menu_exposes_bidirectional_semantic_navigation(self) -> None:
+        controller, calls, commands, _exits = make_controller()
+        books_menu = next(menu for menu in controller.spec() if menu.menu_id == "books")
+        actions = {
+            item.action_id: item
+            for item in books_menu.items
+            if item.kind is NativeMenuItemKind.ACTION
+        }
+        for action_id in (
+            "book.previous_block",
+            "book.next_block",
+            "book.previous_position",
+            "book.next_position",
+            "book.previous_game",
+            "book.next_game",
+        ):
+            with self.subTest(action_id=action_id):
+                self.assertIn(action_id, actions)
+
+        previous_position = controller.activate(actions["book.previous_position"])
+        previous_game = controller.activate(actions["book.previous_game"])
+        self.assertEqual("delegated", previous_position.kind)
+        self.assertEqual("delegated", previous_game.kind)
+        self.assertEqual(
+            [
+                ("book.previous_position", {}),
+                ("book.previous_game", {}),
+            ],
+            calls,
+        )
+        self.assertEqual([previous_position, previous_game], commands)
+
+        ua = build_full_product_menu_spec(
+            build_full_product_action_registry(),
+            language=UILanguage.UA,
+        )
+        ua_books = next(menu for menu in ua if menu.menu_id == "books")
+        ua_labels = {item.action_id: item.label for item in ua_books.items}
+        self.assertEqual("Попередній блок", ua_labels["book.previous_block"])
+        self.assertEqual("Наступний блок", ua_labels["book.next_block"])
+        self.assertEqual("Попередня позиція", ua_labels["book.previous_position"])
+        self.assertEqual("Попередня партія в книзі", ua_labels["book.previous_game"])
+
+    def test_pgn_menu_exposes_cancel_open_for_keyboard_and_nvda(self) -> None:
+        controller, calls, commands, _exits = make_controller()
+        pgn_menu = next(menu for menu in controller.spec() if menu.menu_id == "pgn")
+        cancel_item = next(
+            item for item in pgn_menu.items
+            if item.action_id == "pgn.cancel_open"
+        )
+        self.assertEqual("Cancel PGN Open", cancel_item.label)
+        command = controller.activate(cancel_item)
+        self.assertEqual("delegated", command.kind)
+        self.assertEqual([("pgn.cancel_open", {})], calls)
+        self.assertEqual([command], commands)
+
+        ua = build_full_product_menu_spec(
+            build_full_product_action_registry(),
+            language=UILanguage.UA,
+        )
+        ua_pgn = next(menu for menu in ua if menu.menu_id == "pgn")
+        ua_cancel = next(
+            item for item in ua_pgn.items
+            if item.action_id == "pgn.cancel_open"
+        )
+        self.assertEqual("Скасувати відкриття PGN", ua_cancel.label)
+
+    def test_pgn_menu_exposes_cancel_save_for_keyboard_and_nvda(self) -> None:
+        controller, calls, commands, _exits = make_controller()
+        pgn_menu = next(menu for menu in controller.spec() if menu.menu_id == "pgn")
+        cancel_item = next(
+            item for item in pgn_menu.items
+            if item.action_id == "pgn.cancel_save"
+        )
+        self.assertEqual("Cancel PGN Save", cancel_item.label)
+        command = controller.activate(cancel_item)
+        self.assertEqual("delegated", command.kind)
+        self.assertEqual([("pgn.cancel_save", {})], calls)
+        self.assertEqual([command], commands)
+
+        ua = build_full_product_menu_spec(
+            build_full_product_action_registry(),
+            language=UILanguage.UA,
+        )
+        ua_pgn = next(menu for menu in ua if menu.menu_id == "pgn")
+        ua_cancel = next(
+            item for item in ua_pgn.items
+            if item.action_id == "pgn.cancel_save"
+        )
+        self.assertEqual("Скасувати збереження PGN", ua_cancel.label)
+
+    def test_books_menu_exposes_cancel_open_for_keyboard_and_nvda(self) -> None:
+        controller, calls, commands, _exits = make_controller()
+        books_menu = next(menu for menu in controller.spec() if menu.menu_id == "books")
+        cancel_item = next(
+            item for item in books_menu.items
+            if item.action_id == "book.cancel_open"
+        )
+        self.assertEqual("Cancel book opening", cancel_item.label)
+        command = controller.activate(cancel_item)
+        self.assertEqual("delegated", command.kind)
+        self.assertEqual([("book.cancel_open", {})], calls)
+        self.assertEqual([command], commands)
+
+        ua = build_full_product_menu_spec(
+            build_full_product_action_registry(),
+            language=UILanguage.UA,
+        )
+        ua_books = next(menu for menu in ua if menu.menu_id == "books")
+        ua_cancel = next(item for item in ua_books.items if item.action_id == "book.cancel_open")
+        self.assertEqual("Скасувати відкриття книги", ua_cancel.label)
+
+    def test_shipping_version2_menu_inherits_reverse_book_navigation(self) -> None:
+        registry = build_version2_action_registry()
+        menus = build_version2_menu_spec(registry, language=UILanguage.EN)
+        books_menu = next(menu for menu in menus if menu.menu_id == "books")
+        action_ids = {
+            item.action_id
+            for item in books_menu.items
+            if item.kind is NativeMenuItemKind.ACTION
+        }
+        self.assertTrue(
+            {
+                "book.previous_block",
+                "book.next_block",
+                "book.previous_position",
+                "book.next_position",
+                "book.previous_game",
+                "book.next_game",
+            }.issubset(action_ids)
+        )
+
+    def test_native_and_webview_actions_share_router_and_focus_restoration(self) -> None:
+        controller, calls, commands, exits = make_controller()
+        library = next(
+            item for item in controller.spec()[4].items if item.action_id == "screen.library"
+        )
+        command = controller.activate(library)
+        self.assertEqual("route", command.kind)
+        self.assertEqual("library", command.payload["route_id"])
+        self.assertEqual("library-search-player", command.payload["focus_target"])
+        self.assertEqual([], calls)
+        self.assertEqual([command], commands)
+
+        import_item = controller.spec()[5].items[0]
+        delegated = controller.activate(import_item)
+        self.assertEqual("delegated", delegated.kind)
+        self.assertEqual([("library.import", {})], calls)
+        exit_item = next(
+            item for item in controller.spec()[0].items if item.kind is NativeMenuItemKind.HOST
+        )
+        self.assertIsNone(controller.activate(exit_item))
+        self.assertEqual([True], exits)
+
+    def test_native_sink_failure_restores_route_but_preserves_observed_focus(self) -> None:
+        controller, _calls, commands, _exits = make_controller()
+        shell = controller._adapter.shell
+        library = next(
+            item
+            for item in controller.spec()[4].items
+            if item.action_id == "screen.library"
+        )
+        self.assertEqual("board", shell.current_route.route_id)
+        self.assertEqual("move-input", shell.restore_focus_target())
+
+        def rejecting_sink(_command):
+            raise RuntimeError("native host rejected command before publication")
+
+        controller._command_sink = rejecting_sink
+        with self.assertRaisesRegex(RuntimeError, "native host rejected"):
+            controller.activate(library)
+
+        self.assertEqual("board", shell.current_route.route_id)
+        self.assertEqual("board-square-e4", shell.restore_focus_target())
+        self.assertEqual([], commands)
+
+        controller._command_sink = commands.append
+        committed = controller.activate(library)
+        self.assertEqual("route", committed.kind)
+        self.assertEqual("library", shell.current_route.route_id)
+        self.assertEqual([committed], commands)
+        shell.open_route("board")
+        self.assertEqual("board-square-e4", shell.restore_focus_target())
+
+    def test_active_native_focus_subclass_is_rejected_before_adapter_dispatch(self) -> None:
+        controller, calls, commands, _exits = make_controller()
+
+        class HostileText(str):
+            touched = False
+
+            def strip(self, *args, **kwargs):
+                type(self).touched = True
+                raise AssertionError("active native focus hook must not execute")
+
+        controller._focus_provider = lambda: HostileText("board-square-e4")
+        library = next(
+            item
+            for item in controller.spec()[4].items
+            if item.action_id == "screen.library"
+        )
+
+        with self.assertRaisesRegex(TypeError, "focus provider"):
+            controller.activate(library)
+
+        self.assertFalse(HostileText.touched)
+        self.assertEqual("board", controller._adapter.shell.current_route.route_id)
+        self.assertEqual([], calls)
+        self.assertEqual([], commands)
+
+    def test_native_sink_failure_restores_external_focus_token_when_callback_is_bound(self) -> None:
+        shell = AccessibleShellState(language=UILanguage.EN)
+        registry = build_full_product_action_registry()
+        adapter = FullProductWebViewAdapter(
+            shell,
+            FullProductActionRouter(shell, lambda _action, _payload: {"ok": True}, registry=registry),
+        )
+        host_focus = {"value": "board-launcher"}
+        library = next(
+            item
+            for menu in build_full_product_menu_spec(registry, language=UILanguage.EN)
+            for item in menu.items
+            if item.action_id == "screen.library"
+        )
+
+        def rejecting_sink(_command):
+            host_focus["value"] = "library-search-player"
+            raise RuntimeError("native publication failed")
+
+        controller = FullProductNativeMenuController(
+            adapter,
+            rejecting_sink,
+            exit_callback=lambda: None,
+            current_focus_provider=lambda: host_focus["value"],
+            focus_restore=lambda token: host_focus.__setitem__("value", token),
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "native publication failed"):
+            controller.activate(library)
+
+        self.assertEqual("board", shell.current_route.route_id)
+        self.assertEqual("board-launcher", shell.restore_focus_target())
+        self.assertEqual("board-launcher", host_focus["value"])
+
+    def test_native_menu_refreshes_shortcut_caption_from_live_registry_before_open(self) -> None:
+        controller, _calls, _commands, _exits = make_controller()
+        form = FakeForm()
+        window = SimpleNamespace(native=form)
+        with fake_winforms():
+            self.assertTrue(install_full_product_windows_native_menu(window, controller))
+
+        menu = window._accessible_chess_native_menu
+        analysis_top = next(top for top in menu.Items if top.Text == "&Engine")
+        restart = next(
+            item for item in analysis_top.DropDownItems
+            if getattr(item, "Text", "").startswith("Restart analysis")
+        )
+        self.assertTrue(restart.Text.endswith("\tAlt+R"))
+
+        controller._adapter.registry.set_binding("analysis.restart", "Ctrl+Alt+R")
+        self.assertTrue(restart.Text.endswith("\tAlt+R"))
+        analysis_top.DropDownOpening.fire()
+        self.assertTrue(restart.Text.endswith("\tCtrl+Alt+R"))
+        self.assertNotIn("\tAlt+R", restart.Text)
+
+    def test_native_help_caption_tracks_live_global_remap(self) -> None:
+        controller, _calls, _commands, _exits = make_controller()
+        form = FakeForm()
+        window = SimpleNamespace(native=form)
+        with fake_winforms():
+            self.assertTrue(install_full_product_windows_native_menu(window, controller))
+
+        menu = window._accessible_chess_native_menu
+        help_top = next(top for top in menu.Items if top.Text == "&Help")
+        help_item = next(
+            item for item in help_top.DropDownItems
+            if getattr(item, "Text", "").startswith("Keyboard and help")
+        )
+        self.assertTrue(help_item.Text.endswith("\tF1"))
+
+        controller._adapter.registry.set_binding("screen.help", "Ctrl+F1")
+        self.assertTrue(help_item.Text.endswith("\tF1"))
+        help_top.DropDownOpening.fire()
+        self.assertTrue(help_item.Text.endswith("\tCtrl+F1"))
+        self.assertNotIn("\tF1", help_item.Text.removesuffix("\tCtrl+F1"))
+
+    def test_real_menu_installer_attaches_one_extended_menustrip_to_owner(self) -> None:
+        controller, _calls, commands, _exits = make_controller()
+        form = FakeForm()
+        window = SimpleNamespace(native=form)
+        with fake_winforms():
+            self.assertTrue(install_full_product_windows_native_menu(window, controller))
+        state = native_menu_attachment_state(window)
+        self.assertTrue(all(state.values()))
+        menu = window._accessible_chess_native_menu
+        self.assertEqual("AccessibleChessFullProductMenu", menu.Name)
+        self.assertEqual("MenuBar", menu.AccessibleRole)
+        self.assertEqual(14, len(menu.Items))
+        self.assertIs(form.MainMenuStrip, menu)
+        library_top = next(top for top in menu.Items if top.Text == "&Library")
+        library_top.DropDownItems[0].Click.fire()
+        self.assertEqual("route", commands[-1].kind)
+        self.assertEqual("library", commands[-1].payload["route_id"])
+
+
+if __name__ == "__main__":
+    unittest.main()

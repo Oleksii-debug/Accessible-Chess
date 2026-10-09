@@ -1,0 +1,101 @@
+name: V2 Library Player Identity Search
+
+on:
+  pull_request:
+    branches:
+      - integration/canonical-nullmove-apex-20261004-sol6p3
+    paths:
+      - '.github/workflows/v2-book-index-snapshot-integrity.yml'
+      - '.github/workflows/v2-library-player-identity-search.yml'
+      - 'acs/book_index.py'
+      - 'acs/search_policy.py'
+      - 'tests/test_book_index.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: accessible-chess-v2-player-identity-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  player-identity-contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Install pinned verification dependency
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Prove shared-policy successor does not alter player authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected='${{ github.event.pull_request.head.sha || github.sha }}'
+          test "$(git rev-parse HEAD)" = "$expected"
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base_ref="${{ github.base_ref }}"
+            event_base='${{ github.event.pull_request.base.sha }}'
+          else
+            base_ref='integration/canonical-nullmove-apex-20261004-sol6p3'
+            event_base=''
+          fi
+          git fetch --no-tags origin             "refs/heads/$base_ref:refs/remotes/origin/$base_ref"
+          live_base="$(git rev-parse "refs/remotes/origin/$base_ref")"
+          if [ -n "$event_base" ]; then
+            git merge-base --is-ancestor "$event_base" "$live_base"
+          fi
+          git merge-base --is-ancestor "$live_base" HEAD
+          test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+          git diff --check "$live_base" HEAD
+
+          changed="$(git diff --name-only "$live_base"...HEAD | LC_ALL=C sort)"
+          wanted="$(printf '%s\n'             '.github/workflows/v2-book-index-snapshot-integrity.yml'             '.github/workflows/v2-library-player-identity-search.yml'             'acs/book_index.py'             'acs/search_policy.py'             'tests/test_book_index.py' | LC_ALL=C sort)"
+          test "$changed" = "$wanted"
+
+          git diff --quiet "$live_base" HEAD --             .github/workflows/v2-d07-canonical-ingress-current.yml             acs/acsdb.py             tests/test_v2_library_player_identity_search.py             acs/search_service.py             acs/library_import_service.py             acs/gametree.py             acs/chessbase_decoder.py             acs/chessbase_metadata.py             web tools/qa
+
+      - name: Compile shared search and player identity scope
+        run: >-
+          python -m py_compile
+          acs/search_policy.py
+          acs/acsdb.py
+          tests/test_v2_library_player_identity_search.py
+
+      - name: Focused canonical player and Library Search regressions
+        run: >-
+          python -m unittest -v
+          tests.test_d07_canonical_ingress_current
+          tests.test_v2_library_player_identity_search
+          tests.test_v2_library_search_service_v4
+          tests.test_d07_library_search_cancellation
+          tests.test_book_index
+
+      - name: Focused pytest parity
+        run: >-
+          python -m pytest -q
+          tests/test_d07_canonical_ingress_current.py
+          tests/test_v2_library_player_identity_search.py
+          tests/test_v2_library_search_service_v4.py
+          tests/test_d07_library_search_cancellation.py
+          tests/test_book_index.py
+
+      - name: Core selftest and current V2 diagnostic
+        shell: bash
+        run: |
+          python -m acs.selftest
+          python run_accessible_chess_v2.py --diagnostic

@@ -1,0 +1,87 @@
+name: History Target Fail-Closed Current
+
+on:
+  pull_request:
+    branches:
+      - fix/books-nested-copy-hook-20261004-sol56k8m2
+      - fix/current-position-passive-boundary-20261004-sol56p2
+    paths:
+      - 'acs/history.py'
+      - 'tests/test_history_target_fail_closed_current.py'
+      - '.github/workflows/history-target-fail-closed-current.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: history-target-fail-closed-current-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  history-target-boundary:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    env:
+      PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Prove live-base ancestry and exact scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          head='${{ github.event.pull_request.head.sha || github.sha }}'
+          test "$(git rev-parse HEAD)" = "$head"
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base_ref="$PR_BASE_REF"
+          else
+            base_ref="fix/current-position-passive-boundary-20261004-sol56p2"
+          fi
+          test -n "$base_ref"
+          git fetch --no-tags origin "$base_ref"
+          upstream="$(git rev-parse "origin/$base_ref")"
+          git cat-file -e "$upstream^{commit}"
+          git merge-base --is-ancestor "$upstream" HEAD
+          test "$(git merge-base "$upstream" HEAD)" = "$upstream"
+
+          changed="$(git diff --name-only "$upstream" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/history-target-fail-closed-current.yml' \
+            'acs/history.py' \
+            'tests/test_history_target_fail_closed_current.py' | sort)"
+          test "$changed" = "$expected"
+          git diff --check "$upstream" HEAD
+          git diff --quiet "$upstream" HEAD --             acs/chesscore.py acs/webapp.py acs/gametree.py acs/pgn_document.py
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile bounded history surfaces
+        run: >-
+          python -m py_compile
+          acs/history.py
+          acs/ui_review_adapter.py
+          tests/test_history_target_fail_closed_current.py
+
+      - name: Run history fail-closed regression set
+        run: >-
+          python -m unittest -v
+          tests.test_history_target_fail_closed_current
+          tests.test_history
+          tests.test_ui_review_adapter
+          tests.test_stage1_saturation_history_stress
+          tests.test_stage1_move_history_atomicity_current
+          tests.test_accessible_webui

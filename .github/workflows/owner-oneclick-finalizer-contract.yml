@@ -1,0 +1,131 @@
+name: Owner One-Click Finalizer Contract
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/owner-oneclick-from-w4.yml'
+      - '.github/workflows/w4-v2-p0-fresh-windows-candidate.yml'
+      - '.github/workflows/owner-oneclick-finalizer-contract.yml'
+      - 'scripts/build_owner_portable_candidate.py'
+      - 'scripts/materialize_owner_library_seed.py'
+      - 'scripts/build_user_sound_pack.py'
+      - 'scripts/verify_owner_w4_run_provenance.py'
+      - 'scripts/finalize_owner_final_receipt.py'
+      - 'acs/user_library_seed.py'
+      - 'acs/version2_package_preflight.py'
+      - 'acs/version2_portable_package.py'
+      - 'tests/test_owner_oneclick_from_w4_workflow.py'
+      - 'tests/test_owner_portable_candidate.py'
+      - 'tests/test_materialize_owner_library_seed.py'
+      - 'tests/test_verify_owner_w4_run_provenance.py'
+      - 'tests/test_finalize_owner_final_receipt.py'
+      - 'tests/test_user_library_seed.py'
+      - 'tests/test_version2_portable_package.py'
+      - 'tests/test_user_sound_pack_builder.py'
+      - 'tests/test_owner_docx_win32_portability.py'
+  push:
+    branches:
+      - qualification/owner-portable-candidate-20261004-sol6f2
+    paths:
+      - '.github/workflows/owner-oneclick-from-w4.yml'
+      - '.github/workflows/w4-v2-p0-fresh-windows-candidate.yml'
+      - '.github/workflows/owner-oneclick-finalizer-contract.yml'
+      - 'scripts/build_owner_portable_candidate.py'
+      - 'scripts/materialize_owner_library_seed.py'
+      - 'scripts/build_user_sound_pack.py'
+      - 'scripts/verify_owner_w4_run_provenance.py'
+      - 'scripts/finalize_owner_final_receipt.py'
+      - 'acs/user_library_seed.py'
+      - 'acs/version2_package_preflight.py'
+      - 'acs/version2_portable_package.py'
+      - 'tests/test_owner_oneclick_from_w4_workflow.py'
+      - 'tests/test_owner_portable_candidate.py'
+      - 'tests/test_materialize_owner_library_seed.py'
+      - 'tests/test_verify_owner_w4_run_provenance.py'
+      - 'tests/test_finalize_owner_final_receipt.py'
+      - 'tests/test_user_library_seed.py'
+      - 'tests/test_version2_portable_package.py'
+      - 'tests/test_owner_docx_win32_portability.py'
+      - 'tests/test_user_sound_pack_builder.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: owner-oneclick-finalizer-contract-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Setup exact Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile finalizer authorities
+        run: >-
+          python -m py_compile
+          scripts/build_owner_portable_candidate.py
+          scripts/materialize_owner_library_seed.py
+          scripts/build_user_sound_pack.py
+          scripts/verify_owner_w4_run_provenance.py
+          scripts/finalize_owner_final_receipt.py
+          acs/user_library_seed.py
+          acs/version2_package_preflight.py
+          acs/version2_portable_package.py
+          tests/test_owner_oneclick_from_w4_workflow.py
+          tests/test_owner_docx_win32_portability.py
+          tests/test_user_sound_pack_builder.py
+          tests/test_verify_owner_w4_run_provenance.py
+          tests/test_finalize_owner_final_receipt.py
+          tests/test_user_library_seed.py
+          tests/test_version2_portable_package.py
+
+      - name: Run finalizer wiring and owner-input regressions
+        run: >-
+          python -m unittest -v
+          tests.test_owner_oneclick_from_w4_workflow
+          tests.test_owner_docx_win32_portability
+          tests.test_materialize_owner_library_seed
+          tests.test_owner_portable_candidate
+          tests.test_verify_owner_w4_run_provenance
+          tests.test_finalize_owner_final_receipt
+          tests.test_user_library_seed
+          tests.test_user_sound_pack_builder
+          tests.test_version2_portable_package
+
+      - name: Whitespace and acceptance-claim hygiene
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          python - <<'PY'
+          from pathlib import Path
+          workflow = Path('.github/workflows/owner-oneclick-from-w4.yml').read_text(encoding='utf-8')
+          assert 'metadata.get(\'product_sha\') != exact' in workflow
+          assert 'HUMAN_TESTED=YES' not in workflow
+          assert 'NVDA_VERIFIED=YES' not in workflow
+          assert 'expected_source_count=6' in workflow
+          assert 'expected_game_count=3738' in workflow
+          assert 'sound_wav_count' in workflow
+          assert 'from scripts.build_owner_portable_candidate import _owner_docx_filename' in workflow
+          assert 'python -m scripts.finalize_owner_final_receipt' in workflow
+          assert 'OWNER_FINAL_RECEIPT_PROVENANCE_BOUND=PASS' in workflow
+          assert '_portable_docx_name' not in workflow
+          print('OWNER_FINALIZER_CONTRACT_HYGIENE=PASS')
+          PY

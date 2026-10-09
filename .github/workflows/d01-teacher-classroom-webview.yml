@@ -1,0 +1,171 @@
+name: D01 Teacher Classroom WebView
+
+on:
+  pull_request:
+    paths:
+      - 'acs/classroom_webview_bridge.py'
+      - 'acs/classroom_webview_projection.py'
+      - 'acs/teacher_webview_bridge.py'
+      - 'acs/teacher_webview_projection.py'
+      - 'acs/version2_final_release.py'
+      - 'tests/js/classroom_surface_dom_test.js'
+      - 'tests/js/teacher_surface_dom_test.js'
+      - 'tests/test_d09_teacher_canonical_webview_composition.py'
+      - 'tests/test_dev1_classroom_web_asset.py'
+      - 'tests/test_dev1_classroom_webview_bridge.py'
+      - 'tests/test_dev1_classroom_webview_privacy.py'
+      - 'tests/test_dev1_classroom_webview_projection.py'
+      - 'tests/test_dev1_teacher_webview_projection.py'
+      - 'tests/test_teacher_webview_bridge.py'
+      - 'web/full_product_classroom.js'
+      - 'web/full_product_teacher.js'
+      - '.github/workflows/d01-teacher-classroom-webview.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: d01-teacher-classroom-webview-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Preserve exact Git bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned verification dependency
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Prove retained D01 authority and current PR hygiene
+        shell: bash
+        env:
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          base="${EVENT_BASE_SHA:-}"
+          if [ -z "$base" ]; then
+            base="$(git rev-parse HEAD^)"
+          fi
+          git cat-file -e "${base}^{commit}" || git fetch --no-tags origin "$base"
+          d01_owner="ce5379cbdd4380fbe38d676efea5a24cec2e5825"
+          classroom_surface_successor="8776ff7770e27e8d9038ef2c26ab7267daef805a"
+          classroom_dom_successor="dc3a29c842762fcbbafdb7fdfdc062e010faf078"
+          git cat-file -e "${d01_owner}^{commit}"
+          git merge-base --is-ancestor "$base" HEAD
+          git merge-base --is-ancestor "$d01_owner" HEAD
+          git diff --check "$base" HEAD
+          for path in \
+            acs/classroom_webview_bridge.py \
+            acs/classroom_webview_projection.py \
+            acs/teacher_webview_bridge.py \
+            acs/teacher_webview_projection.py \
+            tests/js/teacher_surface_dom_test.js \
+            tests/test_d09_teacher_canonical_webview_composition.py \
+            tests/test_dev1_classroom_webview_bridge.py \
+            tests/test_dev1_classroom_webview_privacy.py \
+            tests/test_dev1_classroom_webview_projection.py \
+            tests/test_dev1_teacher_webview_projection.py \
+            tests/test_teacher_webview_bridge.py \
+            web/full_product_teacher.js
+          do
+            test "$(git rev-parse "HEAD:${path}")" = "$(git rev-parse "${d01_owner}:${path}")" || {
+              printf 'D01 retained blob drift: %s\n' "$path" >&2
+              exit 1
+            }
+          done
+          classroom_surface="$(git rev-parse HEAD:web/full_product_classroom.js)"
+          classroom_dom="$(git rev-parse HEAD:tests/js/classroom_surface_dom_test.js)"
+          classroom_asset_test="$(git rev-parse HEAD:tests/test_dev1_classroom_web_asset.py)"
+          if [ "$classroom_surface" = '08d560db9a7c490b6beec2ed4f4e58aa957c063f' ]; then
+            test "$classroom_dom" = '64aa04194860b85d5e38f08d4f82d50d2892a7fa'
+            test "$classroom_asset_test" = '3dad9d3bd56e06001ce369231fed6d944de75a42'
+          else
+            test "$classroom_surface" = "$classroom_surface_successor"
+            test "$classroom_dom" = "$classroom_dom_successor"
+            test "$classroom_asset_test" = "$(git rev-parse "$d01_owner:tests/test_dev1_classroom_web_asset.py")"
+          fi
+          printf 'D01 retained authority PASS: owner=%s base=%s classroom_surface=%s classroom_dom=%s\n' \
+            "$d01_owner" "$base" "$classroom_surface_successor" "$classroom_dom_successor"
+
+      - name: Compile Teacher and Classroom package
+        run: >-
+          python -m compileall -q
+          acs/classroom_webview_bridge.py
+          acs/classroom_webview_projection.py
+          acs/teacher_webview_bridge.py
+          acs/teacher_webview_projection.py
+          tests/test_d09_teacher_canonical_webview_composition.py
+          tests/test_dev1_teacher_webview_projection.py
+          tests/test_teacher_webview_bridge.py
+
+      - name: Parse browser assets and run executable Teacher/Classroom DOM contracts
+        run: |
+          node --check web/full_product_classroom.js
+          node --check web/full_product_teacher.js
+          node --check tests/js/classroom_surface_dom_test.js
+          node tests/js/classroom_surface_dom_test.js
+          node tests/js/teacher_surface_dom_test.js
+
+      - name: Teacher canonical-state focused tests
+        run: >-
+          python -m unittest -v
+          tests.test_d09_teacher_canonical_webview_composition
+          tests.test_dev1_teacher_webview_projection
+          tests.test_teacher_webview_bridge
+          tests.test_dev1_full_product_ui_packages
+          tests.test_teaching_session
+          tests.test_teaching_session_adapter
+          tests.test_teaching_session_adversarial
+          tests.test_teaching_visual_board
+          tests.test_teaching_classroom_adapter
+          tests.test_teaching_classroom_floor_control
+          tests.test_teaching_reverse_channel
+
+      - name: Classroom privacy and education focused tests
+        run: >-
+          python -m unittest -v
+          tests.test_dev1_classroom_web_asset
+          tests.test_dev1_classroom_webview_bridge
+          tests.test_dev1_classroom_webview_privacy
+          tests.test_dev1_classroom_webview_projection
+          tests.test_dev1_classroom_remote_ui
+          tests.test_classroom_domain
+          tests.test_classroom_domain_corruption
+          tests.test_education_classroom_integration
+          tests.test_education_records
+          tests.test_education_records_store
+          tests.test_education_workspace
+          tests.test_d10_remote_checkpoint_provenance
+
+      - name: Full repository unittest
+        run: python -m unittest discover -s tests -v
+
+      - name: Full repository pytest
+        run: python -m pytest -q tests
+
+      - name: SELFTEST and complete diagnostic
+        run: |
+          python -m acs.selftest
+          python run_accessible_chess.py --diagnostic

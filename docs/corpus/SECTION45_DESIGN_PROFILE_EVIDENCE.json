@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "section": 45,
+  "status": "INTERNAL_COMPLETE_EXTERNAL_BLOCKED",
+  "existing_preferences": {
+    "keyboard_profile": "web/version2_local_profile.js + canonical keymap APIs",
+    "sound_preferences": "web/stage1_release_bootstrap.js + persisted sound APIs",
+    "settings_storage": "acs/settings.py",
+    "recovery_contract": "invalid/corrupt settings fail closed and preserve existing data"
+  },
+  "design_profile_studio": {
+    "apply_cancel_reset": "IMPLEMENTED as one keyboard-accessible Settings surface",
+    "named_profiles": ["Classic", "Studio Dark", "Tournament", "Low Vision", "Minimal"],
+    "editable_dimensions": ["theme", "board theme", "density"],
+    "persistence": "one validated visual_profile_json settings value",
+    "runtime_application": "document theme/density/profile attributes plus canonical board theme class"
+  },
+  "verification": {"source_and_persistence_tests": "PASS tests.test_visual_profiles plus design/theme suites", "forced_colors_and_reduced_motion": "PRESERVED", "physical_nvda": "NOT_RUN"},
+  "blocked": ["physical Windows DPI screenshot matrix", "human NVDA visual-settings acceptance"]
+}

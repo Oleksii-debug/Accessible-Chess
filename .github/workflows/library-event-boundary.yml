@@ -1,0 +1,62 @@
+name: Library Browser Event Boundary
+
+on:
+  push:
+    branches:
+      - integration/current-main-windows-apex-reconvergence-20261004-sol
+    paths:
+      - 'web/full_product_library.js'
+      - 'tests/js/library_event_boundary_test.js'
+      - 'acs/library_webview_projection.py'
+      - 'acs/library_export_webview_projection.py'
+      - 'acs/library_webview_bridge.py'
+      - '.github/workflows/library-event-boundary.yml'
+  pull_request:
+    paths:
+      - 'web/full_product_library.js'
+      - 'tests/js/library_event_boundary_test.js'
+      - 'acs/library_webview_projection.py'
+      - 'acs/library_export_webview_projection.py'
+      - 'acs/library_webview_bridge.py'
+      - '.github/workflows/library-event-boundary.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: library-event-boundary-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  library-event-boundary:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+
+      - name: Setup exact Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Validate Library browser event boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check web/full_product_library.js
+          node --check tests/js/library_event_boundary_test.js
+          node tests/js/library_event_boundary_test.js
+          node tests/js/library_surface_dom_test.js
+          node tests/js/library_export_surface_dom_test.js
+          python -m unittest \
+            tests.test_dev1_library_webview_projection \
+            tests.test_d07_library_export_webview -v
+          git diff --check HEAD^ HEAD

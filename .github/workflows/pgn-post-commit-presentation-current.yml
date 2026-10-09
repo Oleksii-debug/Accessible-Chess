@@ -1,0 +1,105 @@
+name: PGN Post-Commit Presentation Current Apex
+
+on:
+  pull_request:
+    branches:
+      - 'converge/completion-launcher-books-20261004-sol56'
+    paths:
+      - '.github/workflows/pgn-post-commit-presentation-current.yml'
+      - 'tests/test_pgn_post_commit_presentation_recovery_current.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pgn-post-commit-presentation-current-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  current-apex-recovery:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      EXPECTED_BASE: f85ae1a34ced27ef9ff97916b6e59b3ecb315317
+      BASE_BRANCH: converge/completion-launcher-books-20261004-sol56
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove exact current completion base and owned recovery proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_head='${{ github.event.pull_request.head.sha || github.sha }}'
+          test "$(git rev-parse HEAD)" = "$expected_head"
+          git fetch --no-tags origin \
+            "+refs/heads/$BASE_BRANCH:refs/remotes/origin/$BASE_BRANCH"
+          live_base="$(git rev-parse "refs/remotes/origin/$BASE_BRANCH")"
+          test "$live_base" = "$EXPECTED_BASE"
+          git merge-base --is-ancestor "$EXPECTED_BASE" HEAD
+          test "$(git merge-base "$EXPECTED_BASE" HEAD)" = "$EXPECTED_BASE"
+
+          if [ '${{ github.event_name }}' = 'pull_request' ]; then
+            test '${{ github.event.pull_request.base.ref }}' = "$BASE_BRANCH"
+            test '${{ github.event.pull_request.base.sha }}' = "$EXPECTED_BASE"
+          fi
+
+          changed="$(git diff --name-only "$EXPECTED_BASE" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/pgn-post-commit-presentation-current.yml' \
+            'tests/test_pgn_post_commit_presentation_recovery_current.py' | sort)"
+          missing="$(comm -23 <(printf '%s\n' "$expected") <(printf '%s\n' "$changed"))"
+          test -z "$missing" || {
+            printf 'Missing PGN recovery authority path(s):\n%s\n' "$missing" >&2
+            exit 1
+          }
+          if [ "$changed" = "$expected" ]; then
+            echo 'PGN_RECOVERY_TOPOLOGY=FOCUSED'
+          else
+            if [ '${{ github.event_name }}' = 'pull_request' ]; then
+              test '${{ github.head_ref }}' = 'converge/current-product-launcher-keyboard-persistence-pgn-20261004-sol56-g255'
+            fi
+            echo 'PGN_RECOVERY_TOPOLOGY=CONVERGED_PRODUCT'
+          fi
+          git diff --check "$EXPECTED_BASE" HEAD
+
+      - name: Lock reviewed current PGN runtime authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD:acs/pgn_workspace_webview_adapter.py)" = "6100c761953e101c60220bfe3af6d2751be2d403"
+          test "$(git rev-parse HEAD:acs/pgn_webview_bridge.py)" = "5532f1fc7bbb29acd3b1716d826b66b355f34480"
+          test "$(git rev-parse HEAD:acs/version2_pgn_commands.py)" = "74a94b45597fbdc1607e7b3452df41b88837b42f"
+          test "$(git rev-parse HEAD:tests/test_pgn_post_commit_presentation_recovery_current.py)" = "df1b5b78b136ada6931b54a14d6493e40006b2ac"
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile focused recovery boundary
+        run: >-
+          python -m py_compile
+          acs/pgn_workspace_webview_adapter.py
+          acs/pgn_webview_bridge.py
+          acs/version2_pgn_commands.py
+          tests/test_pgn_post_commit_presentation_recovery_current.py
+
+      - name: Prove current-apex post-commit recovery and adjacent PGN authority
+        run: >-
+          python -m unittest -v
+          tests.test_pgn_post_commit_presentation_recovery_current
+          tests.test_pgn_browser_presentation_lease_required
+          tests.test_dev1_pgn_workspace_webview_adapter
+          tests.test_version2_pgn_commands
+
+      - name: Verify tracked diff
+        shell: bash
+        run: git diff --check "$EXPECTED_BASE" HEAD

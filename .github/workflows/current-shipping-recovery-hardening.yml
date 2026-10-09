@@ -1,0 +1,295 @@
+name: Current Shipping Recovery Hardening
+
+on:
+  pull_request:
+    branches:
+      - converge/current-shipping-pgn-open-terminal-truth-20261006-c2mbezb
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-shipping-recovery-hardening-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+env:
+  PARENT_SHA: eace8b671934c1acf6e12a4a59a95bc6274a8f1d
+  SOUND_SCALED_CACHE_WORKFLOW_BLOB: 0650e282bb6fedaee2a6f6434e3271947c319ec5
+  PACKAGE_ASSEMBLER_WORKFLOW_BLOB: 2a5c43c3e5aa51f02dc54c5df91ec51da85f4f23
+  PACKAGE_PREFLIGHT_WORKFLOW_BLOB: 6959de040012b13d2e5132a352715463f81e1276
+  RELEASE_PAYLOAD_WORKFLOW_BLOB: f2a0a973e9b2bf0c9459e3117defc26ec32f6b52
+  APP_BLOB: 1e0b61d9a8e108aa2875ff0398bd26f239073bf8
+  RELEASE_APP_BLOB: 44228cb4028d295c2cf5e5430781a5df97e124a9
+  RELEASE_UI_BLOB: f94c319db2e29838aa2e50e800d7a59ad78f0f6c
+  APP_TEST_BLOB: 69564467465e3cdcf3109159a35292b5ec47f1e8
+  SHUTDOWN_PROGRESS_TEST_BLOB: 015447b25f8b72aaef7fd9c3e6c1c715311ea591
+  MINIMAL_SHUTDOWN_TEST_BLOB: 8bf248af2f64156e93c4ce1be7455754efe1dd78
+  STARTUP_TEST_BLOB: ad1e6e661c3e961e8cf9fd089da03207508ab490
+  RELEASE_UI_TEST_BLOB: 5993cc5cb4315fe50adf9b89d0f7583dfb90e065
+  BOOK_OPEN_WORKER_BLOB: d9544b14d77794bdc7436516b55cc13a8bef8882
+  FILE_WORKFLOWS_BLOB: a3bd0bb6cbc9520ffa74546728a150e3dccef0ff
+  HOST_RUNTIME_BLOB: e612d019da9c916369dede9c958ae76fe6e073f8
+  IMPORT_UI_PUMP_BLOB: 2551c9a3a06cef24b1a849154e9ced66aac6f23b
+  IMPORT_UI_PUMP_TEST_BLOB: 7131b3cafd8a6a4673c1296fb739e16abfa1e4f2
+  BOOK_OPEN_WORKER_TEST_BLOB: 00204dce76a167d66921df20bb2bd26fd6fe4541
+  HOST_RUNTIME_TEST_BLOB: b53f68f57b477702e63378a485c910cd2911182e
+  FILE_SHUTDOWN_TEST_BLOB: cd2cfff940e4c149196cca3c08e2f2a9f5df9c72
+  FORMCLOSING_TEST_BLOB: 197661e6fee63d19fcdc86535815389cb1c70868
+  RELEASE_CLEANUP_TEST_BLOB: 1e802195473deda933f1039f607c4aaa3bff1195
+  PACKAGE_PREFLIGHT_BLOB: 70affbc28caa05389e0473e392ebf602838d2836
+  PACKAGE_PREFLIGHT_TEST_BLOB: c687655a2bd4631765385f86a5d059d6e0c276bf
+  PACKAGE_PREFLIGHT_PE_IDENTITY_TEST_BLOB: 182033428b115a3c073dace700ec9c67d7a1db7a
+  PORTABLE_PACKAGE_BLOB: 4f187fb934555d4f95cb6b0494123f82dbaaa878
+  PORTABLE_PACKAGE_TEST_BLOB: 6cfd972f0b5f9ad385decc49ca2c00cd5a67d405
+  ANALYSIS_FEEDBACK_TEST_BLOB: 87060c11febc787b65a482bc897f1464a443e3b2
+  V2_RELEASE_DOM_TEST_BLOB: 6052ddfde81b98ef842660390be7a033b688bc9a
+  PHYSICAL_RECORDER_BLOB: 91ffd7ef6c83f31c502f5fbe594caa49838f7150
+  PHYSICAL_HARDENING_TEST_BLOB: 146e403e4e89d08bfc225e46cc21f600d396f0ef
+  PGN_OPEN_WORKER_TEST_BLOB: 3af4594cab4ee0d2e66eeeb6ef2e3d40e985a59f
+  PGN_SAVE_TERMINAL_TEST_BLOB: 21c22aca52b4aa6fb3a1bab2509e0a89d19fb290
+  PGN_SAVE_WORKER_TEST_BLOB: 5ddd7c4634dad4bd0e8c4d41b6f7549395220c04
+
+jobs:
+  recovery-hardening:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Preserve exact Git bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12.10"
+
+      - name: Prove exact parent, scope and blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          head_sha="$(git rev-parse HEAD)"
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            test "$head_sha" = "${{ github.event.pull_request.head.sha }}"
+            base_sha="${{ github.event.pull_request.base.sha }}"
+          else
+            test "$head_sha" = "${{ github.sha }}"
+            base_sha="$PARENT_SHA"
+          fi
+          git cat-file -e "$base_sha^{commit}"
+          test "$(git merge-base "$base_sha" HEAD)" = "$base_sha"
+          git diff --check "$base_sha"...HEAD
+          mapfile -t paths < <(git diff --name-only "$base_sha"...HEAD | sort)
+          expected=(
+            ".github/workflows/current-shipping-recovery-hardening.yml"
+            ".github/workflows/sound-scaled-cache-integrity.yml"
+            ".github/workflows/w6-v2-package-assembler.yml"
+            ".github/workflows/w6-v2-package-preflight-current-runtime.yml"
+            ".github/workflows/w6-v2-release-payload-current-assembler.yml"
+            "acs/version2_application.py"
+            "acs/version2_package_preflight.py"
+            "acs/version2_portable_package.py"
+            "acs/version2_release_app.py"
+            "acs/version2_release_ui.py"
+            "acs/version2_windows_book_open_worker.py"
+            "acs/version2_windows_file_workflows.py"
+            "acs/version2_windows_host_runtime.py"
+            "acs/version2_windows_import_ui_pump.py"
+            "scripts/record_owner_physical_acceptance.py"
+            "tests/js/version2_release_bootstrap_dom_test.js"
+            "tests/test_owner_physical_acceptance_json_hardening.py"
+            "tests/test_v2_board_analysis_hotkey_feedback.py"
+            "tests/test_v2_windows_file_worker_shutdown_fence.py"
+            "tests/test_v2_windows_host_runtime.py"
+            "tests/test_v2_windows_import_ui_pump.py"
+            "tests/test_v2_windows_pgn_open_worker.py"
+            "tests/test_v2_windows_pgn_save_terminal_truth.py"
+            "tests/test_v2_windows_pgn_save_worker.py"
+            "tests/test_version2_application.py"
+            "tests/test_version2_composition_startup_cleanup_current.py"
+            "tests/test_version2_package_pe_identity.py"
+            "tests/test_version2_package_preflight.py"
+            "tests/test_version2_portable_package.py"
+            "tests/test_version2_release_cleanup_precedence.py"
+            "tests/test_version2_release_ui.py"
+            "tests/test_version2_windows_book_open_worker.py"
+            "tests/test_w5_native_formclosing_dirty_pgn.py"
+            "tests/test_work_v2_shutdown_progress_failure_cleanup.py"
+          )
+          test "${#paths[@]}" -eq "${#expected[@]}"
+          for i in "${!expected[@]}"; do
+            test "${paths[$i]}" = "${expected[$i]}"
+          done
+          test ! -e .github/workflows/current-shipping-owner-cancel-recovery-order.yml
+          test "$(git rev-parse HEAD:.github/workflows/sound-scaled-cache-integrity.yml)" = "$SOUND_SCALED_CACHE_WORKFLOW_BLOB"
+          test "$(git rev-parse HEAD:.github/workflows/w6-v2-package-assembler.yml)" = "$PACKAGE_ASSEMBLER_WORKFLOW_BLOB"
+          test "$(git rev-parse HEAD:.github/workflows/w6-v2-package-preflight-current-runtime.yml)" = "$PACKAGE_PREFLIGHT_WORKFLOW_BLOB"
+          test "$(git rev-parse HEAD:.github/workflows/w6-v2-release-payload-current-assembler.yml)" = "$RELEASE_PAYLOAD_WORKFLOW_BLOB"
+          test "$(git rev-parse HEAD:acs/version2_application.py)" = "$APP_BLOB"
+          test "$(git rev-parse HEAD:acs/version2_release_app.py)" = "$RELEASE_APP_BLOB"
+          test "$(git rev-parse HEAD:acs/version2_release_ui.py)" = "$RELEASE_UI_BLOB"
+          test "$(git rev-parse HEAD:tests/test_version2_application.py)" = "$APP_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_version2_composition_startup_cleanup_current.py)" = "$STARTUP_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_work_v2_shutdown_progress_failure_cleanup.py)" = "$SHUTDOWN_PROGRESS_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_version2_shutdown.py)" = "$MINIMAL_SHUTDOWN_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_version2_release_ui.py)" = "$RELEASE_UI_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_version2_release_cleanup_precedence.py)" = "$RELEASE_CLEANUP_TEST_BLOB"
+          test "$(git rev-parse HEAD:acs/version2_windows_book_open_worker.py)" = "$BOOK_OPEN_WORKER_BLOB"
+          test "$(git rev-parse HEAD:acs/version2_windows_file_workflows.py)" = "$FILE_WORKFLOWS_BLOB"
+          test "$(git rev-parse HEAD:acs/version2_windows_host_runtime.py)" = "$HOST_RUNTIME_BLOB"
+          test "$(git rev-parse HEAD:acs/version2_windows_import_ui_pump.py)" = "$IMPORT_UI_PUMP_BLOB"
+          test "$(git rev-parse HEAD:tests/test_v2_windows_import_ui_pump.py)" = "$IMPORT_UI_PUMP_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_version2_windows_book_open_worker.py)" = "$BOOK_OPEN_WORKER_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_v2_windows_host_runtime.py)" = "$HOST_RUNTIME_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_v2_windows_file_worker_shutdown_fence.py)" = "$FILE_SHUTDOWN_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_w5_native_formclosing_dirty_pgn.py)" = "$FORMCLOSING_TEST_BLOB"
+          test "$(git rev-parse HEAD:acs/version2_package_preflight.py)" = "$PACKAGE_PREFLIGHT_BLOB"
+          test "$(git rev-parse HEAD:tests/test_version2_package_preflight.py)" = "$PACKAGE_PREFLIGHT_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_version2_package_pe_identity.py)" = "$PACKAGE_PREFLIGHT_PE_IDENTITY_TEST_BLOB"
+          test "$(git rev-parse HEAD:acs/version2_portable_package.py)" = "$PORTABLE_PACKAGE_BLOB"
+          test "$(git rev-parse HEAD:tests/test_version2_portable_package.py)" = "$PORTABLE_PACKAGE_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_v2_board_analysis_hotkey_feedback.py)" = "$ANALYSIS_FEEDBACK_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/js/version2_release_bootstrap_dom_test.js)" = "$V2_RELEASE_DOM_TEST_BLOB"
+          test "$(git rev-parse HEAD:scripts/record_owner_physical_acceptance.py)" = "$PHYSICAL_RECORDER_BLOB"
+          test "$(git rev-parse HEAD:tests/test_owner_physical_acceptance_json_hardening.py)" = "$PHYSICAL_HARDENING_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_v2_windows_pgn_open_worker.py)" = "$PGN_OPEN_WORKER_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_v2_windows_pgn_save_terminal_truth.py)" = "$PGN_SAVE_TERMINAL_TEST_BLOB"
+          test "$(git rev-parse HEAD:tests/test_v2_windows_pgn_save_worker.py)" = "$PGN_SAVE_WORKER_TEST_BLOB"
+
+      - name: Compile changed and integrated boundaries
+        run: >-
+          python -m py_compile
+          acs/version2_application.py
+          acs/version2_package_preflight.py
+          acs/version2_portable_package.py
+          acs/version2_release_app.py
+          acs/version2_release_ui.py
+          acs/version2_windows_book_open_worker.py
+          acs/version2_windows_file_workflows.py
+          acs/version2_windows_host_runtime.py
+          acs/version2_windows_import_ui_pump.py
+          scripts/record_owner_physical_acceptance.py
+          tests/test_owner_physical_acceptance_json_hardening.py
+          tests/test_version2_application.py
+          tests/test_version2_shutdown.py
+          tests/test_work_v2_shutdown_progress_failure_cleanup.py
+          tests/test_version2_composition_startup_cleanup_current.py
+          tests/test_version2_package_preflight.py
+          tests/test_version2_portable_package.py
+          tests/test_version2_release_ui.py
+          tests/test_version2_release_cleanup_precedence.py
+          tests/test_version2_windows_book_open_worker.py
+          tests/test_v2_board_analysis_hotkey_feedback.py
+          tests/test_v2_windows_file_worker_shutdown_fence.py
+          tests/test_v2_windows_host_runtime.py
+          tests/test_v2_windows_import_ui_pump.py
+          tests/test_v2_windows_pgn_open_worker.py
+          tests/test_v2_windows_pgn_save_terminal_truth.py
+          tests/test_v2_windows_pgn_save_worker.py
+          tests/test_w5_native_formclosing_dirty_pgn.py
+
+      - name: Execute recovery, persistence and accessibility contracts
+        run: >-
+          python -m unittest -v
+          tests.test_version2_application
+          tests.test_version2_shutdown
+          tests.test_work_v2_shutdown_progress_failure_cleanup
+          tests.test_version2_composition_startup_cleanup_current
+          tests.test_version2_release_ui
+          tests.test_version2_release_cleanup_precedence
+          tests.test_version2_windows_book_open_worker
+          tests.test_w5_native_formclosing_dirty_pgn
+          tests.test_v2_board_analysis_hotkey_feedback
+          tests.test_v2_windows_host_runtime
+          tests.test_v2_windows_import_ui_pump
+          tests.test_v2_windows_pgn_open_worker
+          tests.test_v2_windows_pgn_save_worker
+          tests.test_v2_windows_pgn_save_terminal_truth
+          tests.test_v2_windows_nvda_file_workflows
+          tests.test_v2_windows_library_import_observer
+          tests.test_v2_windows_file_worker_shutdown_fence
+          tests.test_v2_windows_file_logging_passive
+          tests.test_chessbase_library_import_report_passive
+          tests.test_bookreader_revision_barriers_current
+          tests.test_book_bidirectional_semantic_navigation
+          tests.test_bookdocument_identity_bounds_current
+          tests.test_bookdocument_scalar_bounds_current
+          tests.test_bookdocument_deserialize_bounds_current
+          tests.test_bookdocument_total_text_budget_current
+          tests.test_book_document_ingress_passive_current
+          tests.test_bookreader_snapshot_bounds
+          tests.test_v2_book_text_import
+          tests.test_v2_book_html_import
+          tests.test_v2_book_epub_import
+          tests.test_v2_book_board_workflow
+          tests.test_v2_pgn_semantic_fidelity
+          tests.test_d06_pgn_roundtrip
+          tests.test_d06_real_corpus_recovery
+          tests.test_dev4_pgn_resource_security
+          tests.test_dev4_pgn_truncation_quality
+          tests.test_whole_product_user_journey
+
+      - name: Execute shipping boundary contracts
+        run: >-
+          python -m unittest -v
+          tests.test_version2_package_preflight
+          tests.test_version2_package_preflight_hardening
+          tests.test_v2_package_required_resources
+          tests.test_version2_package_pe_identity
+          tests.test_version2_package_assembler
+          tests.test_version2_release_payload
+          tests.test_version2_portable_package
+          tests.test_owner_oneclick_from_w4_workflow
+          tests.test_owner_docx_win32_portability
+          tests.test_materialize_owner_library_seed
+          tests.test_owner_portable_candidate
+          tests.test_verify_owner_w4_run_provenance
+          tests.test_user_library_seed
+          tests.test_user_sound_pack_builder
+          tests.test_portable_launcher_contract
+          tests.test_portable_launcher_window_readiness
+          tests.test_portable_localappdata_persistence_binding
+          tests.test_version2_release_app
+          tests.test_version2_release_receipt
+          tests.test_finalize_owner_final_receipt
+          tests.test_owner_physical_acceptance
+          tests.test_owner_physical_acceptance_json_hardening
+          tests.test_version2_package_zip_topology_preflight
+
+      - name: Core selftest
+        run: python -m acs.selftest
+
+  semantic-copy-oracle:
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12.10"
+      - name: Execute semantic document-copy oracle
+        run: |
+          node --check tests/p0_semantic_document_copy_executable.js
+          node tests/p0_semantic_document_copy_executable.js
+          node tests/js/version2_release_bootstrap_dom_test.js
+          python -m unittest -v tests.test_p0_semantic_document_copy

@@ -1,0 +1,126 @@
+name: Windows Unicode Path Portability
+
+on:
+  pull_request:
+    paths:
+      - 'tests/test_windows_unicode_path_portability.py'
+      - 'tests/test_windows_unicode_path_portability_workflow.py'
+      - '.github/workflows/windows-unicode-path-portability.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-unicode-path-portability-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  path-portability:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+      FOCUSED_BASE_REF: converge/books-training-owner-current-20261004-zftrkmo
+      INTEGRATED_HEAD: d1560f918c266a6dc8c603f977855beabc48391a
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Preserve exact Git bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config core.autocrlf false
+          git config core.eol lf
+          git reset --hard HEAD
+
+      - name: Prove live-base ancestry and bounded evidence scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected='${{ github.event.pull_request.head.sha || github.sha }}'
+          test "$(git rev-parse HEAD)" = "$expected"
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            event_base="$PR_BASE_SHA"
+            base_ref="$PR_BASE_REF"
+            test -n "$event_base"
+            test -n "$base_ref"
+            git cat-file -e "$event_base^{commit}"
+            git fetch --no-tags origin "$base_ref"
+            live_base="$(git rev-parse "origin/$base_ref")"
+            git merge-base --is-ancestor "$event_base" "$live_base"
+            git merge-base --is-ancestor "$live_base" HEAD
+            test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+            upstream="$live_base"
+          else
+            upstream="$(git rev-parse HEAD^)"
+          fi
+
+          git cat-file -e "$upstream^{commit}"
+          git merge-base --is-ancestor "$upstream" HEAD
+          test "$(git merge-base "$upstream" HEAD)" = "$upstream"
+          git diff --check "$upstream" HEAD
+
+          if [ "${PR_BASE_REF:-}" = "$FOCUSED_BASE_REF" ]; then
+            changed="$(git diff --name-only "$upstream" HEAD | sort)"
+            test -n "$changed"
+            while IFS= read -r path; do
+              case "$path" in
+                .github/workflows/windows-unicode-path-portability.yml|tests/test_windows_unicode_path_portability.py|tests/test_windows_unicode_path_portability_workflow.py) ;;
+                *) echo "Unexpected path in portability evidence successor: $path" >&2; exit 1 ;;
+              esac
+            done <<< "$changed"
+            git diff --quiet "$upstream" HEAD -- acs web packaging run_accessible_chess.py
+            echo 'WINDOWS_PATH_PORTABILITY_SCOPE=TEST_WORKFLOW_ONLY'
+          else
+            git cat-file -e "$INTEGRATED_HEAD^{commit}"
+            git merge-base --is-ancestor "$INTEGRATED_HEAD" HEAD
+            echo 'WINDOWS_PATH_PORTABILITY_SCOPE=CONVERGED_SUCCESSOR'
+          fi
+
+          test "$(git hash-object tests/test_windows_unicode_path_portability.py)" = \
+            '23e6397082d4133726c35f9dedff76a32e0c83f9'
+          echo 'WINDOWS_PATH_PORTABILITY_ORACLE=23e6397082d4133726c35f9dedff76a32e0c83f9'
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile portability oracles
+        run: >-
+          python -m py_compile
+          tests/test_windows_unicode_path_portability.py
+          tests/test_windows_unicode_path_portability_workflow.py
+
+      - name: Run path portability and adjacent owner regressions
+        run: >-
+          python -m unittest -v
+          tests.test_windows_unicode_path_portability
+          tests.test_windows_unicode_path_portability_workflow
+          tests.test_settings
+          tests.test_version2_release_app
+          tests.test_whole_product_user_journey
+          tests.test_v2_windows_nvda_file_workflows
+          tests.test_d07_library_import_service
+          tests.test_d07_library_export_service
+          tests.test_v2_windows_library_export
+          tests.test_v2_book_text_import
+          tests.test_v2_book_html_import
+          tests.test_version2_epub_application_reachability
+          tests.test_v2_book_progress_store_production
+          tests.test_v2_user_error_surface_privacy
+
+      - name: SELFTEST and complete diagnostic
+        run: |
+          python -m acs.selftest
+          python run_accessible_chess.py --diagnostic

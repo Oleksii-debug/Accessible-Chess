@@ -1,0 +1,101 @@
+name: Child Coaching Keyboard Current Apex
+
+on:
+  push:
+    branches:
+      - converge/books-training-owner-current-20261004-zftrkmo
+    paths:
+      - acs/full_product_actions.py
+      - acs/version2_final_product_profile.py
+      - acs/version2_final_product_application.py
+      - web/keybindings.json
+      - tests/test_child_coaching_keyboard_actions.py
+      - tests/test_keybindings_current_apex_reconvergence.py
+      - tests/test_version2_accessibility_convergence.py
+      - tests/js/version2_library_open_route_refresh_dom_test.js
+      - tests/js/version2_library_progress_filter_preservation_dom_test.js
+      - .github/workflows/child-coaching-keyboard-current-apex.yml
+  pull_request:
+    paths:
+      - acs/full_product_actions.py
+      - acs/version2_final_product_profile.py
+      - acs/version2_final_product_application.py
+      - web/keybindings.json
+      - tests/test_child_coaching_keyboard_actions.py
+      - tests/test_keybindings_current_apex_reconvergence.py
+      - tests/test_version2_accessibility_convergence.py
+      - tests/js/version2_library_open_route_refresh_dom_test.js
+      - tests/js/version2_library_progress_filter_preservation_dom_test.js
+      - .github/workflows/child-coaching-keyboard-current-apex.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: child-coaching-keyboard-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  child-coaching-keyboard:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    env:
+      EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+      ACTIONS_BLOB: 43f96936198bc6506f4033887a1c2857ae3e9d12
+      PROFILE_BLOB: a5331e752fd3b4338fd888894697b47bfceaea76
+      WEB_KEYMAP_BLOB: b3690e67d17b6737b70bce9c75c2b68b149205aa
+      PAIRING_BLOB: fee36f2029759d0c948c58cd3ca37ac20bbb0be4
+      ROTATION_BLOB: 7fe9da7f1d687f4976c3b4a50652c4c4fa830633
+      PREPARED_BLOB: 060fb8cee23c7fe22465208268b4b8fef5760d14
+    steps:
+      - name: Checkout exact candidate head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.EXPECTED_HEAD }}
+          fetch-depth: 0
+
+      - name: Prove exact central keyboard and coaching authorities
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test "$(git hash-object acs/full_product_actions.py)" = "$ACTIONS_BLOB"
+          test "$(git hash-object acs/version2_final_product_profile.py)" = "$PROFILE_BLOB"
+          test "$(git hash-object web/keybindings.json)" = "$WEB_KEYMAP_BLOB"
+          test "$(git hash-object acs/classroom_pairing.py)" = "$PAIRING_BLOB"
+          test "$(git hash-object acs/child_coaching_rotation.py)" = "$ROTATION_BLOB"
+          test "$(git hash-object acs/child_coaching_prepared_positions.py)" = "$PREPARED_BLOB"
+          git diff --check
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile keyboard coaching boundary
+        run: >-
+          python -m py_compile
+          acs/full_product_actions.py
+          acs/version2_final_product_profile.py
+          acs/version2_final_product_application.py
+          tests/test_child_coaching_keyboard_actions.py
+
+      - name: Run keyboard-only coaching and adjacent keymap contracts
+        run: >-
+          python -m unittest -v
+          tests.test_child_coaching_keyboard_actions
+          tests.test_version2_group_rotation_binding
+          tests.test_version2_prepared_child_lesson_binding
+          tests.test_keybindings_current_apex_reconvergence
+          tests.test_keybindings
+          tests.test_ui_keymap_adapter
+          tests.test_ui_keymap_service
+          tests.test_nvda_p0_contract
+          tests.test_version2_accessibility_convergence
+
+      - name: Run core selftest
+        run: python -m acs.selftest

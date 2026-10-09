@@ -1,0 +1,142 @@
+name: Current Runtime Books + PGN Convergence
+
+on:
+  push:
+    branches:
+      - converge/current-runtime-books-pgn-apex-20261006-zftrkmo
+      - converge/current-shipping-runtime-evidence-apex-20261006-zftrkmo
+      - converge/current-shipping-atomicity-evidence-successor-20261006-sol56
+      - converge/current-shipping-pgn-cancel-successor-20261006-ooxple7
+  pull_request:
+    branches:
+      - converge/current-product-books-provider-20261005-ooxple7
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-runtime-books-pgn-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+env:
+  PRODUCT_SHA: d0e14b998bb57b5c3b53609ecef41ab646b213a3
+  ORIGINAL_RUNTIME_MERGE_SHA: 5cf3b76e7c16b1633021de2ca069630c7625a294
+  PGN_PARENT_SHA: 7acff17b56d1beaf0f0924fa06ab9d00214b4cbe
+  BOOKS_PARENT_SHA: b0cb38cad9630cc92dcb848e6bcaf2abfd2ba474
+  BOOKS_REPAIR_SHA: 9aa4729ead9539bc264fb4fd99e6b9f1ca8d349f
+  PGN_REPAIR_SHA: 9acd0361260874e59ec80ca96bb68b8599751b50
+  RUNTIME_SUCCESSOR_MERGE_SHA: 446be708b6210d5d02f242977643ad84318ae520
+  RUNTIME_SUCCESSOR_SHA: e05ece81adf0eb384b4db3c18f225f7fc8b3bfbd
+  CURRENT_RUNTIME_SHA: a604e92e98c8b4ba9636e15b4e1221a18742bc84
+
+jobs:
+  convergence:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prove current runtime authority and descendant safety
+        shell: bash
+        run: |
+          set -euo pipefail
+          head="${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(git rev-parse HEAD)" = "$head"
+          test "$(git rev-list --parents -n 1 "$ORIGINAL_RUNTIME_MERGE_SHA")" = "$ORIGINAL_RUNTIME_MERGE_SHA $PGN_PARENT_SHA $BOOKS_PARENT_SHA"
+          test "$(git rev-list --parents -n 1 "$RUNTIME_SUCCESSOR_MERGE_SHA")" = "$RUNTIME_SUCCESSOR_MERGE_SHA $ORIGINAL_RUNTIME_MERGE_SHA $BOOKS_REPAIR_SHA $PGN_REPAIR_SHA"
+          test "$(git rev-list --parents -n 1 "$RUNTIME_SUCCESSOR_SHA")" = "$RUNTIME_SUCCESSOR_SHA $RUNTIME_SUCCESSOR_MERGE_SHA"
+          git merge-base --is-ancestor "$RUNTIME_SUCCESSOR_SHA" "$CURRENT_RUNTIME_SHA"
+          git merge-base --is-ancestor "$CURRENT_RUNTIME_SHA" HEAD
+          test "$(git merge-base "$PRODUCT_SHA" "$CURRENT_RUNTIME_SHA")" = "$PRODUCT_SHA"
+          git diff --check "$PRODUCT_SHA"...HEAD
+          test -z "$(git grep -nE '^(<<<<<<<|=======|>>>>>>>)' -- '*.py' '*.yml' '*.js' || true)"
+
+          python - <<'PY'
+          import os, subprocess
+          def triple(a, b):
+              return {x for x in subprocess.check_output(["git","diff","--name-only",f"{a}...{b}"], text=True).splitlines() if x}
+          def direct(a, b):
+              return {x for x in subprocess.check_output(["git","diff","--name-only",a,b], text=True).splitlines() if x}
+          product=os.environ["PRODUCT_SHA"]
+          runtime=os.environ["CURRENT_RUNTIME_SHA"]
+          runtime_paths=triple(product, runtime)
+          drift=direct(runtime, "HEAD") & runtime_paths
+          allowed={
+              ".github/workflows/current-runtime-books-pgn-apex.yml",
+              ".github/workflows/current-runtime-atomicity-successor.yml",
+          }
+          if not drift <= allowed:
+              raise SystemExit("RUNTIME_SUCCESSOR_PRODUCT_DRIFT "+repr(sorted(drift-allowed)))
+          print(f"RUNTIME_SUCCESSOR_PATHS={len(runtime_paths)}")
+          print(f"RUNTIME_DESCENDANT_ALLOWED_DRIFT={sorted(drift)}")
+          PY
+
+          for path in acs/book_board_workflow.py tests/test_v2_book_board_workflow.py; do
+            test "$(git rev-parse HEAD:$path)" = "$(git rev-parse "$BOOKS_REPAIR_SHA:$path")"
+          done
+          for path in acs/version2_windows_file_workflows.py tests/test_v2_windows_pgn_open_worker.py tests/test_v2_windows_pgn_save_worker.py; do
+            test "$(git rev-parse HEAD:$path)" = "$(git rev-parse "$CURRENT_RUNTIME_SHA:$path")"
+          done
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile integrated runtime boundaries
+        run: >-
+          python -m py_compile
+          acs/bookreader.py
+          acs/book_board_workflow.py
+          acs/book_webview_bridge.py
+          acs/book_webview_projection.py
+          acs/library_webview_projection.py
+          acs/pgn_document.py
+          acs/pgn_save_snapshot.py
+          acs/pgn_workspace.py
+          acs/version2_application.py
+          acs/version2_windows_file_workflows.py
+          acs/version2_windows_host_runtime.py
+          acs/version2_windows_import_ui_pump.py
+
+      - name: Execute Books semantic and recovery regressions
+        run: >-
+          python -m unittest -v
+          tests.test_bookreader
+          tests.test_bookreader_revision_barriers_current
+          tests.test_book_engine_authority_passive_ingress
+          tests.test_version2_book_workspace
+          tests.test_books_semantic_host_bounds
+          tests.test_v2_book_board_workflow
+          tests.test_book_bidirectional_semantic_navigation
+          tests.test_dev1_books_training_webview_bridge
+          tests.test_dev1_books_training_webview_projection
+
+      - name: Execute PGN persistence and Windows workflow regressions
+        run: >-
+          python -m unittest -v
+          tests.test_pgn_workspace
+          tests.test_pgn_save_snapshot
+          tests.test_pgn_document
+          tests.test_v2_windows_pgn_open_worker
+          tests.test_v2_windows_pgn_save_worker
+          tests.test_v2_windows_file_worker_shutdown_fence
+          tests.test_v2_windows_pgn_save_terminal_truth
+          tests.test_v2_windows_host_runtime
+          tests.test_v2_windows_import_event_mailbox
+          tests.test_v2_windows_import_progress_coherence
+          tests.test_v2_windows_import_ui_pump
+          tests.test_v2_windows_library_import_observer
+          tests.test_v2_windows_nvda_file_workflows
+          tests.test_version2_application
+
+      - name: Core selftest
+        run: python -m acs.selftest

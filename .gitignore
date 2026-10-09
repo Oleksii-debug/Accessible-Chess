@@ -150,6 +150,8 @@ activemq-data/
 # Environments
 .env
 .envrc
+test-inputs/videos/
+test-inputs/video-frames/
 .venv
 env/
 venv/

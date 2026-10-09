@@ -1,0 +1,197 @@
+name: Current Shipping Runtime + Evidence Apex
+
+on:
+  push:
+    branches:
+      - converge/current-shipping-runtime-evidence-apex-20261006-zftrkmo
+      - converge/current-shipping-atomicity-evidence-successor-20261006-sol56
+      - converge/current-shipping-pgn-cancel-successor-20261006-ooxple7
+  pull_request:
+    branches:
+      - converge/current-product-books-provider-20261005-ooxple7
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-shipping-runtime-evidence-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+env:
+  PRODUCT_SHA: d0e14b998bb57b5c3b53609ecef41ab646b213a3
+  OLD_RUNTIME_SHA: 5cf3b76e7c16b1633021de2ca069630c7625a294
+  PREVIOUS_SHIPPING_SHA: e3f5f1f524f566f374d2983b138806c728ff706f
+  PREVIOUS_SHIPPING_RECEIPT: 14c46f6e726688d58b9bbf01ba9442502d170266
+  RELEASE_PARENT_SHA: db267b71414b22dfee52139af074795c2f33195a
+  RUNTIME_SUCCESSOR_SHA: e05ece81adf0eb384b4db3c18f225f7fc8b3bfbd
+  SHIPPING_SUCCESSOR_MERGE_SHA: 1598f2d9a1beb85d5b5d3b88cbf0bf32e73187ff
+  CURRENT_RUNTIME_SHA: a604e92e98c8b4ba9636e15b4e1221a18742bc84
+  CURRENT_SHIPPING_PREMERGE_SHA: 13f5de67bdd0914557b65d6bceaba69cc329e4a8
+  CURRENT_SHIPPING_MERGE_SHA: 8b81945fa0bba5e54aabbf1c076362b48083c8ae
+
+jobs:
+  shipping-convergence:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 95
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prove shipping successor receipt and exact integrated scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          head="${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(git rev-parse HEAD)" = "$head"
+          test "$(git rev-list --parents -n 1 "$SHIPPING_SUCCESSOR_MERGE_SHA")" = "$SHIPPING_SUCCESSOR_MERGE_SHA $PREVIOUS_SHIPPING_SHA $RUNTIME_SUCCESSOR_SHA"
+          git merge-base --is-ancestor "$PREVIOUS_SHIPPING_RECEIPT" "$PREVIOUS_SHIPPING_SHA"
+          git merge-base --is-ancestor "$RELEASE_PARENT_SHA" "$PREVIOUS_SHIPPING_SHA"
+          git merge-base --is-ancestor "$RUNTIME_SUCCESSOR_SHA" "$SHIPPING_SUCCESSOR_MERGE_SHA"
+          git merge-base --is-ancestor "$SHIPPING_SUCCESSOR_MERGE_SHA" "$CURRENT_SHIPPING_MERGE_SHA"
+          git merge-base --is-ancestor "$CURRENT_RUNTIME_SHA" "$CURRENT_SHIPPING_MERGE_SHA"
+          git merge-base --is-ancestor "$CURRENT_SHIPPING_MERGE_SHA" HEAD
+          test "$(git rev-list --parents -n 1 "$CURRENT_SHIPPING_MERGE_SHA")" = "$CURRENT_SHIPPING_MERGE_SHA $CURRENT_SHIPPING_PREMERGE_SHA $CURRENT_RUNTIME_SHA"
+          test "$(git merge-base "$PRODUCT_SHA" "$CURRENT_SHIPPING_MERGE_SHA")" = "$PRODUCT_SHA"
+
+          python - <<'PY'
+          import os, subprocess
+          def triple(a,b):
+              return {x for x in subprocess.check_output(["git","diff","--name-only",f"{a}...{b}"], text=True).splitlines() if x}
+          def direct(a,b):
+              return {x for x in subprocess.check_output(["git","diff","--name-only",a,b], text=True).splitlines() if x}
+          product=os.environ["PRODUCT_SHA"]
+          old_runtime=os.environ["OLD_RUNTIME_SHA"]
+          previous=os.environ["PREVIOUS_SHIPPING_SHA"]
+          runtime=os.environ["RUNTIME_SUCCESSOR_SHA"]
+          merge=os.environ["SHIPPING_SUCCESSOR_MERGE_SHA"]
+          previous_delta=direct(old_runtime, previous)
+          runtime_delta=direct(old_runtime, runtime)
+          if previous_delta & runtime_delta:
+              raise SystemExit("SHIPPING_SUCCESSOR_PARENT_DELTA_OVERLAP "+repr(sorted(previous_delta & runtime_delta)))
+          expected=triple(product, previous) | triple(product, runtime)
+          receipt=triple(product, merge)
+          if receipt != expected:
+              print("old receipt missing", sorted(expected-receipt))
+              print("old receipt unexpected", sorted(receipt-expected))
+              raise SystemExit("SHIPPING_SUCCESSOR_FIXED_RECEIPT_MISMATCH")
+
+          current_runtime=os.environ["CURRENT_RUNTIME_SHA"]
+          current_merge=os.environ["CURRENT_SHIPPING_MERGE_SHA"]
+          current_expected=(
+              triple(product, previous)
+              | triple(product, current_runtime)
+              | {".github/workflows/current-shipping-pgn-cancel-successor.yml"}
+          )
+          actual=triple(product, "HEAD")
+          if actual != current_expected:
+              print("current head missing", sorted(current_expected-actual))
+              print("current head unexpected", sorted(actual-current_expected))
+              raise SystemExit("CURRENT_SHIPPING_PGN_SUCCESSOR_SCOPE_MISMATCH")
+          integration=direct(current_merge, "HEAD")
+          allowed={
+              ".github/workflows/current-runtime-books-pgn-apex.yml",
+              ".github/workflows/current-runtime-atomicity-successor.yml",
+              ".github/workflows/current-runtime-pgn-cancel-successor.yml",
+              ".github/workflows/current-shipping-runtime-evidence-apex.yml",
+              ".github/workflows/current-shipping-pgn-cancel-successor.yml",
+          }
+          if integration != allowed:
+              raise SystemExit("CURRENT_SHIPPING_PGN_CI_DESCENDANT_MISMATCH "+repr(sorted(integration)))
+          print(f"PREVIOUS_SHIPPING_DELTA={len(previous_delta)}")
+          print(f"RUNTIME_SUCCESSOR_DELTA={len(runtime_delta)}")
+          print(f"CURRENT_SHIPPING_PATHS={len(actual)}")
+          PY
+
+          git diff --check "$PRODUCT_SHA"...HEAD
+          test -z "$(git grep -nE '^(<<<<<<<|=======|>>>>>>>)' -- '*.py' '*.yml' '*.js' || true)"
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile runtime, package and evidence boundaries
+        run: >-
+          python -m py_compile
+          run_accessible_chess.py
+          acs/bookreader.py
+          acs/book_board_workflow.py
+          acs/library_webview_projection.py
+          acs/pgn_document.py
+          acs/pgn_save_snapshot.py
+          acs/pgn_workspace.py
+          acs/version2_application.py
+          acs/version2_windows_file_workflows.py
+          acs/version2_package_assembler.py
+          acs/version2_package_preflight.py
+          acs/version2_portable_package.py
+          acs/version2_release_app.py
+          acs/version2_release_receipt.py
+          scripts/finalize_owner_final_receipt.py
+          scripts/record_owner_physical_acceptance.py
+
+      - name: Execute current runtime atomicity and recovery contracts
+        run: >-
+          python -m unittest -v
+          tests.test_dev1_library_webview_projection
+          tests.test_bookreader_revision_barriers_current
+          tests.test_book_bidirectional_semantic_navigation
+          tests.test_v2_book_board_workflow
+          tests.test_pgn_workspace
+          tests.test_pgn_save_snapshot
+          tests.test_v2_windows_pgn_open_worker
+          tests.test_v2_windows_pgn_save_worker
+          tests.test_v2_windows_nvda_file_workflows
+          tests.test_dev1_pgn_webview_projection
+          tests.test_version2_application
+          tests.test_whole_product_user_journey
+
+      - name: Execute package, receipt and evidence-chain contracts
+        run: >-
+          python -m unittest -v
+          tests.test_version2_package_preflight
+          tests.test_version2_package_preflight_hardening
+          tests.test_v2_package_required_resources
+          tests.test_version2_package_pe_identity
+          tests.test_version2_package_assembler
+          tests.test_version2_release_payload
+          tests.test_version2_portable_package
+          tests.test_portable_launcher_contract
+          tests.test_portable_launcher_window_readiness
+          tests.test_portable_localappdata_persistence_binding
+          tests.test_version2_release_receipt
+          tests.test_finalize_owner_final_receipt
+          tests.test_owner_physical_acceptance
+          tests.test_owner_physical_acceptance_json_hardening
+          tests.test_version2_package_zip_topology_preflight
+
+      - name: Core selftest
+        run: python -m acs.selftest
+
+  semantic-copy-oracle:
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+      - name: Execute semantic document-copy oracle
+        run: >-
+          node --check tests/p0_semantic_document_copy_executable.js
+          node tests/p0_semantic_document_copy_executable.js
+          python -m unittest -v tests.test_p0_semantic_document_copy

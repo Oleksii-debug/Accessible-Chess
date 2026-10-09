@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "section": 52,
+  "status": "INTERNAL_COMPLETE_EXTERNAL_BLOCKED",
+  "existing_release_surfaces": [
+    "acs/version2_release_payload.py",
+    "acs/version2_package_assembler.py",
+    "tools/generate_slsa_provenance.py",
+    ".github/workflows",
+    "tests/test_version2_package_preflight.py",
+    "tests/test_version2_release_payload.py",
+    "tests/test_slsa_provenance.py",
+    "tests/test_release_preflight_extended_source_hygiene.py"
+  ],
+  "subsections": {
+    "52.1": "PARTIAL",
+    "52.2": "PARTIAL",
+    "52.3": "PARTIAL",
+    "52.4": "PARTIAL",
+    "52.5": "PARTIAL",
+    "52.6": "BLOCKED"
+  },
+  "not_run": ["clean Windows installer launch", "signed update/rollback", "SBOM vulnerability service", "TEST_BUILD owner package", "PUBLIC_RELEASE audit"],
+  "boundary": "No credentials or temporary provider/media material is embedded in a package; release qualification remains blocked until Sections 47–50 and physical Windows acceptance exist."
+}

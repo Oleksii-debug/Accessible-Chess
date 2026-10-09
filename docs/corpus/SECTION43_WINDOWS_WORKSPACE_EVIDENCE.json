@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "section": 43,
+  "status": "INTERNAL_COMPLETE_EXTERNAL_BLOCKED",
+  "workspace_routes": {
+    "chess": "web/index.html + web/version2_final_product_bootstrap.js",
+    "library": "web/full_product_library.js",
+    "books_training": "web/full_product_books_training.js",
+    "education": "web/full_product_education.js",
+    "teacher": "web/full_product_teacher.js",
+    "classroom": "web/full_product_classroom.js",
+    "pgn": "web/full_product_pgn.js"
+  },
+  "preserved_contracts": [
+    "canonical Python/domain core remains outside WebView rendering",
+    "keyboard keymap remains web/keybindings.json and existing native bridge",
+    "native text fields and semantic text remain selectable/copyable",
+    "focus restoration is routed through existing focus_target contracts"
+  ],
+  "verification": {
+    "source_tests": ["tests/test_library_workspace_ui_integration.py", "tests/test_v2_windows_book_board_adapter_workflow.py", "tests/test_stage1_release_composition_ui.py"],
+    "physical_windows_uia_screenshot_dpi_restart": "NOT_RUN",
+    "physical_nvda": "NOT_RUN"
+  },
+  "blocked": ["full Tabler shell redesign", "clean Windows UIA/DPI/screenshot acceptance", "human NVDA acceptance"]
+}

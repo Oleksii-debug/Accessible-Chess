@@ -1,0 +1,94 @@
+name: Settings Passive Scalar Boundary
+
+on:
+  pull_request:
+    branches:
+      - fix/current-stage1-core-language-20261004-zftrkmo
+    paths:
+      - 'acs/settings.py'
+      - 'tests/test_settings_corruption_security.py'
+      - '.github/workflows/settings-passive-scalar-boundary.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: settings-passive-scalar-boundary-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove exact serial geometry and bounded scope
+        shell: bash
+        env:
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          expected="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
+          test "$(git rev-parse HEAD)" = "$expected"
+
+          if [ -n "${EVENT_BASE_REF:-}" ]; then
+            git fetch --no-tags origin "+refs/heads/$EVENT_BASE_REF:refs/remotes/origin/$EVENT_BASE_REF"
+            live_base="$(git rev-parse "refs/remotes/origin/$EVENT_BASE_REF")"
+            test -n "$EVENT_BASE_SHA"
+            test "$EVENT_BASE_SHA" = "$live_base"
+          else
+            base_ref="fix/current-stage1-core-language-20261004-zftrkmo"
+            git fetch --no-tags origin "+refs/heads/$base_ref:refs/remotes/origin/$base_ref"
+            live_base="$(git rev-parse "refs/remotes/origin/$base_ref")"
+          fi
+
+          test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+          git diff --check "$live_base"...HEAD
+          changed="$(git diff --name-only "$live_base"...HEAD | sort)"
+          expected_paths="$(printf '%s\n' \
+            '.github/workflows/settings-passive-scalar-boundary.yml' \
+            'acs/settings.py' \
+            'tests/test_settings_corruption_security.py' | sort)"
+          test "$changed" = "$expected_paths" || {
+            printf 'Unexpected Settings passive-scalar scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile Settings boundary
+        run: >-
+          python -m compileall -q
+          acs/settings.py
+          tests/test_settings.py
+          tests/test_settings_corruption_security.py
+
+      - name: Execute Settings scalar and recovery regressions
+        run: >-
+          python -m unittest -v
+          tests.test_settings
+          tests.test_settings_corruption_security
+          tests.test_settings_read_identity_current
+          tests.test_settings_stale_writer_current
+          tests.test_settings_private_temp_identity_current
+          tests.test_settings_postpublication_cleanup_current
+          tests.test_v2_upgrade_tracked_writer_conflict
+          tests.test_v2_upgrade_publish_race_audit
+
+      - name: Core selftest
+        run: python -m acs.selftest

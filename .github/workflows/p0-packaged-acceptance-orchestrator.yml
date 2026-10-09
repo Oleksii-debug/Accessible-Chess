@@ -1,0 +1,61 @@
+name: P0 Packaged Acceptance Orchestrator Contract
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/run_p0_packaged_acceptance.ps1'
+      - 'scripts/p0_packaged_document_copy_probe.ps1'
+      - 'scripts/p0g_packaged_hotkey_result_probe.ps1'
+      - 'scripts/verify_p0_packaged_document_copy_evidence.py'
+      - 'scripts/verify_p0g_packaged_hotkey_result_evidence.py'
+      - 'tests/test_p0_packaged_acceptance_orchestrator.py'
+      - '.github/workflows/p0-packaged-acceptance-orchestrator.yml'
+  push:
+    paths:
+      - 'scripts/run_p0_packaged_acceptance.ps1'
+      - 'tests/test_p0_packaged_acceptance_orchestrator.py'
+      - '.github/workflows/p0-packaged-acceptance-orchestrator.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+      - name: Prove exact checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected='${{ github.event.pull_request.head.sha || github.sha }}'
+          test "$(git rev-parse HEAD)" = "$expected"
+      - name: Parse PowerShell orchestrator
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $tokens=$null
+          $errors=$null
+          [void][System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path 'scripts/run_p0_packaged_acceptance.ps1').Path,
+            [ref]$tokens,
+            [ref]$errors
+          )
+          if($errors.Count -ne 0){
+            $errors | ForEach-Object { Write-Error $_.Message }
+            throw "PowerShell orchestrator parse errors: $($errors.Count)"
+          }
+          Write-Host 'P0_PACKAGED_ACCEPTANCE_ORCHESTRATOR_PARSE=PASS'
+      - name: Run orchestration contract
+        run: python -m unittest -v tests.test_p0_packaged_acceptance_orchestrator

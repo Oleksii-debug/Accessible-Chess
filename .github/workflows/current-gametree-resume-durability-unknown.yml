@@ -1,0 +1,113 @@
+name: Current GameTree Resume Durability Unknown
+
+on:
+  pull_request:
+    branches:
+      - fix/current-library-presenter-passive-provider-20261006-ooxple7
+    paths:
+      - 'acs/gametree_resume.py'
+      - 'acs/version2_gametree_resume.py'
+      - 'tests/test_d06_gametree_snapshot_resume.py'
+      - 'tests/test_d06_v2_gametree_resume_reachability.py'
+      - '.github/workflows/d06-gametree-snapshot-resume.yml'
+      - '.github/workflows/d06-v2-gametree-resume-reachability.yml'
+      - '.github/workflows/current-gametree-resume-durability-unknown.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-gametree-resume-durability-${{ github.event.pull_request.number || github.ref }}-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove exact stacked successor and Product ancestry
+        shell: bash
+        env:
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          STACK_BASE: fix/current-library-presenter-passive-provider-20261006-ooxple7
+          PRODUCT_REF: converge/current-product-books-provider-20261005-ooxple7
+        run: |
+          set -euo pipefail
+          expected_head="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
+          test "$(git rev-parse HEAD)" = "$expected_head"
+          test "${EVENT_BASE_REF:-$STACK_BASE}" = "$STACK_BASE"
+
+          git fetch --no-tags origin "+refs/heads/$STACK_BASE:refs/remotes/origin/$STACK_BASE"
+          live_stack="$(git rev-parse "refs/remotes/origin/$STACK_BASE")"
+          if [ -n "${EVENT_BASE_SHA:-}" ]; then
+            test "$EVENT_BASE_SHA" = "$live_stack" || {
+              echo "GAMETREE_RESUME_STACK_MOVED event=$EVENT_BASE_SHA live=$live_stack" >&2
+              exit 1
+            }
+          fi
+          test "$(git merge-base "$live_stack" HEAD)" = "$live_stack"
+
+          git fetch --no-tags origin "+refs/heads/$PRODUCT_REF:refs/remotes/origin/$PRODUCT_REF"
+          live_product="$(git rev-parse "refs/remotes/origin/$PRODUCT_REF")"
+          git merge-base --is-ancestor "$live_product" "$live_stack"
+          git merge-base --is-ancestor "$live_product" HEAD
+
+          git diff --check "$live_stack"...HEAD
+          changed="$(git diff --name-only "$live_stack"...HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/current-gametree-resume-durability-unknown.yml' \
+            '.github/workflows/d06-gametree-snapshot-resume.yml' \
+            '.github/workflows/d06-v2-gametree-resume-reachability.yml' \
+            'acs/gametree_resume.py' \
+            'acs/version2_gametree_resume.py' \
+            'tests/test_d06_gametree_snapshot_resume.py' \
+            'tests/test_d06_v2_gametree_resume_reachability.py' | sort)"
+          test "$changed" = "$expected" || {
+            printf 'Unexpected GameTree resume durability scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
+
+          echo "GAMETREE_RESUME_PRODUCT=$live_product"
+          echo "GAMETREE_RESUME_STACK=$live_stack"
+          echo "GAMETREE_RESUME_SCOPE=PASS"
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile durability and release reachability boundary
+        run: >-
+          python -m py_compile
+          acs/gametree_resume.py
+          acs/version2_gametree_resume.py
+          tests/test_d06_gametree_snapshot_resume.py
+          tests/test_d06_v2_gametree_resume_reachability.py
+
+      - name: Execute resume persistence, recovery and close regressions
+        run: >-
+          python -m unittest -v
+          tests.test_d06_gametree_snapshot_resume
+          tests.test_d06_v2_gametree_resume_reachability
+          tests.test_d06_v2_gametree_resume_discard_guard
+          tests.test_d06_gametree_resume_descriptor_read
+          tests.test_w1_d06_resume_lock_toctou
+          tests.test_version2_release_app
+          tests.test_version2_shutdown
+          tests.test_w5_native_formclosing_dirty_pgn
+
+      - name: Core selftest
+        run: python -m acs.selftest

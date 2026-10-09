@@ -1,0 +1,70 @@
+name: Book Document Warning Accessibility
+
+on:
+  push:
+    branches:
+      - fix/book-document-warning-accessibility-20261004-sol56
+    paths:
+      - acs/bookreader.py
+      - acs/full_product_presenters.py
+      - tests/test_book_document_warning_accessibility.py
+      - tests/js/book_document_warning_accessibility_dom_test.js
+      - .github/workflows/book-document-warning-accessibility.yml
+  pull_request:
+    paths:
+      - acs/bookreader.py
+      - acs/full_product_presenters.py
+      - tests/test_book_document_warning_accessibility.py
+      - tests/js/book_document_warning_accessibility_dom_test.js
+      - .github/workflows/book-document-warning-accessibility.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: book-document-warning-accessibility-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  warning-accessibility:
+    name: Retained warnings remain readable and private
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out exact candidate
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove exact candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected='${{ github.event.pull_request.head.sha || github.sha }}'
+          test "$(git rev-parse HEAD)" = "$expected"
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile changed Python surfaces
+        run: >-
+          python -m compileall -q
+          acs/bookreader.py
+          acs/full_product_presenters.py
+          tests/test_book_document_warning_accessibility.py
+
+      - name: Run retained warning regressions
+        run: python -m unittest -v tests.test_book_document_warning_accessibility
+
+      - name: Run existing Book projection regressions
+        run: python -m unittest -v tests.test_dev1_books_training_webview_projection
+
+      - name: Run retained warning DOM regression
+        run: node tests/js/book_document_warning_accessibility_dom_test.js
+
+      - name: Run executable Books and Training DOM regressions
+        run: node tests/js/books_training_surface_dom_test.js

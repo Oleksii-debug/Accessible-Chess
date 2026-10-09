@@ -1,0 +1,95 @@
+{
+  "matrix": {
+    "2CBH": {
+      "read": "NO_LAWFUL_FIXTURE_AND_INDEPENDENT_ORACLE",
+      "status": "BLOCKED"
+    },
+    "ACSDB": {
+      "read": 113,
+      "roundtrip": "backup+verify_integrity PASS",
+      "status": "PASS",
+      "write": "atomic LibraryImportService"
+    },
+    "CBF": {
+      "read": "NO_LAWFUL_FIXTURE_AND_INDEPENDENT_ORACLE",
+      "status": "BLOCKED"
+    },
+    "CBH": {
+      "read": "Section 37 pinned libcbh external readback",
+      "status": "PASS",
+      "write": "UNSUPPORTED"
+    },
+    "CBONE": {
+      "read": "NO_LAWFUL_FIXTURE_AND_INDEPENDENT_ORACLE",
+      "status": "BLOCKED"
+    },
+    "CBV": {
+      "read": "Section 37 pinned uncbv+libcbh external readback",
+      "status": "PASS",
+      "write": "UNSUPPORTED"
+    },
+    "DOCX": {
+      "read": "NO_LAWFUL_REAL_FIXTURE_AND_OWNER",
+      "status": "BLOCKED"
+    },
+    "EPD": {
+      "read": "NO_REAL_SOURCE",
+      "status": "BLOCKED",
+      "write": "UNSUPPORTED"
+    },
+    "EPUB": {
+      "read": "canonical EPUB importer",
+      "status": "PASS"
+    },
+    "FEN": {
+      "read": "NO_REAL_SOURCE",
+      "status": "BLOCKED",
+      "write": "SUPPORTED_CANONICAL_CORE"
+    },
+    "HTML": {
+      "read": "canonical HTML importer",
+      "status": "PASS"
+    },
+    "Markdown": {
+      "read": "NO_REAL_THIRD_PARTY_SOURCE",
+      "status": "BLOCKED"
+    },
+    "PDF": {
+      "read": "NO_LAWFUL_REAL_FIXTURE_AND_OWNER",
+      "status": "BLOCKED"
+    },
+    "PGN": {
+      "read": {
+        "alekhine_games": 1661,
+        "cotswold_games": 113
+      },
+      "roundtrip": "PASS",
+      "sources": {
+        "alekhine": "d3fd8dcd9fb308d7636856c6538b386191f87738d8908ebe85fa064f48b5a8a0",
+        "cotswold": "3053909b99d30e4d430995553b0b9db4f131c5518fa50d62167c1f0fae5bfe34"
+      },
+      "status": "PASS",
+      "write": "canonical serialize_game"
+    },
+    "SAN": {
+      "read": "REAL_PGN_MOVES",
+      "status": "PASS",
+      "write": "REAL_PGN_ROUNDTRIP"
+    },
+    "TXT": {
+      "read": "canonical TXT importer",
+      "status": "PASS"
+    }
+  },
+  "negative_recovery": {
+    "missing_companion_cbf": "BLOCKED_BY_LAWFUL_FIXTURE",
+    "real_acsdb_integrity": "PASS",
+    "real_pgn_restart": "PASS",
+    "resource_limits_and_malformed_inputs": "covered_by canonical unit suites; no claim of real-corpus PASS"
+  },
+  "schema_version": 1,
+  "section": 39,
+  "section38_evidence_sha256": "6b6c62ac470297c74ef11918e85e15c05a135037546dd6a4fd4ed3a3aace6507",
+  "source_commit": "06b04b1f482d1f83d89d98739ddea0c7aa64b25a",
+  "status": "INTERNAL_COMPLETE_EXTERNAL_BLOCKED"
+}

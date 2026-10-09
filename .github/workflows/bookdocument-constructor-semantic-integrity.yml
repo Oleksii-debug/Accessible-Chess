@@ -1,0 +1,126 @@
+name: BookDocument Constructor Semantic Integrity
+
+on:
+  pull_request:
+    paths:
+      - "acs/bookdocument.py"
+      - "tests/test_bookdocument.py"
+      - ".github/workflows/bookdocument-constructor-semantic-integrity.yml"
+  push:
+    branches:
+      - "fix/bookdocument-constructor-block-validation-20260929"
+    paths:
+      - "acs/bookdocument.py"
+      - "tests/test_bookdocument.py"
+      - ".github/workflows/bookdocument-constructor-semantic-integrity.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bookdocument-semantic-integrity-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+env:
+  PRODUCT_REF: work/full-product-teacher-education-reachability-20260911
+
+jobs:
+  semantic-integrity:
+    name: BookDocument semantic integrity (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Reject superseded pull request head
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin \
+            "+refs/pull/$PR_NUMBER/head:refs/remotes/origin/bookdocument-live-pr-head"
+          live_head="$(git rev-parse refs/remotes/origin/bookdocument-live-pr-head)"
+          test "$live_head" = "$EVENT_HEAD_SHA" || {
+            echo "BOOKDOCUMENT_SUPERSEDED event=$EVENT_HEAD_SHA live=$live_head" >&2
+            exit 1
+          }
+
+      - name: Prove bounded owner scope or exact whole-product composition
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base_ref="${{ github.base_ref }}"
+            event_base='${{ github.event.pull_request.base.sha }}'
+          else
+            base_ref="$PRODUCT_REF"
+            event_base=""
+          fi
+          test -n "$base_ref"
+          git fetch --no-tags origin \
+            "refs/heads/$base_ref:refs/remotes/origin/$base_ref"
+          upstream="$(git rev-parse "refs/remotes/origin/$base_ref")"
+          git cat-file -e "$upstream^{commit}"
+          if [ -n "$event_base" ]; then
+            git cat-file -e "$event_base^{commit}"
+            git merge-base --is-ancestor "$event_base" "$upstream"
+          fi
+          git merge-base --is-ancestor "$upstream" HEAD
+          test "$(git merge-base "$upstream" HEAD)" = "$upstream"
+          actual="$(git diff --name-only "$upstream" HEAD | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/bookdocument-constructor-semantic-integrity.yml' \
+            'acs/bookdocument.py' \
+            'tests/test_bookdocument.py' | sort)"
+          if [ "$actual" = "$expected" ]; then
+            echo 'BOOKDOCUMENT_TOPOLOGY=BOUNDED_OWNER_SUCCESSOR'
+          elif [ "$base_ref" = "$PRODUCT_REF" ] || [ "$base_ref" = 'main' ]; then
+            # Whole-product convergence legitimately carries many adjacent
+            # authorities. Fail closed on the exact reviewed BookDocument
+            # runtime/regression identities rather than false-failing solely
+            # because the encompassing integration diff is broad.
+            git merge-base --is-ancestor \
+              '00d89fd48e4e60389ef7298958500d2a29d956ce' HEAD
+            test "$(git rev-parse HEAD:acs/bookdocument.py)" = \
+              '23249894e2e7d9c3b2c0602515188000ea846a41'
+            test "$(git rev-parse HEAD:tests/test_bookdocument.py)" = \
+              '425b075b8ee0c0c6bb5228fadf2fc37f9f8a82d8'
+            echo 'BOOKDOCUMENT_TOPOLOGY=WHOLE_PRODUCT_COMPOSITION'
+          else
+            printf 'Unexpected BookDocument successor scope:\n%s\n' "$actual" >&2
+            exit 1
+          fi
+          git diff --check "$upstream" HEAD
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Compile changed boundary
+        run: python -m py_compile acs/bookdocument.py tests/test_bookdocument.py
+
+      - name: Run focused semantic regressions
+        run: >-
+          python -m unittest
+          tests.test_bookdocument
+          tests.test_book_index
+          tests.test_bookreader
+          tests.test_v2_book_text_import
+          tests.test_v2_book_html_import
+          tests.test_v2_book_epub_import
+          tests.test_v2_book_game_content
+          tests.test_v2_book_library_game_lookup
+
+      - name: Run product self-test
+        run: python -m acs.selftest

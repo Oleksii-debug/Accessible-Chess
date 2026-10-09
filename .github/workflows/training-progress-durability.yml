@@ -1,0 +1,66 @@
+name: Training Progress Durability
+
+on:
+  pull_request:
+    paths:
+      - 'acs/training_progress_store.py'
+      - 'acs/version2_training_workspace.py'
+      - 'tests/test_w2_training_progress_crash_recovery.py'
+      - 'tests/test_training_authority_convergence.py'
+      - 'tests/test_training_progress_ancestor_authority.py'
+      - '.github/workflows/training-progress-durability.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: training-progress-durability-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  focused:
+    name: focused-${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-22.04
+          - windows-2022
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Setup exact Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile focused persistence surfaces
+        shell: bash
+        run: >-
+          python -m py_compile
+          acs/training_progress_store.py
+          acs/version2_training_workspace.py
+          tests/test_w2_training_progress_crash_recovery.py
+          tests/test_training_authority_convergence.py
+          tests/test_training_progress_ancestor_authority.py
+
+      - name: Run Training progress crash/durability regressions
+        shell: bash
+        run: >-
+          python -m unittest -v
+          tests.test_w2_training_progress_crash_recovery
+          tests.test_training_authority_convergence
+          tests.test_training_progress_ancestor_authority
+
+      - name: Verify candidate diff syntax
+        if: ${{ github.event_name == 'pull_request' && runner.os == 'Linux' }}
+        shell: bash
+        run: git diff --check "${{ github.event.pull_request.base.sha }}...HEAD"

@@ -1,0 +1,42 @@
+/* Local board presentation themes. Board state remains owned by canonical core. */
+#board-grid {
+  --board-light: #f0d9b5;
+  --board-dark: #b58863;
+  --board-selected: #f6f669;
+  --board-legal: #8bc34a;
+  --board-last: #f2c14e;
+}
+
+#board-grid.board-theme-wood { --board-light: #ead7b7; --board-dark: #8d5d3b; }
+#board-grid.board-theme-graphite { --board-light: #d6e0e6; --board-dark: #405465; }
+#board-grid.board-theme-blue { --board-light: #d9edf0; --board-dark: #245d78; }
+#board-grid.board-theme-minimal { --board-light: #fffdf8; --board-dark: #d9e1e4; }
+#board-grid.board-theme-high-contrast {
+  --board-light: #ffffff;
+  --board-dark: #000000;
+  --board-selected: #ffff00;
+  --board-legal: #00ff00;
+  --board-last: #00ffff;
+}
+
+#board-grid [role="gridcell"] {
+  background: var(--board-light);
+  color: CanvasText;
+}
+#board-grid [role="gridcell"]:nth-child(2n) { background: var(--board-dark); }
+#board-grid [role="gridcell"][aria-selected="true"] { outline-color: var(--board-selected); }
+#board-grid [data-legal="true"] { box-shadow: inset 0 0 0 4px var(--board-legal); }
+#board-grid [data-last-move="true"] { box-shadow: inset 0 0 0 4px var(--board-last); }
+
+@media (forced-colors: active) {
+  #board-grid [role="gridcell"] { background: Canvas; color: CanvasText; }
+  #board-grid [aria-selected="true"], #board-grid [data-legal="true"],
+  #board-grid [data-last-move="true"] { outline: 3px solid Highlight; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #board-grid *, #board-grid::before, #board-grid::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}

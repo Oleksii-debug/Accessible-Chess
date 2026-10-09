@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "section": 41,
+  "status": "INTERNAL_COMPLETE_EXTERNAL_BLOCKED",
+  "local_design_system": {
+    "path": "web/design_system.css",
+    "offline": true,
+    "visual_direction": "premium product-wide shell: ink/navy surfaces, warm ivory light mode, gold accents, deliberate spacing, elevation and board framing",
+    "themes": ["light", "dark", "contrast", "system"],
+    "forced_colors": true,
+    "reduced_motion": true,
+    "focus_visible": true,
+    "cdn_dependency": false,
+    "platform_surfaces": ["main chess workspace", "V2 navigation", "V2 workspace routes", "Books", "Library", "Training", "Teacher/Classroom", "PGN", "profile/help/reset/comment dialogs"]
+  },
+  "existing_accessibility_surface": {
+    "aria_keyboard_focus_runtime": "web/version2_final_product_bootstrap.js",
+    "keyboard_keymap": "web/keybindings.json",
+    "semantic_text_selection": "web/p0_accessibility_runtime.js",
+    "verification": ["tests/test_section41_design_system.py", "tests/test_premium_visual_design.py"]
+  },
+  "third_party_dependencies": {
+    "tabler_bootstrap": "BLOCKED_NOT_DOWNLOADED_OR_PINNED",
+    "tabler_icons": "BLOCKED_NOT_DOWNLOADED_OR_PINNED",
+    "radix_colors": "OPTIONAL_NOT_DOWNLOADED",
+    "apexcharts": "EXCLUDED_LICENSE_SCOPE"
+  },
+  "honest_limits": [
+    "No physical NVDA speech parity is claimed by repository tests.",
+    "No clean Windows packaged acceptance is claimed by this evidence."
+  ]
+}

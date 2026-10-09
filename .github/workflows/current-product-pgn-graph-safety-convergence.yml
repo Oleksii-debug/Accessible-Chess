@@ -1,0 +1,106 @@
+name: Current Product PGN Graph Safety Convergence
+
+on:
+  pull_request:
+    branches:
+      - converge/current-board-review-ingress-indexed-training-20261004-ooxple7-g9
+    paths:
+      - 'acs/full_product_presenters.py'
+      - 'acs/pgn_presenter_graph_guard.py'
+      - 'tests/test_pgn_presenter_graph_safety_current.py'
+      - '.github/workflows/current-product-pgn-graph-safety-convergence.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: current-product-pgn-graph-safety-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout exact convergence candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Prove exact first-parent geometry and bounded scope
+        shell: bash
+        env:
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          expected="${EVENT_HEAD_SHA:-${GITHUB_SHA}}"
+          test "$(git rev-parse HEAD)" = "$expected"
+          base_ref="${EVENT_BASE_REF:-converge/current-board-review-ingress-indexed-training-20261004-ooxple7-g9}"
+          git fetch --no-tags origin "+refs/heads/$base_ref:refs/remotes/origin/$base_ref"
+          live_base="$(git rev-parse "refs/remotes/origin/$base_ref")"
+          if [ -n "${EVENT_BASE_SHA:-}" ]; then
+            test "$EVENT_BASE_SHA" = "$live_base"
+          fi
+          test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+          git diff --check "$live_base"...HEAD
+          changed="$(git diff --name-only "$live_base"...HEAD | sort)"
+          expected_paths="$(printf '%s\n' \
+            '.github/workflows/current-product-pgn-graph-safety-convergence.yml' \
+            'acs/full_product_presenters.py' \
+            'acs/pgn_presenter_graph_guard.py' \
+            'tests/test_pgn_presenter_graph_safety_current.py' | sort)"
+          test "$changed" = "$expected_paths" || {
+            printf 'Unexpected Product/PGN convergence scope:\n%s\n' "$changed" >&2
+            exit 1
+          }
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Compile converged PGN surfaces
+        run: >-
+          python -m compileall -q
+          acs/full_product_presenters.py
+          acs/pgn_presenter_graph_guard.py
+          tests/test_pgn_presenter_graph_safety_current.py
+
+      - name: Execute PGN graph and presentation regressions
+        run: >-
+          python -m unittest -v
+          tests.test_pgn_presenter_graph_safety_current
+          tests.test_dev1_pgn_webview_projection
+          tests.test_dev1_pgn_webview_atomicity
+          tests.test_dev1_pgn_workspace_webview_adapter
+          tests.test_pgn_browser_presentation_lease_required
+          tests.test_pgn_post_commit_presentation_recovery_current
+          tests.test_version2_pgn_commands
+          tests.test_version2_pgn_real_board_projection
+          tests.test_full_product_pgn_keybindings
+
+      - name: Execute retained indexed Training Board and NVDA regressions
+        run: >-
+          python -m unittest -v
+          tests.test_book_training_passive_roots_current
+          tests.test_bookreader
+          tests.test_version2_training_current_runtime
+          tests.test_stage1_v2_board_command_passive_ingress
+          tests.test_stage1_board_clock_projection_passive
+          tests.test_v2_keymap_context_passive
+          tests.test_v2_review_fen_bounds
+          tests.test_v2_remapped_keyboard_routing
+          tests.test_v2_remapped_keyboard_native_editing
+          tests.test_nvda_p0_contract
+          tests.test_version2_accessibility_convergence
+
+      - name: Core selftest
+        run: python -m acs.selftest

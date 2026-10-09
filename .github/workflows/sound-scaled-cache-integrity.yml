@@ -1,0 +1,181 @@
+name: Sound Scaled Cache Integrity
+
+on:
+  pull_request:
+    paths:
+      - 'acs/sound.py'
+      - 'acs/sound_events.py'
+      - 'acs/sound_runtime.py'
+      - 'acs/sound_windows.py'
+      - 'acs/settings.py'
+      - 'acs/keybindings.py'
+      - 'acs/ui_keymap_adapter.py'
+      - 'acs/webapp_keymap_core.py'
+      - 'acs/release_app.py'
+      - 'acs/stage1_release_ui_core.py'
+      - 'acs/stage1_release_ui.py'
+      - 'acs/ui_native_menu.py'
+      - 'acs/version2_release_app.py'
+      - 'acs/version2_release_payload.py'
+      - 'acs/version2_package_preflight.py'
+      - 'web/stage1_release_bootstrap.js'
+      - 'web/keybindings.json'
+      - 'scripts/build_user_sound_pack.py'
+      - 'docs/USER_SOUND_PACK_CURRENT.md'
+      - 'tests/test_settings.py'
+      - 'tests/test_keybindings.py'
+      - 'tests/test_ui_keymap_adapter.py'
+      - 'tests/test_webapp_keymap_api.py'
+      - 'tests/test_stage1_release_composition_ui.py'
+      - 'tests/test_stage1_engine_play_ui.py'
+      - 'tests/test_stage1_saturation_refactor_contract.py'
+      - 'tests/test_user_sound_pack_builder.py'
+      - 'tests/test_sound_runtime.py'
+      - 'tests/test_sound_events.py'
+      - 'tests/test_dev3_sound_failure_isolation.py'
+      - 'tests/test_sound_scaled_cache_integrity_workflow.py'
+      - 'tests/test_version2_release_payload.py'
+      - 'tests/test_version2_package_preflight.py'
+      - 'tests/test_version2_package_preflight_hardening.py'
+      - 'tests/test_w4_v2_p0_fresh_candidate_workflow.py'
+      - '.github/workflows/sound-scaled-cache-integrity.yml'
+      - '.github/workflows/w6-v2-release-payload-current-assembler.yml'
+      - '.github/workflows/w6-v2-package-preflight-current-runtime.yml'
+      - '.github/workflows/w6-v2-package-assembler.yml'
+      - '.github/workflows/version2-windows-composition.yml'
+      - '.github/workflows/d01-pgn-workspace-webview.yml'
+      - '.github/workflows/w4-v2-p0-fresh-windows-candidate.yml'
+
+concurrency:
+  group: sound-scaled-cache-integrity-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  sound-cache-integrity:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+
+      - name: Install pinned targeted test runner
+        run: python -m pip install -q pytest==8.4.2
+
+      - name: Prove bounded current-Product scope
+        shell: bash
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          product_ref="work/full-product-teacher-education-reachability-20260911"
+          integrated_sound_product=3f30f0d093fc19afe60e8262a70ccfdb3702d614
+
+          if [ "$HEAD_REF" = "$product_ref" ]; then
+            git merge-base --is-ancestor "$integrated_sound_product" HEAD
+            test "$(git rev-parse HEAD:acs/sound_windows.py)" = 28559f05972ed46145e4c19d7f30973bbe7937be
+            test "$(git rev-parse HEAD:tests/test_sound_runtime.py)" = 64c69688d01c19cb5ad411e46da6869d2a6ccd07
+            test "$(git rev-parse HEAD:tests/test_sound_events.py)" = e45bd14fa742e437c8580bf7f23796fe57bb5b3d
+            test "$(git rev-parse HEAD:tests/test_dev3_sound_failure_isolation.py)" = b6dc29af150ec30de65691d90dcd6596b755662a
+            echo 'Sound retained Product authority PASS'
+          else
+            test "$BASE_REF" = "$product_ref"
+            test -n "$BASE_SHA"
+            git cat-file -e "$BASE_SHA^{commit}" || git fetch --no-tags origin "$BASE_SHA"
+            git fetch --no-tags origin "+refs/heads/$product_ref:refs/remotes/origin/$product_ref"
+            live_product="$(git rev-parse "refs/remotes/origin/$product_ref")"
+            git cat-file -e "$live_product^{commit}"
+            git merge-base --is-ancestor "$BASE_SHA" "$live_product"
+            git merge-base --is-ancestor "$live_product" HEAD
+            test "$(git merge-base "$live_product" HEAD)" = "$live_product"
+            scope_base="$live_product"
+            git diff --check "$scope_base" HEAD
+            unexpected="$(git diff --name-only "$scope_base" HEAD | grep -Ev '^(acs/(sound\.py|sound_events\.py|sound_runtime\.py|sound_windows\.py|settings\.py|keybindings\.py|ui_keymap_adapter\.py|webapp_keymap_core\.py|release_app\.py|stage1_release_ui_core\.py|stage1_release_ui\.py|ui_native_menu\.py|version2_release_app\.py|version2_release_payload\.py|version2_package_preflight\.py)|web/(stage1_release_bootstrap\.js|keybindings\.json)|scripts/build_user_sound_pack\.py|docs/USER_SOUND_PACK_CURRENT\.md|tests/(test_settings\.py|test_keybindings\.py|test_ui_keymap_adapter\.py|test_webapp_keymap_api\.py|test_stage1_release_composition_ui\.py|test_stage1_engine_play_ui\.py|test_stage1_saturation_refactor_contract\.py|test_user_sound_pack_builder\.py|test_sound_runtime\.py|test_sound_events\.py|test_sound_scaled_cache_integrity_workflow\.py|test_version2_release_payload\.py|test_version2_package_preflight\.py|test_version2_package_preflight_hardening\.py|test_version2_package_pe_identity\.py|test_w4_v2_p0_fresh_candidate_workflow\.py)|\.github/workflows/(current-shipping-recovery-hardening|sound-scaled-cache-integrity|w6-v2-release-payload-current-assembler|w6-v2-package-preflight-current-runtime|w6-v2-package-assembler|version2-windows-composition|d01-pgn-workspace-webview|w4-v2-p0-fresh-windows-candidate)\.yml)$' || true)"
+            if [ -n "$unexpected" ]; then
+              printf 'Unexpected sound-cache scope:\n%s\n' "$unexpected" >&2
+              exit 1
+            fi
+          fi
+
+      - name: Compile sound authority
+        run: >-
+          python -m py_compile
+          acs/sound.py
+          acs/sound_events.py
+          acs/sound_runtime.py
+          acs/sound_windows.py
+          acs/settings.py
+          acs/keybindings.py
+          acs/ui_keymap_adapter.py
+          acs/webapp_keymap_core.py
+          acs/release_app.py
+          acs/stage1_release_ui_core.py
+          acs/stage1_release_ui.py
+          acs/ui_native_menu.py
+          acs/version2_release_app.py
+          acs/version2_release_payload.py
+          acs/version2_package_preflight.py
+          scripts/build_user_sound_pack.py
+          tests/test_settings.py
+          tests/test_keybindings.py
+          tests/test_ui_keymap_adapter.py
+          tests/test_webapp_keymap_api.py
+          tests/test_sound_runtime.py
+          tests/test_user_sound_pack_builder.py
+          tests/test_stage1_release_composition_ui.py
+          tests/test_stage1_engine_play_ui.py
+          tests/test_stage1_saturation_refactor_contract.py
+          tests/test_sound_events.py
+          tests/test_dev3_sound_failure_isolation.py
+          tests/test_sound_scaled_cache_integrity_workflow.py
+          tests/test_version2_release_payload.py
+          tests/test_version2_package_preflight.py
+          tests/test_version2_package_preflight_hardening.py
+          tests/test_w4_v2_p0_fresh_candidate_workflow.py
+
+      - name: Validate WebView script and fallback keymap syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check web/stage1_release_bootstrap.js
+          python -m json.tool web/keybindings.json >/dev/null
+
+      - name: Run sound regressions
+        run: >-
+          python -m unittest -v
+          tests.test_sound_runtime
+          tests.test_settings
+          tests.test_keybindings
+          tests.test_ui_keymap_adapter
+          tests.test_webapp_keymap_api
+          tests.test_user_sound_pack_builder
+          tests.test_stage1_release_composition_ui
+          tests.test_stage1_engine_play_ui
+          tests.test_stage1_saturation_refactor_contract
+          tests.test_sound_events
+          tests.test_dev3_sound_failure_isolation
+          tests.test_sound_scaled_cache_integrity_workflow
+          tests.test_version2_release_payload
+          tests.test_version2_package_preflight
+          tests.test_version2_package_preflight_hardening
+          tests.test_w4_v2_p0_fresh_candidate_workflow
+
+      - name: Run remappable Ctrl+N pytest contracts
+        run: >-
+          python -m pytest -q
+          tests/test_ui_keymap_adapter.py
+          tests/test_webapp_keymap_api.py

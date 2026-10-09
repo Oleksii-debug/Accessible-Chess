@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "section": 47,
+  "status": "INTERNAL_COMPLETE_EXTERNAL_BLOCKED",
+  "source_policy": "user-authorized Drive videos are test inputs only and remain excluded from Git; checksums and deterministic recognition evidence are recorded",
+  "candidates": [
+    {"title": "Byrne vs Fischer - The Game of the Century.webm", "source_page": "https://commons.wikimedia.org/wiki/File:Byrne_vs_Fischer_-_The_Game_of_the_Century.webm", "license": "CC BY-SA 4.0", "format": "WebM", "duration": "1:48", "status": "SOURCE_VERIFIED_NOT_DOWNLOADED"},
+    {"title": "Joaquin Perkins blitz chess vs USCF expert.webm", "source_page": "https://commons.wikimedia.org/wiki/File:Joaquin_Perkins_blitz_chess_vs_USCF_expert.webm", "license": "source-page license to be checked before copy", "format": "WebM", "duration": "0:20", "status": "SOURCE_FOUND_NOT_DOWNLOADED"},
+    {"title": "Youth chess tournament.webm", "source_page": "https://commons.wikimedia.org/wiki/File:Youth_chess_tournament.webm", "license": "CC0 1.0", "format": "WebM", "duration": "0:26", "status": "SOURCE_VERIFIED_NOT_DOWNLOADED"},
+    {"title": "Ivanchuk–Kasparov analysis", "source_page": "user-authorized Drive test input", "sha256": "dfac52d40dfba82f22b27796a3853dae0a487b3f8b86b0b17acb5818cfe45077", "format": "MP4/H.264/AAC 640x360", "duration_seconds": 1054.90576, "status": "REAL_VIDEO_ORACLE_PASS_17_MOVES"},
+    {"title": "Muzychuk–Koneru analysis", "source_page": "user-authorized Drive test input", "sha256": "090d1002b7ede0b62922d35b531fa33fea555be93acf0acb1391c153adb61e58", "format": "MP4/H.264/AAC 640x360", "duration_seconds": 624.84898, "status": "REAL_VIDEO_ORACLE_PASS_15_MOVES"}
+  ],
+  "verified": ["ffprobe decode metadata", "SHA-256 identity", "real frame extraction", "deterministic square-change recognition", "canonical legal-move validation", "17-move and 15-move expected prefixes", "pause prevents board advancement", "accelerated hidden-video preparation queue", "prepared timecode timeline and move-list projection", "in-product local playback with original audio and native controls", "keyboard-operable ten-second seeking and timeline range", "0.5x to 2x playback-rate selection", "bounded automatic/balanced/high/maximum recognition sampling quality with calibration reset"],
+  "not_run": ["physical Windows WebView2 playback", "owner packaged acceptance"],
+  "blocked": ["physical Windows/NVDA acceptance", "several public-source license details still require page-level verification before redistribution"]
+}
