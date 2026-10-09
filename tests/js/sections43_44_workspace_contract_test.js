@@ -216,6 +216,47 @@ const key = "accessible-chess.workspace-layout.v1";
     "semantic board and status must remain");
 }
 
+// Section 44: verify each premium selector is wired to a canonical presenter
+// in the executable source, not a demo-only card or a disconnected visual.
+{
+  const source = (name) => fs.readFileSync(path.join(root, "web", name), "utf8");
+  const books = source("full_product_books_training.js");
+  const library = source("full_product_library.js");
+  const teacher = source("full_product_teacher.js");
+  const pgn = source("full_product_pgn.js");
+  const education = source("full_product_education.js");
+  for (const [cssSelector, liveOwner, ownerMarker] of [
+    ["#book-document-title", books, 'title.id = "book-document-title"'],
+    ["#book-document-author", books, 'author.id = "book-document-author"'],
+    ["#training-solution", books, 'solutionSection.id = "training-solution"'],
+    ["#library-import-region", library, 'section.id = "library-import-region"'],
+    ["#library-export-selection", library, 'fieldset.id = "library-export-selection"'],
+    [".pgn-comments", pgn, 'commentGroup.className = "pgn-comments"'],
+    ["#pgn-selection-context", pgn, 'selectionContext.id = "pgn-selection-context"'],
+    ["#teacher-visual-board", teacher, 'grid.id = "teacher-visual-board"'],
+    ["#teacher-board-wrap", teacher, 'boardWrap.id = "teacher-board-wrap"'],
+    ["#teacher-accessible-summary", teacher, 'summary.id = "teacher-accessible-summary"'],
+    ["#education-detail", education, 'wrapper.id = "education-detail"']
+  ]) {
+    assert.ok(css.includes(cssSelector), "missing Section44 visual selector " + cssSelector);
+    assert.ok(liveOwner.includes(ownerMarker), "visual selector has no live owner " + ownerMarker);
+  }
+  assert.ok(teacher.includes('button.setAttribute("data-pointer"'),
+    "Teacher pointer visual state must come from canonical snapshot");
+  assert.ok(teacher.includes('overlay.setAttribute("aria-hidden", "true")'),
+    "decorative Teacher arrow overlay must be silent to screen readers");
+  assert.ok(css.includes('#v2-workspace #teacher-visual-board button[data-pointer="true"]'),
+    "Teacher pointer must be visible with high-contrast tokens");
+  assert.ok(css.includes("#v2-workspace #teacher-arrow-overlay{display:none!important}"),
+    "forced-colors must suppress purely decorative SVG without suppressing semantic summary");
+  assert.ok(css.includes("#v2-workspace #teacher-accessible-summary") &&
+    css.includes("user-select:text"),
+    "Teacher pointer and arrow text equivalent must remain selectable");
+  assert.ok(web.includes('id="progress-text"') &&
+    css.includes("#workspace #progress-text"),
+    "real Web progress text equivalent must stay visibly integrated");
+}
+
 // Verify real V2 module chrome preferences (not a synthetic route/router).
 {
   const start = v2.indexOf('  const layoutStorageKey = "accessible-chess.product-layout.v1";');
