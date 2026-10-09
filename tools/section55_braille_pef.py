@@ -29,6 +29,7 @@ if str(ROOT) not in sys.path:
 
 from acs.bookdocument import BookDocument
 from acs.book_text_import import import_text_book
+from acs.chess_braille_bundle import verify_provisional_bundle
 from acs.chess_braille_brf import NABCC_DISPLAY_TABLE, pef_to_provisional_brf
 from acs.chess_braille_factory import (
     BrailleFactoryError, BrailleProfile, LiblouisTranslator, prepare_chess_book_pef,
@@ -159,6 +160,11 @@ def run(args: argparse.Namespace) -> int:
             json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
+        # Independently re-open exact emitted bytes before publishing; failure
+        # destroys only the private unpublished temporary directory.
+        verified = verify_provisional_bundle(temporary, source_path)
+        if not verified.internal_consistency or verified.qualified_print_ready:
+            raise BrailleFactoryError("Independent provisional package gate failed")
         # Atomic no-clobber directory reservation. A plain rename into an
         # existing empty directory may replace it on POSIX; mkdir rejects it.
         try:
@@ -193,8 +199,10 @@ def main() -> int:
     args = parser.parse_args()
     try:
         return run(args)
-    except (BrailleFactoryError, OSError, ValueError) as exc:
-        print(f"SECTION 55: NO OUTPUT — {type(exc).__name__}: {exc}", file=sys.stderr)
+    except (BrailleFactoryError, OSError, ValueError, TypeError):
+        # Source paths, copyright evidence, original text and private table
+        # paths are not echoed to stderr or CI logs.
+        print("SECTION 55: FAIL — no verified provisional package published", file=sys.stderr)
         return 2
 
 
