@@ -157,3 +157,15 @@ observation has been claimed; no actual packaged executable or owner
 NVDA/DPI/visual baseline qualification yet exists for Section43.
 43.4–43.6 and terminal integration remain OPEN. Any failing UIA probe must
 remain an actionable failure rather than a waived check.
+
+## Section 43 accessible-heading regression correction — 2026-10-09
+
+PR commits `a78d348862967aae8d753f98bffa51517440c6cb` and
+`df5e034c454042c97449bc83f257d99061bf7c31` explicitly preserve
+the original accessible heading name for each of the 12 Stage1 panels
+after adding the collapse/size action buttons inside the heading.
+The section's `aria-labelledby` now resolves to the concise title,
+while the separate buttons remain keyboard focusable. A DOM regression
+checks every panel for an unchanged accessible title. Source changes are
+verified by live GitHub blob readback, but the queued Windows run does
+not yet prove human NVDA behavior. Section43 remains OPEN.
