@@ -9,6 +9,10 @@ import json
 from pathlib import Path
 import sys
 
+# Direct-script execution places tools/ at sys.path[0]. Resolve project root
+# without relying on the runner's PYTHONPATH or installed editable package.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 from acs.visual_profile_transfer import FIELDS, encode_transfer
 
 
