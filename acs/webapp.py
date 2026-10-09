@@ -859,6 +859,42 @@ class AccessibleChessAPI:
             return {"ok": False}
         return {"ok": True, **values, "announcement": "Visual profile applied." if self.lang == "en" else "Візуальний профіль застосовано."}
 
+    def visual_profile_sync_export(self) -> dict[str, Any]:
+        """Explicit portable design-only export; excludes other user settings."""
+        from .visual_profile_sync import export_document, revision, validate_profile, VisualProfileSyncError
+
+        try:
+            stored = self.visual_profile_get()
+            values = validate_profile({key: stored[key] for key in ("profile", "theme", "board_theme", "density")})
+            return {"ok": True, "document": export_document(values), "revision": revision(values)}
+        except (KeyError, TypeError, ValueError, VisualProfileSyncError):
+            return {"ok": False, "reason": "invalid_local_profile"}
+
+    def visual_profile_sync_import(
+        self, document: str, expected_local_revision: str,
+    ) -> dict[str, Any]:
+        """Explicit compare-and-swap import; never overwrite newer local changes."""
+        from .visual_profile_sync import reconcile_import, VisualProfileSyncError
+
+        try:
+            current = self.visual_profile_get()
+            values = reconcile_import(
+                document,
+                {key: current[key] for key in ("profile", "theme", "board_theme", "density")},
+                expected_local_revision,
+            )
+        except VisualProfileSyncError as exc:
+            reason = "conflict" if "conflict" in str(exc) else "invalid_document"
+            return {"ok": False, "reason": reason}
+        except (KeyError, ValueError, TypeError):
+            return {"ok": False, "reason": "invalid_local_profile"}
+        applied = self.visual_profile_apply(
+            values["profile"], values["theme"], values["board_theme"], values["density"],
+        )
+        if not applied.get("ok"):
+            return {"ok": False, "reason": "persist_failed"}
+        return applied
+
     def video_sync_stop(self) -> dict[str, Any]:
         self.video_sync_active = False
         state = self.get_state()
