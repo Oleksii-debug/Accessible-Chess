@@ -1,0 +1,48 @@
+name: Section 43 Windows Workspace Qualification
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "web/index.html"
+      - "web/version2_final_product_bootstrap.js"
+      - "web/design_system.css"
+      - "acs/settings.py"
+      - "acs/stage1_release_ui.py"
+      - "tests/js/sections43_44_workspace_contract_test.js"
+      - "tests/test_sections43_44_native_layout_persistence.py"
+      - ".github/workflows/section43-windows-workspace.yml"
+  push:
+    branches:
+      - "section43/**"
+  workflow_dispatch: {}
+permissions:
+  contents: read
+jobs:
+  workspace-source-contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - name: Check out the exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Exact SHA and whitespace
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          git diff --check HEAD
+      - name: Compile current Windows UI and layout Python
+        run: python -m py_compile acs/settings.py acs/stage1_release_ui.py tests/test_sections43_44_native_layout_persistence.py
+      - name: Native bounded and atomic layout persistence
+        run: python -m unittest -v tests.test_sections43_44_native_layout_persistence tests.test_settings
+      - name: Validate actual composed navigation/layout JavaScript
+        run: |
+          node --check web/version2_final_product_bootstrap.js
+          node --check tests/js/sections43_44_workspace_contract_test.js
+          node tests/js/sections43_44_workspace_contract_test.js
