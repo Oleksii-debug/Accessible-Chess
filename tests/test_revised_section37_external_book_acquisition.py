@@ -441,5 +441,59 @@ class ExternalOriginalBookTests(unittest.TestCase):
                 )
 
 
+
+class CatalogRecentSourceTruthTests(unittest.TestCase):
+    """Regressions for source metadata added after the preserved test implementation."""
+
+    def test_recent_sources_remain_explicitly_unacquired(self):
+        sources = {record["id"]: record for record in load_catalog()}
+        ids = (
+            "capablanca_chess_fundamentals_epub3",
+            "gutenberg_chess_strategy_lasker",
+            "gutenberg_chess_and_checkers_lasker",
+            "morphy_world_ch_2cbh_complete_source_candidate",
+        )
+        for identity in ids:
+            with self.subTest(source=identity):
+                source = sources[identity]
+                self.assertIsNone(source["sha256"])
+                self.assertEqual(source["redistribution"], "NOT_CLEARED")
+                self.assertNotEqual(source.get("acquisition"), "VENDORED_SOURCE_VERIFIED")
+
+    def test_incomplete_sources_cannot_claim_a_pinned_digest(self):
+        import json
+
+        from acs.lawful_corpus_registry import CATALOG_FILE
+
+        catalog = json.loads(CATALOG_FILE.read_text(encoding="utf-8"))
+        for identity in (
+            "capablanca_chess_fundamentals_epub3",
+            "morphy_world_ch_2cbh_complete_source_candidate",
+        ):
+            with self.subTest(source=identity):
+                changed = json.loads(json.dumps(catalog))
+                source = next(x for x in changed["sources"] if x["id"] == identity)
+                source["sha256"] = "a" * 64
+                with tempfile.TemporaryDirectory() as temp:
+                    path = Path(temp) / "sources.json"
+                    path.write_text(json.dumps(changed), encoding="utf-8")
+                    with self.assertRaises(LawfulCorpusError):
+                        load_catalog(path)
+
+    def test_catalog_only_source_hosts_cannot_be_auto_downloaded(self):
+        from acs.lawful_corpus_registry import _https_url
+
+        catalog = {record["id"]: record for record in load_catalog()}
+        for identity in (
+            "lichess_openings_original_eco_a_tsv",
+            "chessmail_tim_harding_macdonnell_wisker_1874_cbv",
+        ):
+            with self.subTest(source=identity):
+                url = catalog[identity]["download_url"]
+                self.assertEqual(_https_url(url, catalog_metadata=True), url)
+                with self.assertRaises(LawfulCorpusError):
+                    _https_url(url)
+
+
 if __name__ == "__main__":
     unittest.main()
