@@ -62,8 +62,12 @@ MAX_REAL_PGN_BYTES = 128 * 1024 * 1024
 
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
+    total = 0
     with path.open("rb") as stream:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            total += len(chunk)
+            if total > MAX_REAL_PGN_BYTES:
+                raise RuntimeError("real Section 38 source exceeds bounded hash budget")
             digest.update(chunk)
     return digest.hexdigest()
 
@@ -75,10 +79,16 @@ def _verified_pgn_games(path: Path, metadata: dict[str, object]):
     size = path.stat().st_size
     if not 0 < size <= MAX_REAL_PGN_BYTES:
         raise RuntimeError("real Section 38 PGN size is outside bounded limits")
-    original_sha = _sha256(path)
+    # Read at most one bounded original snapshot. A source that grows between
+    # initial stat and read may never allocate unbounded memory or get PASS.
+    with path.open("rb") as stream:
+        original_bytes = stream.read(MAX_REAL_PGN_BYTES + 1)
+    if len(original_bytes) != size:
+        raise RuntimeError("real Section 38 PGN changed size during bounded read")
+    original_sha = hashlib.sha256(original_bytes).hexdigest()
     if original_sha != metadata["expected_sha256"]:
         raise RuntimeError("real Section 38 PGN original SHA-256 does not match receipt")
-    games = parse_pgn_text(path.read_bytes().decode("utf-8-sig"), strict=False)
+    games = parse_pgn_text(original_bytes.decode("utf-8-sig"), strict=False)
     if len(games) != metadata["expected_games"]:
         raise RuntimeError("real Section 38 PGN game count differs from pinned oracle")
     if any(game.warnings for game in games):
