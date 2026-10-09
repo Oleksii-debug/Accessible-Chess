@@ -66,7 +66,7 @@ class Section41VendoredAssets(unittest.TestCase):
         self.assertIn("forced-colors: active", css)
         self.assertIn("prefers-reduced-motion: reduce", css)
         self.assertNotIn("https://", css)
-        self.assertNotRegex(css, r"(?m)^\\s*(?:body|button|input|select|main|\\[role=gridcell\\])\\s*\\{")
+        self.assertNotRegex(css, r"(?m)^\s*(?:body|button|input|select|main|\[role=gridcell\])\s*\{")
         self.assertNotIn("@import", css)
         self.assertNotIn("javascript:", css.lower())
         self.assertEqual(self.manifest["runtime_dependency_list"], [])
