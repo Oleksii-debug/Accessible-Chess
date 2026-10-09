@@ -8,6 +8,10 @@ on:
       - 'tools/section38_real_corpus_integration.py'
       - 'tests/test_book_library_import_journey.py'
       - 'tests/test_section38_source_bound_readback.py'
+      - 'tests/test_revised_section38_stockfish_real_library.py'
+      - 'tests/test_revised_section38_official_openings_library.py'
+      - 'tests/test_revised_section38_owner_seed.py'
+      - 'tools/revised_section38_stockfish_owner_seed.py'
       - 'tests/test_book_open_preparation.py'
       - 'acs/version2_application.py'
       - 'acs/version2_windows_native_dialog_ownership.py'
@@ -62,6 +66,14 @@ jobs:
             tests.test_book_library_import_journey \
             tests.test_book_open_preparation \
             tests.test_section38_source_bound_readback
+      - name: Run genuine vendored Stockfish and Lichess ECO sources through canonical Library
+        env:
+          PYTHONPATH: tests
+        run: |
+          python -m unittest -v \
+            tests.test_revised_section38_stockfish_real_library \
+            tests.test_revised_section38_official_openings_library \
+            tests.test_revised_section38_owner_seed
       - name: Preserve exact-source test receipts
         if: always()
         uses: actions/upload-artifact@v4
