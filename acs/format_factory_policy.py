@@ -7,7 +7,7 @@ Natural-language parsing supports only exact unambiguous commands. Unknown inten
 must be confirmed in the accessible form, never guessed or executed.
 """
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from hashlib import sha256
 import json
 import re
@@ -50,7 +50,7 @@ def parse_selector_ranges(text: str) -> tuple[tuple[int, int], ...]:
         raise FactoryPolicyError("Too many requested ranges")
     ranges: list[tuple[int, int]] = []
     for part in parts:
-        match = re.fullmatch(r"\s*([0-9]+)(?:\s*[-–—]\s*([0-9]+))?\s*", part)
+        match = re.fullmatch(r"\s*([0-9]{1,7})(?:\s*[-–—]\s*([0-9]{1,7}))?\s*", part)
         if match is None:
             raise FactoryPolicyError("Invalid selector range")
         start = _positive(int(match.group(1)), "Range start")
