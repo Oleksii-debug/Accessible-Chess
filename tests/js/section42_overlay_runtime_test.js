@@ -117,4 +117,28 @@ const valid={highlights:[{square:"e4",purpose:"attack",color:"#123abc"}],
  assert.equal(grid.children.length,0,"malformed new board clears old arrows");
  assert.equal(nodes[idx].dataset.ac42Highlight,undefined,"malformed board clears old highlights");
 }
+{
+ // Every visual cue also has a selectable, non-live text equivalent in UK/EN.
+ const {grid}=freshBoard();
+ const summary={textContent:"stale text"};
+ grid.parentElement={querySelector:selector=>{
+   assert.equal(selector,".ac42-board-annotation-summary");return summary;
+ }};
+ mockDocument.documentElement={lang:"uk"};
+ projector.project(grid,squares,{
+   highlights:[{square:"e4",purpose:"check",color:"#ff0000"}],
+   arrows:[{from:"e2",to:"e4",purpose:"coach",color:"#abcdef"}]
+ });
+ assert.equal(summary.textContent,"Шах: e4; Підказка тренера: e2–e4");
+ mockDocument.documentElement.lang="en";
+ projector.project(grid,squares,{
+   highlights:[{square:"e4",purpose:"mate",color:"#ff0000"}],
+   arrows:[{from:"e2",to:"e4",purpose:"capture",color:"#abcdef"}]
+ });
+ assert.equal(summary.textContent,"Checkmate: e4; Capture: e2–e4");
+ assert.equal(grid.children.length,1,"language change replaces rather than stacks SVGs");
+ projector.project(grid,squares.slice(0,20),{});
+ assert.equal(summary.textContent,"","malformed board clears semantic transcript");
+ assert.equal(grid.children.length,0);
+}
 console.log("section42_overlay_runtime_test: PASS; real VM, bounds, safe SVG, rejection and ARIA");
