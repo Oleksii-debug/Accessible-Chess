@@ -42,7 +42,7 @@ class Section54SourceIntakeTests(unittest.TestCase):
 
     def test_xhtml_xml_declaration_routes_through_canonical_html_import(self) -> None:
         source = (
-            b'<?xml version="1.0" encoding="UTF-8"?>\\n'
+            b'<?xml version="1.0" encoding="UTF-8"?>\n'
             b'<html xmlns="http://www.w3.org/1999/xhtml">'
             b'<head><title>Study</title></head>'
             b'<body><h1>First chapter</h1><p>Study one position.</p></body>'
@@ -58,12 +58,23 @@ class Section54SourceIntakeTests(unittest.TestCase):
         self.assertTrue(imported.document.blocks)
 
     def test_html_fragment_with_leading_comment_is_book_not_plaintext(self) -> None:
-        data = b'<!-- Public sample -->\\n<main><h2>Chess</h2><p>Study a position.</p></main>'
+        data = b'<!-- Public sample -->\n<main><h2>Chess</h2><p>Study a position.</p></main>'
         receipt = inspect_factory_source(data, source_name="fragment.html")
         self.assertEqual(receipt.detected_format, "html")
         self.assertTrue(receipt.can_import_as_book)
         book = import_factory_book(data, source_name="fragment.html")
         self.assertTrue(book.document.blocks)
+
+    def test_html_doctype_and_semantic_fragment_are_not_misclassified(self) -> None:
+        for body, name in (
+            (b"<!DOCTYPE html>\\n<html><body><p>Chess</p></body></html>", "doctype.html"),
+            (b"<p>Prose and annotations.</p>", "fragment.xhtml"),
+            (b"<article><h1>Strategy</h1><p>Reading</p></article>", "article.html"),
+        ):
+            with self.subTest(name=name):
+                receipt = inspect_factory_source(body, source_name=name)
+                self.assertTrue(receipt.can_import_as_book)
+                self.assertEqual(receipt.detected_format, "html")
 
     def test_generic_xml_is_not_silently_accepted_as_html(self) -> None:
         xml = b'<?xml version="1.0"?><records><item>Not a book</item></records>'
