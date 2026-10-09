@@ -120,5 +120,47 @@ class Section55LocalCLITests(unittest.TestCase):
                     run(args)
             self.assertFalse(args.output_folder.exists())
 
+    def test_direct_lawful_markdown_book_uses_canonical_source_ingress(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            args = self.args(root)
+            source = root / "chess.md"
+            source.write_text("# Chess\n\nA move sequence.\n", encoding="utf-8")
+            args.book_json = None
+            args.source_file = source
+            args.book_title = None
+            with patch.dict("sys.modules", {"louis": SyntheticLouis("louis")}):
+                self.assertEqual(run(args), 0)
+            report = json.loads((args.output_folder / "quality-report.json").read_text("utf-8"))
+            self.assertIs(report["manifest"]["print_ready"], False)
+            self.assertEqual(report["manifest"]["status"], "UNVERIFIED_REQUIRES_DECISION")
+
+    def test_ambiguous_markdown_image_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            args = self.args(root)
+            source = root / "chess.md"
+            source.write_text("# Chess\n\n![unknown diagram](secret.png)\n", encoding="utf-8")
+            args.book_json = None
+            args.source_file = source
+            args.book_title = None
+            with patch.dict("sys.modules", {"louis": SyntheticLouis("louis")}):
+                with self.assertRaises(BrailleFactoryError):
+                    run(args)
+            self.assertFalse(args.output_folder.exists())
+
+    def test_unsupported_source_extension_is_never_guessed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            args = self.args(root)
+            source = root / "unreadable.pdf"
+            source.write_bytes(b"%PDF-1.7")
+            args.book_json = None
+            args.source_file = source
+            args.book_title = None
+            with self.assertRaises(BrailleFactoryError):
+                run(args)
+            self.assertFalse(args.output_folder.exists())
+
 if __name__ == "__main__":
     unittest.main()
