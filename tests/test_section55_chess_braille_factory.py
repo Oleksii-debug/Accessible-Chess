@@ -119,7 +119,7 @@ class TestSection55ProvisionalPEF(unittest.TestCase):
     def test_position_uses_only_canonical_board_fen(self) -> None:
         document = BookDocument(
             title="Chess", blocks=[
-                Position(fen="8/8/8/8/8/8/4k3/4K3 w - - 0 1")
+                Position(fen="4k3/8/8/8/8/8/8/4K3 w - - 0 1")
             ])
         result = prepare(document)
         self.assertTrue(result.pef)
