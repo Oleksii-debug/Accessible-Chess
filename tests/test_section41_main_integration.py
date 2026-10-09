@@ -114,6 +114,64 @@ class Section41CanonicalUIQualification(unittest.TestCase):
         self.assertNotIn("https://", css)
         self.assertNotIn("http://", css)
 
+    def test_windows_package_requires_all_exact_local_ui_assets(self):
+        from acs.version2_package_preflight import Version2PackagePreflightError
+        from tests.test_version2_package_preflight import _make_tree, _write_checksums, _validate_tree
+        with tempfile.TemporaryDirectory() as raw:
+            package = Path(raw) / "candidate"
+            package.mkdir()
+            _make_tree(package)
+            product = package / "AccessibleChess"
+            index = product / "web/index.html"
+            index.write_text(
+                '<html><head><link rel="stylesheet" '
+                'href="assets/tabler-core/accessibility.css">'
+                '<link rel="stylesheet" '
+                'href="assets/accessible_chess_design.css"></head><body>'
+                '<img src="assets/tabler/chess-rook.svg" alt="" aria-hidden="true">'
+                '</body></html>', encoding="utf-8",
+            )
+            _write_checksums(package)
+            with self.assertRaises(Version2PackagePreflightError):
+                _validate_tree(package)
+            assets = (
+                "web/assets/accessible_chess_design.css",
+                "web/assets/tabler-core/LICENSE",
+                "web/assets/tabler-core/SECTION41_CORE_PROVENANCE.json",
+                "web/assets/tabler-core/accessibility.css",
+                "web/assets/tabler/LICENSE",
+                "web/assets/tabler/SECTION41_PROVENANCE.json",
+                "web/assets/tabler/adjustments.svg",
+                "web/assets/tabler/chess-rook.svg",
+            )
+            for name in assets:
+                target = product / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes((ROOT / name).read_bytes())
+            _write_checksums(package)
+            _validate_tree(package)
+            for name in ("web/assets/tabler/chess-rook.svg",
+                         "web/assets/tabler-core/accessibility.css",
+                         "web/assets/tabler/LICENSE"):
+                with self.subTest(name=name):
+                    target = product / name
+                    original = target.read_bytes()
+                    target.write_bytes(original + b"tampered")
+                    _write_checksums(package)
+                    with self.assertRaises(Version2PackagePreflightError):
+                        _validate_tree(package)
+                    target.write_bytes(original)
+                    _write_checksums(package)
+                    _validate_tree(package)
+            # A reference to one required resource without its paired
+            # pinned dependencies fails closed even when all bytes exist.
+            index.write_text('<link rel="stylesheet" '
+                             'href="assets/accessible_chess_design.css">',
+                             encoding="utf-8")
+            _write_checksums(package)
+            with self.assertRaises(Version2PackagePreflightError):
+                _validate_tree(package)
+
     def test_semantic_demo_has_actual_controls_and_copyable_text(self):
         demo = (ROOT / "web/section41_components.html").read_text(encoding="utf-8")
         for marker in (
