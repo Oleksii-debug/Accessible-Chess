@@ -58,7 +58,7 @@ def _validated_jobs(raw: bytes) -> tuple[str, list[dict]]:
         raise BrailleFactoryError("Invalid UTF-8 queue specification") from exc
     if type(payload) is not dict or set(payload) != {"schema_version", "jobs"}:
         raise BrailleFactoryError("Unexpected local batch document format")
-    if payload["schema_version"] != 1 or type(payload["jobs"]) is not list:
+    if type(payload["schema_version"]) is not int or payload["schema_version"] != 1 or type(payload["jobs"]) is not list:
         raise BrailleFactoryError("Unsupported batch queue version")
     jobs = payload["jobs"]
     if not 1 <= len(jobs) <= MAX_QUEUE_JOBS:
@@ -118,7 +118,7 @@ def _load_journal(path: Path, queue_sha: str) -> dict:
         raise BrailleFactoryError("Malformed persisted batch journal") from exc
     if (type(journal) is not dict or set(journal) != {
             "schema_version", "queue_sha256", "completed"}
-            or journal["schema_version"] != 1 or
+            or type(journal["schema_version"]) is not int or journal["schema_version"] != 1 or
             journal["queue_sha256"] != queue_sha or
             type(journal["completed"]) is not dict):
         raise BrailleFactoryError("Batch journal refers to another immutable queue revision")
