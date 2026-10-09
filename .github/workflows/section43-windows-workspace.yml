@@ -10,6 +10,7 @@ on:
       - "acs/stage1_release_ui.py"
       - "tests/js/sections43_44_workspace_contract_test.js"
       - "tests/test_sections43_44_native_layout_persistence.py"
+      - "scripts/section43_windows_visual_smoke.py"
       - ".github/workflows/section43-windows-workspace.yml"
   push:
     branches:
@@ -41,6 +42,24 @@ jobs:
         run: python -m py_compile acs/settings.py acs/stage1_release_ui.py tests/test_sections43_44_native_layout_persistence.py
       - name: Native bounded and atomic layout persistence
         run: python -m unittest -v tests.test_sections43_44_native_layout_persistence tests.test_settings
+      - name: Protect Windows UIA, focus, editable text and semantic copy regressions
+        run: >-
+          python -m unittest -v
+          tests.test_stage1_webview2_accessibility_boundary
+          tests.test_stage1_packaged_focus_origin_contract
+          tests.test_premium_visual_design
+          tests.test_version2_release_accessibility_contract
+      - name: Exact source real Windows Edge DPI, screenshot and live DOM smoke
+        if: runner.os == 'Windows'
+        run: python scripts/section43_windows_visual_smoke.py
+      - name: Save bounded render evidence, including on visual failure
+        if: always() && runner.os == 'Windows'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: section43-windows-real-render-visual-evidence
+          path: section43-windows-visual-evidence/
+          if-no-files-found: warn
+          retention-days: 14
       - name: Validate actual composed navigation/layout JavaScript
         run: |
           node --check web/version2_final_product_bootstrap.js
