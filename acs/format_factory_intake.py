@@ -138,7 +138,7 @@ def _sniff_text(source: bytes) -> str:
         return "html"
     if re.match(r'^\s*\[(Event|Site|Date|Round|White|Black|Result|FEN|SetUp)\s+"', sample):
         return "pgn"
-    if re.search(r"(?m)^\s*#{1,6}\s+\S|(?m)^\s*\x60{3}(?:pgn|fen|chess)", sample):
+    if re.search(r"(?m)(?:^\s*#{1,6}\s+\S|^\s*\x60{3}(?:pgn|fen|chess))", sample):
         return "markdown"
     return "txt"
 
