@@ -23,6 +23,7 @@ from .notation import format_accessible_compact_san, format_san
 from .position_text import parse_position_text
 from .ui_review_adapter import ReviewPresentationAdapter
 from .ai_provider_gateway import AIProviderError, AIProviderGateway, ProviderProfile, ProviderRequest
+from .visual_board_contract import BoardSurface, VisualBoardCell, VisualBoardPreferences, VisualBoardSnapshot
 
 VERSION = "0.4.0-dev3"
 
@@ -77,6 +78,7 @@ class AccessibleChessAPI:
         self.video_timeline: list[dict[str, Any]] = []
         self._video_session_memory: dict[str, dict[str, Any]] = {}
         self._visual_profile_memory = {"profile": "classic", "theme": "system", "board_theme": "wood", "density": "comfortable"}
+        self._visual_board_memory = self._visual_board_option_values(VisualBoardPreferences())
 
     @property
     def review_cursor(self) -> int:
@@ -469,6 +471,7 @@ class AccessibleChessAPI:
             "reviewCursor": display_view.ply, "historyLength": len(self.sans),
             "reviewStatus": display_view.status, "atHistoryEnd": self._at_history_end(),
         }
+        state["visualBoard"] = self._section42_visual_board(display_board, state)
         state["videoSync"] = {
             "active": self.video_sync_active,
             "prepared": bool(self.video_timeline),
@@ -858,6 +861,87 @@ class AccessibleChessAPI:
         except (TypeError, ValueError, OSError):
             return {"ok": False}
         return {"ok": True, **values, "announcement": "Visual profile applied." if self.lang == "en" else "Візуальний профіль застосовано."}
+
+
+    @staticmethod
+    def _visual_board_option_values(prefs: VisualBoardPreferences) -> dict[str, Any]:
+        # Existing atomic visual_profile_json remains the single board-palette owner.
+        return {key: value for key, value in prefs.as_dict().items() if key != "boardTheme"}
+
+    @staticmethod
+    def _validate_visual_board_options(raw: object) -> VisualBoardPreferences:
+        if type(raw) is not dict or set(raw) != {
+            "pieceTheme", "orientation", "coordinateMode", "scalePercent",
+            "showLastMove", "fitToWindow", "presentationMode",
+            "animateMoves", "lowPowerMode",
+        }:
+            raise ValueError("invalid Section 42 options")
+        return VisualBoardPreferences(
+            piece_theme=raw["pieceTheme"], orientation=raw["orientation"],
+            coordinate_mode=raw["coordinateMode"], scale_percent=raw["scalePercent"],
+            show_last_move=raw["showLastMove"], fit_to_window=raw["fitToWindow"],
+            presentation_mode=raw["presentationMode"], animate_moves=raw["animateMoves"],
+            low_power_mode=raw["lowPowerMode"],
+        )
+
+    def _section42_preferences(self) -> VisualBoardPreferences:
+        settings = getattr(self, "_settings", None)
+        if settings is None:
+            raw = self._visual_board_memory
+        else:
+            try:
+                raw = json.loads(settings.get("visual_board_preferences_json"))
+            except (TypeError, ValueError, KeyError):
+                raw = self._visual_board_option_values(VisualBoardPreferences())
+        try:
+            prefs = self._validate_visual_board_options(raw)
+        except (ValueError, TypeError):
+            prefs = VisualBoardPreferences()
+        theme = self.visual_profile_get().get("board_theme")
+        palette = {
+            "wood": "classic_wood", "graphite": "modern_graphite",
+            "blue": "tournament_blue", "minimal": "light_minimal",
+            "high-contrast": "high_contrast",
+        }.get(theme, "classic_wood")
+        return prefs.updated("board_theme", palette)
+
+    def _section42_visual_board(self, board: Board, state: dict[str, Any]) -> dict[str, Any]:
+        cells = tuple(
+            VisualBoardCell(cell["square"], board.board[parse_sq(cell["square"])] or "",
+                            cell["label"])
+            for cell in state["board"]
+        )
+        snapshot = VisualBoardSnapshot(
+            surface=BoardSurface.ORDINARY_PLAY,
+            preferences=self._section42_preferences(),
+            cells=cells,
+            selected_square=state["selectedSquare"],
+        )
+        return snapshot.as_dict()
+
+    def visual_board_apply(self, options: dict[str, Any]) -> dict[str, Any]:
+        """Persist presentation options only; never touch Board/FEN/ReviewHistory."""
+        try:
+            validated = self._validate_visual_board_options(options)
+            allowed = self._visual_board_option_values(validated)
+            settings = getattr(self, "_settings", None)
+            if settings is None:
+                self._visual_board_memory = allowed
+            else:
+                settings.set("visual_board_preferences_json", json.dumps(
+                    allowed, sort_keys=True, separators=(",", ":")))
+        except (ValueError, TypeError, OSError, KeyError):
+            return {"ok": False, "announcement": (
+                "Invalid board appearance." if self.lang == "en"
+                else "Некоректні параметри вигляду дошки."
+            )}
+        state = self.get_state()
+        state["ok"] = True
+        state["announcement"] = (
+            "Board appearance applied." if self.lang == "en"
+            else "Вигляд шахівниці застосовано."
+        )
+        return state
 
     def video_sync_stop(self) -> dict[str, Any]:
         self.video_sync_active = False
