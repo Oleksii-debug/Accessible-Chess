@@ -54,7 +54,7 @@ class FactoryPrivateConversionTests(unittest.TestCase):
             )
 
     def test_book_title_heading_must_not_be_guessed_as_chapter(self) -> None:
-        source = b"# Book title\\n\\n## First chapter\\n\\nAlpha.\\n\\n## Second chapter\\n\\nBeta.\\n"
+        source = b"# Book title\n\n## First chapter\n\nAlpha.\n\n## Second chapter\n\nBeta.\n"
         chosen = FactorySelection.from_text("chapters", "2")
         result = convert_factory_book_private(
             source, source_name="edition.md",
