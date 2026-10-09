@@ -188,7 +188,7 @@ class MITCbvaultNoFalsePassTests(unittest.TestCase):
             def genuine_decoder_failed(args, **kwargs):
                 Path(args[3]).write_bytes(exact)
                 kwargs["stderr"].write(
-                    b'{"records":3,"games":2,"failures":1}\\n'
+                    b'{"records":3,"games":2,"failures":1}\n'
                 )
                 kwargs["stderr"].flush()
                 child = complete_child(args, **kwargs)
@@ -198,7 +198,7 @@ class MITCbvaultNoFalsePassTests(unittest.TestCase):
             with patch.object(m.subprocess, "Popen", side_effect=genuine_decoder_failed):
                 with self.assertRaisesRegex(
                     LawfulCorpusError,
-                    r"export failed closed \\(exit=1; records=3, games=2, failures=1\\)",
+                    r"export failed closed \(exit=1; records=3, games=2, failures=1\)",
                 ):
                     m._run_external_pgn(binary, source)
 
