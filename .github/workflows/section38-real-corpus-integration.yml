@@ -7,6 +7,11 @@ on:
       - 'acs/book_library_import.py'
       - 'tools/section38_real_corpus_integration.py'
       - 'tests/test_book_library_import_journey.py'
+      - 'tests/test_section38_source_bound_readback.py'
+      - 'tests/test_book_open_preparation.py'
+      - 'acs/version2_application.py'
+      - 'acs/version2_windows_native_dialog_ownership.py'
+      - 'acs/version2_windows_file_workflows.py'
       - '.github/workflows/section38-real-corpus-integration.yml'
 
 permissions:
@@ -49,7 +54,36 @@ jobs:
           python tools/section40_test_collection_catalog.py \
             --corpus-root "$RUNNER_TEMP/section38" \
             --output "$RUNNER_TEMP/section40-catalog.json"
-      - name: Run focused integration tests
+      - name: Run original-file and native Book Open regression tests
         env:
           PYTHONPATH: tests
-        run: python -m unittest -v tests.test_book_library_import_journey
+        run: |
+          python -m unittest -v \
+            tests.test_book_library_import_journey \
+            tests.test_book_open_preparation \
+            tests.test_section38_source_bound_readback
+      - name: Preserve exact-source test receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: section38-real-source-readback-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/section38-evidence.json
+            ${{ runner.temp }}/section39-evidence.json
+            ${{ runner.temp }}/section40-catalog.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  native-epub3-windows:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify original EPUB3 Book Open and source integrity on Windows
+        env:
+          PYTHONPATH: tests
+        run: |
+          python -m unittest -v tests.test_book_open_preparation tests.test_section38_source_bound_readback
