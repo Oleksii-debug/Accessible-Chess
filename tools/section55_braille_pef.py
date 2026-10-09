@@ -159,7 +159,27 @@ def run(args: argparse.Namespace) -> int:
             json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
-        temporary.rename(target)
+        # Atomic no-clobber directory reservation. A plain rename into an
+        # existing empty directory may replace it on POSIX; mkdir rejects it.
+        try:
+            target.mkdir(mode=0o700, exist_ok=False)
+        except FileExistsError as exc:
+            raise BrailleFactoryError("Output folder was created concurrently; refusing overwrite") from exc
+        installed: list[Path] = []
+        try:
+            for name in ("chess-book-unverified.pef", "chess-book-unverified.brf", "quality-report.json"):
+                entry = temporary / name
+                if entry.exists():
+                    published = target / name
+                    entry.replace(published)
+                    installed.append(published)
+        except OSError:
+            for published in installed:
+                published.unlink(missing_ok=True)
+            # Keep any concurrently added foreign file, never delete it.
+            if target.is_dir() and not any(target.iterdir()):
+                target.rmdir()
+            raise
     finally:
         if temporary.exists():
             shutil.rmtree(temporary)
