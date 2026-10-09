@@ -54,7 +54,9 @@ class Section41VendoredAssets(unittest.TestCase):
                 self.assertEqual(root.get("viewBox"), "0 0 24 24")
                 self.assertNotIn(b"<script", data.lower())
                 self.assertNotIn(b"<foreignObject", data)
-                self.assertNotIn(b"http://", data.lower()[data.find(b"-->")+3:])
+                self.assertNotIn(b"<script", data.lower())
+                self.assertNotIn(b"xlink:href", data.lower())
+                self.assertNotIn(b"<image", data.lower())
 
     def test_only_local_opt_in_presentation_no_chess_override(self):
         css = (WEB / "tabler_subset.css").read_text(encoding="utf-8")
