@@ -362,6 +362,10 @@ async function hydrate(){
       const response=await bridge.get_design_studio_state();
       if(!response||!response.ok||!validStore(response.store))throw new Error("unsafe native state");
       store=response.store;revision=response.revision;
+      // Recover controls after a transient native-bridge read failure.
+      // A successful retry must not leave the studio permanently read-only.
+      el("ac45-apply").disabled=false;
+      el("ac45-copy").disabled=false;
       status("Профілі завантажено із захищеного сховища Windows.",
         "Profiles loaded from protected Windows storage.");
     }catch(_){
