@@ -255,6 +255,88 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   button:hover:not(:disabled) { transform: none; }
 }
 
+/* Section 44: component-specific presentation of existing canonical surfaces.
+   All selectors target real Book/Library/Training/Teacher/PGN/Media controls.
+   Presentation never creates, edits, or replaces any chess or user-data state. */
+#v2-workspace #book-document-title,
+#v2-workspace #education-detail-heading {
+  font-size: clamp(1.35rem, 2.4vw, 1.9rem);
+  line-height: 1.23;
+  overflow-wrap: anywhere;
+  margin-block: .35rem .8rem;
+}
+#v2-workspace #book-document-author {
+  color: var(--ac-muted);
+  font-size: .98rem;
+  margin-bottom: 1.1rem;
+}
+#v2-workspace :is(#book-bookmark-name, #training-answer, #pgn-comment-text, #teacher-pointer-input) {
+  width: min(100%, 48rem);
+  max-width: 100%;
+  box-sizing: border-box;
+}
+#v2-workspace :is(#training-solution, #library-import-region, #library-export-selection, #education-detail) {
+  border: 1px solid var(--ac-border);
+  border-radius: var(--ac-radius-sm);
+  background: var(--ac-surface-tint);
+  padding: clamp(.65rem, 1.7vw, 1.05rem);
+  overflow-wrap: anywhere;
+}
+#v2-workspace :is([role="tree"], [role="listbox"]) {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+#v2-workspace [role="treeitem"] {
+  margin-block: .12rem;
+  padding: .4rem .65rem;
+  border-inline-start: 3px solid transparent;
+  border-radius: var(--ac-radius-sm);
+}
+#v2-workspace [role="treeitem"][aria-selected="true"],
+#v2-workspace [role="treeitem"][aria-current="true"] {
+  border-inline-start-color: var(--ac-gold);
+  background: var(--ac-gold-soft);
+  color: var(--ac-accent-strong);
+}
+#v2-workspace :is([role="treeitem"], [role="option"]):focus-visible,
+#v2-workspace [role="toolbar"] :focus-visible {
+  outline: 3px solid var(--ac-focus);
+  outline-offset: 2px;
+}
+#v2-workspace [role="toolbar"] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .5rem;
+  max-width: 100%;
+  padding-block: .45rem;
+}
+#v2-workspace :is(#teacher-orientation-toggle, #pgn-refresh-view) {
+  margin-block: .5rem;
+}
+#teacher-visual-board [role="gridcell"] button:focus-visible {
+  outline: 3px solid var(--ac-focus);
+  outline-offset: -3px;
+}
+#v2-workspace :is(#training-solution, .pgn-comments, .library-source) {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 42rem) {
+  #v2-workspace [role="toolbar"] > * { max-width: 100%; }
+  #v2-workspace :is([role="treeitem"], [role="option"]) { overflow-wrap: anywhere; }
+}
+@media (forced-colors: active) {
+  #v2-workspace :is(#training-solution, #library-import-region, #library-export-selection, #education-detail, [role="treeitem"][aria-selected="true"]) {
+    background: Canvas;
+    color: CanvasText;
+    border-color: CanvasText;
+  }
+  #v2-workspace :is([role="treeitem"], [role="option"]):focus-visible,
+  #v2-workspace [role="toolbar"] :focus-visible,
+  #teacher-visual-board [role="gridcell"] button:focus-visible { outline-color: Highlight; }
+}
+
 
 /* Section 43: canonical workspace composition; visual only, no state authority.
    Preserve logical DOM/tab order, native text selection and keyboard focus. */
