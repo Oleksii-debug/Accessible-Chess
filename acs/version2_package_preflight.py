@@ -1729,7 +1729,7 @@ def _validate_required_runtime_resources(
                 asset, label="Section 41 pinned offline asset", max_bytes=128 * 1024,
             )
             actual = hashlib.sha1(
-                b"blob " + str(len(content)).encode("ascii") + b"\\0" + content
+                b"blob " + str(len(content)).encode("ascii") + b"\0" + content
             ).hexdigest()
             if actual != expected_blob:
                 _fail("Section 41 packaged asset has mismatched MIT provenance")
