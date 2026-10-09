@@ -21,6 +21,7 @@ from acs.bookdocument import BookDocument
 from acs.pgn_roundtrip import parse_pgn_text
 from acs.lawful_corpus_registry import LawfulCorpusError, load_catalog
 from acs.user_library_seed import MANIFEST_NAME, import_user_library_seed, load_user_library_seed
+from tools.revised_section40_offline_test_library import OfflineCollectionError
 from tools.revised_section40_user_library_seed_bridge import _read_qualified_collection
 from tools.revised_sections37_38_offline_manifest import ROOT, _source_head
 
@@ -71,7 +72,9 @@ def _inspect_zip(path: Path) -> tuple[dict[str, bytes], str]:
 
 def _catalog_data(files: dict[str, bytes], expected_profile: str) -> dict:
     if "catalog/materials.json" not in files or "catalog/checksums.json" not in files:
-        raise LawfulCorpusError("offline chess package lacks complete source manifest")
+        raise LawfulCorpusError(
+            "offline chess package lacks complete source/checksum manifest"
+        )
     meta = json.loads(files["catalog/materials.json"])
     if (meta.get("profile") != expected_profile
         or meta.get("schema") != "acs-revised-section40-offline-collection-v1"
@@ -104,7 +107,12 @@ def qualify_built_delivery(test_path: Path, public_path: Path,
     """All three distinct real zip files must reopen and preserve semantics."""
     # The owner seam authenticates original PGN bytes independently, including
     # catalog/profile, before this function reads the packaged output.
-    original_stockfish, original_annotated = _read_qualified_collection(test_path)
+    try:
+        original_stockfish, original_annotated = _read_qualified_collection(test_path)
+    except OfflineCollectionError as exc:
+        raise LawfulCorpusError(
+            f"invalid TEST_BUILD source package: {exc}"
+        ) from exc
     tests, test_hash = _inspect_zip(test_path)
     public, public_hash = _inspect_zip(public_path)
     owner, owner_hash = _inspect_zip(owner_path)
