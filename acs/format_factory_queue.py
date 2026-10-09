@@ -207,7 +207,8 @@ class FactoryJobQueue:
 
     def transition(self, lease: FactoryLease, *, now: int | float,
                    target: Literal["WAITING", "PAUSED", "REVIEW_REQUIRED", "PARTIAL", "FAILED", "DONE"],
-                   artifact_sha256: str | None = None, coverage_verified: bool = False) -> FactoryJobSnapshot:
+                   artifact_sha256: str | None = None, coverage_verified: bool = False,
+                   expected_fragment_ids: tuple[str, ...] | None = None) -> FactoryJobSnapshot:
         timestamp = _now(now)
         if target not in ("WAITING", "PAUSED", "REVIEW_REQUIRED", "PARTIAL", "FAILED", "DONE") or type(target) is not str:
             raise FactoryQueueError("Invalid job transition")
@@ -217,7 +218,13 @@ class FactoryJobQueue:
             _sha(artifact_sha256, "artifact_sha256")
             if not coverage_verified:
                 raise FactoryQueueError("Unverified requested coverage cannot be DONE")
-        elif artifact_sha256 is not None or coverage_verified:
+            if (type(expected_fragment_ids) is not tuple or not expected_fragment_ids or
+                    len(expected_fragment_ids) > 100_000 or
+                    any(type(x) is not str or not re.fullmatch(r"[A-Za-z0-9_.:-]{1,128}", x)
+                        for x in expected_fragment_ids) or
+                    len(set(expected_fragment_ids)) != len(expected_fragment_ids)):
+                raise FactoryQueueError("Complete explicit fragment coverage is required")
+        elif artifact_sha256 is not None or coverage_verified or expected_fragment_ids is not None:
             raise FactoryQueueError("Artifact/coverage attestation is only allowed for DONE")
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
@@ -227,10 +234,41 @@ class FactoryJobQueue:
                     FROM factory_fragments WHERE job_id=?""", (lease.job_id,)).fetchone()
                 if not counts[0] or counts[0] != counts[1]:
                     raise FactoryQueueError("All accepted fragments must be verified")
+                saved_ids = {
+                    row[0] for row in db.execute(
+                        "SELECT fragment_id FROM factory_fragments WHERE job_id=?", (lease.job_id,)
+                    )
+                }
+                if saved_ids != set(expected_fragment_ids):
+                    raise FactoryQueueError("Requested fragment coverage differs from verified checkpoints")
             db.execute("""UPDATE factory_jobs SET state=?, lease_id=NULL, lease_deadline=NULL,
                 artifact_sha256=?, updated=? WHERE job_id=?""", (target, artifact_sha256, timestamp, lease.job_id))
             db.commit()
         return self.snapshot(lease.job_id)
+
+    def resume(self, job_id: str, *, expected_policy_sha256: str,
+               now: int | float, user_confirmed: bool = False) -> FactoryJobSnapshot:
+        """Explicit owner-requested resume from a suspended, unchanged job.
+
+        Running, completed, or waiting jobs are never reset. A changed policy
+        requires a new job identity instead of silently retaining checkpoints.
+        """
+        job_id = _id(job_id, "job_id")
+        expected_policy_sha256 = _sha(expected_policy_sha256, "expected_policy_sha256")
+        timestamp = _now(now)
+        if user_confirmed is not True:
+            raise FactoryQueueError("Resuming processing requires explicit owner approval")
+        with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT state, policy_sha256, lease_id FROM factory_jobs WHERE job_id=?", (job_id,)).fetchone()
+            if row is None or row[1] != expected_policy_sha256:
+                raise FactoryQueueError("Job policy is missing or changed")
+            if row[0] not in ("PAUSED", "REVIEW_REQUIRED", "PARTIAL") or row[2] is not None:
+                raise FactoryQueueError("Job cannot be resumed in its present state")
+            db.execute("""UPDATE factory_jobs SET state='WAITING', updated=?,
+                lease_deadline=NULL, artifact_sha256=NULL WHERE job_id=?""", (timestamp, job_id))
+            db.commit()
+        return self.snapshot(job_id)
 
     def snapshot(self, job_id: str) -> FactoryJobSnapshot:
         job_id = _id(job_id, "job_id")
