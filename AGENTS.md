@@ -1,5 +1,16 @@
 # AGENTS.md
 
+## HIGHEST-PRIORITY OWNER DIRECTIVE — 2026-10-09: PRESERVE PAID/VERIFIED WORK, ONE SECTION PER RUN
+
+**MANDATORY: [SECTION_CLOSURE_IMMUTABILITY.md](SECTION_CLOSURE_IMMUTABILITY.md) in `main` is binding for every autonomous worker and integrator.** Read it in full before any branch, file, PR, test-baseline, integration or status mutation. This owner directive overrides any conflicting older “start next Section in same run”, multi-Section batch, broad reconvergence, or rework-for-activity instructions. It does not override essential security, safety, test, licensing, evidence-integrity or truthful DONE requirements.
+
+**ABSOLUTE NO-REWRITE RULE:** Preserve Sections 0–36 accepted terminal DONE, plus the already tested/locked individual subsections and implementations in the canonical work lineages (including PR #2506, earlier PR #2494 and their live successors). Do not silently rewrite, delete, downgrade, requalify for no reason, fork duplicate implementations, or overwrite work to simplify merging. Reopen only for a named and evidenced regression, invalid closure evidence, material contract change or actual integration break; document the reason *before* the minimum necessary repair. Do not treat PR #2506's worker-locked Sections 47–49 as already merged into `main`; preserve and safely integrate/qualify them instead of reimplementing them.
+
+**ONE SECTION PER RUN:** Target the numerically earliest actionable unfinished Section in the canonical current 0–53 plan. Only one parent Section per launch. Close/record any completed subsections immediately with exact SHA, applicable tests and live readback; skip them thereafter. If the target Section becomes terminal DONE, update GitHub+Drive, verify, and **stop that run**, rather than starting another parent Section. If externally non-actionable, document what is missing and stop without false DONE or switching to another Section. Existing implementation must be audited/reused/repaired/converged, never replaced speculatively.
+
+**NO GREEN INVENTION:** Keep known failing checks as real blockers. Queued/cancelled/unavailable hosted CI is not green; apply Simplified Section Closure v3 only with honestly executed and sufficient available evidence. Respect final physical Windows/NVDA and external-provider gates and do not ask the owner to do routine developer work. No paid compute without explicit permission.
+
+
 ## Simplified Section Closure Protocol v3 — owner directive 2026-10-07
 
 **This v3 directive overrides Terminal Section Closure Protocol v2 and every older conflicting Section-closure rule in this repository.**
