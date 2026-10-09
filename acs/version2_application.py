@@ -587,9 +587,9 @@ class Version2Application:
 
         checkpoint()
         suffix = source.suffix.casefold()
-        if suffix not in {".epub", ".html", ".htm", ".xhtml", ".txt", ".md", ".markdown"}:
+        if suffix not in {".epub", ".epub3", ".html", ".htm", ".xhtml", ".txt", ".md", ".markdown"}:
             raise ValueError("unsupported book source")
-        if suffix == ".epub":
+        if suffix in {".epub", ".epub3"}:
             limit = MAX_EPUB_SOURCE_BYTES
         elif suffix in {".html", ".htm", ".xhtml"}:
             limit = MAX_HTML_SOURCE_BYTES
@@ -606,7 +606,7 @@ class Version2Application:
             raise BookOpenCancelled("Book Open preparation cancelled") from None
         checkpoint()
         safe_name = report_safe_name(source)
-        if suffix == ".epub":
+        if suffix in {".epub", ".epub3"}:
             imported = import_epub_book(
                 raw,
                 source_name=safe_name,
