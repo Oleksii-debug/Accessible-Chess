@@ -138,7 +138,7 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
 
                     catalogue = app.snapshot()["books"]["starter_materials"]
                     self.assertEqual(EXPECTED_BOOKLETS, catalogue["booklet_count"])
-                    self.assertEqual(EXPECTED_BOOKLETS + 1, len(catalogue["items"]))
+                    # Twenty-four protected booklets + starter course + five additional\n                    # original-source Sections 38/40 offline publications.\n                    self.assertEqual(EXPECTED_BOOKLETS + 6, len(catalogue["items"]))
                     self.assertEqual("starter-course", catalogue["current_id"])
                     self.assertEqual(
                         EXPECTED_BOOKLETS,
