@@ -47,6 +47,7 @@ DEFAULTS: dict[str, Any] = {
     "sound_low_time_variant": "1",
     "video_sessions_json": "{}",
     "ai_profiles_json": "{}",
+    "design_profiles_json": '{"version":1,"selected":"Classic","profiles":{}}',
     "visual_profile_json": "{\"board_theme\":\"wood\",\"density\":\"comfortable\",\"profile\":\"classic\",\"theme\":\"system\"}",
     "visual_board_preferences_json": "{\"animateMoves\":false,\"coordinateMode\":\"edges\",\"fitToWindow\":false,\"lowPowerMode\":false,\"orientation\":\"white\",\"pieceTheme\":\"unicode\",\"presentationMode\":false,\"scalePercent\":100,\"showLastMove\":true}",
 }
@@ -466,6 +467,14 @@ def _validated_setting_key(key: object) -> str:
 
 def _validated_value(key: str, value: Any) -> Any:
     key = _validated_setting_key(key)
+    if key == "design_profiles_json":
+        from .section45_design_profiles import read_store, serialize_store
+        if type(value) is not str:
+            raise SettingsError("design profiles must be JSON text")
+        try:
+            return serialize_store(read_store(value))
+        except ValueError as exc:
+            raise SettingsError("invalid design profile store") from exc
     if key == "language":
         if type(value) is not str or value not in _ALLOWED_LANGUAGE:
             raise SettingsError("language must be 'uk' or 'en'")
