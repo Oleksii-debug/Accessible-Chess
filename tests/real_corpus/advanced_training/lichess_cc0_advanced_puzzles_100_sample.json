@@ -1,0 +1,301 @@
+{
+  "schema": "accessible-chess-licensed-advanced-training-original-sample-v1",
+  "source_repository": "https://github.com/mcognetta/lichess-combined-puzzle-game-db",
+  "source_original_path": "combined_puzzle_db_first_100.ndjson",
+  "source_original_git_blob": "d7b86f83c1a355fa511420a36dbdc656a3cc6fef",
+  "source_author": "Lichess open puzzles combined with original CC0 games; mcognetta 2022 sample",
+  "license": "CC0-1.0",
+  "source_count": 100,
+  "retained_count": 16,
+  "selection_rule": "source puzzle Rating >= 2200; rating is Lichess puzzle difficulty, NOT FIDE ELO or title",
+  "display_rule": "Position for solver is AFTER first UCI move (opponent); remaining UCI moves are solution; never expose solution in prompt",
+  "composed_endgame_studies": false,
+  "source_rights": "Derived only from externally attributed original CC0, no proprietary books or third-party compositions",
+  "puzzles": [
+    {
+      "puzzle_id": "00FHO",
+      "fen_before_opponent_move": "8/1pp5/p2p3p/3P1Pk1/P3K1P1/1P5R/8/2r5 w - - 1 39",
+      "uci_moves_with_opponent_first": "e4f3 c1c3 f3g2 c3h3 g2h3 h6h5 g4h5 g5h5",
+      "rating": 2233,
+      "rating_deviation": 112,
+      "popularity": 100,
+      "themes": [
+        "crushing",
+        "endgame",
+        "rookEndgame",
+        "veryLong"
+      ],
+      "game_url": "https://lichess.org/0KBMAMQh#77",
+      "opening_family": "",
+      "opening_variation": ""
+    },
+    {
+      "puzzle_id": "00H2L",
+      "fen_before_opponent_move": "8/8/2p2p2/p4P1p/Pk5P/4K1P1/8/8 w - - 1 39",
+      "uci_moves_with_opponent_first": "e3d3 c6c5 d3e2 c5c4 g3g4 h5g4",
+      "rating": 2351,
+      "rating_deviation": 112,
+      "popularity": 85,
+      "themes": [
+        "crushing",
+        "endgame",
+        "long",
+        "pawnEndgame",
+        "quietMove"
+      ],
+      "game_url": "https://lichess.org/UMoEkwn0#77",
+      "opening_family": "",
+      "opening_variation": ""
+    },
+    {
+      "puzzle_id": "00Ns0",
+      "fen_before_opponent_move": "r2qr1k1/pn1p2pp/bp3p2/2p1N3/2P5/1PB3Q1/P1P3PP/R4RK1 w - - 0 18",
+      "uci_moves_with_opponent_first": "f1f6 d8f6 a1f1 f6h6 e5g4 h6g6 c3g7 e8e4 g4f6 g8g7",
+      "rating": 2539,
+      "rating_deviation": 106,
+      "popularity": 84,
+      "themes": [
+        "advantage",
+        "hangingPiece",
+        "intermezzo",
+        "middlegame",
+        "veryLong"
+      ],
+      "game_url": "https://lichess.org/ZyKw24YE#35",
+      "opening_family": "",
+      "opening_variation": ""
+    },
+    {
+      "puzzle_id": "00Mei",
+      "fen_before_opponent_move": "8/6rk/6p1/1R3b1p/2pQ1P2/2P3P1/qP4PK/8 b - - 0 36",
+      "uci_moves_with_opponent_first": "f5d3 d4d8 a2a7 b5b8 a7b8 d8b8",
+      "rating": 2567,
+      "rating_deviation": 78,
+      "popularity": 83,
+      "themes": [
+        "advantage",
+        "endgame",
+        "long",
+        "master",
+        "quietMove"
+      ],
+      "game_url": "https://lichess.org/xvCSyLc3/black#72",
+      "opening_family": "",
+      "opening_variation": ""
+    },
+    {
+      "puzzle_id": "00LRq",
+      "fen_before_opponent_move": "1k6/1p1q4/P2p3p/1NpPpn1Q/5b2/2P3r1/1P2B1P1/R6K b - - 3 28",
+      "uci_moves_with_opponent_first": "g3g7 a6a7 b8a8 b5c7 d7c7 h5e8 c7b8 a7b8q",
+      "rating": 2291,
+      "rating_deviation": 77,
+      "popularity": 91,
+      "themes": [
+        "advancedPawn",
+        "doubleCheck",
+        "mate",
+        "mateIn4",
+        "middlegame",
+        "promotion",
+        "queensideAttack",
+        "sacrifice",
+        "veryLong"
+      ],
+      "game_url": "https://lichess.org/i9yxFCW9/black#56",
+      "opening_family": "",
+      "opening_variation": ""
+    },
+    {
+      "puzzle_id": "00GWg",
+      "fen_before_opponent_move": "1r1r2k1/pp4pp/2nNb3/2R2p2/2P1p3/8/P4PPP/3BR1K1 w - - 1 26",
+      "uci_moves_with_opponent_first": "d6b7 b8b7 c5c6 b7b1 g1f1 d8d1 e1d1 b1d1 f1e2 e6d7",
+      "rating": 2243,
+      "rating_deviation": 74,
+      "popularity": 95,
+      "themes": [
+        "crushing",
+        "middlegame",
+        "veryLong"
+      ],
+      "game_url": "https://lichess.org/M7Dta3mv#51",
+      "opening_family": "",
+      "opening_variation": ""
+    },
+    {
+      "puzzle_id": "00KNB",
+      "fen_before_opponent_move": "2rr2k1/5p2/4p2p/4N1pQ/1p3P2/4P3/np3P1P/2q2BRK b - - 1 32",
+      "uci_moves_with_opponent_first": "c8c7 h5h6 b2b1q h6g5",
+      "rating": 2627,
+      "rating_deviation": 83,
+      "popularity": 90,
+      "themes": [
+        "crushing",
+        "kingsideAttack",
+        "master",
+        "middlegame",
+        "pin",
+        "short"
+      ],
+      "game_url": "https://lichess.org/Ri0duT8T/black#64",
+      "opening_family": "",
+      "opening_variation": ""
+    },
+    {
+      "puzzle_id": "00KYC",
+      "fen_before_opponent_move": "5rk1/p6p/2r1pBp1/4P3/2b5/3p4/P4PPP/1R2R1K1 w - - 0 27",
+      "uci_moves_with_opponent_first": "b1b7 f8f6 e5f6 d3d2 e1d1 c4e2",
+      "rating": 2243,
+      "rating_deviation": 83,
+      "popularity": 78,
+      "themes": [
+        "advancedPawn",
+        "clearance",
+        "crushing",
+        "endgame",
+        "long",
+        "master",
+        "sacrifice"
+      ],
+      "game_url": "https://lichess.org/wxhreSsZ#53",
+      "opening_family": "",
+      "opening_variation": ""
+    },
+    {
+      "puzzle_id": "00MHi",
+      "fen_before_opponent_move": "8/8/5pp1/5k1p/5P1P/4R1P1/2r5/5K2 w - - 0 43",
+      "uci_moves_with_opponent_first": "e3e2 c2e2 f1e2 f5g4 e2f2 g4h3",
+      "rating": 2248,
+      "rating_deviation": 80,
+      "popularity": 71,
+      "themes": [
+        "crushing",
+        "endgame",
+        "long",
+        "rookEndgame",
+        "zugzwang"
+      ],
+      "game_url": "https://lichess.org/im48PGD7#85",
+      "opening_family": "",
+      "opening_variation": ""
+    },
+    {
+      "puzzle_id": "00BKa",
+      "fen_before_opponent_move": "5rk1/p1Rb1ppp/2n1pn2/8/8/2P3P1/q4PBP/1rNQK2R b K - 2 16",
+      "uci_moves_with_opponent_first": "f8c8 c7c8 d7c8 c1a2 b1d1 e1d1",
+      "rating": 2403,
+      "rating_deviation": 88,
+      "popularity": 88,
+      "themes": [
+        "advantage",
+        "long",
+        "middlegame"
+      ],
+      "game_url": "https://lichess.org/0bBHtpd4/black#32",
+      "opening_family": "French_Defense",
+      "opening_variation": "French_Defense_Winawer_Variation"
+    },
+    {
+      "puzzle_id": "006NL",
+      "fen_before_opponent_move": "1r6/k2qn1b1/p1b1p1p1/2PpPpN1/2nN1P1P/p4B2/1PP2Q2/1K1R3R w - - 0 32",
+      "uci_moves_with_opponent_first": "d4c6 e7c6 b2b3 a3a2 b1a1 c4e5 f4e5 g7e5 a1a2 b8b5",
+      "rating": 2279,
+      "rating_deviation": 114,
+      "popularity": 85,
+      "themes": [
+        "advancedPawn",
+        "advantage",
+        "middlegame",
+        "pin",
+        "veryLong"
+      ],
+      "game_url": "https://lichess.org/yA3M5Q6W#63",
+      "opening_family": "",
+      "opening_variation": ""
+    },
+    {
+      "puzzle_id": "00EJb",
+      "fen_before_opponent_move": "6k1/5pp1/2R1p2p/8/P1B5/1P4P1/1q3Q1P/3r2K1 w - - 1 35",
+      "uci_moves_with_opponent_first": "g1g2 d1d2 c6c8 g8h7 c4d3 f7f5 c8c2 d2f2",
+      "rating": 2341,
+      "rating_deviation": 80,
+      "popularity": 88,
+      "themes": [
+        "advantage",
+        "endgame",
+        "pin",
+        "veryLong"
+      ],
+      "game_url": "https://lichess.org/ki9WEgCM#69",
+      "opening_family": "",
+      "opening_variation": ""
+    },
+    {
+      "puzzle_id": "00D12",
+      "fen_before_opponent_move": "8/6pp/8/3kP3/1p1P2P1/rPpK3P/4R3/8 b - - 1 39",
+      "uci_moves_with_opponent_first": "a3b3 e5e6 c3c2 d3c2 b3c3 c2d2",
+      "rating": 2415,
+      "rating_deviation": 81,
+      "popularity": 88,
+      "themes": [
+        "crushing",
+        "endgame",
+        "long",
+        "rookEndgame"
+      ],
+      "game_url": "https://lichess.org/iC0vC5to/black#78",
+      "opening_family": "",
+      "opening_variation": ""
+    },
+    {
+      "puzzle_id": "00M7w",
+      "fen_before_opponent_move": "r1b1k2r/ppp2ppp/2n5/2bBp3/2Pq4/3P1QP1/P2B1P1P/1R2K1NR b Kkq - 2 12",
+      "uci_moves_with_opponent_first": "f7f6 g1e2 d4f2 f3f2 c5f2 e1f2",
+      "rating": 2274,
+      "rating_deviation": 77,
+      "popularity": 90,
+      "themes": [
+        "crushing",
+        "long",
+        "opening"
+      ],
+      "game_url": "https://lichess.org/rhyiYyX3/black#24",
+      "opening_family": "Scandinavian_Defense",
+      "opening_variation": "Scandinavian_Defense_Main_Line"
+    },
+    {
+      "puzzle_id": "004Ys",
+      "fen_before_opponent_move": "r4rk1/3q1pbp/p1n1p1p1/2p3NP/1p3B2/3P3Q/PPP3P1/R3R1K1 b - - 2 19",
+      "uci_moves_with_opponent_first": "d7d4 f4e3 d4f6 e1f1 f6e5 h5g6 e5e3 h3e3",
+      "rating": 2233,
+      "rating_deviation": 83,
+      "popularity": 90,
+      "themes": [
+        "advantage",
+        "defensiveMove",
+        "middlegame",
+        "veryLong"
+      ],
+      "game_url": "https://lichess.org/LcIJdugn/black#38",
+      "opening_family": "Sicilian_Defense",
+      "opening_variation": "Sicilian_Defense_McDonnell_Attack"
+    },
+    {
+      "puzzle_id": "00LZf",
+      "fen_before_opponent_move": "r1b1kb1r/pppp1ppp/2n1p3/3nN3/3P2q1/4B3/PPP1BPPP/RN1Q1RK1 b kq - 9 8",
+      "uci_moves_with_opponent_first": "d5e3 f2e3 g4g5 e5f7 g5e3 g1h1",
+      "rating": 2205,
+      "rating_deviation": 91,
+      "popularity": 25,
+      "themes": [
+        "advantage",
+        "attackingF2F7",
+        "fork",
+        "long",
+        "opening"
+      ],
+      "game_url": "https://lichess.org/sVgQxr8Q/black#16",
+      "opening_family": "",
+      "opening_variation": ""
+    }
+  ]
+}
