@@ -269,6 +269,9 @@ window.addEventListener('pywebviewready',async()=>{await refreshState();await lo
     if(!section.id)section.id="ac43-panel-"+id;
     const title=heading.textContent.trim();
     heading.dataset.ac43Heading=title;
+    // Preserve the accessible heading/aria-labelledby name when toolbar
+    // buttons are appended: their action labels must remain separate tab stops.
+    heading.setAttribute("aria-label",title);
     const actions=document.createElement("span");
     actions.className="ac43-panel-actions";
     const toggle=document.createElement("button");
