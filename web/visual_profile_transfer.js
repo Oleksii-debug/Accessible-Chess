@@ -86,6 +86,12 @@
     return api && typeof api.visual_profile_export === "function" &&
       typeof api.visual_profile_import === "function" ? api : null;
   }
+  function nativeHostPresent() {
+    // Fail closed if the Windows host exists but its pywebview bridge is still
+    // initializing: never create a second, browser-local persistence owner.
+    return observedNative || !!global.pywebview ||
+      !!(global.chrome && global.chrome.webview);
+  }
   function localRaw() {
     try { return global.localStorage.getItem(storageKey); }
     catch (_) { throw Error("local storage unavailable"); }
@@ -97,7 +103,7 @@
   let observedNative = false;
 
   function initializeWeb() {
-    if (bridge()) return;
+    if (nativeHostPresent()) return;
     try {
       const raw = localRaw();
       if (raw !== null) present(decode(raw));
@@ -116,6 +122,7 @@
       nativeRevision = value.revision;
       return value.payload;
     }
+    if (nativeHostPresent()) throw Error("Windows profile bridge unavailable");
     const raw = localRaw();
     if (raw !== webRevision) throw Error("stale web profile");
     return raw === null ? initial : raw;
@@ -151,6 +158,7 @@
         if (!result || !result.ok) throw Error("conflict or invalid import");
         nativeRevision = result.revision;
       } else {
+        if (nativeHostPresent()) throw Error("Windows profile bridge unavailable");
         const current = localRaw();
         if (current !== webRevision) throw Error("stale web profile");
         global.localStorage.setItem(storageKey, encode(prefs));
@@ -166,7 +174,7 @@
   // Existing native Apply/Cancel/Reset handlers remain the *only* Windows writers.
   // In standalone Web, persist the same four-field presentation contract locally.
   doc.getElementById("visual-apply").addEventListener("click", function () {
-    if (bridge() || observedNative) return;
+    if (nativeHostPresent()) return;
     try {
       const prefs = currentControls();
       const current = localRaw();
@@ -180,17 +188,17 @@
     }
   });
   doc.getElementById("visual-cancel").addEventListener("click", function () {
-    if (bridge() || observedNative) return;
+    if (nativeHostPresent()) return;
     try { present(decode(localRaw() || initial)); }
     catch (_) { say("Профіль потребує відновлення.", "Profile needs recovery."); }
   });
   global.addEventListener("storage", function (event) {
-    if (event.key === storageKey && !bridge()) {
+    if (event.key === storageKey && !nativeHostPresent()) {
       say("Профіль змінено в іншій вкладці. Оновіть сторінку перед записом.", "Another tab changed the profile. Reload before saving.");
     }
   });
   global.addEventListener("pywebviewready", function () {
-    if (bridge()) observedNative = true;
+    observedNative = true;
   });
   function labels() {
     const english = en();
