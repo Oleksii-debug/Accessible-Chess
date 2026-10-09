@@ -74,6 +74,8 @@ function mount(options={}){
   confirm:()=>true
  };
  if(options.native) window.pywebview={api:options.native};
+ if(options.protocol) window.location={protocol:options.protocol};
+ if(options.webview2) window.chrome={webview:{}};
  const globalEvent=class Event{constructor(type){this.type=type;}};
  vm.runInNewContext(script,{
   document:doc,window,Event:globalEvent,Blob:global.Blob,URL:global.URL,
@@ -211,6 +213,32 @@ async function settle(){for(let i=0;i<12;i++)await Promise.resolve();}
    return {ok:true,store:durable,revision};
   }
  };
+ // Section 45.5: a partially initialized or late-arriving Windows bridge
+ // must never create a browser-local shadow preference store.
+ for(const options of [{native:{}},{protocol:"file:"},{webview2:true}]){
+   const pending=mount(options);await settle();
+   assert.equal(pending.get("ac45-apply").disabled,true);
+   assert.equal(pending.get("ac45-copy").disabled,true);
+   pending.get("ac45-apply").click();await settle();
+   pending.get("ac45-copy").click();await settle();
+   assert.equal(pending.store["accessible-chess.design-profiles.v1"],undefined,
+     "Native bootstrap must fail closed without a localStorage shadow writer");
+ }
+ const late=mount();await settle();
+ late.window.pywebview={api:{}};
+ late.get("ac45-apply").click();await settle();
+ assert.equal(late.store["accessible-chess.design-profiles.v1"],undefined,
+   "Late host must not write browser-local preferences");
+ late.window.pywebview={api:native};
+ late.window.dispatchEvent({type:"pywebviewready"});await settle();
+ assert.equal(late.get("ac45-apply").disabled,false);
+ late.get("ac45-profile").value="Tournament";
+ late.get("ac45-profile").dispatchEvent({type:"change"});
+ late.get("ac45-apply").click();await settle();
+ assert.equal(durable.selected,"Tournament",
+   "Late host must converge through the canonical native Settings writer");
+ assert.equal(late.store["accessible-chess.design-profiles.v1"],undefined);
+
  const win=mount({native});await settle();
  assert.equal(win.get("ac45-profile").value,"Coach");
  win.get("ac45-profile").value="Low Vision";
@@ -247,5 +275,5 @@ async function settle(){for(let i=0;i<12;i++)await Promise.resolve();}
  retry.get("ac45-profile").dispatchEvent({type:"change"});
  retry.get("ac45-apply").click();await settle();
  assert.equal(recoveredDurable.selected,"Low Vision");
- console.log("Section45 real studio DOM: 12 groups PASS (preview, Apply/Cancel, restart, input security, native CAS mock)");
+ console.log("Section45 real studio DOM: 13 groups PASS (preview, Apply/Cancel, restart, input security, native CAS mock)");
 })().catch(err=>{console.error(err);process.exitCode=1;});
