@@ -193,7 +193,14 @@ function renderBoard(cells){
     node.dataset.boardShade=(Math.floor(i/8)+i%8)%2?'dark':'light';
     const art=decorated.get(cell.square),piece=art&&/^[KQRBNPkqrbnp]$/.test(art.piece)?art.piece:'';
     node.dataset.piece=piece;
-    node.textContent=cell.square;
+    const showCoordinate=prefs.coordinateMode==='every_square'||
+      (prefs.coordinateMode!=='off'&&(i%8===0||Math.floor(i/8)===7));
+    node.textContent=showCoordinate?cell.square:'';
+    if(visual&&prefs.showLastMove!==false&&visual.lastMove&&
+       (cell.square===visual.lastMove.from||cell.square===visual.lastMove.to))
+       node.dataset.lastMove='true';
+    if(visual&&Array.isArray(visual.legalTargets)&&visual.legalTargets.includes(cell.square))
+       node.dataset.legal='true';
     if(piece){
       const icon=document.createElement('span');
       icon.className='ac42-piece-icon';
