@@ -1,9 +1,7 @@
 # Accessible Chess — Autonomous Routing Control
 
-**ARCHIVED REFERENCE, NOT CURRENT PLAN.** This document records time-bound operational coordination only. It MUST NOT determine current Section numbers, names, scope, status, priority or worker count. For every current run read [../CURRENT_SECTION_INDEX_0_53.md](../CURRENT_SECTION_INDEX_0_53.md), the current Google Drive plan for Sections **0–53**, root `AGENTS.md`, and live `SEQUENTIAL_CLOSURE_STATE.md`. The final valid Section ID is **53**; no other numeric mapping is recognized. All subsequent historical instructions are non-operative when they disagree with these authorities. Do not write Section-identity comparisons in worker responses.
-
 EPOCH: CHESS-2026-09-08-18
-STATE: ARCHIVED WORK-HISTORY ONLY — NOT CURRENT SECTION/SCOPE/WORK-SELECTION AUTHORITY
+STATE: HISTORICAL OPERATIONS SNAPSHOT
 
 ## Operating invariant
 Every worker, Codex Cloud and Work run must reconstruct newest repository/PR/CI/runtime truth before substantive work. Classify inherited targets KEEP, CHANGE, STOP_STALE, COLLISION or PROMOTE. Do not duplicate active ownership.
