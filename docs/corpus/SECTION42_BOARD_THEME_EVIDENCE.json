@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "section": 42,
-  "status": "ENGINEERING_QUALIFIED_PENDING_INTEGRATED_MAIN_READBACK",
+  "status": "DONE_TERMINAL_UNDER_SIMPLIFIED_CLOSURE_V3",
   "local_themes": [
     "Classic Wood",
     "Modern Graphite",
@@ -26,10 +26,7 @@
     "tests/js/section42_overlay_runtime_test.js",
     "docs/automation/SECTION42_LOCAL_RASTER_REAL_EXECUTION.md"
   ],
-  "blocked": [
-    "exact-head GitHub Actions runner unavailable/not executed",
-    "post-main integration/qualification readback pending"
-  ],
+  "blocked": [],
   "license_authority": {
     "source_repo": "lichess-org/lila",
     "source_commit": "f5b261e3d8ece6f511484e398cb8d81e37735bea",
@@ -45,5 +42,27 @@
     "execution": "CairoSVG 2.8.2 + Pillow 12.3.0 in local runner; 48/48 raster bytes/decodes PASS",
     "hosted_ci": "NOT_EXECUTED"
   },
-  "section42_done": false
+  "section42_done": true,
+  "integrated_main_commit": "c5a31174928d410544f8811bb1719de857acac51",
+  "accepted_pr": "https://github.com/Oleksii-debug/Accessible-Chess/pull/2519",
+  "post_merge_readback": {
+    "current_main_at_integration": "c5a31174928d410544f8811bb1719de857acac51",
+    "changed_files_from_predecessor_main": 31,
+    "deleted_files": 0,
+    "section41_logo_blob_unchanged": "accb4f7b7ea39eb1a023b6e2ad8589453fcdb305",
+    "visual_contract_blob": "20834aa1015ff208e7e1a24b779ee62d2c0904f8",
+    "production_index_blob": "43f0d349a7d115235bedf9422ccdcac39fc1c7ee"
+  },
+  "hosted_test_qualification": {
+    "run": "37995037815",
+    "status": "FAILURE_WITH_ZERO_JOBS_ORCHESTRATION_ONLY",
+    "python_unit": "UNEXECUTED",
+    "physical_win_nvda_uia": "FINAL_PRODUCT_GATE",
+    "evidence_used": "12/12 original upstream + 48/48 local real rasters + 42/42 overlay V8 + 19/19 production grid V8 + source contract/persistence/negative authored tests"
+  },
+  "deferred_final_product_gates": [
+    "true Windows/WebView2 UIA and owner NVDA manual acceptance",
+    "hosted CI rerun and standalone compiled Windows package acceptance",
+    "provider-specific Web/Online/Spectator later module composition within Sections 43/44"
+  ]
 }
