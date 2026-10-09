@@ -1694,6 +1694,51 @@ def _validate_required_runtime_resources(
             label="packaged Version 2 web resource",
         )
 
+    # Section 41: a packed canonical Web UI that references reviewed MIT assets
+    # must contain those exact bytes. Old packages with no such references retain
+    # their prior compatibility boundary.
+    packed_index = _read_stable_bytes_file(
+        root / "AccessibleChess/web/index.html",
+        label="packaged canonical Web UI",
+        max_bytes=min(limits.max_text_scan_bytes, 2 * 1024 * 1024),
+    )
+    design_ref = b'href="assets/accessible_chess_design.css"'
+    core_ref = b'href="assets/tabler-core/accessibility.css"'
+    icon_ref = b'src="assets/tabler/chess-rook.svg"'
+    if any(ref in packed_index for ref in (design_ref, core_ref, icon_ref)):
+        if not all(ref in packed_index for ref in (design_ref, core_ref, icon_ref)):
+            _fail("Section 41 canonical UI has an incomplete MIT asset binding")
+        # Exact source Git blob identities are independent of mutable SHA256SUMS
+        # so an attacker cannot legitimize altered SVG/CSS by rewriting checksums.
+        pinned_assets = {
+            "web/assets/accessible_chess_design.css": "30b4580623cc4ceb947fdec1f9b7ab7d2f5bcdb3",
+            "web/assets/tabler-core/LICENSE": "aa69649cde83c2d6517ec2498a9c10f5bb3bf54c",
+            "web/assets/tabler-core/SECTION41_CORE_PROVENANCE.json": "1e0225f937e46bcc6669213d1fe181a5cc145902",
+            "web/assets/tabler-core/accessibility.css": "0fe8f69f90411731513c9926827fb609bf51b267",
+            "web/assets/tabler/LICENSE": "3e82379dab3fe93d9ee22251949604ed63ddea39",
+            "web/assets/tabler/SECTION41_PROVENANCE.json": "f2c3f00cfec4f214c39930ebdb2bd8d42891cc7d",
+            "web/assets/tabler/adjustments.svg": "ef63f0fb0065937722a5ffd59cc5355b96b38045",
+            "web/assets/tabler/chess-rook.svg": "accb4f7b7ea39eb1a023b6e2ad8589453fcdb305",
+        }
+        for name, expected_blob in pinned_assets.items():
+            relative = "AccessibleChess/" + name
+            asset = _require_package_file(
+                root, inventory, relative, label="Section 41 pinned offline asset",
+            )
+            content = _read_stable_bytes_file(
+                asset, label="Section 41 pinned offline asset", max_bytes=128 * 1024,
+            )
+            actual = hashlib.sha1(
+                b"blob " + str(len(content)).encode("ascii") + b"\\0" + content
+            ).hexdigest()
+            if actual != expected_blob:
+                _fail("Section 41 packaged asset has mismatched MIT provenance")
+            if name.endswith(".css") and (
+                b"@import" in content.lower() or b"url(http" in content.lower()
+                or b"expression(" in content.lower()
+            ):
+                _fail("Section 41 packaged CSS has a remote/unsafe dependency")
+
     stockfish = _require_package_file(
         root,
         inventory,
