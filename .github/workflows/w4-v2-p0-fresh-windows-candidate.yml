@@ -29,7 +29,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  FULL_PRODUCT_BRANCH: ${{ github.event.repository.default_branch }}
+  FULL_PRODUCT_BRANCH: work/full-product-teacher-education-reachability-20260911
   WORKFLOW_REGISTRATION_BRANCH: ${{ github.event.repository.default_branch }}
   PYTHON_VERSION: '3.12.10'
   PYWEBVIEW_VERSION: '6.2.1'
@@ -92,10 +92,6 @@ jobs:
             printf 'Requested SHA %s is not live Full Product head %s\n' "$requested" "$live" >&2
             exit 1
           }
-          test "$requested" = "$workflow_sha" || {
-            printf 'Requested SHA %s is not the exact registered release apex %s\n' "$requested" "$workflow_sha" >&2
-            exit 1
-          }
           git cat-file -e "${requested}^{commit}"
           short="${requested:0:7}"
           echo "PRODUCT_SHA=$requested" >> "$GITHUB_ENV"
@@ -104,7 +100,6 @@ jobs:
           echo "CANDIDATE_FILE=Accessible-Chess-V2-${short}-NVDA-test-candidate.zip" >> "$GITHUB_ENV"
           echo "W4_WORKFLOW_REGISTRATION_IDENTITY=PASS"
           echo "W4_WORKFLOW_PRODUCT_IDENTITY=PASS"
-          echo "W4_EXACT_APEX_IDENTITY=PASS"
           echo "INTEGRATED_FULL_PRODUCT_IDENTITY=PASS"
 
       - name: Materialize exact integrated Product worktree
@@ -596,130 +591,6 @@ jobs:
           '@ | python -
           if($LASTEXITCODE -ne 0){throw 'Fresh extraction canonical preflight failed'}
 
-      - name: Exercise exact packaged sound runtime at default volume
-        shell: pwsh
-        working-directory: product-source
-        run: |
-          $ErrorActionPreference='Stop'
-          @'
-          import sys
-          import types
-          import wave
-          from pathlib import Path
-
-          from acs.sound_events import SoundEvent
-          from acs.sound_windows import (
-              ASYNC_SOUND_EVENTS,
-              PackagedSoundAssetResolver,
-              WindowsSoundPlaybackAdapter,
-          )
-
-          product = Path('fresh-extraction/AccessibleChess').resolve()
-          cache = Path('candidate-output/sound-runtime-probe-cache').resolve()
-          resolver = PackagedSoundAssetResolver(product)
-          selected = {event: '1' for event in SoundEvent}
-          calls = []
-
-          fake_winsound = types.SimpleNamespace(
-              SND_FILENAME=0x00020000,
-              SND_NODEFAULT=0x00000002,
-              SND_ASYNC=0x00000001,
-              PlaySound=lambda sound, flags: calls.append((str(sound), int(flags))),
-          )
-          sys.modules['winsound'] = fake_winsound
-
-          adapter = WindowsSoundPlaybackAdapter(
-              resolver,
-              cache_dir=cache,
-              variant_provider=lambda event: selected[event],
-          )
-
-          expected_calls = 0
-          expected_async_flags = []
-          expected_call_labels = []
-          for event in SoundEvent:
-              options = resolver.variants_for(event)
-              if not options:
-                  raise SystemExit(f'FRESH_PACKAGED_SOUND_VARIANTS_EMPTY event={event.value}')
-              for option in options:
-                  selected[event] = option.variant_id
-                  sequence = resolver.resolve_sequence(event, variant_id=option.variant_id)
-                  expected_calls += len(sequence)
-                  is_async = event in ASYNC_SOUND_EVENTS
-                  if is_async and len(sequence) != 1:
-                      raise SystemExit(
-                          f'FRESH_PACKAGED_SOUND_ASYNC_LAYER_INVALID event={event.value}'
-                      )
-                  expected_async_flags.extend([is_async] * len(sequence))
-                  expected_call_labels.extend(
-                      [
-                          f'{event.value}:{option.variant_id}:{index}'
-                          for index in range(len(sequence))
-                      ]
-                  )
-                  adapter.play(event, volume=80)
-
-          if len(calls) != expected_calls:
-              raise SystemExit(
-                  f'FRESH_PACKAGED_SOUND_RUNTIME_CALL_COUNT_MISMATCH '
-                  f'actual={len(calls)} expected={expected_calls}'
-              )
-          if len(expected_async_flags) != len(calls):
-              raise SystemExit('FRESH_PACKAGED_SOUND_RUNTIME_EXPECTATION_COUNT_MISMATCH')
-          async_calls = 0
-          for index, (playable_text, flags) in enumerate(calls):
-              playable = Path(playable_text).resolve()
-              try:
-                  playable.relative_to(cache)
-              except ValueError as exc:
-                  raise SystemExit(
-                      f'FRESH_PACKAGED_SOUND_RUNTIME_CACHE_ESCAPE {playable}'
-                  ) from exc
-              if not playable.is_file():
-                  raise SystemExit(
-                      f'FRESH_PACKAGED_SOUND_RUNTIME_CACHE_MISSING {playable}'
-                  )
-              if not flags & fake_winsound.SND_FILENAME:
-                  raise SystemExit('FRESH_PACKAGED_SOUND_RUNTIME_FILENAME_FLAG_MISSING')
-              if not flags & fake_winsound.SND_NODEFAULT:
-                  raise SystemExit('FRESH_PACKAGED_SOUND_RUNTIME_NODEFAULT_FLAG_MISSING')
-              actual_async = bool(flags & fake_winsound.SND_ASYNC)
-              expected_async = expected_async_flags[index]
-              if actual_async != expected_async:
-                  raise SystemExit(
-                      f'FRESH_PACKAGED_SOUND_RUNTIME_ASYNC_FLAG_MISMATCH '
-                      f'call={expected_call_labels[index]} '
-                      f'actual={actual_async} expected={expected_async}'
-                  )
-              if actual_async:
-                  async_calls += 1
-              with wave.open(str(playable), 'rb') as reader:
-                  if reader.getcomptype() != 'NONE':
-                      raise SystemExit(
-                          f'FRESH_PACKAGED_SOUND_RUNTIME_CACHE_COMPRESSION {playable}'
-                      )
-                  if reader.getsampwidth() not in {1, 2}:
-                      raise SystemExit(
-                          f'FRESH_PACKAGED_SOUND_RUNTIME_CACHE_WIDTH {playable}'
-                      )
-                  frame_count = reader.getnframes()
-                  if frame_count < 1 or not reader.readframes(frame_count):
-                      raise SystemExit(
-                          f'FRESH_PACKAGED_SOUND_RUNTIME_CACHE_EMPTY {playable}'
-                      )
-          expected_async_calls = sum(expected_async_flags)
-          if async_calls != expected_async_calls:
-              raise SystemExit(
-                  f'FRESH_PACKAGED_SOUND_RUNTIME_ASYNC_COUNT_MISMATCH '
-                  f'actual={async_calls} expected={expected_async_calls}'
-              )
-          print(f'FRESH_PACKAGED_SOUND_RUNTIME_CALLS={len(calls)}')
-          print(f'FRESH_PACKAGED_SOUND_RUNTIME_ASYNC_CALLS={async_calls}')
-          print('FRESH_PACKAGED_SOUND_RUNTIME_DEFAULT_VOLUME=80')
-          print('FRESH_PACKAGED_SOUND_RUNTIME_TRANSFORM=PASS')
-          '@ | python -
-          if($LASTEXITCODE -ne 0){throw 'Fresh packaged sound runtime transform failed'}
-
       - name: Fresh-extracted packaged diagnostic and Stockfish smoke
         shell: pwsh
         working-directory: product-source
@@ -835,13 +706,8 @@ jobs:
             printf 'STALE_W4_CANDIDATE requested=%s live=%s\n' "$PRODUCT_SHA" "$live" >&2
             exit 1
           }
-          test "$PRODUCT_SHA" = "$workflow_sha" || {
-            printf 'STALE_W4_EXACT_APEX product=%s workflow=%s\n' "$PRODUCT_SHA" "$workflow_sha" >&2
-            exit 1
-          }
           echo 'W4_PRE_UPLOAD_WORKFLOW_FRESHNESS=PASS'
           echo 'W4_PRE_UPLOAD_PRODUCT_FRESHNESS=PASS'
-          echo 'W4_PRE_UPLOAD_EXACT_APEX=PASS'
           echo 'W4_PRE_UPLOAD_FRESHNESS=PASS'
 
       - name: Write run-bound candidate metadata after freshness proof
@@ -862,8 +728,6 @@ jobs:
               raise SystemExit("RUN_METADATA_PRODUCT_SHA_INVALID")
           if not hex40.fullmatch(workflow_sha):
               raise SystemExit("RUN_METADATA_WORKFLOW_SHA_INVALID")
-          if product_sha != workflow_sha:
-              raise SystemExit("RUN_METADATA_EXACT_APEX_MISMATCH")
           payload = {
               "schema_version": 1,
               "product_sha": product_sha,

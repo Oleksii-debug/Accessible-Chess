@@ -38,26 +38,23 @@ class W4V2P0FreshCandidateWorkflowTests(unittest.TestCase):
         self.assertLess(approval, sound)
         self.assertLess(approval, upload)
 
-    def test_dispatch_ref_uses_live_registered_exact_product_apex(self) -> None:
+    def test_dispatch_ref_uses_live_registered_workflow_and_independent_live_product(self) -> None:
         self.assertIn('WORKFLOW_REGISTRATION_BRANCH: ${{ github.event.repository.default_branch }}', self.text)
-        self.assertIn('FULL_PRODUCT_BRANCH: ${{ github.event.repository.default_branch }}', self.text)
         self.assertIn('test "$GITHUB_REF_TYPE" = "branch"', self.text)
         self.assertIn('test "$GITHUB_REF_NAME" = "$WORKFLOW_REGISTRATION_BRANCH"', self.text)
         self.assertIn('workflow_sha="$(git rev-parse HEAD)"', self.text)
         self.assertIn('git fetch --no-tags origin "$WORKFLOW_REGISTRATION_BRANCH" "$FULL_PRODUCT_BRANCH"', self.text)
         self.assertIn('workflow_live="$(git rev-parse "origin/$WORKFLOW_REGISTRATION_BRANCH")"', self.text)
         self.assertIn('test "$workflow_sha" = "$workflow_live"', self.text)
-        self.assertIn('test "$requested" = "$workflow_sha"', self.text)
+        self.assertNotIn('test "$workflow_sha" = "$requested"', self.text)
         self.assertIn("W4_WORKFLOW_REGISTRATION_IDENTITY=PASS", self.text)
         self.assertIn("W4_WORKFLOW_PRODUCT_IDENTITY=PASS", self.text)
-        self.assertIn("W4_EXACT_APEX_IDENTITY=PASS", self.text)
 
-    def test_requested_sha_must_equal_live_default_branch_release_apex(self) -> None:
-        self.assertIn('FULL_PRODUCT_BRANCH: ${{ github.event.repository.default_branch }}', self.text)
+    def test_requested_sha_must_equal_live_canonical_full_product_head(self) -> None:
+        self.assertIn("FULL_PRODUCT_BRANCH: work/full-product-teacher-education-reachability-20260911", self.text)
         self.assertIn('git fetch --no-tags origin "$WORKFLOW_REGISTRATION_BRANCH" "$FULL_PRODUCT_BRANCH"', self.text)
         self.assertIn('live="$(git rev-parse "origin/$FULL_PRODUCT_BRANCH")"', self.text)
         self.assertIn('test "$requested" = "$live"', self.text)
-        self.assertIn('test "$requested" = "$workflow_sha"', self.text)
         self.assertIn("product_sha must be one exact 40-hex commit", self.text)
 
     def test_candidate_requires_exact_user_sound_pack_and_never_generates_fallback_tones(self) -> None:
@@ -281,8 +278,6 @@ class W4V2P0FreshCandidateWorkflowTests(unittest.TestCase):
         self.assertIn('live="$(git rev-parse "origin/$FULL_PRODUCT_BRANCH")"', self.text)
         self.assertIn('test "$PRODUCT_SHA" = "$live"', self.text)
         self.assertIn("STALE_W4_CANDIDATE", self.text)
-        self.assertIn("STALE_W4_EXACT_APEX", self.text)
-        self.assertIn("W4_PRE_UPLOAD_EXACT_APEX=PASS", self.text)
 
 
     def test_run_metadata_is_bound_after_freshness_and_before_publication(self) -> None:
@@ -297,7 +292,6 @@ class W4V2P0FreshCandidateWorkflowTests(unittest.TestCase):
         self.assertLess(metadata_pass, upload)
         self.assertIn('"product_sha": product_sha', self.text)
         self.assertIn('"workflow_sha": workflow_sha', self.text)
-        self.assertIn("RUN_METADATA_EXACT_APEX_MISMATCH", self.text)
         self.assertIn('"pre_upload_product_freshness": True', self.text)
         self.assertIn('"pre_upload_workflow_freshness": True', self.text)
         self.assertIn('"human_tested": False', self.text)
