@@ -82,6 +82,14 @@ class Section45ProfilesTests(unittest.TestCase):
         with self.assertRaises(DesignProfileError):
             save_copy(DEFAULT_STORE, "Test", malicious)
 
+    def test_portable_names_with_json_punctuation_roundtrip(self):
+        # The Web decoder must treat braces/brackets in names as string data.
+        current = DEFAULT_STORE
+        for name in ("Study {window [", "Study ]} view"):
+            current = save_copy(current, name, PRESETS["Coach"])
+            self.assertEqual(read_store(serialize_store(current)), current)
+        self.assertEqual(len(current["profiles"]), 2)
+
     def test_canonical_settings_durable_recovery_and_conflict(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
