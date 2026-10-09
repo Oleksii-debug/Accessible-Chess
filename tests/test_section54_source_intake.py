@@ -40,6 +40,40 @@ class Section54SourceIntakeTests(unittest.TestCase):
         self.assertEqual(result.source.detected_format, "html")
         self.assertTrue(result.document.blocks)
 
+    def test_xhtml_xml_declaration_routes_through_canonical_html_import(self) -> None:
+        source = (
+            b'<?xml version="1.0" encoding="UTF-8"?>\\n'
+            b'<html xmlns="http://www.w3.org/1999/xhtml">'
+            b'<head><title>Study</title></head>'
+            b'<body><h1>First chapter</h1><p>Study one position.</p></body>'
+            b'</html>'
+        )
+        receipt = inspect_factory_source(source, source_name="study.xhtml")
+        self.assertEqual(receipt.detected_format, "html")
+        self.assertEqual(receipt.import_status, "SUPPORTED_BOOK_INGRESS")
+        self.assertFalse(receipt.extension_mismatch)
+        imported = import_factory_book(source, source_name="study.xhtml")
+        self.assertEqual(imported.importer, "acs.book_html_import")
+        self.assertEqual(imported.source.sha256, sha256(source).hexdigest())
+        self.assertTrue(imported.document.blocks)
+
+    def test_html_fragment_with_leading_comment_is_book_not_plaintext(self) -> None:
+        data = b'<!-- Public sample -->\\n<main><h2>Chess</h2><p>Study a position.</p></main>'
+        receipt = inspect_factory_source(data, source_name="fragment.html")
+        self.assertEqual(receipt.detected_format, "html")
+        self.assertTrue(receipt.can_import_as_book)
+        book = import_factory_book(data, source_name="fragment.html")
+        self.assertTrue(book.document.blocks)
+
+    def test_generic_xml_is_not_silently_accepted_as_html(self) -> None:
+        xml = b'<?xml version="1.0"?><records><item>Not a book</item></records>'
+        receipt = inspect_factory_source(xml, source_name="not-html.xhtml")
+        self.assertNotEqual(receipt.detected_format, "html")
+        self.assertEqual(receipt.import_status, "UNSUPPORTED")
+        self.assertTrue(receipt.extension_mismatch)
+        with self.assertRaises(FactoryIntakeError):
+            import_factory_book(xml, source_name="not-html.xhtml")
+
     def test_pdf_and_image_bytes_cannot_claim_semantic_success(self) -> None:
         for data, name, expected in (
             (b"%PDF-1.7\nx", "a.pdf", "pdf"),
