@@ -1,0 +1,135 @@
+/* Accessible Chess Section 41: first-party local design tokens over ONE existing UI.
+   No CDN, no framework JavaScript, no new chess/domain state owner.
+   The installed MIT Tabler icons have independently pinned source blobs in
+   tabler/SECTION41_PROVENANCE.json, but no Tabler Core bundle is falsely claimed. */
+:root{
+  --ac41-bg:#f8fafc;--ac41-surface:#ffffff;--ac41-ink:#142238;
+  --ac41-muted:#334155;--ac41-border:#64748b;--ac41-action:#123e73;
+  --ac41-on-action:#ffffff;--ac41-link:#0645ad;--ac41-focus:#9a3412;
+  --ac41-space-1:.25rem;--ac41-space-2:.5rem;--ac41-space-3:.75rem;
+  --ac41-space-4:1rem;--ac41-space-6:1.5rem;--ac41-radius:.6rem;
+  --ac41-shadow:0 3px 16px rgba(15,23,42,.12);--ac41-motion:140ms;
+  color-scheme:light;
+}
+:root[data-ac-ui-theme="light"]{color-scheme:light}
+:root[data-ac-ui-theme="dark"]{
+  --ac41-bg:#0b1424;--ac41-surface:#16253a;--ac41-ink:#f1f5f9;
+  --ac41-muted:#d2e1ef;--ac41-border:#a8bdd2;--ac41-action:#d4e8ff;
+  --ac41-on-action:#10213d;--ac41-link:#c4e1ff;--ac41-focus:#ffe08a;
+  --ac41-shadow:0 3px 17px rgba(0,0,0,.3);color-scheme:dark;
+}
+:root[data-ac-ui-theme="contrast"]{
+  --ac41-bg:#000000;--ac41-surface:#000000;--ac41-ink:#ffffff;
+  --ac41-muted:#ffffff;--ac41-border:#ffffff;--ac41-action:#ffff00;
+  --ac41-on-action:#000000;--ac41-link:#00ffff;--ac41-focus:#ffff00;
+  --ac41-shadow:none;color-scheme:dark;
+}
+@media(prefers-color-scheme:dark){
+  :root:not([data-ac-ui-theme]),:root[data-ac-ui-theme="system"]{
+    --ac41-bg:#0b1424;--ac41-surface:#16253a;--ac41-ink:#f1f5f9;
+    --ac41-muted:#d2e1ef;--ac41-border:#a8bdd2;--ac41-action:#d4e8ff;
+    --ac41-on-action:#10213d;--ac41-link:#c4e1ff;--ac41-focus:#ffe08a;
+    --ac41-shadow:0 3px 17px rgba(0,0,0,.3);color-scheme:dark;
+  }
+}
+body{background:var(--ac41-bg);color:var(--ac41-ink);font-family:"Segoe UI",system-ui,sans-serif}
+:where(main,section,article,fieldset,dialog){max-width:100%}
+.block,fieldset,dialog{background:var(--ac41-surface);color:var(--ac41-ink);
+ border-color:var(--ac41-border);border-radius:var(--ac41-radius)}
+:where(button,input,textarea,select){font:inherit;max-width:100%}
+:where(button,select,input,textarea){min-height:2.5rem;border:2px solid var(--ac41-border);
+ border-radius:var(--ac41-radius);background:var(--ac41-surface);color:var(--ac41-ink)}
+:where(button:not(:disabled)){cursor:pointer}
+:where(button:hover:not(:disabled)){box-shadow:var(--ac41-shadow)}
+:where(button:disabled){cursor:not-allowed;opacity:.75}
+a{color:var(--ac41-link);text-underline-offset:.16em}
+:where(:focus-visible){outline:3px solid var(--ac41-focus)!important;
+ outline-offset:3px!important}
+:where(input,textarea,select,button){accent-color:var(--ac41-action)}
+:where(th,td){border-bottom:1px solid var(--ac41-border);padding:.55rem;vertical-align:top}
+:where(table){border-collapse:collapse;max-width:100%;overflow-wrap:anywhere}
+:where(dialog){max-height:min(90vh,46rem);overflow:auto}
+:where(.ac41-theme-control){display:flex;flex-wrap:wrap;align-items:center;
+ gap:var(--ac41-space-2);margin-block:var(--ac41-space-3)}
+:where(.ac41-theme-control label){font-weight:600}
+.ac41-skip{position:absolute;inset-inline-start:-200vw;top:0}
+.ac41-skip:focus-visible{inset-inline-start:1rem;top:1rem;z-index:999;padding:.5rem;background:Canvas;color:CanvasText}
+::selection{background:Highlight;color:HighlightText}
+@media(max-width:48rem){
+  :where(body){padding-inline:.75rem}
+  :where(.row){flex-wrap:wrap}
+  :where(input[type=text],input[type=search],textarea){min-width:0;width:100%}
+}
+@media(prefers-reduced-motion:reduce){
+  :root{--ac41-motion:0ms}
+  *,*::before,*::after{scroll-behavior:auto!important;
+    animation-duration:0.01ms!important;transition-duration:0.01ms!important}
+}
+@media(forced-colors:active){
+  :root{--ac41-shadow:none}
+  :where(body,fieldset,dialog,.block){background:Canvas!important;color:CanvasText!important;
+    border-color:CanvasText!important}
+  :where(button,input,textarea,select){background:Field!important;color:FieldText!important;
+    border:2px solid ButtonText!important}
+  :where(:focus-visible){outline:3px solid Highlight!important}
+  :where(a){color:LinkText!important}
+  :where(button:disabled){opacity:1}
+}
+
+/* Section 42 pinned CC0 originals: visual only and silent to NVDA. */
+.ac42-piece-art{display:block;width:min(100%,3rem);height:auto;aspect-ratio:1;object-fit:contain;pointer-events:none;user-select:none}
+@media(forced-colors:active){.ac42-piece-art{forced-color-adjust:auto}}
+
+/* Section 42 large/fit board uses original 64-square accessible DOM and focus. */
+#board-grid[data-presentation=true] [role=gridcell]{min-height:clamp(3.6rem,8vmin,7rem)}
+#board-grid[data-presentation=true] .board-piece{font-size:clamp(2rem,5vmin,4.5rem)}
+#board-grid[data-presentation=true] .ac42-piece-art{width:min(100%,5rem)}
+@media(prefers-reduced-motion:no-preference){
+  #board-grid[data-motion=true] .board-piece[data-ac42-animate=true]{animation:ac42-piece-entrance 160ms ease-out both}
+  @keyframes ac42-piece-entrance{from{transform:scale(.86);opacity:.8}to{transform:scale(1);opacity:1}}
+}
+@media(prefers-reduced-motion:reduce),(forced-colors:active){#board-grid .board-piece{animation:none!important;transition:none!important}}
+
+/* Shared Stage1/Web board visuals; same canonical preference names.
+   Decorative piece art never changes board accessibility labels or game state. */
+#board-grid[data-theme=classic]{--light:#f0d9b5;--dark:#b58863;--piece-light:#111;--piece-dark:#111}
+#board-grid[data-theme=high_contrast]{--light:#fff;--dark:#000;--piece-light:#000;--piece-dark:#fff}
+#board-grid[data-theme=blue]{--light:#dbeafe;--dark:#1d4ed8;--piece-light:#111;--piece-dark:#fff}
+#board-grid[data-theme=classic_wood]{--light:#f0dfc3;--dark:#8e684b;--piece-light:#1b211c;--piece-dark:#fffdf7}
+#board-grid[data-theme=modern_graphite]{--light:#e0e4e8;--dark:#384552;--piece-light:#18232e;--piece-dark:#fff}
+#board-grid[data-theme=tournament_blue]{--light:#dceafa;--dark:#205d97;--piece-light:#102439;--piece-dark:#fff}
+#board-grid[data-theme=light_minimal]{--light:#fbfbf8;--dark:#c8d2dc;--piece-light:#1a2028;--piece-dark:#132435}
+#board-grid[role=grid] [role=gridcell]{position:relative;display:flex;align-items:center;justify-content:center;min-width:0;border:1px solid GrayText;outline-offset:2px}
+#board-grid[role=grid] [role=gridcell][data-light=true]{background:var(--light);color:var(--piece-light)}
+#board-grid[role=grid] [role=gridcell][data-light=false]{background:var(--dark);color:var(--piece-dark)}
+#board-grid[role=grid] [role=gridcell][aria-selected=true]{outline:4px solid Highlight}
+#board-grid[role=grid] [role=gridcell][data-last-move=true]{box-shadow:inset 0 0 0 4px #f59e0b}
+#board-grid[role=grid] [role=gridcell][data-legal-target=true]{border:4px dashed #16a34a}
+
+/* Teacher/coach arrows and highlights are inert visual decorations. */
+#board-grid{position:relative}
+#board-grid[role=grid] [role=gridcell][data-ac42-highlight=true]::after{
+  content:"";position:absolute;inset:4px;z-index:1;border:4px solid var(--ac42-highlight-color);
+  border-radius:.2rem;pointer-events:none
+}
+#board-grid .ac42-board-arrows{
+  position:absolute;inset:0;width:100%;height:100%;z-index:2;pointer-events:none
+}
+#board-grid [role=gridcell]:focus-visible{position:relative;z-index:3}
+@media(forced-colors:active){
+  #board-grid .ac42-board-arrows{display:none!important}
+  #board-grid[role=grid] [role=gridcell][data-ac42-highlight=true]::after{border:2px dashed Highlight}
+}
+
+/* Windows high-contrast exposes canonical Unicode glyph rather than dark raster SVG. */
+.ac42-piece-fallback{display:none;font:700 1.9rem/1 sans-serif;pointer-events:none}
+#board-grid[data-power=low] .board-piece{transition:none!important;animation:none!important}
+#board-grid[data-power=low] [role=gridcell]{box-shadow:none!important}
+@media(forced-colors:active){
+  #board-grid .ac42-piece-art{display:none!important}
+  #board-grid .ac42-piece-fallback{display:inline!important;color:CanvasText!important}
+}
+
+/* Copyable, non-live semantic equivalent of teacher and study annotations. */
+.ac42-board-annotation-summary{white-space:pre-wrap;overflow-wrap:anywhere;color:var(--ac41-ink);max-width:70ch}
+.ac42-board-annotation-summary:empty{display:none}
