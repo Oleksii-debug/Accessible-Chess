@@ -182,7 +182,8 @@ class MITCbvaultNoFalsePassTests(unittest.TestCase):
                 return complete_child(args, **kwargs)
 
             with patch.object(m.subprocess, "Popen", side_effect=stderr_bomb):
-                with self.assertRaisesRegex(LawfulCorpusError, "bounded complete PGN"):
+                # A stderr budget violation must fail closed before publishing PGN.
+                with self.assertRaisesRegex(LawfulCorpusError, "output exceeds resource budget"):
                     m._run_external_pgn(binary, source)
 
             def genuine_decoder_failed(args, **kwargs):
