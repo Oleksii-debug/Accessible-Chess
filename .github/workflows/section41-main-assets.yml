@@ -1,0 +1,68 @@
+name: Section 41 Pinned MIT Assets and Canonical UI
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'web/index.html'
+      - 'web/assets/accessible_chess_design.css'
+      - 'web/assets/tabler/**'
+      - 'web/assets/tabler-core/**'
+      - 'web/section41_components.html'
+      - 'docs/third_party/tabler-core-1.6.1-accessibility.scss'
+      - 'tools/revised_section41_mit_asset_qualification.py'
+      - 'acs/spdx_sbom.py'
+      - 'acs/version2_package_preflight.py'
+      - 'tests/test_section41_main_integration.py'
+      - 'tests/test_version2_package_preflight.py'
+      - 'tests/test_revised_section41_tabler_core.py'
+      - 'tests/js/section41_semantic_component_dom_test.js'
+      - '.github/workflows/section41-main-assets.yml'
+  workflow_dispatch: {}
+permissions:
+  contents: read
+jobs:
+  exact-section41-assets:
+    name: Pinned MIT / WCAG / ARIA (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+      - name: Exact candidate SHA
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+      - name: Compile and execute provenance / WCAG / keyboard contracts
+        run: |
+          python -m py_compile acs/spdx_sbom.py tools/revised_section41_mit_asset_qualification.py tests/test_section41_main_integration.py tests/test_revised_section41_tabler_core.py
+          python -m unittest -v tests.test_section41_main_integration tests.test_revised_section41_tabler_core
+      - name: Execute existing semantic dialog / focus / theme DOM regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check tests/js/section41_semantic_component_dom_test.js
+          node tests/js/section41_semantic_component_dom_test.js
+      - name: Exact source MIT/SPDX receipt (source fixture only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m tools.revised_section41_mit_asset_qualification --head "$(git rev-parse HEAD)" --output artifacts/section41-mit
+      - name: Preserve tested evidence without claiming physical NVDA acceptance
+        uses: actions/upload-artifact@v4
+        with:
+          name: section41-mit-source-qual-${{ matrix.os }}
+          path: artifacts/section41-mit/*.json
+          retention-days: 14
+          if-no-files-found: error
