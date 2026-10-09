@@ -44,12 +44,10 @@ on:
   workflow_dispatch: {}
 concurrency:
   group: ${{ github.workflow }}-pr-${{ github.event.pull_request.number || github.ref }}
-  # Continuous Section37-42 PR edits previously cancelled the Section40
-  # owner-library real-source jobs before execution. Keep one executing run
-  # alive for exact-SHA immutable receipts while the newest pending candidate
-  # may supersede an older pending candidate. A green older SHA is NOT a
-  # certificate for a newer PR head.
-  cancel-in-progress: false
+  # An obsolete queued run was holding the PR concurrency slot while the
+  # current exact-head candidate waited with zero jobs. Only newest HEAD can
+  # qualify Section40; superseded-SHA jobs are not acceptance evidence.
+  cancel-in-progress: true
 
 permissions:
   contents: read
