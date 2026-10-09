@@ -177,6 +177,9 @@ def _braille_lines(segments: list[str], translator: FormalBrailleTranslator,
     cell_count = 0
     blank = "\u2800"
     for source in segments:
+        _xml10_text(source, "Source segment")
+        if len(source) > 8192:
+            raise BrailleFactoryError("Text segment exceeds bounded provisional Braille limits")
         translated = translator.translate(source)
         if type(translated) is not str or not translated:
             raise BrailleFactoryError("Formal translator produced empty/invalid Braille")
