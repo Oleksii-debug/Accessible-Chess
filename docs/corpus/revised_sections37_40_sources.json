@@ -1411,12 +1411,12 @@
       "notes": "Publisher explicitly offers an independently downloadable FREE BONUS CBV of 8,000+ edited LSS games, separate from the paid/password encrypted 2CBH UltraCorr database. Exact binary URL, original full download SHA256, reuse/redistribution rights and native Accessible Chess readback have not been verified; temporary legal source testing only."
     },
     {
-      "download_url": null,
+      "download_url": "https://www.chessmail.com/assets/cbvfiles/WiskMacD_all.cbv",
       "sha256": null,
       "max_bytes": 0,
       "license": "Original editor publicly offers download for personal licensed examination; redistribution/derived database rights not cleared",
       "redistribution": "NOT_CLEARED",
-      "acquisition": "SOURCE_PAGE_ONLY",
+      "acquisition": "DISCOVERED_NOT_HASH_VERIFIED",
       "test_access": "EXTERNAL_LINK_ONLY",
       "public_release": "EXCLUDED",
       "canonical_qa": "Real publisher CBV archive discovered, not actual downloaded, verified or imported source; no authorized bypass of encrypted paid 2CBH data",
@@ -1425,7 +1425,7 @@
       "author": "Dr Tim Harding, ChessMail / chess historical source references",
       "format": "cbv",
       "source_page": "https://www.chessmail.com/research/MacDonnell-Wisker1874.html",
-      "notes": "Chess historian offers original CBV download of genuine 1874 match and related games, with historical source discussion and provenance. Original full CBV bytes, actual file SHA256, private test consent and public republishing rights remain unverified. No invented PGN import PASS."
+      "notes": "Chess historian offers original CBV download of genuine 1874 match and related games, with historical source discussion and provenance. Direct CBV href is publisher-linked on source page, but the binary could not be fetched in this environment. Original full CBV bytes, actual file SHA256, private test consent and public republishing rights remain unverified. No invented PGN import PASS."
     },
     {
       "id": "northwest_chess_2026_08_raw_cbv_original_external",
