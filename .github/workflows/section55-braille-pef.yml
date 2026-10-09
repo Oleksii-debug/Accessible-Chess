@@ -8,11 +8,13 @@ on:
       - "acs/chess_braille_tables.py"
       - "tools/section55_braille_pef.py"
       - "tools/section55_verify_bundle.py"
+      - "tools/section55_batch.py"
       - "tests/test_section55_chess_braille_factory.py"
       - "tests/test_section55_chess_braille_brf.py"
       - "tests/test_section55_local_cli_package.py"
       - "tests/test_section55_braille_bundle.py"
       - "tests/test_section55_liblouis_tables.py"
+      - "tests/test_section55_batch.py"
       - ".github/workflows/section55-braille-pef.yml"
   push:
     branches:
@@ -24,11 +26,13 @@ on:
       - "acs/chess_braille_tables.py"
       - "tools/section55_braille_pef.py"
       - "tools/section55_verify_bundle.py"
+      - "tools/section55_batch.py"
       - "tests/test_section55_chess_braille_factory.py"
       - "tests/test_section55_chess_braille_brf.py"
       - "tests/test_section55_local_cli_package.py"
       - "tests/test_section55_braille_bundle.py"
       - "tests/test_section55_liblouis_tables.py"
+      - "tests/test_section55_batch.py"
       - ".github/workflows/section55-braille-pef.yml"
   workflow_dispatch:
 jobs:
@@ -46,7 +50,7 @@ jobs:
         with:
           python-version: "3.11"
       - name: Check syntax
-        run: python -m compileall -q acs/chess_braille_factory.py acs/chess_braille_brf.py acs/chess_braille_bundle.py acs/chess_braille_tables.py tools/section55_braille_pef.py tools/section55_verify_bundle.py tests/test_section55_chess_braille_factory.py tests/test_section55_chess_braille_brf.py tests/test_section55_local_cli_package.py tests/test_section55_braille_bundle.py tests/test_section55_liblouis_tables.py
+        run: python -m compileall -q acs/chess_braille_factory.py acs/chess_braille_brf.py acs/chess_braille_bundle.py acs/chess_braille_tables.py tools/section55_braille_pef.py tools/section55_verify_bundle.py tools/section55_batch.py tests/test_section55_chess_braille_factory.py tests/test_section55_chess_braille_brf.py tests/test_section55_local_cli_package.py tests/test_section55_braille_bundle.py tests/test_section55_liblouis_tables.py tests/test_section55_batch.py
       - name: Run synthetic structural and negative-path tests
         run: |
           python -m unittest discover -s tests -p test_section55_chess_braille_factory.py -v
@@ -54,3 +58,4 @@ jobs:
           python -m unittest discover -s tests -p test_section55_local_cli_package.py -v
           python -m unittest discover -s tests -p test_section55_braille_bundle.py -v
           python -m unittest discover -s tests -p test_section55_liblouis_tables.py -v
+          python -m unittest discover -s tests -p test_section55_batch.py -v
