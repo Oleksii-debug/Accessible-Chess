@@ -219,5 +219,33 @@ async function settle(){for(let i=0;i<12;i++)await Promise.resolve();}
  assert.equal(durable.selected,"Low Vision");
  assert.equal(win.get("ac45-profile").value,"Low Vision");
  assert.equal(win.store["accessible-chess.design-profiles.v1"],undefined,"native private profile must not use localStorage");
- console.log("Section45 real studio DOM: 11 groups PASS (preview, Apply/Cancel, restart, input security, native CAS mock)");
+ // A transient native Settings bridge error must be recoverable via
+ // pywebviewready; otherwise Apply/Save copy stays permanently disabled.
+ let nativeLoads=0, recoveredDurable={version:1,selected:"Classic",profiles:{}};
+ let recoveredRev="recover-1";
+ const flakyBridge={
+   async get_design_studio_state(){
+     nativeLoads++;
+     if(nativeLoads===1)return {ok:false,reason:"settings_unavailable"};
+     return {ok:true,store:recoveredDurable,revision:recoveredRev};
+   },
+   async save_design_studio_state(next,expected){
+     if(expected!==recoveredRev)return {ok:false,reason:"stale_revision"};
+     recoveredDurable=JSON.parse(JSON.stringify(next));recoveredRev="recover-2";
+     return {ok:true,store:recoveredDurable,revision:recoveredRev};
+   }
+ };
+ const retry=mount({native:flakyBridge});await settle();
+ assert.equal(retry.get("ac45-apply").disabled,true);
+ assert.equal(retry.get("ac45-copy").disabled,true);
+ retry.window.dispatchEvent({type:"pywebviewready"});await settle();
+ assert.equal(retry.get("ac45-apply").disabled,false,
+   "Successful native rehydration must re-enable Apply");
+ assert.equal(retry.get("ac45-copy").disabled,false,
+   "Successful native rehydration must re-enable Save copy");
+ retry.get("ac45-profile").value="Low Vision";
+ retry.get("ac45-profile").dispatchEvent({type:"change"});
+ retry.get("ac45-apply").click();await settle();
+ assert.equal(recoveredDurable.selected,"Low Vision");
+ console.log("Section45 real studio DOM: 12 groups PASS (preview, Apply/Cancel, restart, input security, native CAS mock)");
 })().catch(err=>{console.error(err);process.exitCode=1;});
