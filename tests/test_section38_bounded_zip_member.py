@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
+from unittest.mock import patch
 import stat
 import tempfile
 import unittest
@@ -78,6 +79,20 @@ class BoundedZipMemberTests(unittest.TestCase):
         with ZipFile(self.archive, "w", compression=ZIP_STORED) as z:
             z.writestr(link, "evil")
         self.assert_refused("ZIP symbolic link")
+
+    def test_concurrent_owner_file_cannot_be_overwritten(self):
+        self.write_zip([("original.pgn", b"downloaded-content")])
+        original_link = __import__("os").link
+
+        def competing_owner(source, destination):
+            Path(destination).write_bytes(b"PRIVATE OWNER DATA")
+            return original_link(source, destination)
+
+        with patch("tools.section38_bounded_zip_member.os.link", side_effect=competing_owner):
+            with self.assertRaises(FileExistsError):
+                extract_member(self.archive, "original.pgn", self.destination, max_bytes=128)
+        self.assertEqual(self.destination.read_bytes(), b"PRIVATE OWNER DATA")
+        self.assertEqual(list(self.root.glob(".section38-*.partial")), [])
 
     def test_crc_failure_does_not_publish_partial_destination(self):
         with ZipFile(self.archive, "w", compression=ZIP_STORED) as z:
