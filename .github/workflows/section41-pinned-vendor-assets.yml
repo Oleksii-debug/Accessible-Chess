@@ -31,4 +31,11 @@ jobs:
       - name: Exact source and security validation
         run: python -m py_compile tests/test_section41_vendor_assets.py
       - name: Pinned upstream integrity, semantics, recovery and existing UI regression
-        run: python -m unittest -v tests.test_section41_vendor_assets tests.test_section41_design_system tests.test_premium_visual_design
+        run: >-
+          python -m unittest -v
+          tests.test_section41_vendor_assets
+          tests.test_section41_design_system
+          tests.test_premium_visual_design
+          tests.test_accessible_webui
+          tests.test_nvda_p0_contract
+          tests.test_version2_accessibility_convergence
