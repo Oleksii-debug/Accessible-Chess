@@ -15,7 +15,7 @@ from typing import Protocol
 from xml.etree import ElementTree as ET
 
 from .bookdocument import BookDocument
-from .chesscore import Board
+from .chesscore import Board, sq_name
 from .pgn_roundtrip import parse_pgn_text
 
 
@@ -121,9 +121,16 @@ def _canonical_lines(document: BookDocument) -> tuple[list[str], str]:
         elif kind == "List":
             result.extend(f"{i}. {item}" for i, item in enumerate(data["items"], start=data.get("start") or 1))
         elif kind in {"Position", "Diagram", "Exercise"}:
-            fen = Board(data["fen"]).fen()
+            board = Board(data["fen"])
+            fen = board.fen()
             label = "Chess diagram" if kind == "Diagram" else ("Exercise" if kind == "Exercise" else "Chess position")
             result.append(f"{label}. FEN: {fen}")
+            result.append("Side to move: " + ("White" if board.turn == "w" else "Black"))
+            # A semantically equivalent square inventory, derived only from
+            # canonical Board. This is plain text, NOT a chess Braille standard.
+            for square, piece in enumerate(board.board):
+                if piece:
+                    result.append("Piece " + piece + " on " + sq_name(square))
             for field in ("caption", "alt_text", "prompt", "answer_text", "side_to_move_note"):
                 if data.get(field):
                     result.append(data[field])
