@@ -118,6 +118,12 @@ class Section54FactoryTokenGovernorTests(unittest.TestCase):
                 cached_input_tokens=11,
             )
         self.assertEqual(governor.snapshot().reserved_input_tokens, 20)
+        self.assertEqual(governor.snapshot().blocked_reason, "UNRELIABLE_PROVIDER_USAGE")
+        with self.assertRaises(FactoryTokenLimitError):
+            governor.reserve(
+                request_id="retry", model_id="m", predicted_input_tokens=5,
+                max_output_tokens=5, provider_enforces_output_cap=True,
+            )
 
 
 if __name__ == "__main__":
