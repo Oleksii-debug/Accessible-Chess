@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "section": 37,
+  "subsections": [
+    "37.1",
+    "37.2"
+  ],
+  "created_at_utc": "2026-10-09",
+  "evidence_class": "CONNECTOR_EXECUTED_TEXT_STRUCTURAL_ONLY",
+  "source_ref": "GitHub main",
+  "input_type": "original already-vendored Lichess CC0 ECO TSV upstream-pinned sources",
+  "assertions": [
+    "exact tab-delimited header eco/name/pgn",
+    "three fields per nonblank data row",
+    "ECO letter matches file A-E and 2 digits",
+    "nonempty opening name and PGN string beginning with 1.",
+    "bounded PGN field length <=12000 characters",
+    "no byte-identical duplicated source rows"
+  ],
+  "records": [
+    {
+      "file": "tests/real_corpus/lichess_openings_a.tsv",
+      "git_blob": "561099854a15dfb523759aa87993a1fe480a6abc",
+      "rows": 823,
+      "distinct_rows": 823,
+      "structural_result": "PASS"
+    },
+    {
+      "file": "tests/real_corpus/lichess_openings_b.tsv",
+      "git_blob": "41c3727d28fc0b5915f30f3b634c07bd296f4bdb",
+      "rows": 781,
+      "distinct_rows": 781,
+      "structural_result": "PASS"
+    },
+    {
+      "file": "tests/real_corpus/lichess_openings_c.tsv",
+      "git_blob": "4b3d9c90c67864db6eb728d82b225b44d91fccbd",
+      "rows": 1250,
+      "distinct_rows": 1250,
+      "structural_result": "PASS"
+    },
+    {
+      "file": "tests/real_corpus/lichess_openings_d.tsv",
+      "git_blob": "a829bac9d2f288b033d605e842f3b802379e3455",
+      "rows": 644,
+      "distinct_rows": 644,
+      "structural_result": "PASS"
+    },
+    {
+      "file": "tests/real_corpus/lichess_openings_e.tsv",
+      "git_blob": "93a82e1f505e06256530736b45460738bd50e897",
+      "rows": 367,
+      "distinct_rows": 367,
+      "structural_result": "PASS"
+    }
+  ],
+  "summary": {
+    "files": 5,
+    "rows": 3865,
+    "unique_within_each_file": true,
+    "structural_checks_pass": true,
+    "negative_cases_rejected": 4
+  },
+  "negative_cases": [
+    {
+      "name": "wrong_header",
+      "rejected": true
+    },
+    {
+      "name": "invalid_eco",
+      "rejected": true
+    },
+    {
+      "name": "missing_column",
+      "rejected": true
+    },
+    {
+      "name": "missing_moves",
+      "rejected": true
+    }
+  ],
+  "limitations": [
+    "This structural readback did not execute canonical chess parser, move legality, ZIP/EPD decoders, ACSDB import, negative/recovery Python unit tests, Windows/NVDA or hosted CI.",
+    "Original source file Git blob IDs were read from current main; no novel source material was generated or redistributed.",
+    "This does not close subsections 37.1–37.4, and 37.5/37.6 remain protected DONE.",
+    "External lawful original CBF+CBI, 2CBH and CBONE families and independent semantic oracles are still unavailable."
+  ],
+  "status": "ADDITIVE_PARTIAL_EVIDENCE_NOT_TERMINAL_DONE"
+}
