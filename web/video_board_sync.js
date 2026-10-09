@@ -4,8 +4,7 @@
 (function (global) {
   'use strict';
 
-  const SAMPLE_SQUARE = 16;
-  const BOARD_SAMPLE = SAMPLE_SQUARE * 8;
+  const DEFAULT_SAMPLE_SQUARE = 16;
 
   function clamp(value, low, high) { return Math.max(low, Math.min(high, value)); }
 
@@ -42,20 +41,34 @@
     return { match: best, ranked, changedCount, order };
   }
 
-  function extractSquareFeatures(video, rect, canvas) {
-    canvas.width = BOARD_SAMPLE;
-    canvas.height = BOARD_SAMPLE;
+  function normalizedSampleSquare(value) {
+    const parsed = Math.round(Number(value) || DEFAULT_SAMPLE_SQUARE);
+    return clamp(parsed, 8, 32);
+  }
+
+  function sampleSquareForVideo(value, video) {
+    if (value !== 'auto') return normalizedSampleSquare(value);
+    const width = Number(video && video.videoWidth || 0);
+    return width >= 1920 ? 24 : width && width < 720 ? 12 : DEFAULT_SAMPLE_SQUARE;
+  }
+
+  function extractSquareFeatures(video, rect, canvas, sampleSquare = DEFAULT_SAMPLE_SQUARE) {
+    sampleSquare = normalizedSampleSquare(sampleSquare);
+    const boardSample = sampleSquare * 8;
+    canvas.width = boardSample;
+    canvas.height = boardSample;
     const context = canvas.getContext('2d', { willReadFrequently: true });
-    context.drawImage(video, rect.x, rect.y, rect.size, rect.size, 0, 0, BOARD_SAMPLE, BOARD_SAMPLE);
-    const pixels = context.getImageData(0, 0, BOARD_SAMPLE, BOARD_SAMPLE).data;
+    context.drawImage(video, rect.x, rect.y, rect.size, rect.size, 0, 0, boardSample, boardSample);
+    const pixels = context.getImageData(0, 0, boardSample, boardSample).data;
     const features = [];
     for (let rank = 0; rank < 8; rank += 1) {
       const row = 7 - rank;
       for (let file = 0; file < 8; file += 1) {
         const values = [];
-        for (let y = 2; y < SAMPLE_SQUARE - 2; y += 1) {
-          for (let x = 2; x < SAMPLE_SQUARE - 2; x += 1) {
-            const offset = ((row * SAMPLE_SQUARE + y) * BOARD_SAMPLE + file * SAMPLE_SQUARE + x) * 4;
+        const inset = Math.max(2, Math.floor(sampleSquare / 8));
+        for (let y = inset; y < sampleSquare - inset; y += 1) {
+          for (let x = inset; x < sampleSquare - inset; x += 1) {
+            const offset = ((row * sampleSquare + y) * boardSample + file * sampleSquare + x) * 4;
             values.push(pixels[offset], pixels[offset + 1], pixels[offset + 2]);
           }
         }
@@ -65,8 +78,8 @@
     return features;
   }
 
-  function boardAlternationScore(video, rect, canvas) {
-    const features = extractSquareFeatures(video, rect, canvas);
+  function boardAlternationScore(video, rect, canvas, sampleSquare = DEFAULT_SAMPLE_SQUARE) {
+    const features = extractSquareFeatures(video, rect, canvas, sampleSquare);
     const means = features.map(values => {
       let r = 0, g = 0, b = 0, count = 0;
       for (let i = 0; i < values.length; i += 3) { r += values[i]; g += values[i + 1]; b += values[i + 2]; count += 1; }
@@ -81,13 +94,13 @@
     return separation / Math.max(1, variation[Math.floor(variation.length * 0.6)]);
   }
 
-  function detectBoardRect(video, canvas) {
+  function detectBoardRect(video, canvas, sampleSquare = DEFAULT_SAMPLE_SQUARE) {
     const width = video.videoWidth, height = video.videoHeight;
     if (!width || !height) return null;
     const size = Math.min(width, height);
     const xs = [...new Set([0, Math.max(0, Math.round((width - size) / 2)), Math.max(0, width - size)])];
     const candidates = xs.map(x => ({ x, y: 0, size }));
-    const scored = candidates.map(rect => ({ rect, score: boardAlternationScore(video, rect, canvas) })).sort((a, b) => b.score - a.score);
+    const scored = candidates.map(rect => ({ rect, score: boardAlternationScore(video, rect, canvas, sampleSquare) })).sort((a, b) => b.score - a.score);
     return scored[0] && scored[0].score >= 1.3 ? { ...scored[0].rect, score: scored[0].score } : null;
   }
 
@@ -99,6 +112,8 @@
       this.render = options.render || (() => {});
       this.notify = options.notify || (() => {});
       this.intervalMs = options.intervalMs || 500;
+      this.sampleSquareSetting = options.sampleSquare === 'auto' ? 'auto' : normalizedSampleSquare(options.sampleSquare);
+      this.sampleSquare = sampleSquareForVideo(this.sampleSquareSetting, this.video);
       this.active = false;
       this.baseline = null;
       this.previous = null;
@@ -106,6 +121,13 @@
       this.timer = null;
       this.inFlight = false;
       this.rect = null;
+    }
+    setSampleSquare(value) {
+      this.sampleSquareSetting = value === 'auto' ? 'auto' : normalizedSampleSquare(value);
+      this.sampleSquare = sampleSquareForVideo(this.sampleSquareSetting, this.video);
+      this.rect = null;
+      this.baseline = null;
+      this.previous = null;
     }
     async start() {
       if (!this.video || !this.api || typeof this.api.video_sync_start !== 'function') throw new Error('Video synchronization bridge unavailable');
@@ -122,9 +144,9 @@
     }
     async tick() {
       if (!this.active || this.inFlight || this.video.paused || this.video.ended || !this.video.videoWidth || this.video.readyState < 2) return;
-      this.rect = this.rect || detectBoardRect(this.video, this.canvas);
+      this.rect = this.rect || detectBoardRect(this.video, this.canvas, this.sampleSquare);
       if (!this.rect) { this.notify({ type: 'waiting-board' }); return; }
-      const current = extractSquareFeatures(this.video, this.rect, this.canvas);
+      const current = extractSquareFeatures(this.video, this.rect, this.canvas, this.sampleSquare);
       if (!this.baseline) { this.baseline = current; this.previous = current; this.notify({ type: 'calibrated', score: this.rect.score }); return; }
       const inter = featureDifferences(current, this.previous);
       this.previous = current;
@@ -184,6 +206,8 @@
       this.api = options.api;
       this.notify = options.notify || (() => {});
       this.stepSeconds = clamp(Number(options.stepSeconds) || 0.5, 0.2, 5);
+      this.sampleSquareSetting = options.sampleSquare === 'auto' ? 'auto' : normalizedSampleSquare(options.sampleSquare);
+      this.sampleSquare = sampleSquareForVideo(this.sampleSquareSetting, this.video);
       this.cancelled = false;
       this.rect = null;
       this.baseline = null;
@@ -194,6 +218,7 @@
     async prepare() {
       if (!this.video || !this.api || typeof this.api.video_prepare_start !== 'function') throw new Error('Video preparation bridge unavailable');
       if (!this.video.videoWidth) await waitForMediaEvent(this.video, 'loadedmetadata');
+      this.sampleSquare = sampleSquareForVideo(this.sampleSquareSetting, this.video);
       const started = await this.api.video_prepare_start();
       if (!started || !started.ok) throw new Error('Video preparation could not start');
       this.candidates = started.candidates || [];
@@ -206,12 +231,12 @@
           if (this.cancelled) throw new Error('cancelled');
           const timecode = Math.min(duration, index * this.stepSeconds);
           await seekVideo(this.video, timecode);
-          this.rect = this.rect || detectBoardRect(this.video, this.canvas);
+          this.rect = this.rect || detectBoardRect(this.video, this.canvas, this.sampleSquare);
           if (!this.rect) {
             if (index % 20 === 0) this.notify({ type: 'prepare-progress', progress: index / Math.max(1, steps), timecode, recognized: this.recognized, waitingBoard: true });
             continue;
           }
-          const current = extractSquareFeatures(this.video, this.rect, this.canvas);
+          const current = extractSquareFeatures(this.video, this.rect, this.canvas, this.sampleSquare);
           if (!this.baseline) {
             this.baseline = current;
             this.notify({ type: 'calibrated', score: this.rect.score });
@@ -243,5 +268,5 @@
     }
   }
 
-  global.AccessibleChessVideoSync = { featureDifferences, rankMoveCandidates, detectBoardRect, extractSquareFeatures, seekVideo, VideoBoardSynchronizer, VideoPreparationController };
+  global.AccessibleChessVideoSync = { featureDifferences, rankMoveCandidates, normalizedSampleSquare, sampleSquareForVideo, detectBoardRect, extractSquareFeatures, seekVideo, VideoBoardSynchronizer, VideoPreparationController };
 })(window);

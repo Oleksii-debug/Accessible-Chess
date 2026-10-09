@@ -26,6 +26,10 @@ if (global.AccessibleChessVideoSync.rankMoveCandidates(noisy, candidates).match)
   synchronizer.active = true;
   await synchronizer.tick();
   if (bridgeCalls !== 0) throw new Error('paused video must not advance the board');
+  synchronizer.setSampleSquare(32);
+  if (synchronizer.sampleSquare !== 32 || synchronizer.baseline !== null) throw new Error('recognition quality must reset calibration');
+  if (global.AccessibleChessVideoSync.sampleSquareForVideo('auto', { videoWidth: 1920 }) !== 24) throw new Error('auto recognition quality must use detailed sampling for 1080p');
+  if (global.AccessibleChessVideoSync.sampleSquareForVideo('auto', { videoWidth: 640 }) !== 12) throw new Error('auto recognition quality must stay bounded for low resolution');
   if (typeof global.AccessibleChessVideoSync.VideoPreparationController !== 'function') throw new Error('background preparation controller missing');
   console.log('video board sync executable ok');
 })().catch(error => { console.error(error); process.exitCode = 1; });

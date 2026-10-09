@@ -20,6 +20,7 @@
     "canonical legal-move/FEN bridge",
     "prepared timecode timeline with canonical Move list",
     "durable prepared-session index",
+    "in-product audio/video playback with seek, speed and recognition-quality controls",
     "live Mistral text-agent gateway plus local Ollama/no-AI modes"
   ],
   "blocked_dependencies": [

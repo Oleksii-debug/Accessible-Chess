@@ -210,7 +210,7 @@ Durable catalog: `docs/corpus/SECTION47_VIDEO_SOURCE_CATALOG.json`.
 
 | Subsection | State | Evidence / exact limitation |
 |---|---|---|
-| 47.1 | `PASS` | The Web surface imports local `video/*`, controls playback, captures decoded frames with timecodes and releases object URLs deterministically. |
+| 47.1 | `PASS` | The Web surface imports local `video/*`, plays original video and audio in-product, exposes native controls plus keyboard-operable ±10-second seeking, timeline, 0.5×–2× speed and bounded recognition-quality choices, captures decoded frames with timecodes and releases object URLs deterministically. |
 | 47.2–47.3 | `PASS` | Two owner-supplied Drive MP4 files are cataloged with byte size, codec/duration metadata and SHA-256; the binaries remain isolated test inputs and are not distributed. |
 | 47.4 | `PASS` | Real-frame deterministic recognition matched an exact 17-move Ivanchuk–Kasparov prefix and 15-move Muzychuk prefix; only legal canonical moves may mutate the board. |
 | 47.5–47.6 | `PARTIAL` | Source, executable JavaScript, Python bridge and package-resource gates pass. Physical packaged WebView2 playback/restart and human Windows/NVDA acceptance remain external. |
@@ -299,5 +299,7 @@ Sections 47–49 received executable source implementation rather than evidence-
 The local media path exposes keyboard-accessible frame capture and deterministic board synchronization. `web/video_board_sync.js` samples the decoded board, waits for stable frames, ranks only legal moves supplied by the Python bridge, rejects ambiguous/noisy frames, and commits the chosen move through the canonical `Board`. The real-video oracle matched 17 Ivanchuk–Kasparov moves and 15 Muzychuk moves exactly. Direct YouTube-frame sampling is intentionally not attempted because the official cross-origin iframe does not expose pixels; users can use the local import path for recognition.
 
 The media workflow now also has accelerated background preparation for a queue of local videos. A separate hidden decoder seeks through each video without disturbing playback, creates a legal-move/timecode timeline, persists up to 32 validated sessions in recovery-safe settings, and restores the ordinary board history and Move list. Paused playback does not advance the board. History navigation provides explicit “keep video time” and “seek video with moves” modes.
+
+Local media now plays both picture and original audio inside the platform. In addition to the browser-native controls, the semantic UI exposes ±10-second seeking, an exact timeline range, 0.5×–2× playback speed and Auto/Balanced/High/Maximum recognition quality. Recognition quality changes the bounded per-square sampling resolution and resets visual calibration so frames from incompatible resolutions are never compared.
 
 Provider profiles now persist metadata without secret values and support three explicit execution modes: OpenAI-compatible HTTPS (including Mistral), loopback-only Ollama (`qwen3:8b` default), and no-AI. Visual settings now provide five named platform profiles with editable theme, board and density plus Apply/Cancel/Reset; one validated settings value restores the choice after restart.
