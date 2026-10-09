@@ -100,9 +100,10 @@ def _original_games_signature(games: tuple[PgnGame, ...]) -> tuple:
 def _run_external_pgn(binary: Path, source: Path) -> bytes:
     """Run the pinned cbvault CLI with its documented *file* output argument.
 
-    cbvault 0.1.4 uses: cbvault pgn <db> [out]. Its stdout is not the PGN
-    stream. Monitor the actual output file while the process runs; never read
-    unchecked CLI chatter as games or trust an output path without lstat.
+    cbvault 0.1.4 uses: cbvault pgn <db> [out]. Without an output path,
+    stdout legitimately holds PGN; with a path, stdout is not required for
+    qualification. Capture the bounded structured stderr report and monitor
+    the actual output file; reject malformed or incomplete results.
     """
     max_stderr = 1024 * 1024
     try:
@@ -128,7 +129,7 @@ def _run_external_pgn(binary: Path, source: Path) -> bytes:
 
             with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
                 process = subprocess.Popen(
-                    [os.fspath(binary), "pgn", os.fspath(source), os.fspath(output)],
+                    [os.fspath(binary), "pgn", os.fspath(source), os.fspath(output), "--json"],
                     cwd=os.fspath(binary.parent), stdin=subprocess.DEVNULL,
                     stdout=stdout, stderr=stderr, shell=False,
                 )
@@ -144,12 +145,37 @@ def _run_external_pgn(binary: Path, source: Path) -> bytes:
                         if time.monotonic() >= deadline:
                             raise LawfulCorpusError("MIT cbvault PGN export timed out")
                         time.sleep(0.03)
-                    if (
-                        process.returncode != 0
-                        or not 0 < output_size() <= _MAX_PGN
-                        or os.fstat(stdout.fileno()).st_size > max_stderr
-                        or os.fstat(stderr.fileno()).st_size > max_stderr
-                    ):
+                    output_bytes = output_size()
+                    stdout_bytes = os.fstat(stdout.fileno()).st_size
+                    stderr_bytes = os.fstat(stderr.fileno()).st_size
+                    if stdout_bytes > max_stderr or stderr_bytes > max_stderr:
+                        raise LawfulCorpusError("MIT cbvault output exceeds resource budget")
+                    if process.returncode != 0:
+                        stderr.seek(0)
+                        raw_report = stderr.read(max_stderr + 1)
+                        # The upstream CLI's --json report is written only to
+                        # stderr. Emit integer counters, never untrusted source
+                        # paths, private filenames or arbitrary output strings.
+                        counts = None
+                        try:
+                            lines = raw_report.splitlines()
+                            parsed = json.loads(lines[-1])
+                            if type(parsed) is dict and all(
+                                type(parsed.get(k)) is int
+                                and 0 <= parsed[k] <= 1_000_000_000
+                                for k in ("records", "games", "failures")
+                            ):
+                                counts = (parsed["records"], parsed["games"], parsed["failures"])
+                        except (UnicodeError, ValueError, IndexError, TypeError):
+                            pass
+                        details = (
+                            f"; records={counts[0]}, games={counts[1]}, failures={counts[2]}"
+                            if counts is not None else "; no trusted JSON diagnostics"
+                        )
+                        raise LawfulCorpusError(
+                            f"MIT cbvault export failed closed (exit={process.returncode}{details})"
+                        )
+                    if not 0 < output_bytes <= _MAX_PGN:
                         raise LawfulCorpusError("MIT cbvault exported no bounded complete PGN")
                     before = output.lstat()
                     with output.open("rb") as stream:
