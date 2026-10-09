@@ -254,3 +254,27 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   *, *::before, *::after { animation-duration: 1ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: 1ms !important; }
   button:hover:not(:disabled) { transform: none; }
 }
+
+
+/* Section 43: keyboard-first Windows workspace composition. Layout-only. */
+#main-content{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:1rem;align-items:start}
+#main-content > section{grid-column:span 6;min-width:0;min-height:var(--ac43-panel-size,auto)}
+#main-content > section:has(#board-grid),#main-content > section:has(#board-application){grid-column:span 8}
+#main-content > section[data-ac43-collapsed="true"]{min-height:0}
+#main-content > section > h2 .ac43-panel-actions{display:inline-flex;gap:.4rem;flex-wrap:wrap;margin-inline-start:.8rem}
+.ac43-panel-actions button{font-size:.875rem;padding:.3rem .5rem;min-height:2.25rem}
+#ac43-workspace-controls{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:.75rem;align-items:center;padding:.9rem 1rem;border:1px solid var(--ac-border);border-radius:var(--ac-radius);background:var(--ac-surface);color:var(--ac-text)}
+#ac43-workspace-controls label{font-weight:600}
+#ac43-workspace-controls select{min-width:8rem;max-width:100%}
+:root[data-ac43-density="compact"] #main-content > section{padding:.65rem}
+:root[data-ac43-layout="single"] #main-content > section{grid-column:1/-1}
+#ac43-product-layout{display:flex;flex-wrap:wrap;align-items:center;gap:.8rem;padding:.75rem 1rem;border:1px solid var(--ac-border);border-radius:var(--ac-radius);background:var(--ac-surface)}
+#ac43-product-layout[hidden]{display:none!important}
+#ac43-product-layout label{font-weight:600}
+#v2-workspace[data-ac43-presentation="compact"] :is(section,article,fieldset){padding:.65rem}
+#v2-workspace[data-ac43-presentation="reading"]{font-size:1.2em;line-height:1.7}
+#v2-workspace[data-ac43-presentation="reading"] :is(p,li,blockquote){max-width:72ch}
+@media(max-width:66rem){#main-content > section{grid-column:1/-1}#main-content > section:has(#board-grid),#main-content > section:has(#board-application){grid-column:1/-1}}
+@media(forced-colors:active){#ac43-workspace-controls,#ac43-product-layout{background:Canvas;color:CanvasText;border:2px solid ButtonText}}
+@media(prefers-reduced-motion:reduce){.ac43-panel-actions button{transition:none!important}}
+@media print{#ac43-workspace-controls,.ac43-panel-actions,#ac43-product-layout{display:none!important}}

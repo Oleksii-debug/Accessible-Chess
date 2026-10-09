@@ -147,6 +147,202 @@ wireVideoBoardSync();
 wireAi();
 wireVisualProfile();
 window.addEventListener('pywebviewready',async()=>{await refreshState();await loadKeymap();await loadVisualProfile();setInterval(refreshAnalysis,700)});
+
+// Section 43: layout-only preferences. No second chess state, command registry,
+// screen-reader announcement loop, remote requests or changes to the native menu.
+(function installAccessibleWorkspaceControls(){
+  "use strict";
+  const root=document.getElementById("main-content");
+  if(!root||document.getElementById("ac43-workspace-controls"))return;
+  const KEY="accessible-chess.workspace-layout.v1";
+  const headings={
+    "h-board":1,"h-moves":1,"h-game-info":1,"h-engine":1,"h-input":1,
+    "h-actions":1,"h-status":1,"h-white":1,"h-black":1,
+    "h-last":1,"h-settings":1,"h-help":1
+  };
+  const SIZES=["auto","medium","large"];
+  const labels=(uk,en)=>document.documentElement.lang==="en"?en:uk;
+  function normalize(data){
+    if(!data||data.version!==1||typeof data!=="object"||Array.isArray(data))data={};
+    const collapsed=Array.isArray(data.collapsed)?
+      data.collapsed.filter(id=>Object.prototype.hasOwnProperty.call(headings,id)).slice(0,12):[];
+    const sizes=data.sizes&&typeof data.sizes==="object"&&!Array.isArray(data.sizes)?data.sizes:{};
+    return {
+      version:1,collapsed:[...new Set(collapsed)],
+      sizes:Object.fromEntries(Object.keys(headings).map(id=>[id,SIZES.includes(sizes[id])?sizes[id]:"auto"])),
+      density:data.density==="compact"?"compact":"comfortable",
+      layout:data.layout==="single"?"single":"auto"
+    };
+  }
+  function read(){
+    let data=null;
+    try{const value=localStorage.getItem(KEY);if(value&&value.length<=2048)data=JSON.parse(value)}catch(_){}
+    return normalize(data);
+  }
+  const state=read();
+  const entries=[];
+  const nativeBridge=()=>{
+    if(typeof window==="undefined")return null;
+    return window.pywebview&&window.pywebview.api||null;
+  };
+  let nativeHydrationStarted=false;
+  let changedSinceHydrate=false;
+  let nativeWrites=Promise.resolve();
+  let nativeSaveFailureAnnounced=false;
+  function nativeSaveStatus(ok){
+    if(ok){nativeSaveFailureAnnounced=false;return;}
+    if(nativeSaveFailureAnnounced)return;
+    nativeSaveFailureAnnounced=true;
+    if(typeof announceUserAction==="function")announceUserAction(
+      document.documentElement.lang==="en"?
+      "Workspace layout could not be saved to Windows settings.":
+      "Не вдалося зберегти макет у налаштуваннях Windows."
+    );
+  }
+  function queueNativeWrite(){
+    const api=nativeBridge();
+    if(!api||typeof api.save_presentation_layout!=="function")return;
+    const payload=JSON.parse(JSON.stringify(state));
+    nativeWrites=nativeWrites.then(()=>Promise.resolve(
+      api.save_presentation_layout("workspace",payload)
+    ).then(result=>nativeSaveStatus(!!(result&&result.ok===true))))
+    .catch(()=>nativeSaveStatus(false));
+  }
+  function persist(){
+    changedSinceHydrate=true;
+    try{localStorage.setItem(KEY,JSON.stringify(state))}catch(_){}
+    queueNativeWrite();
+  }
+  function collapsed(panel,yes){
+    const section=panel.section;
+    if(yes&&section.contains(document.activeElement)&&document.activeElement!==panel.toggle){
+      panel.toggle.focus({preventScroll:true});
+    }
+    for(const child of Array.from(section.children)){
+      if(child===panel.heading)continue;
+      if(yes&&!child.hidden){
+        child.dataset.ac43Hidden="true";child.hidden=true;
+      }else if(!yes&&child.dataset.ac43Hidden==="true"){
+        child.hidden=false;delete child.dataset.ac43Hidden;
+      }
+    }
+    section.dataset.ac43Collapsed=yes?"true":"false";
+    panel.toggle.setAttribute("aria-expanded",yes?"false":"true");
+    state.collapsed=state.collapsed.filter(id=>id!==panel.heading.id);
+    if(yes)state.collapsed.push(panel.heading.id);
+    panel.toggle.textContent=yes?labels("Розгорнути","Expand"):labels("Згорнути","Collapse");
+    panel.toggle.setAttribute("aria-label",
+      panel.heading.dataset.ac43Heading+" — "+panel.toggle.textContent);
+  }
+  function setSize(panel,size){
+    const resolved=SIZES.includes(size)?size:"auto";
+    const value=resolved==="auto"?"auto":resolved==="medium"?"12rem":"22rem";
+    panel.section.style.setProperty("--ac43-panel-size",value);
+    state.sizes[panel.heading.id]=resolved;
+    panel.size.setAttribute("aria-label",panel.heading.dataset.ac43Heading+" — "+
+      labels("Висота панелі: ","Panel height: ")+
+      (resolved==="auto"?labels("авто","auto"):resolved==="medium"?
+        labels("середня","medium"):labels("велика","large")));
+    panel.size.textContent=labels("Висота","Height");
+  }
+  for(const id of Object.keys(headings)){
+    const heading=document.getElementById(id);
+    if(!heading||!root.contains(heading))continue;
+    const section=heading.parentElement;
+    if(!section||section.tagName!=="SECTION")continue;
+    if(!section.id)section.id="ac43-panel-"+id;
+    const title=heading.textContent.trim();
+    heading.dataset.ac43Heading=title;
+    const actions=document.createElement("span");
+    actions.className="ac43-panel-actions";
+    const toggle=document.createElement("button");
+    toggle.type="button";
+    toggle.setAttribute("aria-controls",section.id);
+    const size=document.createElement("button");
+    size.type="button";
+    const panel={heading,section,toggle,size};
+    toggle.addEventListener("click",()=>{
+      collapsed(panel,section.dataset.ac43Collapsed!=="true");persist();
+    });
+    size.addEventListener("click",()=>{
+      const n=(SIZES.indexOf(state.sizes[id])+1)%SIZES.length;
+      setSize(panel,SIZES[n]);persist();
+    });
+    actions.append(toggle,size);
+    heading.appendChild(actions);
+    entries.push(panel);
+    setSize(panel,state.sizes[id]);
+    collapsed(panel,state.collapsed.includes(id));
+  }
+  const toolbar=document.createElement("div");
+  toolbar.id="ac43-workspace-controls";
+  toolbar.setAttribute("role","group");
+  toolbar.setAttribute("aria-label",labels("Налаштування робочої області","Workspace layout"));
+  function selection(id,caption,options,current,onChange){
+    const label=document.createElement("label");
+    label.htmlFor=id;label.textContent=caption;
+    const input=document.createElement("select");
+    input.id=id;
+    for(const [value,uk,en] of options){
+      const option=document.createElement("option");
+      option.value=value;option.textContent=labels(uk,en);input.appendChild(option);
+    }
+    input.value=current;
+    input.addEventListener("change",()=>onChange(input.value));
+    toolbar.append(label,input);
+  }
+  function apply(){
+    document.documentElement.dataset.ac43Density=state.density;
+    document.documentElement.dataset.ac43Layout=state.layout;
+  }
+  selection("ac43-density",labels("Щільність","Density"),
+    [["comfortable","Звичайна","Comfortable"],["compact","Компактна","Compact"]],
+    state.density,value=>{state.density=value;apply();persist();});
+  selection("ac43-layout",labels("Колонки","Columns"),
+    [["auto","Автоматично","Automatic"],["single","Одна колонка","Single column"]],
+    state.layout,value=>{state.layout=value;apply();persist();});
+  const reset=document.createElement("button");
+  reset.type="button";reset.id="ac43-reset";
+  reset.textContent=labels("Відновити макет","Restore layout");
+  reset.addEventListener("click",()=>{
+    state.collapsed=[];state.density="comfortable";state.layout="auto";
+    for(const panel of entries){
+      collapsed(panel,false);setSize(panel,"auto");
+    }
+    document.getElementById("ac43-density").value=state.density;
+    document.getElementById("ac43-layout").value=state.layout;
+    apply();persist();reset.focus({preventScroll:true});
+  });
+  toolbar.appendChild(reset);
+  root.insertBefore(toolbar,root.firstChild);
+  apply();
+  function hydrateNative(){
+    if(nativeHydrationStarted)return;
+    const api=nativeBridge();
+    if(!api||typeof api.get_presentation_layout!=="function")return;
+    nativeHydrationStarted=true;
+    if(changedSinceHydrate){queueNativeWrite();return;}
+    Promise.resolve(api.get_presentation_layout("workspace")).then(result=>{
+      if(changedSinceHydrate||!result||result.ok!==true||!result.layout)return;
+      const next=normalize(result.layout);
+      state.collapsed=next.collapsed;
+      state.sizes=next.sizes;
+      state.density=next.density;
+      state.layout=next.layout;
+      for(const panel of entries){
+        collapsed(panel,state.collapsed.includes(panel.heading.id));
+        setSize(panel,state.sizes[panel.heading.id]);
+      }
+      document.getElementById("ac43-density").value=state.density;
+      document.getElementById("ac43-layout").value=state.layout;
+      apply();
+    }).catch(()=>{});
+  }
+  if(typeof window!=="undefined"&&typeof window.addEventListener==="function"){
+    window.addEventListener("pywebviewready",hydrateNative);
+    if(nativeBridge())hydrateNative();
+  }
+})();
 </script>
 </body>
 </html>

@@ -24,6 +24,8 @@ DEFAULTS: dict[str, Any] = {
     "notation": "uk_literal",
     "sounds": True,
     "announce_move_errors": False,
+    "workspace_layout_json": '{"version":1,"collapsed":[],"sizes":{},"density":"comfortable","layout":"auto"}',
+    "product_layout_json": '{"version":1,"routes":{}}',
     "newgame_animation": True,
     "volume": 80,
     "tick_policy": "my_turn",
@@ -499,6 +501,18 @@ def _validated_value(key: str, value: Any) -> Any:
         ):
             raise SettingsError("sound variant id is invalid")
         return token
+    if key in {"workspace_layout_json", "product_layout_json"}:
+        if type(value) is not str or len(value) > 2048:
+            raise SettingsError("UI-only layout profile must be bounded JSON text")
+        try:
+            parsed = json.loads(value)
+        except (ValueError, TypeError) as exc:
+            raise SettingsError("UI-only layout profile is not valid JSON") from exc
+        if type(parsed) is not dict or type(parsed.get("version")) is not int or parsed["version"] != 1:
+            raise SettingsError("UI-only layout profile version is invalid")
+        if any(type(name) is not str for name in parsed):
+            raise SettingsError("UI-only layout profile keys are invalid")
+        return value
     if key == "engine_path":
         if type(value) is not str:
             raise SettingsError("engine_path must be a string")
