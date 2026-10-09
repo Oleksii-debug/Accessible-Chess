@@ -1,4 +1,4 @@
-name: Section 54 bounded source-intake qualification
+name: Section 54 bounded factory qualification
 on:
   push:
     branches:
@@ -6,20 +6,20 @@ on:
     paths:
       - 'acs/format_factory_intake.py'
       - 'acs/format_factory_tokens.py'
-      - 'acs/format_factory_tokens.py'
       - 'tests/test_section54_source_intake.py'
-      - 'tests/test_section54_factory_tokens.py'
       - 'tests/test_section54_factory_tokens.py'
       - '.github/workflows/section54-source-intake.yml'
   pull_request:
     paths:
       - 'acs/format_factory_intake.py'
+      - 'acs/format_factory_tokens.py'
       - 'tests/test_section54_source_intake.py'
+      - 'tests/test_section54_factory_tokens.py'
       - '.github/workflows/section54-source-intake.yml'
   workflow_dispatch:
 jobs:
-  intake:
-    name: Canonical ingress and archive safety (${{ matrix.os }})
+  factory:
+    name: Format intake and token envelopes (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -34,7 +34,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Compile Python source
+      - name: Compile exact Python sources
         run: python -m py_compile acs/format_factory_intake.py acs/format_factory_tokens.py tests/test_section54_source_intake.py tests/test_section54_factory_tokens.py
-      - name: Run section 54 tests
+      - name: Execute Section 54 unit and negative tests
         run: python -m unittest discover -s tests -p 'test_section54_*.py' -v
