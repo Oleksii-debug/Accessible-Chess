@@ -117,6 +117,26 @@ async function main() {
   await h.click("visual-transfer-import");
   assert.match(h.items["visual-transfer-status"].textContent, /відхилено/i);
 
+  // A Windows WebView can exist before pywebview has exposed a complete API.
+  // During that gap, no browser-local shadow copy may be written.
+  const pendingHost = createHarness({});
+  pendingHost.items["visual-transfer-json"].value = previous;
+  await pendingHost.click("visual-transfer-import");
+  assert.match(pendingHost.items["visual-transfer-status"].textContent, /відхилено/i);
+  await pendingHost.click("visual-transfer-export");
+  assert.match(pendingHost.items["visual-transfer-status"].textContent, /недоступний/i);
+  await pendingHost.click("visual-apply");
+  await pendingHost.click("visual-cancel");
+  assert.equal(pendingHost.store.size, 0, "incomplete Windows bridge must not write localStorage");
+
+  // Also cover a late-arriving Windows host after standalone initialisation.
+  const lateHost = createHarness(null);
+  lateHost.window.pywebview = {api:{}};
+  lateHost.items["visual-transfer-json"].value = previous;
+  await lateHost.click("visual-transfer-import");
+  await lateHost.click("visual-apply");
+  assert.equal(lateHost.store.size, 0, "late Windows host must suppress Web persistence");
+
   const nativeValues = {profile:"classic", theme:"system", board_theme:"wood", density:"comfortable"};
   let nativePayload = codec.encode(nativeValues), rev = "revision-1", saves = 0;
   const bridge = {
