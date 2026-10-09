@@ -96,9 +96,10 @@ class Stage1ReleaseAccessibleChessAPI(_core.Stage1ReleaseAccessibleChessAPI):
                 "version": 1, "collapsed": list(collapsed), "sizes": dict(sizes),
                 "density": value["density"], "layout": value["layout"],
             }
-        if set(value) != {"version", "routes"}:
+        if set(value) not in ({"version", "routes"}, {"version", "routes", "panels"}):
             return None
         routes = value.get("routes")
+        panels = value.get("panels", {})
         if (
             type(routes) is not dict or len(routes) > 6
             or any(
@@ -106,9 +107,21 @@ class Stage1ReleaseAccessibleChessAPI(_core.Stage1ReleaseAccessibleChessAPI):
                 or type(mode) is not str or mode not in {"comfortable", "compact", "reading"}
                 for name, mode in routes.items()
             )
+            or type(panels) is not dict or len(panels) > 6
+            or any(
+                type(name) is not str or name not in cls._PRODUCT_LAYOUT_ROUTES
+                or type(panel) is not dict or set(panel) != {"collapsed", "size"}
+                or type(panel["collapsed"]) is not bool
+                or type(panel["size"]) is not str
+                or panel["size"] not in {"auto", "medium", "large"}
+                for name, panel in panels.items()
+            )
         ):
             return None
-        return {"version": 1, "routes": dict(routes)}
+        return {
+            "version": 1, "routes": dict(routes),
+            "panels": {name: dict(panel) for name, panel in panels.items()},
+        }
 
     def get_presentation_layout(self, kind: str) -> dict[str, Any]:
         if type(kind) is not str or kind not in self._PRESENTATION_LAYOUT_KEYS:

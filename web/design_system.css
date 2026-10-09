@@ -325,3 +325,13 @@ html[data-ac43-density="compact"] #main-content > section {padding:.55rem}
     transition:none!important;animation:none!important;
   }
 }
+
+/* Section 43.3: per-module actual workspaces, not demo route panels.
+   Controls remain in the preceding navigation toolbar while collapsed. */
+#v2-workspace[data-ac43-collapsed="true"] {display:none!important}
+#v2-workspace[data-ac43-size="medium"],
+#v2-workspace[data-ac43-size="large"] {overflow:auto;resize:vertical}
+#v2-workspace[data-ac43-size="medium"] {max-height:40rem}
+#v2-workspace[data-ac43-size="large"] {max-height:75rem}
+#v2-workspace[data-ac43-size="auto"] {max-height:none;overflow:visible;resize:none}
+#ac43-product-layout button {min-height:2.65rem}

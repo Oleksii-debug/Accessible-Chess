@@ -224,15 +224,18 @@ const key = "accessible-chess.workspace-layout.v1";
     const harness = [
       "const productRoutes = new Set(['pgn','library','books','training','teacher','classes']);",
       "let currentRouteId='books';",
-      "const workspace={dataset:{},removeAttribute(k){delete this.dataset.ac43Presentation}};",
+      "const workspace={dataset:{},removeAttribute(k){delete this.dataset[k.replace(/-([a-z])/g,(_,x)=>x.toUpperCase())]}};",
       "const workspaceLayout={hidden:true};",
       "const workspaceLayoutLabel={textContent:''};",
+      "const workspaceCollapse={setAttribute(k,v){this[k]=v},focus(){},addEventListener(type,fn){this.event=fn}};",
+      "const workspaceSize={focus(){},addEventListener(type,fn){this.event=fn}};",
+      "const workspaceReset={focus(){},addEventListener(type,fn){this.event=fn}};",
       "const workspaceLayoutMode={options:options,value:'',addEventListener(type,fn){this.event=fn}};",
       "const uiTextFor=(language,uk,en)=>language==='en'?en:uk;",
       "const api=()=>null;",
       "const global={localStorage:{getItem(k){return data[k] || null},setItem(k,v){data[k]=v}}};",
       authority,
-      "return {data,workspace,workspaceLayout,workspaceLayoutMode,productLayouts,applyProductLayout};"
+      "return {data,workspace,workspaceLayout,workspaceLayoutMode,workspaceCollapse,workspaceSize,workspaceReset,productLayouts,productPanels,applyProductLayout};"
     ].join("\n");
     return vm.runInNewContext("(function(data,options){" + harness + "\n})", {})(data, options);
   }
@@ -244,12 +247,25 @@ const key = "accessible-chess.workspace-layout.v1";
   app.workspaceLayoutMode.event();
   assert.equal(app.workspace.dataset.ac43Presentation, "reading");
   assert.equal(JSON.parse(app.data["accessible-chess.product-layout.v1"]).routes.books, "reading");
+  app.workspaceCollapse.event();
+  assert.equal(app.workspace.dataset.ac43Collapsed, "true");
+  assert.equal(app.workspaceCollapse["aria-expanded"], "false");
+  assert.equal(JSON.parse(app.data["accessible-chess.product-layout.v1"]).panels.books.collapsed, true);
+  app.workspaceSize.event();
+  assert.equal(app.workspace.dataset.ac43Size, "medium");
+  assert.equal(JSON.parse(app.data["accessible-chess.product-layout.v1"]).panels.books.size, "medium");
   app.applyProductLayout("teacher", "en");
   assert.equal(app.workspace.dataset.ac43Presentation, "comfortable");
   assert.equal(app.workspaceLayoutMode.options[2].textContent, "Reading");
   const restarted = makeProduct(app.data);
   restarted.applyProductLayout("books", "en");
   assert.equal(restarted.workspaceLayoutMode.value, "reading");
+  assert.equal(restarted.workspace.dataset.ac43Collapsed, "true");
+  assert.equal(restarted.workspace.dataset.ac43Size, "medium");
+  restarted.workspaceReset.event();
+  assert.equal(restarted.workspace.dataset.ac43Collapsed, "false");
+  assert.equal(restarted.workspace.dataset.ac43Size, "auto");
+  assert.equal(restarted.workspaceLayoutMode.value, "comfortable");
   restarted.applyProductLayout("analysis", "uk");
   assert.equal(restarted.workspaceLayout.hidden, true);
   assert.equal(restarted.workspace.dataset.ac43Presentation, undefined);
@@ -259,6 +275,11 @@ const key = "accessible-chess.workspace-layout.v1";
   assert.equal(hostile.workspace.dataset.ac43Presentation, "comfortable");
   hostile.applyProductLayout("teacher", "uk");
   assert.equal(hostile.workspace.dataset.ac43Presentation, "compact");
+  const poisoned = makeProduct({"accessible-chess.product-layout.v1":
+    '{"version":1,"routes":{},"panels":{"books":{"collapsed":"true","size":"<script>"}}}'});
+  poisoned.applyProductLayout("books", "en");
+  assert.equal(poisoned.workspace.dataset.ac43Collapsed, "false");
+  assert.equal(poisoned.workspace.dataset.ac43Size, "auto");
 }
 
 // Unlike localStorage fixtures, native WebView2 runs with private_mode=True.

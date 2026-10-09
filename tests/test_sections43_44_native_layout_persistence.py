@@ -77,6 +77,26 @@ class NativeLayoutPersistenceTests(unittest.TestCase):
             self.assertEqual(api.get_presentation_layout("workspace")["layout"]["collapsed"], [])
             self.assertEqual(api.get_presentation_layout("product")["layout"]["routes"], {})
 
+    def test_product_panel_collapse_size_restart_and_untrusted_data(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            api = _ui(root)
+            accepted = {"version": 1, "routes": {"books": "reading"},
+                        "panels": {"books": {"collapsed": True, "size": "large"},
+                                   "training": {"collapsed": False, "size": "medium"}}}
+            self.assertTrue(api.save_presentation_layout("product", accepted)["ok"])
+            self.assertEqual(_ui(root).get_presentation_layout("product")["layout"], accepted)
+            malicious = (
+                {"version": 1, "routes": {}, "panels": {"books": {"collapsed": "true", "size": "large"}}},
+                {"version": 1, "routes": {}, "panels": {"books": {"collapsed": True, "size": "<script>"}}},
+                {"version": 1, "routes": {}, "panels": {"__proto__": {"collapsed": True, "size": "auto"}}},
+                {"version": 1, "routes": {}, "panels": {"books": {"collapsed": True, "size": "auto", "private": "fen"}}},
+            )
+            for candidate in malicious:
+                with self.subTest(candidate=candidate):
+                    self.assertFalse(api.save_presentation_layout("product", candidate)["ok"])
+            self.assertEqual(_ui(root).get_presentation_layout("product")["layout"], accepted)
+
     def test_preexisting_stale_writer_rejected_and_recovered_without_data_loss(self) -> None:
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)

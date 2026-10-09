@@ -61,6 +61,19 @@
   }
   workspaceLayout.appendChild(workspaceLayoutLabel);
   workspaceLayout.appendChild(workspaceLayoutMode);
+  const workspaceCollapse = documentRef.createElement("button");
+  workspaceCollapse.type = "button";
+  workspaceCollapse.id = "ac43-product-collapse";
+  workspaceCollapse.setAttribute("aria-controls", "v2-workspace");
+  workspaceLayout.appendChild(workspaceCollapse);
+  const workspaceSize = documentRef.createElement("button");
+  workspaceSize.type = "button";
+  workspaceSize.id = "ac43-product-size";
+  workspaceLayout.appendChild(workspaceSize);
+  const workspaceReset = documentRef.createElement("button");
+  workspaceReset.type = "button";
+  workspaceReset.id = "ac43-product-restore";
+  workspaceLayout.appendChild(workspaceReset);
 
   originalMain.parentNode.insertBefore(nav, originalMain);
   originalMain.parentNode.insertBefore(workspaceLayout, originalMain);
@@ -294,6 +307,30 @@
     }
   }
   const productLayouts = readProductLayouts();
+  // Route-scoped content panel sizes and collapsed state use the SAME
+  // presentation-only Settings key and version; old mode-only values migrate.
+  const productPanelSizes = ["auto", "medium", "large"];
+  function readProductPanels() {
+    try {
+      const raw = global.localStorage && global.localStorage.getItem(layoutStorageKey);
+      if (!raw || raw.length > 2048) return {};
+      const parsed = JSON.parse(raw);
+      if (!parsed || parsed.version !== 1 || !parsed.panels ||
+          typeof parsed.panels !== "object" || Array.isArray(parsed.panels)) return {};
+      const panels = {};
+      for (const route of productRoutes) {
+        const panel = parsed.panels[route];
+        if (panel && typeof panel === "object" && !Array.isArray(panel) &&
+            typeof panel.collapsed === "boolean" && productPanelSizes.includes(panel.size)) {
+          panels[route] = {collapsed: panel.collapsed, size: panel.size};
+        }
+      }
+      return panels;
+    } catch (_) {
+      return {};
+    }
+  }
+  const productPanels = readProductPanels();
   let productLayoutDirty = false;
   let productNativeHydrationStarted = false;
   let productNativeWrites = Promise.resolve();
@@ -310,7 +347,8 @@
   function queueNativeProductLayout() {
     const bridge = api();
     if (!bridge || typeof bridge.save_presentation_layout !== "function") return;
-    const payload = { version: 1, routes: Object.assign({}, productLayouts) };
+    const payload = { version: 1, routes: Object.assign({}, productLayouts),
+      panels: Object.assign({}, productPanels) };
     productNativeWrites = productNativeWrites.then(function () {
       return Promise.resolve(bridge.save_presentation_layout("product", payload))
         .then(function (result) { productNativeWriteResult(!!(result && result.ok === true)); });
@@ -321,7 +359,7 @@
     try {
       if (global.localStorage) {
         global.localStorage.setItem(layoutStorageKey, JSON.stringify({
-          version: 1, routes: productLayouts
+          version: 1, routes: productLayouts, panels: productPanels
         }));
       }
     } catch (_) {}
@@ -345,6 +383,19 @@
           productLayouts[route] = layout.routes[route];
         }
       }
+      for (const route of productRoutes) delete productPanels[route];
+      const nativePanels = layout.panels && typeof layout.panels === "object" &&
+        !Array.isArray(layout.panels) ? layout.panels : {};
+      for (const route of productRoutes) {
+        const candidate = nativePanels[route];
+        if (candidate && typeof candidate === "object" && !Array.isArray(candidate) &&
+            typeof candidate.collapsed === "boolean" &&
+            productPanelSizes.includes(candidate.size)) {
+          productPanels[route] = {
+            collapsed: candidate.collapsed, size: candidate.size
+          };
+        }
+      }
       applyProductLayout(currentRouteId, currentLanguage);
     }).catch(function () {});
   }
@@ -353,6 +404,8 @@
     workspaceLayout.hidden = !active;
     if (!active) {
       workspace.removeAttribute("data-ac43-presentation");
+      workspace.removeAttribute("data-ac43-collapsed");
+      workspace.removeAttribute("data-ac43-size");
       return;
     }
     workspaceLayoutLabel.textContent = (language === "en" ? "Workspace layout" : "Вигляд розділу");
@@ -363,7 +416,48 @@
       ? productLayouts[routeId] : "comfortable";
     workspaceLayoutMode.value = mode;
     workspace.dataset.ac43Presentation = mode;
+    const panel = productPanels[routeId] || {collapsed: false, size: "auto"};
+    workspace.dataset.ac43Collapsed = panel.collapsed ? "true" : "false";
+    workspace.dataset.ac43Size = panel.size;
+    workspaceCollapse.setAttribute("aria-expanded", panel.collapsed ? "false" : "true");
+    workspaceCollapse.textContent = panel.collapsed
+      ? (language === "en" ? "Expand workspace" : "Розгорнути робочу область")
+      : (language === "en" ? "Collapse workspace" : "Згорнути робочу область");
+    workspaceSize.textContent = (language === "en" ? "Panel height: " : "Висота панелі: ") +
+      (panel.size === "large" ? (language === "en" ? "large" : "велика") :
+       panel.size === "medium" ? (language === "en" ? "medium" : "середня") :
+       (language === "en" ? "auto" : "авто"));
+    workspaceReset.textContent = language === "en" ? "Restore workspace" : "Відновити робочу область";
   }
+  function currentProductPanel() {
+    const panel = productPanels[currentRouteId];
+    return panel || {collapsed: false, size: "auto"};
+  }
+  workspaceCollapse.addEventListener("click", function () {
+    if (!productRoutes.has(currentRouteId)) return;
+    const panel = currentProductPanel();
+    productPanels[currentRouteId] = {collapsed: !panel.collapsed, size: panel.size};
+    applyProductLayout(currentRouteId, currentLanguage);
+    persistProductLayouts();
+    workspaceCollapse.focus({preventScroll:true});
+  });
+  workspaceSize.addEventListener("click", function () {
+    if (!productRoutes.has(currentRouteId)) return;
+    const panel = currentProductPanel();
+    const next = productPanelSizes[(productPanelSizes.indexOf(panel.size) + 1) % productPanelSizes.length];
+    productPanels[currentRouteId] = {collapsed: panel.collapsed, size: next};
+    applyProductLayout(currentRouteId, currentLanguage);
+    persistProductLayouts();
+    workspaceSize.focus({preventScroll:true});
+  });
+  workspaceReset.addEventListener("click", function () {
+    if (!productRoutes.has(currentRouteId)) return;
+    delete productLayouts[currentRouteId];
+    delete productPanels[currentRouteId];
+    applyProductLayout(currentRouteId, currentLanguage);
+    persistProductLayouts();
+    workspaceReset.focus({preventScroll:true});
+  });
   workspaceLayoutMode.addEventListener("change", function () {
     if (!productRoutes.has(currentRouteId)) return;
     const mode = workspaceLayoutMode.value;
