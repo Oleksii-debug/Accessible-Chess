@@ -18,9 +18,17 @@
       "expected_sha256": "aa40b3671fa3cf1072eb182892cd90b0e1e003a4a5943492f64b77e7f3fd1635",
       "actual_sha256": null,
       "published_size_games": 121332,
-      "rights": {"read": true, "test": true, "redistribute_archive": false},
+      "rights": {
+        "read": true,
+        "test": true,
+        "redistribute_archive": false
+      },
       "status": "PINNED_SOURCE_BUILD_TIME_ONLY",
-      "evidence": ["docs/P0F_STARTER_CONTENT_PROVENANCE.md", "tools/v2_library_source_catalog_real_corpus.py", "docs/PGN_CONVERSION_REAL_CORPUS_20261005.json"]
+      "evidence": [
+        "docs/P0F_STARTER_CONTENT_PROVENANCE.md",
+        "tools/v2_library_source_catalog_real_corpus.py",
+        "docs/PGN_CONVERSION_REAL_CORPUS_20261005.json"
+      ]
     },
     {
       "id": "accessible-chess-real-sample-240",
@@ -32,10 +40,26 @@
       "license": "CC0-1.0 source; no source archive redistributed",
       "expected_sha256": null,
       "actual_sha256": null,
-      "counts": {"selected_games": 240, "minimum_result_strata": ["white-win", "black-win", "draw"], "minimum_length_bands": 3},
-      "rights": {"read": true, "test": true, "redistribute_archive": false, "redistribute_derived_subset": "only where the generated manifest and source terms permit"},
+      "counts": {
+        "selected_games": 240,
+        "minimum_result_strata": [
+          "white-win",
+          "black-win",
+          "draw"
+        ],
+        "minimum_length_bands": 3
+      },
+      "rights": {
+        "read": true,
+        "test": true,
+        "redistribute_archive": false,
+        "redistribute_derived_subset": "only where the generated manifest and source terms permit"
+      },
       "status": "QUALIFIED_SOURCE_POLICY_PACKAGE_READBACK_REQUIRED",
-      "evidence": ["docs/P0F_STARTER_CONTENT_PROVENANCE.md", "acs/starter_content.py"]
+      "evidence": [
+        "docs/P0F_STARTER_CONTENT_PROVENANCE.md",
+        "acs/starter_content.py"
+      ]
     },
     {
       "id": "accessible-chess-stress-1200",
@@ -47,10 +71,20 @@
       "license": "LicenseRef-Accessible-Chess-Starter-Content-1.0",
       "expected_sha256": "8118eb8f9897e2f13ef029a533ba22dae2e1f66d8c73feba9dccd9bd4ccf623b",
       "actual_sha256": "8118eb8f9897e2f13ef029a533ba22dae2e1f66d8c73feba9dccd9bd4ccf623b",
-      "counts": {"stress_games": 1200},
-      "rights": {"read": true, "test": true, "redistribute": true, "notice_required": true},
+      "counts": {
+        "stress_games": 1200
+      },
+      "rights": {
+        "read": true,
+        "test": true,
+        "redistribute": true,
+        "notice_required": true
+      },
       "status": "AVAILABLE_PROJECT_SOURCE",
-      "evidence": ["docs/P0F_STARTER_CONTENT_PROVENANCE.md", "acs/starter_content.py"]
+      "evidence": [
+        "docs/P0F_STARTER_CONTENT_PROVENANCE.md",
+        "acs/starter_content.py"
+      ]
     },
     {
       "id": "accessible-chess-books-training-24",
@@ -62,10 +96,22 @@
       "license": "LicenseRef-Accessible-Chess-Starter-Books-Training-1.0",
       "expected_sha256": "b844c4e2cd6ae3394ddf007297a6f8229d6688144c159e39cc47e11963ff575a",
       "actual_sha256": "b844c4e2cd6ae3394ddf007297a6f8229d6688144c159e39cc47e11963ff575a",
-      "counts": {"booklets": 24, "chapters_per_booklet": 12, "training_exercises": 144},
-      "rights": {"read": true, "test": true, "redistribute": true, "notice_required": true},
+      "counts": {
+        "booklets": 24,
+        "chapters_per_booklet": 12,
+        "training_exercises": 144
+      },
+      "rights": {
+        "read": true,
+        "test": true,
+        "redistribute": true,
+        "notice_required": true
+      },
       "status": "AVAILABLE_PROJECT_SOURCE_NOT_THIRD_PARTY_LITERATURE",
-      "evidence": ["docs/V2_STARTER_CONTENT_PROVENANCE.md", "acs/starter_books_training_release.py"]
+      "evidence": [
+        "docs/V2_STARTER_CONTENT_PROVENANCE.md",
+        "acs/starter_books_training_release.py"
+      ]
     },
     {
       "id": "popular-chess-reti-move-by-move",
@@ -77,9 +123,15 @@
       "license": "commercial; no redistribution clearance",
       "expected_sha256": null,
       "actual_sha256": null,
-      "rights": {"read": "bibliographic page only", "test": false, "redistribute": false},
+      "rights": {
+        "read": "bibliographic page only",
+        "test": false,
+        "redistribute": false
+      },
       "status": "SOURCE_PAGE_ONLY_NOT_CLEARED",
-      "evidence": ["docs/FORMATS_COMMERCIAL_SCOPE_20261005_UA.md"]
+      "evidence": [
+        "docs/FORMATS_COMMERCIAL_SCOPE_20261005_UA.md"
+      ]
     },
     {
       "id": "chessit-cotswold-open-2023-cbv",
@@ -92,9 +144,16 @@
       "expected_sha256": "d1fe221cda73ede12acdc23dc0fa4c922962b62d00ba88381f7085c3e0620902",
       "actual_sha256": "d1fe221cda73ede12acdc23dc0fa4c922962b62d00ba88381f7085c3e0620902",
       "size_bytes": 24039,
-      "rights": {"read": true, "test": true, "redistribute": false},
+      "rights": {
+        "read": true,
+        "test": true,
+        "redistribute": false
+      },
       "status": "DOWNLOADED_EXTERNAL_READBACK_PASS",
-      "evidence": ["tools/section37_real_corpus_evidence.py", "docs/corpus/SECTION37_REAL_CORPUS_READBACK.json"]
+      "evidence": [
+        "tools/section37_real_corpus_evidence.py",
+        "docs/corpus/SECTION37_REAL_CORPUS_READBACK.json"
+      ]
     },
     {
       "id": "chessit-cotswold-extracted-cbh-family",
@@ -106,17 +165,44 @@
       "license": "inherited test-only source terms",
       "expected_sha256": null,
       "actual_sha256": null,
-      "counts": {"cbv_entries": 14, "extracted_bytes": 48030, "decoded_games": 113, "imported_games": 113},
-      "components": {
-        "Cotswold_Open_2023.cbh": {"size": 5244, "sha256": "675866b1887e715880e545b42d1f79574822281164da92b5bad90969cb07f3c6"},
-        "Cotswold_Open_2023.cbg": {"size": 10431, "sha256": "37f2f3ad2e38d63a5112831025890a8244513f2184cdf4311b958221bf3bec78"},
-        "Cotswold_Open_2023.cba": {"size": 9168, "sha256": "0cfa45b8dab375550d39b95d1b089f278d8573bdea7290149cc890a4f485682e"},
-        "Cotswold_Open_2023.cbc": {"size": 218, "sha256": "e87615941133fbcee54f5428244088a4b7f7b788d0ed8f6d25223873376afa47"},
-        "Cotswold_Open_2023.cbe": {"size": 32, "sha256": "0f2b24067c28854c2caca9d1815dde5caa8d36743b6a92d230b3a0fb088b938f"}
+      "counts": {
+        "cbv_entries": 14,
+        "extracted_bytes": 48030,
+        "decoded_games": 113,
+        "imported_games": 113
       },
-      "rights": {"read": true, "test": true, "redistribute": false},
+      "components": {
+        "Cotswold_Open_2023.cbh": {
+          "size": 5244,
+          "sha256": "675866b1887e715880e545b42d1f79574822281164da92b5bad90969cb07f3c6"
+        },
+        "Cotswold_Open_2023.cbg": {
+          "size": 10431,
+          "sha256": "37f2f3ad2e38d63a5112831025890a8244513f2184cdf4311b958221bf3bec78"
+        },
+        "Cotswold_Open_2023.cba": {
+          "size": 9168,
+          "sha256": "0cfa45b8dab375550d39b95d1b089f278d8573bdea7290149cc890a4f485682e"
+        },
+        "Cotswold_Open_2023.cbc": {
+          "size": 218,
+          "sha256": "e87615941133fbcee54f5428244088a4b7f7b788d0ed8f6d25223873376afa47"
+        },
+        "Cotswold_Open_2023.cbe": {
+          "size": 32,
+          "sha256": "0f2b24067c28854c2caca9d1815dde5caa8d36743b6a92d230b3a0fb088b938f"
+        }
+      },
+      "rights": {
+        "read": true,
+        "test": true,
+        "redistribute": false
+      },
       "status": "CBH_EXTERNAL_READBACK_PASS_TEST_ONLY",
-      "evidence": ["tools/section37_real_corpus_evidence.py", "docs/corpus/SECTION37_REAL_CORPUS_READBACK.json"]
+      "evidence": [
+        "tools/section37_real_corpus_evidence.py",
+        "docs/corpus/SECTION37_REAL_CORPUS_READBACK.json"
+      ]
     },
     {
       "id": "chessit-cotswold-open-2023-pgn-oracle",
@@ -129,10 +215,25 @@
       "expected_sha256": "3053909b99d30e4d430995553b0b9db4f131c5518fa50d62167c1f0fae5bfe34",
       "actual_sha256": "3053909b99d30e4d430995553b0b9db4f131c5518fa50d62167c1f0fae5bfe34",
       "size_bytes": 86012,
-      "counts": {"games": 113, "warnings": 0, "results": {"1-0": 52, "0-1": 31, "1/2-1/2": 30}},
-      "rights": {"read": true, "test": true, "redistribute": false},
+      "counts": {
+        "games": 113,
+        "warnings": 0,
+        "results": {
+          "1-0": 52,
+          "0-1": 31,
+          "1/2-1/2": 30
+        }
+      },
+      "rights": {
+        "read": true,
+        "test": true,
+        "redistribute": false
+      },
       "status": "DOWNLOADED_CANONICAL_PGN_ORACLE_TEST_ONLY",
-      "evidence": ["tools/section37_real_corpus_evidence.py", "docs/corpus/SECTION37_REAL_CORPUS_READBACK.json"]
+      "evidence": [
+        "tools/section37_real_corpus_evidence.py",
+        "docs/corpus/SECTION37_REAL_CORPUS_READBACK.json"
+      ]
     },
     {
       "id": "twic-1665-cbv",
@@ -145,9 +246,16 @@
       "expected_sha256": "1593615903527a70d47d6ee4ef80556eff0fb9d2ce63cadb6e5e1d2fa7276939",
       "actual_sha256": "1593615903527a70d47d6ee4ef80556eff0fb9d2ce63cadb6e5e1d2fa7276939",
       "extracted_component_sha256": "f483fa2183387643963e7a1443cb159adbfe2b0605bc1b1f7d15228b3a5b8327",
-      "rights": {"read": true, "test": true, "redistribute": false},
+      "rights": {
+        "read": true,
+        "test": true,
+        "redistribute": false
+      },
       "status": "DOWNLOADED_TEST_ONLY_NO_PUBLIC_REDIStribution",
-      "evidence": ["tools/section37_real_corpus_evidence.py", "docs/corpus/SECTION37_REAL_CORPUS_READBACK.json"]
+      "evidence": [
+        "tools/section37_real_corpus_evidence.py",
+        "docs/corpus/SECTION37_REAL_CORPUS_READBACK.json"
+      ]
     },
     {
       "id": "pgnmentor-alekhine",
@@ -160,10 +268,20 @@
       "expected_sha256": "59f4c4e46a8bc2d9b4c7798e75a91b6a1676c30ebbc71ab04959fb86fed35b3f",
       "actual_sha256": "59f4c4e46a8bc2d9b4c7798e75a91b6a1676c30ebbc71ab04959fb86fed35b3f",
       "extracted_pgn_sha256": "d3fd8dcd9fb308d7636856c6538b386191f87738d8908ebe85fa064f48b5a8a0",
-      "counts": {"games": 1661, "warnings": 0},
-      "rights": {"read": true, "test": true, "redistribute": false},
+      "counts": {
+        "games": 1661,
+        "warnings": 0
+      },
+      "rights": {
+        "read": true,
+        "test": true,
+        "redistribute": false
+      },
       "status": "DOWNLOADED_TEST_ONLY_RIGHTS_UNCLEAR",
-      "evidence": ["tools/section37_real_corpus_evidence.py", "docs/corpus/SECTION37_REAL_CORPUS_READBACK.json"]
+      "evidence": [
+        "tools/section37_real_corpus_evidence.py",
+        "docs/corpus/SECTION37_REAL_CORPUS_READBACK.json"
+      ]
     },
     {
       "id": "section37-external-backends",
@@ -175,11 +293,25 @@
       "license": "GPL-2.0 (libcbh); GPL-3.0 (uncbv)",
       "expected_sha256": null,
       "actual_sha256": null,
-      "pinned_commits": {"libcbh": "9641c5c3949d8fb210b17dd9aa54455645843696", "uncbv": "3c18e8a7c6a30c21f945a1ab5462521c306dca57"},
-      "rights": {"read": true, "test": true, "redistribute": false},
-      "backend_sha256": {"uncbv": "77381dec2c32701fb7ac0e3b8618de470a35cd0f3156c51287a9149a835ba938", "libcbh_json_bridge": "ccc9d6f762b1baf678e8dbe30d0ea1e1245218768f8cfc94cdec5c797a555158"},
+      "pinned_commits": {
+        "libcbh": "9641c5c3949d8fb210b17dd9aa54455645843696",
+        "uncbv": "3c18e8a7c6a30c21f945a1ab5462521c306dca57"
+      },
+      "rights": {
+        "read": true,
+        "test": true,
+        "redistribute": false
+      },
+      "backend_sha256": {
+        "uncbv": "77381dec2c32701fb7ac0e3b8618de470a35cd0f3156c51287a9149a835ba938",
+        "libcbh_json_bridge": "ccc9d6f762b1baf678e8dbe30d0ea1e1245218768f8cfc94cdec5c797a555158"
+      },
       "status": "BUILD_TIME_EXTERNAL_READBACK_PASS_NOT_BUNDLED",
-      "evidence": ["tools/optional/LIBCBH_BACKEND.md", "tools/optional/UNCBV_BACKEND.md", ".github/workflows/section37-real-corpus-readback.yml"]
+      "evidence": [
+        "tools/optional/LIBCBH_BACKEND.md",
+        "tools/optional/UNCBV_BACKEND.md",
+        ".github/workflows/section37-real-corpus-readback.yml"
+      ]
     },
     {
       "id": "cbf-cbi-real-pair",
@@ -191,9 +323,16 @@
       "license": null,
       "expected_sha256": null,
       "actual_sha256": null,
-      "rights": {"read": false, "test": false, "redistribute": false},
+      "rights": {
+        "read": false,
+        "test": false,
+        "redistribute": false
+      },
       "status": "BLOCKED_NO_LAWFUL_FIXTURE_AND_INDEPENDENT_ORACLE",
-      "evidence": ["docs/automation/V2_CBF_CBI_EVIDENCE.md", "docs/automation/V2_CHESSBASE_CAPABILITIES.json"]
+      "evidence": [
+        "docs/automation/V2_CBF_CBI_EVIDENCE.md",
+        "docs/automation/V2_CHESSBASE_CAPABILITIES.json"
+      ]
     },
     {
       "id": "chessbase-family-cbh-cbv-2cbh-cbone",
@@ -205,9 +344,17 @@
       "license": null,
       "expected_sha256": null,
       "actual_sha256": null,
-      "rights": {"read": false, "test": false, "redistribute": false},
+      "rights": {
+        "read": false,
+        "test": false,
+        "redistribute": false
+      },
       "status": "PARTIAL_CBV_REAL_FILE_PINNED_EXTERNAL_READBACK_REQUIRED",
-      "evidence": ["docs/FORMATS_COMMERCIAL_SCOPE_20261005_UA.md", "tools/section37_real_corpus_evidence.py", ".github/workflows/section37-real-corpus-readback.yml"]
+      "evidence": [
+        "docs/FORMATS_COMMERCIAL_SCOPE_20261005_UA.md",
+        "tools/section37_real_corpus_evidence.py",
+        ".github/workflows/section37-real-corpus-readback.yml"
+      ]
     },
     {
       "id": "lichess-cc0-annotated-4-games-test-only",
@@ -236,12 +383,301 @@
         "tests/real_corpus/advanced_training/lichess_cc0_2200_both_players_annotated_original_games_manifest.json",
         "https://github.com/mcognetta/lichess-combined-puzzle-game-db/blob/main/LICENSE"
       ]
+    },
+    {
+      "id": "lichess_openings_original_eco_a_tsv",
+      "kind": "verified_original_open_source_test_corpus",
+      "format": "tsv (ECO, opening name, PGN move sequence)",
+      "language": "multilingual/technical notation",
+      "source_url": "https://github.com/lichess-org/chess-openings/blob/a6189a30dc273ccb21fc2536a9a2fefd5592a67a/a.tsv",
+      "download_url": null,
+      "author_or_owner": "Lichess chess-openings contributors",
+      "license": "CC0",
+      "upstream_commit": "a6189a30dc273ccb21fc2536a9a2fefd5592a67a",
+      "upstream_git_blob": "561099854a15dfb523759aa87993a1fe480a6abc",
+      "local_source": "tests/real_corpus/lichess_openings_a.tsv",
+      "license_source": "tests/real_corpus/lichess_openings_COPYING.txt",
+      "expected_sha256": "3282e4c9155289a29224f9a85fba0decb46efa35c2fa5e39662d2ac48fb0f793",
+      "actual_sha256": "3282e4c9155289a29224f9a85fba0decb46efa35c2fa5e39662d2ac48fb0f793",
+      "size_bytes": 67257,
+      "rights": {
+        "read": true,
+        "test": true,
+        "redistribute": false,
+        "public_release_included": false
+      },
+      "status": "VENDORED_UPSTREAM_BLOB_READBACK_PASS_TEST_ONLY_SEMANTIC_NOT_CLAIMED",
+      "evidence": [
+        "tests/real_corpus/lichess_openings_a.tsv",
+        "tests/real_corpus/lichess_openings_COPYING.txt",
+        "docs/corpus/revised_sections37_40_sources.json",
+        "SEQUENTIAL_CLOSURE_STATE.md"
+      ],
+      "qualification_note": "Existing original source and license Git blobs matched pinned upstream. This registry convergence does not run semantic import, recovery or packaging tests; no whole Section or subsection DONE is claimed."
+    },
+    {
+      "id": "lichess_openings_original_eco_b_tsv",
+      "kind": "verified_original_open_source_test_corpus",
+      "format": "tsv (ECO, opening name, PGN move sequence)",
+      "language": "multilingual/technical notation",
+      "source_url": "https://github.com/lichess-org/chess-openings/blob/a6189a30dc273ccb21fc2536a9a2fefd5592a67a/b.tsv",
+      "download_url": null,
+      "author_or_owner": "Lichess chess-openings contributors",
+      "license": "CC0",
+      "upstream_commit": "a6189a30dc273ccb21fc2536a9a2fefd5592a67a",
+      "upstream_git_blob": "41c3727d28fc0b5915f30f3b634c07bd296f4bdb",
+      "local_source": "tests/real_corpus/lichess_openings_b.tsv",
+      "license_source": "tests/real_corpus/lichess_openings_COPYING.txt",
+      "expected_sha256": "1d5ed134ebbd87915ead5683416e37583bb3e5ae3582b4d8cb5cb4aa7ef4f623",
+      "actual_sha256": "1d5ed134ebbd87915ead5683416e37583bb3e5ae3582b4d8cb5cb4aa7ef4f623",
+      "size_bytes": 78124,
+      "rights": {
+        "read": true,
+        "test": true,
+        "redistribute": false,
+        "public_release_included": false
+      },
+      "status": "VENDORED_UPSTREAM_BLOB_READBACK_PASS_TEST_ONLY_SEMANTIC_NOT_CLAIMED",
+      "evidence": [
+        "tests/real_corpus/lichess_openings_b.tsv",
+        "tests/real_corpus/lichess_openings_COPYING.txt",
+        "docs/corpus/revised_sections37_40_sources.json",
+        "SEQUENTIAL_CLOSURE_STATE.md"
+      ],
+      "qualification_note": "Existing original source and license Git blobs matched pinned upstream. This registry convergence does not run semantic import, recovery or packaging tests; no whole Section or subsection DONE is claimed."
+    },
+    {
+      "id": "lichess_openings_original_eco_c_tsv",
+      "kind": "verified_original_open_source_test_corpus",
+      "format": "tsv (ECO, opening name, PGN move sequence)",
+      "language": "multilingual/technical notation",
+      "source_url": "https://github.com/lichess-org/chess-openings/blob/a6189a30dc273ccb21fc2536a9a2fefd5592a67a/c.tsv",
+      "download_url": null,
+      "author_or_owner": "Lichess chess-openings contributors",
+      "license": "CC0",
+      "upstream_commit": "a6189a30dc273ccb21fc2536a9a2fefd5592a67a",
+      "upstream_git_blob": "4b3d9c90c67864db6eb728d82b225b44d91fccbd",
+      "local_source": "tests/real_corpus/lichess_openings_c.tsv",
+      "license_source": "tests/real_corpus/lichess_openings_COPYING.txt",
+      "expected_sha256": "45e843c7b7e79a0d04d5bda879c9bd23f5a10974488bd8615e4f4c5d0749986f",
+      "actual_sha256": "45e843c7b7e79a0d04d5bda879c9bd23f5a10974488bd8615e4f4c5d0749986f",
+      "size_bytes": 132304,
+      "rights": {
+        "read": true,
+        "test": true,
+        "redistribute": false,
+        "public_release_included": false
+      },
+      "status": "VENDORED_UPSTREAM_BLOB_READBACK_PASS_TEST_ONLY_SEMANTIC_NOT_CLAIMED",
+      "evidence": [
+        "tests/real_corpus/lichess_openings_c.tsv",
+        "tests/real_corpus/lichess_openings_COPYING.txt",
+        "docs/corpus/revised_sections37_40_sources.json",
+        "SEQUENTIAL_CLOSURE_STATE.md"
+      ],
+      "qualification_note": "Existing original source and license Git blobs matched pinned upstream. This registry convergence does not run semantic import, recovery or packaging tests; no whole Section or subsection DONE is claimed."
+    },
+    {
+      "id": "lichess_openings_original_eco_d_tsv",
+      "kind": "verified_original_open_source_test_corpus",
+      "format": "tsv (ECO, opening name, PGN move sequence)",
+      "language": "multilingual/technical notation",
+      "source_url": "https://github.com/lichess-org/chess-openings/blob/a6189a30dc273ccb21fc2536a9a2fefd5592a67a/d.tsv",
+      "download_url": null,
+      "author_or_owner": "Lichess chess-openings contributors",
+      "license": "CC0",
+      "upstream_commit": "a6189a30dc273ccb21fc2536a9a2fefd5592a67a",
+      "upstream_git_blob": "a829bac9d2f288b033d605e842f3b802379e3455",
+      "local_source": "tests/real_corpus/lichess_openings_d.tsv",
+      "license_source": "tests/real_corpus/lichess_openings_COPYING.txt",
+      "expected_sha256": "1cf4057a8aece94f27bb3f278ad410ee2844831a642364eeceaafa091dbcceda",
+      "actual_sha256": "1cf4057a8aece94f27bb3f278ad410ee2844831a642364eeceaafa091dbcceda",
+      "size_bytes": 73318,
+      "rights": {
+        "read": true,
+        "test": true,
+        "redistribute": false,
+        "public_release_included": false
+      },
+      "status": "VENDORED_UPSTREAM_BLOB_READBACK_PASS_TEST_ONLY_SEMANTIC_NOT_CLAIMED",
+      "evidence": [
+        "tests/real_corpus/lichess_openings_d.tsv",
+        "tests/real_corpus/lichess_openings_COPYING.txt",
+        "docs/corpus/revised_sections37_40_sources.json",
+        "SEQUENTIAL_CLOSURE_STATE.md"
+      ],
+      "qualification_note": "Existing original source and license Git blobs matched pinned upstream. This registry convergence does not run semantic import, recovery or packaging tests; no whole Section or subsection DONE is claimed."
+    },
+    {
+      "id": "lichess_openings_original_eco_e_tsv",
+      "kind": "verified_original_open_source_test_corpus",
+      "format": "tsv (ECO, opening name, PGN move sequence)",
+      "language": "multilingual/technical notation",
+      "source_url": "https://github.com/lichess-org/chess-openings/blob/a6189a30dc273ccb21fc2536a9a2fefd5592a67a/e.tsv",
+      "download_url": null,
+      "author_or_owner": "Lichess chess-openings contributors",
+      "license": "CC0",
+      "upstream_commit": "a6189a30dc273ccb21fc2536a9a2fefd5592a67a",
+      "upstream_git_blob": "93a82e1f505e06256530736b45460738bd50e897",
+      "local_source": "tests/real_corpus/lichess_openings_e.tsv",
+      "license_source": "tests/real_corpus/lichess_openings_COPYING.txt",
+      "expected_sha256": "48c6f6645b031a5937c8386839debab0e2e48837251687ba1afb6369677f8546",
+      "actual_sha256": "48c6f6645b031a5937c8386839debab0e2e48837251687ba1afb6369677f8546",
+      "size_bytes": 44061,
+      "rights": {
+        "read": true,
+        "test": true,
+        "redistribute": false,
+        "public_release_included": false
+      },
+      "status": "VENDORED_UPSTREAM_BLOB_READBACK_PASS_TEST_ONLY_SEMANTIC_NOT_CLAIMED",
+      "evidence": [
+        "tests/real_corpus/lichess_openings_e.tsv",
+        "tests/real_corpus/lichess_openings_COPYING.txt",
+        "docs/corpus/revised_sections37_40_sources.json",
+        "SEQUENTIAL_CLOSURE_STATE.md"
+      ],
+      "qualification_note": "Existing original source and license Git blobs matched pinned upstream. This registry convergence does not run semantic import, recovery or packaging tests; no whole Section or subsection DONE is claimed."
+    },
+    {
+      "id": "stockfish_startpos_epd_zip",
+      "kind": "verified_original_open_source_test_corpus",
+      "format": "epd.zip",
+      "language": "multilingual/technical notation",
+      "source_url": "https://github.com/official-stockfish/books/blob/65815ccdbc7727cd4f6aee252ba8f67fb740e92f/startpos.epd.zip",
+      "download_url": null,
+      "author_or_owner": "official-stockfish/books contributors",
+      "license": "CC0-1.0 (original official-stockfish/books repository LICENSE)",
+      "upstream_commit": "65815ccdbc7727cd4f6aee252ba8f67fb740e92f",
+      "upstream_git_blob": "1cab3bc1cfbfe2291591d454004269b3bcda5ab3",
+      "local_source": "tests/real_corpus/stockfish/startpos.epd.zip",
+      "license_source": "tests/real_corpus/stockfish/LICENSE",
+      "expected_sha256": "2aff83ce57d25fff9ac6f5d7d750a98d76bfff7b3f8c2a82521efbc8bd5e5662",
+      "actual_sha256": "2aff83ce57d25fff9ac6f5d7d750a98d76bfff7b3f8c2a82521efbc8bd5e5662",
+      "size_bytes": 216,
+      "rights": {
+        "read": true,
+        "test": true,
+        "redistribute": false,
+        "public_release_included": false
+      },
+      "status": "VENDORED_UPSTREAM_BLOB_READBACK_PASS_TEST_ONLY_SEMANTIC_NOT_CLAIMED",
+      "evidence": [
+        "tests/real_corpus/stockfish/startpos.epd.zip",
+        "tests/real_corpus/stockfish/LICENSE",
+        "docs/corpus/revised_sections37_40_sources.json",
+        "SEQUENTIAL_CLOSURE_STATE.md"
+      ],
+      "qualification_note": "Existing original source and license Git blobs matched pinned upstream. This registry convergence does not run semantic import, recovery or packaging tests; no whole Section or subsection DONE is claimed."
+    },
+    {
+      "id": "stockfish_frc_openings_epd_zip",
+      "kind": "verified_original_open_source_test_corpus",
+      "format": "epd.zip",
+      "language": "multilingual/technical notation",
+      "source_url": "https://github.com/official-stockfish/books/blob/65815ccdbc7727cd4f6aee252ba8f67fb740e92f/FRC_openings.epd.zip",
+      "download_url": null,
+      "author_or_owner": "official-stockfish/books contributors",
+      "license": "CC0-1.0 (original official-stockfish/books repository LICENSE)",
+      "upstream_commit": "65815ccdbc7727cd4f6aee252ba8f67fb740e92f",
+      "upstream_git_blob": "05710b911d050ba511c382f735034ae90ba35151",
+      "local_source": "tests/real_corpus/stockfish/FRC_openings.epd.zip",
+      "license_source": "tests/real_corpus/stockfish/LICENSE",
+      "expected_sha256": "bba1d68af0234334052d872c8b0e4445579454aa082f398674f6952284ecca84",
+      "actual_sha256": "bba1d68af0234334052d872c8b0e4445579454aa082f398674f6952284ecca84",
+      "size_bytes": 6426,
+      "rights": {
+        "read": true,
+        "test": true,
+        "redistribute": false,
+        "public_release_included": false
+      },
+      "status": "VENDORED_UPSTREAM_BLOB_READBACK_PASS_TEST_ONLY_SEMANTIC_NOT_CLAIMED",
+      "evidence": [
+        "tests/real_corpus/stockfish/FRC_openings.epd.zip",
+        "tests/real_corpus/stockfish/LICENSE",
+        "docs/corpus/revised_sections37_40_sources.json",
+        "SEQUENTIAL_CLOSURE_STATE.md"
+      ],
+      "qualification_note": "Existing original source and license Git blobs matched pinned upstream. This registry convergence does not run semantic import, recovery or packaging tests; no whole Section or subsection DONE is claimed."
+    },
+    {
+      "id": "stockfish_4mvs_90_99_epd_zip",
+      "kind": "verified_original_open_source_test_corpus",
+      "format": "epd.zip",
+      "language": "multilingual/technical notation",
+      "source_url": "https://github.com/official-stockfish/books/blob/65815ccdbc7727cd4f6aee252ba8f67fb740e92f/4mvs_%2B90_%2B99.epd.zip",
+      "download_url": null,
+      "author_or_owner": "official-stockfish/books contributors",
+      "license": "CC0-1.0 (original official-stockfish/books repository LICENSE)",
+      "upstream_commit": "65815ccdbc7727cd4f6aee252ba8f67fb740e92f",
+      "upstream_git_blob": "4ef91a4563e3bb310026f04b731a9ea517117d58",
+      "local_source": "tests/real_corpus/stockfish/4mvs_+90_+99.epd.zip",
+      "license_source": "tests/real_corpus/stockfish/LICENSE",
+      "expected_sha256": "733be6809d849e75d590e1fce7dea1540aecac5b2d89b15cda50969e269c1989",
+      "actual_sha256": "733be6809d849e75d590e1fce7dea1540aecac5b2d89b15cda50969e269c1989",
+      "size_bytes": 7399,
+      "rights": {
+        "read": true,
+        "test": true,
+        "redistribute": false,
+        "public_release_included": false
+      },
+      "status": "VENDORED_UPSTREAM_BLOB_READBACK_PASS_TEST_ONLY_SEMANTIC_NOT_CLAIMED",
+      "evidence": [
+        "tests/real_corpus/stockfish/4mvs_+90_+99.epd.zip",
+        "tests/real_corpus/stockfish/LICENSE",
+        "docs/corpus/revised_sections37_40_sources.json",
+        "SEQUENTIAL_CLOSURE_STATE.md"
+      ],
+      "qualification_note": "Existing original source and license Git blobs matched pinned upstream. This registry convergence does not run semantic import, recovery or packaging tests; no whole Section or subsection DONE is claimed."
+    },
+    {
+      "id": "stockfish_2moves_v2_pgn_zip",
+      "kind": "verified_original_open_source_test_corpus",
+      "format": "pgn.zip",
+      "language": "multilingual/technical notation",
+      "source_url": "https://github.com/official-stockfish/books/blob/65815ccdbc7727cd4f6aee252ba8f67fb740e92f/2moves_v2.pgn.zip",
+      "download_url": null,
+      "author_or_owner": "official-stockfish/books contributors",
+      "license": "CC0-1.0 (original official-stockfish/books repository LICENSE)",
+      "upstream_commit": "65815ccdbc7727cd4f6aee252ba8f67fb740e92f",
+      "upstream_git_blob": "ba7bb324fa5763d961bb50d7a28d03c9462a5e51",
+      "local_source": "tests/real_corpus/stockfish/2moves_v2.pgn.zip",
+      "license_source": "tests/real_corpus/stockfish/LICENSE",
+      "expected_sha256": "e31a105d07bbad4248eedab6ee2b91b95968eebf36c3d166b2f5ff370a181ea5",
+      "actual_sha256": "e31a105d07bbad4248eedab6ee2b91b95968eebf36c3d166b2f5ff370a181ea5",
+      "size_bytes": 57325,
+      "rights": {
+        "read": true,
+        "test": true,
+        "redistribute": false,
+        "public_release_included": false
+      },
+      "status": "VENDORED_UPSTREAM_BLOB_READBACK_PASS_TEST_ONLY_SEMANTIC_NOT_CLAIMED",
+      "evidence": [
+        "tests/real_corpus/stockfish/2moves_v2.pgn.zip",
+        "tests/real_corpus/stockfish/LICENSE",
+        "docs/corpus/revised_sections37_40_sources.json",
+        "SEQUENTIAL_CLOSURE_STATE.md"
+      ],
+      "qualification_note": "Existing original source and license Git blobs matched pinned upstream. This registry convergence does not run semantic import, recovery or packaging tests; no whole Section or subsection DONE is claimed."
     }
   ],
   "closure": {
-    "completed_internal": ["37.5", "37.6"],
-    "partial": ["37.1", "37.2", "37.3", "37.4"],
-    "blocked": ["37.4-CBF-CBI-2CBH-CBONE"],
+    "completed_internal": [
+      "37.5",
+      "37.6"
+    ],
+    "partial": [
+      "37.1",
+      "37.2",
+      "37.3",
+      "37.4"
+    ],
+    "blocked": [
+      "37.4-CBF-CBI-2CBH-CBONE"
+    ],
     "section_done": false,
     "next_dependency_safe_front": "38",
     "honest_blocker": "CBV-to-CBH-to-ACSDB external readback now passes against the independent 113-game PGN oracle. Genuine lawful CBF+CBI, 2CBH and CBONE fixtures with independent semantic oracles remain unavailable, and all downloaded third-party sources remain excluded from PUBLIC_RELEASE until redistribution rights are explicit."
