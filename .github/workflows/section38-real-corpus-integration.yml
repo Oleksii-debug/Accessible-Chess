@@ -14,6 +14,8 @@ on:
       - 'tools/revised_section38_stockfish_owner_seed.py'
       - 'tests/test_book_open_preparation.py'
       - 'acs/version2_application.py'
+      - 'acs/book_docx_import.py'
+      - 'tests/test_revised_section38_docx_book_integration.py'
       - 'acs/version2_windows_native_dialog_ownership.py'
       - 'acs/version2_windows_file_workflows.py'
       - '.github/workflows/section38-real-corpus-integration.yml'
@@ -65,7 +67,8 @@ jobs:
           python -m unittest -v \
             tests.test_book_library_import_journey \
             tests.test_book_open_preparation \
-            tests.test_section38_source_bound_readback
+            tests.test_section38_source_bound_readback \
+            tests.test_revised_section38_docx_book_integration
       - name: Run genuine vendored Stockfish and Lichess ECO sources through canonical Library
         env:
           PYTHONPATH: tests
@@ -98,4 +101,4 @@ jobs:
         env:
           PYTHONPATH: tests
         run: |
-          python -m unittest -v tests.test_book_open_preparation tests.test_section38_source_bound_readback
+          python -m unittest -v tests.test_book_open_preparation tests.test_section38_source_bound_readback tests.test_revised_section38_docx_book_integration
