@@ -145,6 +145,7 @@ function boardCells(snapshot) {
 
 function renderBoard(snapshot) {
   const cells = boardCells(snapshot);
+  const priorVisualSurface = boardGrid.dataset.surface || "";
   const oldCells = [...boardGrid.querySelectorAll('[role="gridcell"]')];
   const focusedSquare = document.activeElement &&
     document.activeElement.closest && document.activeElement.closest("#board-grid") === boardGrid
@@ -152,12 +153,17 @@ function renderBoard(snapshot) {
   const oldPieces = new Map(oldCells.map(node => [node.dataset.square, node.dataset.piece || ""]));
   boardGrid.replaceChildren();
   if (!cells.length) {
+    boardGrid.dataset.surface = "";
     boardSurface.hidden = true;
     return;
   }
   boardSurface.hidden = false;
   const visual = activeVisualBoard(snapshot) || {};
   const p = visual.preferences && typeof visual.preferences === "object" ? visual.preferences : {};
+  // A new surface or previously hidden board is not a chess move.
+  const visualSurface = typeof visual.surface === "string" ? visual.surface : "";
+  const sameVisualSurface = !!visualSurface && priorVisualSurface === visualSurface;
+  boardGrid.dataset.surface = visualSurface;
   const themes = ["classic", "high_contrast", "blue", "classic_wood",
     "modern_graphite", "tournament_blue", "light_minimal"];
   const theme = themes.includes(p.boardTheme) ? p.boardTheme : "classic";
@@ -234,7 +240,8 @@ function renderBoard(snapshot) {
     } else {
       decoration.textContent = !token ? "" : style === "letters" ? token : glyphs[token];
     }
-    if (p.animateMoves === true && validSquare && last[1] === square
+    if (p.animateMoves === true && p.lowPowerMode !== true && sameVisualSurface
+      && validSquare && last[1] === square
       && oldPieces.has(square) && oldPieces.get(square) !== token) {
       decoration.dataset.ac42Animate = "true";
     }
