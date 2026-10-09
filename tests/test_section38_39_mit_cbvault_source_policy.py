@@ -131,7 +131,7 @@ class MITCbvaultNoFalsePassTests(unittest.TestCase):
             binary, source = Path(tmp) / "safe-decoder", Path(tmp) / "original.cbh"
             binary.write_bytes(b"stub")
             source.write_bytes(b"original")
-            exact = b'[Event "Original expert"]\\n\\n1. e4 e5 *\\n'
+            exact = b'[Event "Original expert"]\n\n1. e4 e5 *\n'
             observed = []
 
             def complete_child(args, **kwargs):
