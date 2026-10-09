@@ -91,7 +91,7 @@ class LiblouisTranslator:
         except ImportError as exc:
             raise BrailleFactoryError("Liblouis is unavailable; translation was not attempted") from exc
         try:
-            value = louis.translateString([self.table_id], source, mode=louis.ucBrl)
+            value = louis.translateString([self.table_id], source, mode=louis.dotsIO | louis.ucBrl)
         except Exception as exc:
             raise BrailleFactoryError("Liblouis translation failed") from exc
         if type(value) is not str:
