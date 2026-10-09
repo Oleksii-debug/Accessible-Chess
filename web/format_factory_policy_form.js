@@ -117,6 +117,9 @@
     submit.type = "submit";
     submit.textContent = "Підтвердити політику";
     form.append(status, submit);
+    function validTokenCount(value) {
+      return /^[1-9][0-9]*$/.test(value) && Number.isSafeInteger(Number(value));
+    }
     form.addEventListener("submit", function (event) {
       event.preventDefault();
       const outputs = formatInputs.filter(x => x.checked && !x.disabled).map(x => x.value);
@@ -127,7 +130,7 @@
         return;
       }
       if (ai.checked && (!provider.value.trim() || !model.value.trim() ||
-          !/^[1-9][0-9]*$/.test(inputLimit.value) || !/^[1-9][0-9]*$/.test(outputLimit.value))) {
+          !validTokenCount(inputLimit.value) || !validTokenCount(outputLimit.value))) {
         status.textContent = "Укажіть провайдера, модель та два додатні токенові ліміти.";
         provider.focus();
         return;
@@ -143,8 +146,13 @@
         max_input_tokens: ai.checked ? Number(inputLimit.value) : null,
         max_output_tokens: ai.checked ? Number(outputLimit.value) : null,
       };
-      status.textContent = "Політика передана для перевірки застосунком.";
-      options.onSubmit(policy);
+      try {
+        options.onSubmit(policy);
+        status.textContent = "Політика передана для перевірки застосунком.";
+      } catch (_error) {
+        status.textContent = "Не вдалося передати політику застосунку.";
+        submit.focus();
+      }
     });
     host.replaceChildren(form);
     return { form, focus: () => select.focus() };
