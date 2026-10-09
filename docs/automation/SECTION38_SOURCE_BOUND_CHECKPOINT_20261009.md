@@ -33,3 +33,14 @@ Canonical authority: [Accessible Chess Product Sections 0–53](https://docs.goo
 Rights: external original files here are **TEST_ONLY**, excluded from PUBLIC_RELEASE unless redistribution rights are independently cleared. No proprietary formats or commercial books are fabricated or copied into repository ZIPs.
 
 **No DONE, 100%, Windows/NVDA pass, or CI-green claim is made by this checkpoint.**
+
+
+## Additional preserved and integrated source work (candidate follow-on)
+
+- Five exact Git blob identities from protected PR #2494 were reused without rebuilding: `tools/revised_section38_stockfish_owner_seed.py`, `tests/test_revised_section38_owner_seed.py`, `tests/test_revised_section38_official_openings_library.py`, `tests/test_revised_section38_stockfish_real_library.py`, and `tests/test_revised_section38_real_cbh_oracles.py`. All now live on this candidate; no protected source binary was copied beyond what was already in accepted main.
+- The genuine original Stockfish ZIP / Lichess ECO TSV test suites and their real ACSDB import, idempotence, cancellation and restart tests are wired to the source-bound Linux workflow. Tests and pre-existing corpus are preserved, but queued jobs remain **UNEXECUTED**, not PASS.
+- The previously implemented, bounded DOCX canonical BookDocument converter `acs/book_docx_import.py` and its seven documented integration/security/restart tests were transferred byte-for-byte from PR #2494. The native product owner `Version2Application.prepare_book_open` now allows `.docx` files and routes them to that parser after bounded source snapshot reading. Both UA and EN Book picker filters display Word files; the games-only Library importer is deliberately unchanged because this DOCX adapter publishes readable prose, not guessed games.
+- This DOCX implementation is an **implemented internal read-only capability**, with only derived project-controlled interoperability fixture and genuine original Gutenberg TXT→derived DOCX source chain covered by that preserved test. An independently downloaded third-party original DOCX is still missing; the original-format corpus qualification may not be declared PASS on the strength of generated files.
+- PDF native semantic import remains explicitly unsupported; unavailable full CBF+CBI/2CBH/CBONE remain blocked. Physical NVDA remains the terminal whole-product gate.
+
+The complementary [PR #2516](https://github.com/Oleksii-debug/Accessible-Chess/pull/2516) owns the independent external CBV/CBH backend and publisher-matched PGN oracle; do not duplicate it in this lineage. This checkpoint continues to assert **Section 38 OPEN / NO TERMINAL DONE** pending executed exact-head tests, dependency-safe integration, accepted user-facing corpus evidence and canonical registry closure.
