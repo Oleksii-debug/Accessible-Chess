@@ -5,6 +5,7 @@ on:
     paths:
       - "tools/section39_external_book_semantic.py"
       - "tools/section39_external_position_semantic.py"
+      - "acs/epd.py"
       - "tools/section39_stockfish_original_chess960_epd_qualification.py"
       - "tests/test_section39_external_book_semantic.py"
       - "tests/test_section39_external_position_semantic.py"
@@ -34,6 +35,7 @@ jobs:
       - name: Compile original-source qualification modules
         run: >-
           python -m compileall -q
+          acs/epd.py
           tools/section39_external_book_semantic.py
           tools/section39_external_position_semantic.py
           tools/section39_stockfish_original_chess960_epd_qualification.py
