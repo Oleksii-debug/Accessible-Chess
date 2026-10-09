@@ -7,7 +7,7 @@ ROOT=Path(__file__).resolve().parents[1]
 class WebBoardProjectionTests(unittest.TestCase):
     def test_web_play_and_modes_reuse_visual_board_state_without_chess_rules(self):
         script=(ROOT/"web/accessible_chess_web.js").read_text(encoding="utf-8")
-        for x in ('snapshot && snapshot.visualBoard && snapshot.visualBoard.cells',
+        for x in ('const visual=activeVisualBoard(snapshot);',
             'visual.preferences', 'p.orientation === "black" ? [...cells].reverse()',
             'boardGrid.dataset.theme = theme',
             'boardGrid.dataset.pieceTheme = style',
