@@ -236,6 +236,33 @@
         "tests/real_corpus/advanced_training/lichess_cc0_2200_both_players_annotated_original_games_manifest.json",
         "https://github.com/mcognetta/lichess-combined-puzzle-game-db/blob/main/LICENSE"
       ]
+    },
+    {
+      "id": "historical_reti_1921_original_bilingual_study_pgn",
+      "kind": "historical_original_study_with_project_authored_bilingual_notes",
+      "format": "PGN",
+      "language": "uk/en",
+      "source_url": "https://www.arves.org/arves/index.php/en/endgamestudies/studies-by-composer/1550-reti-s-study-is-100-years-old",
+      "author_or_owner": "Richard Réti (1921 composition); Accessible Chess original UK/EN commentary",
+      "license": "Historic composition; authored bilingual commentary; external modern annotations not reproduced; rights must be reassessed for each distribution jurisdiction",
+      "expected_sha256": "f0bb51066fde9d103406773666100977d6e2d2fc48ff71887dacbbb3ad0e8c83",
+      "actual_sha256": null,
+      "size_bytes": 2077,
+      "counts": {
+        "expected_games": 1,
+        "expected_san_plies": 11
+      },
+      "rights": {
+        "read": true,
+        "test": true,
+        "redistribute": false
+      },
+      "status": "CANDIDATE_TEST_ONLY_SEMANTIC_AND_RECOVERY_CI_PENDING",
+      "evidence": [
+        "docs/corpus/revised_sections37_40_sources.json",
+        "tests/real_corpus/advanced_training/reti_1921_historical_study_bilingual.pgn",
+        "tests/test_revised_section37_genuine_advanced_study_readback.py"
+      ]
     }
   ],
   "closure": {
