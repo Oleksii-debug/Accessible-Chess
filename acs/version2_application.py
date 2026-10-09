@@ -29,6 +29,7 @@ from .bookdocument import BookDocument, MAX_BOOK_DOCUMENT_WARNINGS
 from .bookreader import BookReader
 from .engine_assisted_workflows import EngineAssistedWorkflowService
 from .full_product_ui_shell import UILanguage, concise_user_error
+from .full_product_webview_adapter import PresentationCommittedError
 from .input_limits import MAX_FEN_CHARS
 from .import_contract import SourceReadCancelledError, read_source_snapshot
 from .library_export_service import LibraryExportService
@@ -101,7 +102,7 @@ class Version2Application:
     )
     _BOOK_BOARD_OPEN_COMMANDS = frozenset({"book.open_position", "book.open_game"})
     _BOOK_BOARD_RETURN_COMMANDS = frozenset({"book.return", "book.return_from_board"})
-    _BOOK_BOARD_RETURN_ROUTES = frozenset({"board", "books", "library"})
+    _BOOK_BOARD_RETURN_ROUTES = frozenset({"board", "books"})
     _BOOK_BOARD_ACTIVE_COMMANDS = frozenset(
         {
             "book.board_next_move",
@@ -517,7 +518,23 @@ class Version2Application:
 
     def set_document(self, session):
         self._assert_thread()
-        if type(session) is not PgnDocumentSession: raise TypeError("invalid PGN document")
+        # Resolve the canonical class at the call boundary. Qualification suites
+        # reload this module to prove startup isolation; retaining the import-time
+        # class object would then reject a genuine current session.
+        from .pgn_document import PgnDocumentSession as CurrentPgnDocumentSession
+
+        session_type = type(session)
+        if session_type is not CurrentPgnDocumentSession:
+            # An exact class object imported before a deliberate module reload
+            # remains a genuine session, while derived/forged session classes
+            # keep a different qualified name and are rejected before hooks.
+            exact_reloaded_session = (
+                session_type.__module__ == "acs.pgn_document"
+                and session_type.__qualname__ == "PgnDocumentSession"
+                and session_type.__name__ == "PgnDocumentSession"
+            )
+            if not exact_reloaded_session:
+                raise TypeError("invalid PGN document")
         # Library/native domain actions can reach this seam without a shell route
         # action. Reject before publishing a new PGN session while modal focus is
         # owned elsewhere, matching AccessibleShellState.open_route().
@@ -1737,7 +1754,15 @@ class Version2Application:
                     # browser Return. If persistence fails, the safe return stays
                     # completed while the UI boundary projects only a sanitized
                     # error.
-                    self.save_book_progress()
+                    try:
+                        self.save_book_progress()
+                    except Exception as exc:
+                        # Exact Return has already released the Board workflow and
+                        # committed Books ownership. Tell the native adapter not
+                        # to restore its obsolete pre-dispatch Board snapshot.
+                        raise PresentationCommittedError(
+                            "Book return completed but progress durability is uncertain"
+                        ) from exc
                 return result
             command = {"book.previous_block": "book.previous", "book.next_block": "book.next", "book.bookmark": "book.bookmark.save"}.get(action, action)
             result = self._dispatch_book_surface_command(

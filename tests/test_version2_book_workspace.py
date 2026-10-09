@@ -88,14 +88,14 @@ class Version2BookWorkspaceTests(unittest.TestCase):
                 self.assertEqual(tree["items"][0]["kind"], "move")
                 self.assertEqual(tree["items"][0]["depth"], 0)
                 self.assertIsNone(tree["items"][0]["parent_index"])
-                self.assertIn("e4", tree["items"][0]["label"])
+                self.assertIn("e 4", tree["items"][0]["label"])
                 variation = next(item for item in tree["items"] if item["kind"] == "variation")
                 self.assertEqual(variation["depth"], 1)
                 self.assertEqual(variation["parent_index"], 0)
                 nested = next(
                     item
                     for item in tree["items"]
-                    if item["kind"] == "move" and "d4" in item["label"]
+                    if item["kind"] == "move" and "d 4" in item["label"]
                 )
                 self.assertEqual(nested["parent_index"], tree["items"].index(variation))
                 serialized = json.dumps(tree, ensure_ascii=False)

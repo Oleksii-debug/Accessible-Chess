@@ -35,6 +35,16 @@ class WebViewCommand:
     payload: Mapping[str, object]
 
 
+class PresentationCommittedError(RuntimeError):
+    """A domain action failed only after its safe UI ownership commit.
+
+    The adapter normally restores the pre-dispatch shell snapshot on failure.
+    That is unsafe after an operation such as Book Board Return has already
+    released its domain owner and committed the Books route: restoring Board
+    would publish a route with no live workflow behind it.
+    """
+
+
 class FullProductWebViewAdapter:
     """Single UI seam between WebView events and the central action router.
 
@@ -237,6 +247,10 @@ class FullProductWebViewAdapter:
                 safe_payload,
                 current_focus_id=safe_focus_id,
             )
+        except PresentationCommittedError as exc:
+            # The delegate explicitly proved that presentation ownership is the
+            # safe committed state. Preserve it while still sanitizing the error.
+            return self._safe_error(exc)
         except BaseException as exc:  # UI boundary: sanitize before user projection.
             # Dispatch may already have recorded focus or a delegate may have
             # changed routes before failing.  Domain effects are not reversible

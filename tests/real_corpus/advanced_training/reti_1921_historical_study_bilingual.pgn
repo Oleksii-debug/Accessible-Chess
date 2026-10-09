@@ -1,0 +1,20 @@
+[Event "Richard Reti - 1921 Historical Endgame Study"]
+[Site "Historical composed study, source bibliography: ARVES"]
+[Date "1921.??.??"]
+[White "Richard Reti (composer, 1889-1929)"]
+[Black "Study's imagined defender"]
+[Result "1/2-1/2"]
+[SetUp "1"]
+[FEN "7K/8/k1P5/7p/8/8/8/8 w - - 0 1"]
+[Annotator "Accessible Chess original bilingual training commentary"]
+[Source "https://www.arves.org/arves/index.php/en/endgamestudies/studies-by-composer/1550-reti-s-study-is-100-years-old"]
+
+{EN: White to move and draw. Original historic composition by Richard Reti, 1921. Analyze both goals of the king rather than following the shortest path to only one pawn. The following comments are newly authored, not copied from a modern annotated edition.
+UK: Білі починають і досягають нічиєї. Оригінальна історична композиція Ріхарда Реті, 1921. Потрібно поєднати дві цілі короля, а не прямувати тільки до одного пішака. Ці коментарі написано спеціально для Accessible Chess.}
+1. Kg7! {EN: A dual-purpose king move; consider the threat to each pawn. UK: Хід королем створює дві одночасні загрози.}
+h4 2. Kf6! {EN: Threatening to assist c6 while approaching h-file defence. UK: Король одночасно підтримує пішака c6 та наближається до протидії на лінії h.}
+Kb6 3. Ke5! {EN: Calculate the defender's alternative pawn advance before declaring a draw. UK: Перевірте відповідь із просуванням чорного пішака, перш ніж оцінювати результат.}
+h3 4. Kd6 h2 5. c7 Kb7 6. Kd7
+{EN: Model study endpoint; the composition's objective is a draw, not a competitive played game result.
+UK: Кінцева позиція модельного варіанта; ціль етюду — нічия, а не результат зіграної турнірної партії.}
+1/2-1/2

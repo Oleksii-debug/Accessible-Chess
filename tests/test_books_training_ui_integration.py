@@ -131,7 +131,7 @@ class BooksTrainingUIIntegrationTests(unittest.TestCase):
         material = build_current_book_training_material(reader)
         shell = AccessibleShellState(language=UILanguage.EN, initial_route="books")
         self.assertEqual(
-            "training-prompt",
+            "training-answer",
             shell.open_route("training", current_focus_id="book-block-2"),
         )
 
