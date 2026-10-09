@@ -859,6 +859,62 @@ class AccessibleChessAPI:
             return {"ok": False}
         return {"ok": True, **values, "announcement": "Visual profile applied." if self.lang == "en" else "Візуальний профіль застосовано."}
 
+    def visual_profile_export(self) -> dict[str, Any]:
+        """Manual Windows/Web transfer; existing Settings remains sole native writer."""
+        from .visual_profile_transfer import (
+            VisualProfileTransferError, encode_transfer, revision_of_stored_text,
+        )
+
+        settings = getattr(self, "_settings", None)
+        if settings is None:
+            return {"ok": False, "reason": "settings_unavailable"}
+        if str(getattr(settings, "warning", "")).startswith("settings recovery:"):
+            return {"ok": False, "reason": "settings_recovery_required"}
+        try:
+            raw = settings.get("visual_profile_json")
+            revision = revision_of_stored_text(raw)
+            values = json.loads(raw)
+            return {"ok": True, "payload": encode_transfer(values), "revision": revision}
+        except (VisualProfileTransferError, TypeError, ValueError, UnicodeError):
+            return {"ok": False, "reason": "invalid_stored_profile"}
+
+    def visual_profile_import(self, payload: str, expected_revision: str) -> dict[str, Any]:
+        """Explicit import with stale-revision rejection and atomic Settings CAS."""
+        import re
+        from .visual_profile_transfer import (
+            VisualProfileTransferError, decode_transfer, revision_of_stored_text,
+        )
+
+        settings = getattr(self, "_settings", None)
+        if settings is None:
+            return {"ok": False, "reason": "settings_unavailable"}
+        if str(getattr(settings, "warning", "")).startswith("settings recovery:"):
+            return {"ok": False, "reason": "settings_recovery_required"}
+        if type(expected_revision) is not str or re.fullmatch(r"[0-9a-f]{64}", expected_revision) is None:
+            return {"ok": False, "reason": "invalid_revision"}
+        try:
+            # Validate the *entire* payload before touching mutable state.
+            preferences = decode_transfer(payload)
+            current = settings.get("visual_profile_json")
+            if revision_of_stored_text(current) != expected_revision:
+                return {"ok": False, "reason": "stale_revision"}
+            settings.set(
+                "visual_profile_json",
+                json.dumps(preferences, sort_keys=True, separators=(",", ":")),
+            )
+            updated = self.visual_profile_export()
+            if not updated.get("ok"):
+                return {"ok": False, "reason": "readback_failed"}
+            return {
+                "ok": True,
+                **preferences,
+                "revision": updated["revision"],
+                "announcement": "Visual profile imported." if self.lang == "en"
+                else "Візуальний профіль імпортовано.",
+            }
+        except (VisualProfileTransferError, TypeError, ValueError, OSError, UnicodeError):
+            return {"ok": False, "reason": "import_rejected"}
+
     def video_sync_stop(self) -> dict[str, Any]:
         self.video_sync_active = False
         state = self.get_state()
