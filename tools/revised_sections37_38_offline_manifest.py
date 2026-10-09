@@ -27,6 +27,7 @@ REPORT = ROOT / "revised-sections37-38-offline-manifest.json"
 PGN_ID = "stockfish_2moves_v2_pgn_zip"
 FEN_ID = "stockfish_startpos_epd_zip"
 BOOK_ID = "gitenberg_capablanca_33870_original_txt"
+RETI_ID = "historical_reti_1921_original_bilingual_study_pgn"
 
 
 def _source_head() -> str:
@@ -84,7 +85,13 @@ def build_manifest(root: Path = ROOT) -> dict:
             if source_id in verified:
                 if verified[source_id]["sha256"] != row["actual_sha256"]:
                     raise LawfulCorpusError("source registry and manifest disagree")
-            elif source_id != BOOK_ID:
+            # The historic Réti study is project-authored bilingual commentary
+            # around a 1921 public-domain position, so it is deliberately not
+            # admitted by the CC0-only package inventory.  It is nevertheless
+            # a separate, hash-pinned TEST_BUILD source and must appear in the
+            # truthful Section 39 receipt rather than making the entire matrix
+            # impossible to construct.
+            elif source_id not in {BOOK_ID, RETI_ID}:
                 raise LawfulCorpusError("unqualified source entered test-only manifest")
             if source_id == BOOK_ID:
                 book = import_text_book(
@@ -96,6 +103,17 @@ def build_manifest(root: Path = ROOT) -> dict:
                     raise LawfulCorpusError("real text book semantic readback failed")
                 row["semantic_state"] = "SEMANTIC_TEXT_READ_TEST_ONLY"
                 row["semantic_count"] = len(book.document.blocks)
+            elif source_id == RETI_ID:
+                games = parse_pgn_text(raw.decode("utf-8", errors="strict"), strict=False)
+                if (
+                    len(games) != 1
+                    or games[0].tags.get("SetUp") != "1"
+                    or games[0].tags.get("Result") != "1/2-1/2"
+                    or len(games[0].line.moves) != 11
+                ):
+                    raise LawfulCorpusError("historic Réti PGN source semantic readback failed")
+                row["semantic_state"] = "SEMANTIC_HISTORIC_PGN_READ_TEST_ONLY"
+                row["semantic_count"] = 1
             elif source_id == PGN_ID or source_id == FEN_ID:
                 member = read_verified_zip_member(
                     source, item, expected_member=item["zip_member"],

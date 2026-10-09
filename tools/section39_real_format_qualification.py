@@ -258,10 +258,15 @@ def build_report() -> dict:
             "coverage": "NO_PROOF",
         }
         if readback:
+            qualification = "PASS" if name in {"FEN", "PGN"} else "PARTIAL"
+            # A mocked dictionary must fail at the evidence boundary, before
+            # any of its optional fields can be used to build a PASS row.
+            if qualification == "PASS" and readback.get("real_source_read") is not True:
+                raise LawfulCorpusError("real-file PASS cannot arise from synthetic data")
+            if type(readback.get("source_id")) is not str or type(readback.get("importer")) is not str:
+                raise LawfulCorpusError("real-file readback lacks source identity")
             row.update({
-                "qualification": (
-                    "PASS" if name in {"FEN", "PGN"} else "PARTIAL"
-                ),
+                "qualification": qualification,
                 "read": readback["read"], "write": readback["write"],
                 "roundtrip": readback["roundtrip"],
                 "actual_importer": readback["importer"],

@@ -81,7 +81,7 @@ class BilingualAdvancedProducts(unittest.TestCase):
                     progress_store=BookProgressStore(root / "book-progress.json"),
                     engine_assistance=EngineAssistedWorkflowService(analysis),
                     board_dispatch=lambda *_: None,
-                    board_position_projector=lambda fen: {"fen": fen},
+                    board_position_projector=lambda fen: {"ok": True, "fen": fen},
                 )
                 uk_app = Version2StarterContentApplication(database, **kwargs)
                 try:
@@ -107,7 +107,7 @@ class BilingualAdvancedProducts(unittest.TestCase):
                     progress_store=BookProgressStore(root / "book-progress.json"),
                     engine_assistance=EngineAssistedWorkflowService(analysis),
                     board_dispatch=lambda *_: None,
-                    board_position_projector=lambda fen: {"fen": fen},
+                    board_position_projector=lambda fen: {"ok": True, "fen": fen},
                 )
                 try:
                     en_app.browser_command("shell", "screen.books")
