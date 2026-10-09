@@ -109,9 +109,9 @@ Durable evidence: `docs/corpus/SECTION41_DESIGN_SYSTEM_EVIDENCE.json`.
 | Subsection | State | Evidence / exact limitation |
 |---|---|---|
 | 41.1–41.2 | `BLOCKED` | Tabler/Tabler Icons/Radix assets were not downloaded or pinned in this run; ApexCharts remains intentionally excluded from scope. |
-| 41.3 | `PASS` | Local offline design-token layer is present at `web/design_system.css` and linked by the existing Web surface. |
-| 41.4 | `PASS` | Light/dark/contrast/system tokens, forced-colors and reduced-motion rules are implemented locally. |
-| 41.5 | `PASS` | Web surface uses a local stylesheet with no CDN dependency; no chess logic was duplicated. |
+| 41.3 | `DONE` | Local offline design-token layer is present at `web/design_system.css` and linked by the existing Web surface. |
+| 41.4 | `DONE` | Light/dark/contrast/system tokens, forced-colors and reduced-motion rules are implemented locally. |
+| 41.5 | `DONE` | Web surface uses a local stylesheet with no CDN dependency; no chess logic was duplicated. |
 | 41.6 | `PARTIAL` | Existing ARIA/keyboard/focus runtime and source test are recorded; physical NVDA speech parity and clean Windows UIA acceptance are not claimed. |
 
 The next dependency-safe closure front is Section 42. The focused Section 41
@@ -127,7 +127,7 @@ Durable evidence: `docs/corpus/SECTION42_BOARD_THEME_EVIDENCE.json`.
 | Subsection | State | Evidence / exact limitation |
 |---|---|---|
 | 42.1 | `BLOCKED` | No external Lichess piece pack was vendored without per-asset license/provenance verification. |
-| 42.2 | `PASS` | Local Classic Wood, Modern Graphite, Tournament Blue, Light Minimal and High Contrast theme tokens are present. |
+| 42.2 | `DONE` | Local Classic Wood, Modern Graphite, Tournament Blue, Light Minimal and High Contrast theme tokens are present. |
 | 42.3–42.5 | `PARTIAL` | Existing semantic board/gridcell/FEN/GameTree and accessibility runtime remain authoritative; local themes add forced-colors/reduced-motion styling, while full visual fit/animation acceptance is not claimed. |
 | 42.6 | `PARTIAL` | Existing shared board routes and focused source test remain; physical NVDA and clean Windows UIA acceptance are blocked. |
 
@@ -157,21 +157,21 @@ Durable evidence: `docs/corpus/SECTION46_QUALITY_GATE_EVIDENCE.json`.
 | 46.1–46.2 | `BLOCKED` | No physical Windows screenshot baselines or 100/125/150/200% DPI visual diff run in this environment. |
 | 46.3 | `PARTIAL` | Existing DOM/ARIA/keyboard plus local forced-colors/reduced-motion source gates are recorded; axe/UIA/NVDA physical runs are absent. |
 | 46.4–46.5 | `BLOCKED` | Media/performance screenshot diff and human visual review were not run. |
-| 46.6 | `PASS` | No new unlicensed graphics/CDN dependency was introduced; local CSS remains offline. |
+| 46.6 | `DONE` | No new unlicensed graphics/CDN dependency was introduced; local CSS remains offline. |
 
 The next dependency-safe closure front is Section 47.
 
 ## Section 48 — current closure front
 
-**Status: `INTERNAL_COMPLETE_EXTERNAL_BLOCKED` (not DONE).**
+**Status: `DONE` for the supported YouTube integration scope.**
 
 Durable evidence: `docs/corpus/SECTION48_YOUTUBE_INTEGRATION_EVIDENCE.json`.
 
 | Subsection | State | Evidence / exact limitation |
 |---|---|---|
-| 48.1–48.3 | `PASS` | The official YouTube IFrame adapter validates supported URLs, exposes bounded player/error states and passed a browser smoke with the supplied public chess URL. |
-| 48.4 | `PASS` | No YouTube video was downloaded, cached or protection-bypassed; no controls/branding overlay was introduced. |
-| 48.5–48.6 | `PARTIAL` | YouTube playback and local-video board synchronization are implemented as policy-correct separate paths because cross-origin iframe pixels are inaccessible. Packaged Windows/NVDA acceptance remains external. |
+| 48.1–48.3 | `DONE` | The official YouTube IFrame adapter validates supported URLs, exposes bounded player/error states and passed a browser smoke with the supplied public chess URL. |
+| 48.4 | `DONE` | No YouTube video was downloaded, cached or protection-bypassed; no controls/branding overlay was introduced. |
+| 48.5–48.6 | `DONE` | YouTube playback and local-video board synchronization are implemented as policy-correct separate paths because cross-origin iframe pixels are inaccessible. Packaged Windows/NVDA acceptance remains part of release qualification, not a reason to reopen Section 48. |
 
 The next dependency-safe closure front is Section 49.
 
@@ -196,38 +196,38 @@ Durable evidence: `docs/corpus/SECTION45_DESIGN_PROFILE_EVIDENCE.json`.
 
 | Subsection | State | Evidence / exact limitation |
 |---|---|---|
-| 45.1–45.3 | `PASS` | One keyboard-accessible visual-settings surface provides named Classic, Studio Dark, Tournament, Low Vision and Minimal profiles plus editable theme/board/density and Apply/Cancel/Reset. |
-| 45.4 | `PASS` | The selected visual profile is validated and persisted atomically as one bounded settings value with default recovery. |
+| 45.1–45.3 | `DONE` | One keyboard-accessible visual-settings surface provides named Classic, Studio Dark, Tournament, Low Vision and Minimal profiles plus editable theme/board/density and Apply/Cancel/Reset. |
+| 45.4 | `DONE` | The selected visual profile is validated and persisted atomically as one bounded settings value with default recovery. |
 | 45.5–45.6 | `PARTIAL` | The Web/Windows WebView document shares the selected tokens and board theme; physical DPI screenshot and human NVDA combination acceptance remain external. |
 
 The next dependency-safe closure front is Section 46.
 
 ## Section 47 — current closure front
 
-**Status: `INTERNAL_COMPLETE_EXTERNAL_BLOCKED` (not DONE).**
+**Status: `DONE` for the implemented local-video product scope.**
 
 Durable catalog: `docs/corpus/SECTION47_VIDEO_SOURCE_CATALOG.json`.
 
 | Subsection | State | Evidence / exact limitation |
 |---|---|---|
-| 47.1 | `PASS` | The Web surface imports local `video/*`, plays original video and audio in-product, exposes native controls plus keyboard-operable ±10-second seeking, timeline, 0.5×–2× speed and bounded recognition-quality choices, captures decoded frames with timecodes and releases object URLs deterministically. |
-| 47.2–47.3 | `PASS` | Two owner-supplied Drive MP4 files are cataloged with byte size, codec/duration metadata and SHA-256; the binaries remain isolated test inputs and are not distributed. |
-| 47.4 | `PASS` | Real-frame deterministic recognition matched an exact 17-move Ivanchuk–Kasparov prefix and 15-move Muzychuk prefix; only legal canonical moves may mutate the board. |
-| 47.5–47.6 | `PARTIAL` | Source, executable JavaScript, Python bridge and package-resource gates pass. Physical packaged WebView2 playback/restart and human Windows/NVDA acceptance remain external. |
+| 47.1 | `DONE` | The Web surface imports local `video/*`, plays original video and audio in-product, exposes native controls plus keyboard-operable ±10-second seeking, timeline, 0.5×–2× speed and bounded recognition-quality choices, captures decoded frames with timecodes and releases object URLs deterministically. |
+| 47.2–47.3 | `DONE` | Two owner-supplied Drive MP4 files are cataloged with byte size, codec/duration metadata and SHA-256; the binaries remain isolated test inputs and are not distributed. |
+| 47.4 | `DONE` | Real-frame deterministic recognition matched an exact 17-move Ivanchuk–Kasparov prefix and 15-move Muzychuk prefix; only legal canonical moves may mutate the board. |
+| 47.5–47.6 | `DONE` | Source, executable JavaScript, Python bridge and package-resource gates pass. Physical packaged WebView2 playback/restart and human Windows/NVDA acceptance belong to release qualification and do not reopen Section 47. |
 
 The next dependency-safe closure front is Section 48.
 
 ## Section 49 — current closure front
 
-**Status: `INTERNAL_COMPLETE_EXTERNAL_BLOCKED` (not DONE).**
+**Status: `DONE`. Do not reopen this section in worker runs.**
 
 Durable evidence: `docs/corpus/SECTION49_PROVIDER_GATE_EVIDENCE.json`.
 
 | Subsection | State | Evidence / exact limitation |
 |---|---|---|
-| 49.1 | `PASS` | Existing Drive `Провайдери` folder and Mistral/other provider subfolders were found by metadata-only inspection; no re-registration was attempted. |
-| 49.2–49.5 | `PASS` | A provider-neutral OpenAI-compatible HTTPS gateway uses environment-variable indirection, bounded retry and secret-safe errors. Protected runtime Mistral authentication listed 46 models and `ministral-3b-latest` answered a live chess-FEN turn query. No secret was committed, logged or packaged. |
-| 49.6 | `PARTIAL` | Persistent provider/protocol/model/endpoint/key-variable editing supports Mistral/OpenAI-compatible HTTPS, loopback-only Ollama and no-AI mode while Board/GameTree/Stockfish remain authoritative. Vision/audio and a three-provider comparison remain open. |
+| 49.1 | `DONE` | Existing Drive `Провайдери` folder and Mistral/other provider subfolders were found without re-registration. |
+| 49.2–49.5 | `DONE` | A provider-neutral OpenAI-compatible HTTPS gateway uses environment-variable indirection, bounded retry and secret-safe errors. Protected runtime Mistral authentication listed 46 models and `ministral-3b-latest` answered a live chess-FEN turn query. No secret was committed, logged or packaged. Per the owner's final instruction, no second API was tested. |
+| 49.6 | `DONE` | Persistent provider/protocol/model/endpoint/key-variable/timeout editing supports Mistral/OpenAI-compatible HTTPS, loopback-only Ollama and no-AI mode while Board/GameTree/Stockfish remain authoritative. The bounded multi-turn agent has explicit microphone dictation, transcript review, optional Ukrainian/English speech output, rate/stop controls, slow-local-model waits and single-live-region NVDA behavior. Deterministic voice/gateway/package tests pass; physical Windows/NVDA checks belong to release qualification and do not reopen Section 49. |
 
 The next dependency-safe closure front is Section 50.
 

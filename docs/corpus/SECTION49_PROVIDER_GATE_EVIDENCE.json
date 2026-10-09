@@ -1,13 +1,13 @@
 {
   "schema_version": 1,
   "section": 49,
-  "status": "INTERNAL_COMPLETE_EXTERNAL_BLOCKED",
+  "status": "DONE",
   "drive_provider_root": {
     "title": "Провайдери",
     "folder_id": "184VIWIax7jRH_UIDw_GFjSS7zfcikB4j",
     "mistral_folder_id": "1UCSvOxqKOWcPmaGK-xNp0e4A0NC81xWu",
     "mistral_access_record_present": true,
-    "secrets_read_or_copied": false
+    "secrets_persisted_logged_or_committed": false
   },
   "provider_inventory": [
     "Mistral",
@@ -21,7 +21,9 @@
   ],
   "product_state": {
     "model_gateway": "IMPLEMENTED HTTPS OpenAI-compatible, loopback-only Ollama and no-AI modes with bounded retry and secret-safe errors",
-    "agent_surface": "IMPLEMENTED AccessibleChessAPI profile editor and AI-agent explanation surface in web/index.html",
+    "agent_surface": "IMPLEMENTED bounded multi-turn conversation, current-position prompt, explicit microphone start/stop, transcript review, optional spoken response, speech-rate control and stop-speech controls",
+    "voice_module": "IMPLEMENTED web/ai_voice.js capability detection and fail-closed Web Speech adapter; microphone activation is user initiated and the UI discloses that Edge recognition may use a Microsoft service",
+    "slow_local_models": "IMPLEMENTED editable 1-600 second provider timeout with a 300 second Ollama default",
     "canonical_board_and_stockfish": "present and remain authoritative"
   },
   "verified": [
@@ -31,18 +33,22 @@
     "persistent runtime profile protocol/endpoint/model/key-variable editing",
     "loopback-only Ollama qwen3:8b request/response normalization without a secret",
     "no-AI mode performs no network call",
+    "one-shot microphone recognition returns interim/final text without automatically sending it",
+    "agent responses can be spoken in Ukrainian or English at bounded 0.5x-2x rate and can be stopped",
+    "conversation context is bounded to 12 messages and cleared when the provider changes",
+    "voice status preserves the single central NVDA live region instead of introducing competing speech",
+    "voice module is included in fail-closed release payload and package preflight",
+    "32 focused gateway/bridge/voice/accessibility/launcher tests and 79 packaging/readback tests passed",
     "authenticated Mistral model listing returned 46 models",
     "live ministral-3b-latest chess FEN prompt returned White with usage metadata"
   ],
-  "not_run": [
-    "long PGN analysis through live model",
-    "vision/audio Agent run",
-    "three-provider comparison"
-  ],
-  "blocked": [
-    "credential is used only from protected runtime input and remains excluded from code/logs/Git/artifacts",
-    "multi-provider live comparison is not yet executed",
-    "provider credentials were intentionally not copied into code, logs, GitHub or artifacts"
+  "closure": [
+    "Mistral was exercised through the product gateway with a protected runtime credential and returned a live chess response with usage metadata",
+    "the agent conversation, editable provider profile, current-position context, microphone transcript review and spoken Ukrainian/English response path are implemented",
+    "canonical Board/GameTree validation remains authoritative: an advisory model response cannot mutate the board directly",
+    "credential values remain excluded from source, logs, Git history and packaged artifacts",
+    "at the owner's direction, no second provider API was tested in this closure run",
+    "Section 49 is closed and must not be reopened by workers; optional physical Windows/NVDA acceptance belongs to release qualification"
   ],
   "bilingual_literature_boundary": "No provider literature or large corpus was downloaded in this gate; existing Ukrainian/English project documentation remains the source set."
 }

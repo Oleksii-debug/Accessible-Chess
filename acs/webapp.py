@@ -524,7 +524,7 @@ class AccessibleChessAPI:
             }
         settings.set("ai_profiles_json", json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
 
-    def ai_update_profile(self, name: str, base_url: str, model: str, api_key_env: str, protocol: str | None = None) -> dict[str, Any]:
+    def ai_update_profile(self, name: str, base_url: str, model: str, api_key_env: str, protocol: str | None = None, timeout_seconds: float | None = None) -> dict[str, Any]:
         """Update a provider profile in the current session; secrets stay in env vars."""
         try:
             self._ensure_ai_profiles_loaded()
@@ -536,7 +536,7 @@ class AccessibleChessAPI:
                 name=name.strip(), base_url=base_url.strip(), model=model.strip(),
                 api_key_env=api_key_env.strip(), enabled=True,
                 protocol=selected_protocol,
-                timeout_seconds=float(current.get("timeout_seconds", 30.0)) if current else 30.0,
+                timeout_seconds=float(timeout_seconds if timeout_seconds is not None else (current.get("timeout_seconds", 30.0) if current else 30.0)),
             )
             self.ai_gateway.upsert_profile(profile)
             self._persist_ai_profiles()

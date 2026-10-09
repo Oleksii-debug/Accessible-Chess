@@ -26,6 +26,7 @@ _REQUIRED_WEB_FILES = (
     "board_themes.css",
     "youtube_iframe_adapter.js",
     "video_board_sync.js",
+    "ai_voice.js",
     "stage1_release_bootstrap.js",
     "stage1_board_actions.js",
     "full_product_pgn.js",

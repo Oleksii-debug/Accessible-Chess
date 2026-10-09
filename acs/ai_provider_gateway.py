@@ -90,6 +90,7 @@ def default_profiles() -> dict[str, ProviderProfile]:
             model=os.getenv("ACS_OLLAMA_MODEL", "qwen3:8b"),
             api_key_env="",
             protocol="ollama-chat",
+            timeout_seconds=300.0,
         ),
         "none": ProviderProfile(
             name="none",
@@ -127,7 +128,7 @@ class AIProviderGateway:
         parsed = urlparse(profile.base_url)
         if not profile.name.strip() or profile.protocol not in {"openai-chat", "ollama-chat", "none"}:
             raise ValueError("Provider profile is invalid")
-        if not 0.5 <= float(profile.timeout_seconds) <= 120.0:
+        if not 0.5 <= float(profile.timeout_seconds) <= 600.0:
             raise ValueError("Provider timeout is invalid")
         if profile.protocol == "none":
             self._profiles[profile.name] = profile

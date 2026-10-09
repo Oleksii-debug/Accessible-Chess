@@ -8,6 +8,7 @@ from acs.ai_provider_gateway import (
     AIProviderGateway,
     ProviderProfile,
     ProviderRequest,
+    default_profiles,
 )
 
 
@@ -92,6 +93,16 @@ class GatewayTests(unittest.TestCase):
         self.assertIsNone(seen["auth"])
         self.assertFalse(seen["body"]["stream"])
         self.assertFalse(seen["body"]["think"])
+
+    def test_default_ollama_profile_allows_slow_local_inference(self):
+        profile = next(item for item in default_profiles().values() if item.name == "ollama")
+        self.assertEqual(profile.timeout_seconds, 300.0)
+
+    def test_profile_timeout_accepts_bounded_long_local_wait(self):
+        gateway = AIProviderGateway()
+        gateway.upsert_profile(ProviderProfile("slow", "http://127.0.0.1:11434", "local-9b", "", protocol="ollama-chat", timeout_seconds=600))
+        with self.assertRaisesRegex(ValueError, "timeout"):
+            gateway.upsert_profile(ProviderProfile("too-slow", "http://127.0.0.1:11434", "local", "", protocol="ollama-chat", timeout_seconds=601))
 
     def test_ollama_rejects_non_loopback_http_endpoint(self):
         gateway = AIProviderGateway()
