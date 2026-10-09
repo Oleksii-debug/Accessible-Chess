@@ -158,7 +158,8 @@ const key = "accessible-chess.workspace-layout.v1";
   panel.section.appendChild(late);
   assert.equal(panel.section.dataset.ac43Collapsed, "true");
   assert.equal(late.hidden, false, "simulate service repaint outside JS tracker");
-  assert.match(css, /#main-content\\s*>\\s*section\\[data-ac43-collapsed="true"\\]\\s*>\\s*:not\\(h2\\)\\s*\\{\\s*display:\\s*none\\s*!important;/,
+  assert.ok(css.includes('#main-content > section[data-ac43-collapsed="true"] > :not(h2){') &&
+    css.includes("display:none!important;"),
     "late children of collapsed panels must be hidden by the actual stylesheet");
   toggle.click();
   assert.equal(panel.section.dataset.ac43Collapsed, "false");
