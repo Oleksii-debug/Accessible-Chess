@@ -27,11 +27,11 @@ The --book-json book.json argument may replace --source-file; it is mutually exc
 
 ## Independent local package consistency recheck
 
-    python tools/section55_verify_bundle.py --folder /private/output/new-book-package --original-source /private/books/authorized-book.md
+    python tools/section55_verify_bundle.py --folder /private/output/new-book-package --original-source /private/books/authorized-book.md --table-file /private/liblouis/en-ueb-g1.ctb
 
 A PASS means **only** that the supplied source bytes, declared hashes, PEF structure, BRF map and exact reproduced provisional BRF correspond. A PASS **never means** that the Braille translation, chess score, rights, pagination for a particular embosser, tactile legibility, or output is qualified.
 
-This standalone verifier does not need an installed Liblouis because it checks emitted cells, not lexical or chess-code correctness. The original file must remain available. If any input is modified or a manifest is falsely upgraded to print_ready: true, the verifier fails.
+This standalone verifier does not need an installed Liblouis because it checks emitted cells, not lexical or chess-code correctness. When --table-file is supplied, it independently checks the complete local relative-include file inventory and pinned digest; without this flag table bytes are explicitly NOT rechecked. Local table identity is not independent chess-Braille rule certification. The original file must remain available. If any input is modified or a manifest is falsely upgraded to print_ready: true, the verifier fails.
 
 ## Accessibility and privacy
 
