@@ -50,6 +50,15 @@ jobs:
           node --check tests/js/sections43_44_workspace_contract_test.js
       - name: Exercise real packaged HTML layout + recovery and service CSS contracts
         run: node tests/js/sections43_44_workspace_contract_test.js
+      - name: Native persistence in existing upgrade-locked Settings
+        run: |
+          python -m py_compile acs/settings.py acs/stage1_release_ui.py tests/test_sections43_44_native_layout_persistence.py
+          python -m unittest -v tests.test_sections43_44_native_layout_persistence tests.test_settings tests.test_settings_corruption_security
+      - name: Preserve real web and keyboard behavior
+        run: |
+          python -m unittest -v tests.test_accessible_webui tests.test_section34_web_client
+      # Retained service regressions are required, but must not mask the result
+      # of the Section-43 native/keyboard verification when a module is red.
       - name: Existing integrated Books, Library, PGN, Teacher, Classroom and Education DOM oracles
         shell: bash
         run: |
@@ -65,10 +74,3 @@ jobs:
             node --check "$test_file"
             node "$test_file"
           done
-      - name: Native persistence in existing upgrade-locked Settings
-        run: |
-          python -m py_compile acs/settings.py acs/stage1_release_ui.py tests/test_sections43_44_native_layout_persistence.py
-          python -m unittest -v tests.test_sections43_44_native_layout_persistence tests.test_settings tests.test_settings_corruption_security
-      - name: Preserve real web and keyboard behavior
-        run: |
-          python -m unittest -v tests.test_accessible_webui tests.test_section34_web_client
