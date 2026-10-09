@@ -87,3 +87,12 @@ Shared-branch addition independently identified and preserved: \`acs/format_fact
 Durability queue hardening: \`acs/format_factory_queue.py\` gained owner-authorized resume from PAUSED/REVIEW_REQUIRED/PARTIAL tied to exact policy fingerprint. Even internal job DONE now requires explicit exact set of expected semantic fragments matching all verified checkpoints and an output SHA. Tests expanded. This does not certify a complete book or parent Section DONE.
 
 No new native Windows/Web shipping integration or live provider call. Tests committed to \`.github/workflows/section54-source-intake.yml\` (Ubuntu/Windows), but latest exact-head Section 54 workflow was QUEUED as of readback, not PASS. \`main\` moved independently since branch fork; reconcile/rebase selectively only after verifying current source ownership. Preserve all other workers and baseline DONE sections. Next action: resolve exact-head CI failures if runners become available, then implement actual user-visible host integration, qualified EPUB/PDF/DOCX/PGN exports and licensed corpus/NVDA evidence.
+
+
+### Repeated independent local smoke checks for exact GitHub blobs
+
+At local path \`/mnt/data/section54_local\`, the local \`acs/format_factory_queue.py\` and \`tests/test_section54_factory_queue.py\` both had SHA1 Git blob IDs matching the current GitHub branch copies: **8/8 Python unittest queue cases PASS** for current owner-resume / exact-fragment-coverage implementation; lightweight \`acs.bookdocument\` stub was present but not exercised in queue.
+
+\`acs/format_factory_epub.py\` local Git blob = **6af1bf9f4fbd74da8e0b3d94b6ddcab06adfc2f1**, identical to GitHub. Python compilation PASS, isolated in-memory BookDocument-stub EPUB smoke PASS: mimetype-first ZIP, XML parsing of each packaged document, escaped untrusted chapter text, byte-identical same-source same-timestamp output, distinct edition metadata IDs for different selected contents, three invalid modification dates rejected, original diagram graphics loss cannot pass without explicit acceptance. **These are local implementation smoke checks, not a canonical BookDocument integration or EPUBCheck/DAISY release grade, and not a Windows/NVDA functional acceptance.**
+
+Latest exact-head qualification and release gates remain required. Do not infer any 54.x DONE from these bounded checks.
