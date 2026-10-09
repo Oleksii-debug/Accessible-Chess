@@ -63,6 +63,16 @@ const plain = p => JSON.parse(JSON.stringify(p));
 async function main() {
   const h = createHarness(null);
   const codec = h.window.AccessibleChessVisualTransfer;
+  if (process.env.SECTION45_PYTHON_ORACLE) {
+    const oracle = JSON.parse(fs.readFileSync(process.env.SECTION45_PYTHON_ORACLE, "utf8"));
+    assert.equal(oracle.schema_version, 1);
+    assert.equal(oracle.cases.length, 300);
+    for (const entry of oracle.cases) {
+      assert.equal(codec.encode(entry.preferences), entry.payload,
+        "Python and JavaScript must serialize the identical visual-only profile");
+      assert.deepEqual(plain(codec.decode(entry.payload)), entry.preferences);
+    }
+  }
   const keys = Object.keys(presets);
   let checked = 0;
   for (const profile of presets.profile)
