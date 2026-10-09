@@ -18,12 +18,13 @@
     "real local MP4 import and frame capture",
     "deterministic video square-change synchronizer",
     "canonical legal-move/FEN bridge",
-    "live Mistral text-agent gateway"
+    "prepared timecode timeline with canonical Move list",
+    "durable prepared-session index",
+    "live Mistral text-agent gateway plus local Ollama/no-AI modes"
   ],
   "blocked_dependencies": [
     "physical packaged Windows/WebView2/NVDA acceptance",
-    "automatic recovery after video seeks that skip multiple moves",
-    "Book/Library persistence of recognized video sessions"
+    "physical Windows clean-machine recovery drill"
   ],
   "not_run": [
     "packaged Windows video-to-FEN execution",

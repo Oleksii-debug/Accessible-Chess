@@ -10,6 +10,7 @@ to be consumed by NVDA browse/focus mode rather than by a self-voicing GUI.
 
 from pathlib import Path
 import copy
+import json
 import re
 import sys
 from typing import Any
@@ -67,9 +68,15 @@ class AccessibleChessAPI:
         self.review_adapter = ReviewPresentationAdapter(self.review_history, language=self.lang)
         self.live_history_node = self.review_history.cursor_node_id
         self.ai_gateway = AIProviderGateway()
+        self._ai_settings_owner: Any | None = None
         self.video_sync_active = False
         self.video_sync_last_timecode = 0.0
         self.video_sync_last_confidence = 0.0
+        self.video_prepare_active = False
+        self.video_prepare_board = Board()
+        self.video_timeline: list[dict[str, Any]] = []
+        self._video_session_memory: dict[str, dict[str, Any]] = {}
+        self._visual_profile_memory = {"profile": "classic", "theme": "system", "board_theme": "wood", "density": "comfortable"}
 
     @property
     def review_cursor(self) -> int:
@@ -305,7 +312,13 @@ class AccessibleChessAPI:
         move_sides: list[str],
         redo_meta: list[tuple[str, str]],
     ) -> None:
-        self.board = candidate_board
+        # Candidate validation is complete. Publish its fields into the stable
+        # Board owner so engine/UI adapters that hold the canonical object do
+        # not become stale after a move, undo or redo.
+        current_board = self.board
+        current_board.__dict__.clear()
+        current_board.__dict__.update(copy.deepcopy(candidate_board.__dict__))
+        self.board = current_board
         self.sans = sans
         self.move_sides = move_sides
         self.redo_meta = redo_meta
@@ -439,7 +452,7 @@ class AccessibleChessAPI:
         ) if self.engine_enabled else (
             "Stockfish вимкнено." if self.lang == "uk" else "Stockfish disabled."
         )
-        return {
+        state = {
             "version": VERSION, "lang": self.lang, "mode": self.mode,
             "gameInfo": status,
             "moves": self._moves_text(),
@@ -456,25 +469,79 @@ class AccessibleChessAPI:
             "reviewCursor": display_view.ply, "historyLength": len(self.sans),
             "reviewStatus": display_view.status, "atHistoryEnd": self._at_history_end(),
         }
+        state["videoSync"] = {
+            "active": self.video_sync_active,
+            "prepared": bool(self.video_timeline),
+            "preparing": self.video_prepare_active,
+            "timecode": self._video_time_for_ply(display_view.ply),
+            "confidence": self.video_sync_last_confidence,
+            "timelineLength": len(self.video_timeline),
+        }
+        return state
 
     def ai_provider_profiles(self) -> list[dict[str, Any]]:
         """Return editable provider metadata without exposing credential values."""
+        self._ensure_ai_profiles_loaded()
         return self.ai_gateway.profiles_for_editor()
 
-    def ai_update_profile(self, name: str, base_url: str, model: str, api_key_env: str) -> dict[str, Any]:
+    def _ensure_ai_profiles_loaded(self) -> None:
+        settings = getattr(self, "_settings", None)
+        if settings is None or settings is self._ai_settings_owner:
+            return
+        self._ai_settings_owner = settings
+        try:
+            stored = json.loads(settings.get("ai_profiles_json", "{}"))
+            if not isinstance(stored, dict):
+                return
+            for name, raw in stored.items():
+                if not isinstance(name, str) or not isinstance(raw, dict):
+                    continue
+                self.ai_gateway.upsert_profile(ProviderProfile(
+                    name=name,
+                    base_url=str(raw.get("base_url", "")),
+                    model=str(raw.get("model", "")),
+                    api_key_env=str(raw.get("api_key_env", "")),
+                    protocol=str(raw.get("protocol", "openai-chat")),
+                    enabled=bool(raw.get("enabled", True)),
+                    timeout_seconds=float(raw.get("timeout_seconds", 30.0)),
+                ))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return
+
+    def _persist_ai_profiles(self) -> None:
+        settings = getattr(self, "_settings", None)
+        if settings is None:
+            return
+        payload = {}
+        for item in self.ai_gateway.profiles_for_editor():
+            payload[item["name"]] = {
+                "base_url": item["base_url"],
+                "model": item["model"],
+                "api_key_env": item["api_key_env"],
+                "protocol": item["protocol"],
+                "enabled": item["enabled"],
+                "timeout_seconds": item["timeout_seconds"],
+            }
+        settings.set("ai_profiles_json", json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
+
+    def ai_update_profile(self, name: str, base_url: str, model: str, api_key_env: str, protocol: str | None = None) -> dict[str, Any]:
         """Update a provider profile in the current session; secrets stay in env vars."""
         try:
-            if not all(type(value) is str for value in (name, base_url, model, api_key_env)):
+            self._ensure_ai_profiles_loaded()
+            if not all(type(value) is str for value in (name, base_url, model, api_key_env)) or (protocol is not None and type(protocol) is not str):
                 raise ValueError("Provider profile fields must be text")
             current = next((item for item in self.ai_gateway.profiles_for_editor() if item["name"] == name), None)
+            selected_protocol = protocol.strip() if protocol is not None else str(current.get("protocol", "openai-chat") if current else "openai-chat")
             profile = ProviderProfile(
                 name=name.strip(), base_url=base_url.strip(), model=model.strip(),
                 api_key_env=api_key_env.strip(), enabled=True,
+                protocol=selected_protocol,
                 timeout_seconds=float(current.get("timeout_seconds", 30.0)) if current else 30.0,
             )
             self.ai_gateway.upsert_profile(profile)
+            self._persist_ai_profiles()
             return {"ok": True, "profiles": self.ai_provider_profiles(), "announcement": "AI provider profile updated." if self.lang == "en" else "Профіль AI-провайдера оновлено."}
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, OSError):
             return {"ok": False, "profiles": self.ai_provider_profiles(), "announcement": "Invalid AI provider profile." if self.lang == "en" else "Некоректний профіль AI-провайдера."}
 
     def ai_complete(self, profile_name: str, messages: list[dict[str, str]], temperature: float = 0.2, max_tokens: int = 512) -> dict[str, Any]:
@@ -500,6 +567,25 @@ class AccessibleChessAPI:
             changed.add(move.to - 8 if move.to > move.frm else move.to + 8)
         return sorted(changed)
 
+    @staticmethod
+    def _video_candidates_for_board(board: Board) -> list[dict[str, Any]]:
+        candidates = []
+        for move in board.legal_moves():
+            candidates.append({
+                "uci": sq_name(move.frm) + sq_name(move.to) + (move.promotion.lower() if move.promotion else ""),
+                "san": board.san(move),
+                "fromSquare": move.frm,
+                "toSquare": move.to,
+                "changedSquares": AccessibleChessAPI._video_move_changed_squares(move),
+            })
+        return candidates
+
+    def _video_time_for_ply(self, ply: int) -> float:
+        if ply <= 0 or not self.video_timeline:
+            return 0.0
+        index = min(ply, len(self.video_timeline)) - 1
+        return float(self.video_timeline[index]["timecode"])
+
     def video_sync_start(self) -> dict[str, Any]:
         """Reset to the standard position and start deterministic video move sync."""
         state = self.new_game()
@@ -508,6 +594,7 @@ class AccessibleChessAPI:
         self.video_sync_active = True
         self.video_sync_last_timecode = 0.0
         self.video_sync_last_confidence = 0.0
+        self.video_timeline = []
         state["videoSync"] = {"active": True, "timecode": 0.0, "confidence": 0.0}
         state["candidates"] = self.video_sync_candidates().get("candidates", [])
         return state
@@ -515,15 +602,7 @@ class AccessibleChessAPI:
     def video_sync_candidates(self) -> dict[str, Any]:
         if not self.video_sync_active:
             return {"ok": False, "candidates": [], "announcement": "Video synchronization is not active." if self.lang == "en" else "Синхронізація відео не активна."}
-        candidates = []
-        for move in self.board.legal_moves():
-            candidates.append({
-                "uci": sq_name(move.frm) + sq_name(move.to) + (move.promotion.lower() if move.promotion else ""),
-                "san": self.board.san(move),
-                "fromSquare": move.frm,
-                "toSquare": move.to,
-                "changedSquares": self._video_move_changed_squares(move),
-            })
+        candidates = self._video_candidates_for_board(self.board)
         return {"ok": True, "candidates": candidates, "fen": self.board.fen()}
 
     def video_sync_commit_move(self, uci: str, timecode: float, confidence: float) -> dict[str, Any]:
@@ -532,7 +611,7 @@ class AccessibleChessAPI:
         try:
             seconds = float(timecode)
             score = float(confidence)
-            if not 0.0 <= seconds <= 24 * 60 * 60 or not 0.0 <= score <= 1.0:
+            if not 0.0 <= seconds <= 24 * 60 * 60 or not 0.0 <= score <= 1.0 or seconds < self.video_sync_last_timecode:
                 raise ValueError
             move = self.board.parse_move(uci)
         except (TypeError, ValueError):
@@ -541,9 +620,244 @@ class AccessibleChessAPI:
         if result.get("ok"):
             self.video_sync_last_timecode = seconds
             self.video_sync_last_confidence = score
+            self.video_timeline.append({"ply": len(self.video_timeline) + 1, "uci": uci, "san": self.sans[-1], "timecode": seconds, "confidence": score})
             result["videoSync"] = {"active": True, "timecode": seconds, "confidence": score}
             result["candidates"] = self.video_sync_candidates().get("candidates", [])
         return result
+
+    def video_prepare_start(self) -> dict[str, Any]:
+        """Start an isolated fast scan without moving the user-visible board."""
+        self.video_prepare_board = Board()
+        self.video_timeline = []
+        self.video_prepare_active = True
+        return {
+            "ok": True,
+            "candidates": self._video_candidates_for_board(self.video_prepare_board),
+            "fen": self.video_prepare_board.fen(),
+            "timelineLength": 0,
+        }
+
+    def video_prepare_candidates(self) -> dict[str, Any]:
+        if not self.video_prepare_active:
+            return {"ok": False, "candidates": []}
+        return {
+            "ok": True,
+            "candidates": self._video_candidates_for_board(self.video_prepare_board),
+            "fen": self.video_prepare_board.fen(),
+        }
+
+    def video_prepare_commit_move(self, uci: str, timecode: float, confidence: float) -> dict[str, Any]:
+        if not self.video_prepare_active:
+            return {"ok": False, "candidates": []}
+        try:
+            seconds = float(timecode)
+            score = float(confidence)
+            last_time = float(self.video_timeline[-1]["timecode"]) if self.video_timeline else 0.0
+            if not 0.0 <= seconds <= 24 * 60 * 60 or seconds < last_time or not 0.0 <= score <= 1.0:
+                raise ValueError
+            move = self.video_prepare_board.parse_move(uci)
+            san = self.video_prepare_board.san(move)
+            self.video_prepare_board.push(move)
+        except (TypeError, ValueError):
+            return {"ok": False, "candidates": []}
+        self.video_timeline.append({
+            "ply": len(self.video_timeline) + 1,
+            "uci": uci,
+            "san": san,
+            "timecode": seconds,
+            "confidence": score,
+        })
+        return {
+            "ok": True,
+            "candidates": self._video_candidates_for_board(self.video_prepare_board),
+            "fen": self.video_prepare_board.fen(),
+            "timelineLength": len(self.video_timeline),
+        }
+
+    def video_prepare_finish(self) -> dict[str, Any]:
+        """Publish the prepared game once, then show its starting position."""
+        if not self.video_prepare_active:
+            return self._error("Video preparation is not active." if self.lang == "en" else "Підготовка відео не активна.")
+        prepared = [dict(item) for item in self.video_timeline]
+        self.video_prepare_active = False
+        state = self.new_game()
+        if not state.get("ok"):
+            return state
+        for item in prepared:
+            state = self.make_move(str(item["uci"]))
+            if not state.get("ok"):
+                self.video_timeline = []
+                return self._error("Prepared video timeline is invalid." if self.lang == "en" else "Підготовлена шкала відео некоректна.")
+        self.video_timeline = prepared
+        self.video_sync_active = True
+        self.video_sync_last_timecode = float(prepared[-1]["timecode"]) if prepared else 0.0
+        self.video_sync_last_confidence = float(prepared[-1]["confidence"]) if prepared else 0.0
+        state = self.go_to_move("0")
+        state["timeline"] = prepared
+        state["announcement"] = (
+            f"Video prepared: {len(prepared)} moves recognized."
+            if self.lang == "en" else f"Відео підготовлено: розпізнано {len(prepared)} ходів."
+        )
+        return state
+
+    def video_prepare_cancel(self) -> dict[str, Any]:
+        self.video_prepare_active = False
+        self.video_prepare_board = Board()
+        self.video_timeline = []
+        return {"ok": True, "timelineLength": 0}
+
+    def video_sync_load_timeline(self, timeline: list[dict[str, Any]]) -> dict[str, Any]:
+        """Validate and activate a previously prepared in-memory video session."""
+        if not isinstance(timeline, list) or len(timeline) > 4096:
+            return self._error("Invalid video timeline." if self.lang == "en" else "Некоректна шкала відео.")
+        self.video_prepare_start()
+        for raw in timeline:
+            if not isinstance(raw, dict):
+                self.video_prepare_cancel()
+                return self._error("Invalid video timeline." if self.lang == "en" else "Некоректна шкала відео.")
+            result = self.video_prepare_commit_move(raw.get("uci"), raw.get("timecode"), raw.get("confidence"))
+            if not result.get("ok"):
+                self.video_prepare_cancel()
+                return self._error("Invalid video timeline." if self.lang == "en" else "Некоректна шкала відео.")
+        return self.video_prepare_finish()
+
+    def video_sync_seek_time(self, timecode: float) -> dict[str, Any]:
+        """Project the prepared history at a playback time without inventing moves."""
+        try:
+            seconds = float(timecode)
+            if not 0.0 <= seconds <= 24 * 60 * 60:
+                raise ValueError
+        except (TypeError, ValueError):
+            return self._error("Invalid video timecode." if self.lang == "en" else "Некоректний час відео.")
+        ply = sum(1 for item in self.video_timeline if float(item["timecode"]) <= seconds)
+        try:
+            lineage = self._live_line_nodes()
+            state = self._select_review_node(lineage[min(ply, len(lineage) - 1)])
+        except Exception:
+            return self._error("Video history is unavailable." if self.lang == "en" else "Історія відео недоступна.")
+        state["videoTargetPly"] = ply
+        state["videoTargetTimecode"] = seconds
+        return state
+
+    def video_sync_timeline(self) -> dict[str, Any]:
+        return {"ok": True, "timeline": [dict(item) for item in self.video_timeline]}
+
+    def _video_sessions(self) -> dict[str, dict[str, Any]]:
+        settings = getattr(self, "_settings", None)
+        if settings is None:
+            return {key: dict(value) for key, value in self._video_session_memory.items()}
+        try:
+            raw = json.loads(settings.get("video_sessions_json", "{}"))
+            if not isinstance(raw, dict):
+                raise ValueError
+            return {str(key): dict(value) for key, value in raw.items() if isinstance(key, str) and isinstance(value, dict)}
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return {}
+
+    def _store_video_sessions(self, sessions: dict[str, dict[str, Any]]) -> None:
+        settings = getattr(self, "_settings", None)
+        if settings is None:
+            self._video_session_memory = {key: dict(value) for key, value in sessions.items()}
+            return
+        settings.set("video_sessions_json", json.dumps(sessions, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
+
+    @staticmethod
+    def _validated_video_timeline(timeline: Any) -> list[dict[str, Any]]:
+        if not isinstance(timeline, list) or len(timeline) > 4096:
+            raise ValueError("invalid timeline")
+        board = Board()
+        result: list[dict[str, Any]] = []
+        last_time = 0.0
+        for index, raw in enumerate(timeline, start=1):
+            if not isinstance(raw, dict):
+                raise ValueError("invalid timeline entry")
+            uci = raw.get("uci")
+            seconds = float(raw.get("timecode"))
+            confidence = float(raw.get("confidence"))
+            if type(uci) is not str or len(uci) not in {4, 5} or seconds < last_time or not 0 <= seconds <= 86400 or not 0 <= confidence <= 1:
+                raise ValueError("invalid timeline entry")
+            move = board.parse_move(uci)
+            san = board.san(move)
+            board.push(move)
+            result.append({"ply": index, "uci": uci, "san": san, "timecode": seconds, "confidence": confidence})
+            last_time = seconds
+        return result
+
+    def video_session_list(self) -> dict[str, Any]:
+        sessions = self._video_sessions()
+        items = []
+        for session_id, entry in sorted(sessions.items(), key=lambda item: str(item[1].get("name", "")).casefold()):
+            timeline = entry.get("timeline")
+            items.append({
+                "id": session_id,
+                "name": str(entry.get("name", "Video"))[:240],
+                "duration": float(entry.get("duration", 0.0)),
+                "moves": len(timeline) if isinstance(timeline, list) else 0,
+            })
+        return {"ok": True, "sessions": items}
+
+    def video_session_save(self, session_id: str, name: str, duration: float, timeline: list[dict[str, Any]]) -> dict[str, Any]:
+        try:
+            if type(session_id) is not str or not session_id or len(session_id) > 512 or type(name) is not str or not name.strip() or len(name) > 240:
+                raise ValueError
+            seconds = float(duration)
+            if not 0 < seconds <= 86400:
+                raise ValueError
+            canonical = self._validated_video_timeline(timeline)
+            sessions = self._video_sessions()
+            sessions[session_id] = {"name": name.strip(), "duration": seconds, "timeline": canonical}
+            if len(sessions) > 32:
+                oldest = next(iter(sessions))
+                if oldest != session_id:
+                    sessions.pop(oldest, None)
+            self._store_video_sessions(sessions)
+            return {"ok": True, "id": session_id, "moves": len(canonical)}
+        except (TypeError, ValueError, OverflowError, OSError):
+            return {"ok": False}
+
+    def video_session_get(self, session_id: str) -> dict[str, Any]:
+        if type(session_id) is not str:
+            return {"ok": False}
+        entry = self._video_sessions().get(session_id)
+        if not entry:
+            return {"ok": False}
+        try:
+            timeline = self._validated_video_timeline(entry.get("timeline"))
+        except (TypeError, ValueError, OverflowError):
+            return {"ok": False}
+        return {"ok": True, "id": session_id, "name": str(entry.get("name", "Video"))[:240], "duration": float(entry.get("duration", 0.0)), "timeline": timeline}
+
+    def visual_profile_get(self) -> dict[str, Any]:
+        settings = getattr(self, "_settings", None)
+        if settings is None:
+            values = dict(self._visual_profile_memory)
+        else:
+            try:
+                values = json.loads(settings.get("visual_profile_json"))
+            except (TypeError, ValueError, json.JSONDecodeError):
+                values = dict(self._visual_profile_memory)
+        return {"ok": True, **values}
+
+    def visual_profile_apply(self, profile: str, theme: str, board_theme: str, density: str) -> dict[str, Any]:
+        allowed = {
+            "profile": {"classic", "studio", "tournament", "low-vision", "minimal"},
+            "theme": {"system", "light", "dark", "contrast"},
+            "board_theme": {"wood", "graphite", "blue", "minimal", "high-contrast"},
+            "density": {"comfortable", "compact", "spacious"},
+        }
+        values = {"profile": profile, "theme": theme, "board_theme": board_theme, "density": density}
+        if any(type(value) is not str or value not in allowed[key] for key, value in values.items()):
+            return {"ok": False}
+        payload = json.dumps(values, sort_keys=True, separators=(",", ":"))
+        settings = getattr(self, "_settings", None)
+        try:
+            if settings is None:
+                self._visual_profile_memory = dict(values)
+            else:
+                settings.set("visual_profile_json", payload)
+        except (TypeError, ValueError, OSError):
+            return {"ok": False}
+        return {"ok": True, **values, "announcement": "Visual profile applied." if self.lang == "en" else "Візуальний профіль застосовано."}
 
     def video_sync_stop(self) -> dict[str, Any]:
         self.video_sync_active = False

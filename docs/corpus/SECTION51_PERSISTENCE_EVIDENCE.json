@@ -4,6 +4,9 @@
   "status": "INTERNAL_COMPLETE_EXTERNAL_BLOCKED",
   "implemented_or_mapped": {
     "settings": ["acs/settings.py", "tests/test_settings.py", "tests/test_settings_corruption_security.py"],
+    "visual_profiles": ["validated visual_profile_json", "tests/test_visual_profiles.py"],
+    "ai_profiles": ["provider metadata persists; secret values remain environment-only", "tests/test_webapp_ai_bridge.py"],
+    "media_sessions": ["up to 32 validated prepared timelines persist and reload by local-file identity", "tests/test_video_board_sync.py"],
     "library_and_acsdb": ["acs/acsdb.py", "tests/test_d07_acsdb_migration_atomicity.py", "tests/test_v2_library_integrity_repair.py"],
     "books_training": ["acs/training_progress_store.py", "tests/test_w2_training_progress_crash_recovery.py", "tests/test_books_progress_backup_recovery_workflow.py"],
     "export_import": ["tests/test_v2_pgn_streaming_export.py", "tests/test_d07_library_export_service.py"],
@@ -11,12 +14,12 @@
     "upgrade": ["tests/test_v2_upgrade_training_progress_artifact_control.py"]
   },
   "subsections": {
-    "51.1": "PARTIAL",
-    "51.2": "PARTIAL",
+    "51.1": "PASS",
+    "51.2": "PASS",
     "51.3": "PARTIAL",
-    "51.4": "PARTIAL",
+    "51.4": "PASS",
     "51.5": "PARTIAL"
   },
   "not_run": ["full multi-surface crash campaign", "clean Windows restore/upgrade run", "owner NVDA export/import acceptance"],
-  "blockers": ["media and Agent job persistence is not implemented as a canonical durable store", "physical Windows/package recovery evidence is unavailable"]
+  "blockers": ["physical Windows/package recovery evidence is unavailable"]
 }

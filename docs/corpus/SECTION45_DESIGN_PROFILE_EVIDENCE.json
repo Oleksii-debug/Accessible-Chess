@@ -9,11 +9,12 @@
     "recovery_contract": "invalid/corrupt settings fail closed and preserve existing data"
   },
   "design_profile_studio": {
-    "apply_cancel_reset": "NOT_IMPLEMENTED_AS_ONE_CANONICAL_SURFACE",
-    "named_profiles": "NOT_IMPLEMENTED",
-    "export_import": "keyboard profile only; visual profile not implemented",
-    "cross_windows_web_sync": "NOT_IMPLEMENTED"
+    "apply_cancel_reset": "IMPLEMENTED as one keyboard-accessible Settings surface",
+    "named_profiles": ["Classic", "Studio Dark", "Tournament", "Low Vision", "Minimal"],
+    "editable_dimensions": ["theme", "board theme", "density"],
+    "persistence": "one validated visual_profile_json settings value",
+    "runtime_application": "document theme/density/profile attributes plus canonical board theme class"
   },
-  "verification": {"existing_settings_tests": "PASS_IN_EXISTING_SUITES", "physical_nvda": "NOT_RUN"},
-  "blocked": ["full design-profile studio", "versioned theme/board/layout migration", "cross-surface conflict policy"]
+  "verification": {"source_and_persistence_tests": "PASS tests.test_visual_profiles plus design/theme suites", "forced_colors_and_reduced_motion": "PRESERVED", "physical_nvda": "NOT_RUN"},
+  "blocked": ["physical Windows DPI screenshot matrix", "human NVDA visual-settings acceptance"]
 }

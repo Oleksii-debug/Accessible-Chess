@@ -46,7 +46,7 @@ class ProviderProfile:
             "protocol": self.protocol,
             "enabled": self.enabled,
             "timeout_seconds": self.timeout_seconds,
-            "configured": bool(os.getenv(self.api_key_env)),
+            "configured": self.protocol in {"ollama-chat", "none"} or bool(self.api_key_env and os.getenv(self.api_key_env)),
         }
 
 
@@ -84,6 +84,20 @@ def default_profiles() -> dict[str, ProviderProfile]:
             model=os.getenv("ACS_MISTRAL_MODEL", "ministral-3b-latest"),
             api_key_env="ACS_MISTRAL_API_KEY",
         ),
+        "ollama": ProviderProfile(
+            name="ollama",
+            base_url=os.getenv("ACS_OLLAMA_BASE_URL", "http://127.0.0.1:11434"),
+            model=os.getenv("ACS_OLLAMA_MODEL", "qwen3:8b"),
+            api_key_env="",
+            protocol="ollama-chat",
+        ),
+        "none": ProviderProfile(
+            name="none",
+            base_url="",
+            model="",
+            api_key_env="",
+            protocol="none",
+        ),
         "openai-compatible": ProviderProfile(
             name="openai-compatible",
             base_url=os.getenv("ACS_OPENAI_COMPATIBLE_BASE_URL", ""),
@@ -111,29 +125,55 @@ class AIProviderGateway:
 
     def upsert_profile(self, profile: ProviderProfile) -> None:
         parsed = urlparse(profile.base_url)
-        if not profile.name.strip() or parsed.scheme != "https" or not parsed.netloc:
+        if not profile.name.strip() or profile.protocol not in {"openai-chat", "ollama-chat", "none"}:
+            raise ValueError("Provider profile is invalid")
+        if not 0.5 <= float(profile.timeout_seconds) <= 120.0:
+            raise ValueError("Provider timeout is invalid")
+        if profile.protocol == "none":
+            self._profiles[profile.name] = profile
+            return
+        local_hosts = {"localhost", "127.0.0.1", "::1"}
+        if profile.protocol == "ollama-chat":
+            if parsed.scheme not in {"http", "https"} or parsed.hostname not in local_hosts or parsed.username or parsed.password or parsed.path not in {"", "/"}:
+                raise ValueError("Ollama endpoint must be a loopback URL")
+        elif parsed.scheme != "https" or not parsed.netloc:
             raise ValueError("Provider endpoint must be an HTTPS URL")
-        if not profile.api_key_env or not profile.api_key_env.replace("_", "").isalnum() or not profile.api_key_env[0].isalpha():
+        if profile.protocol == "openai-chat" and (not profile.api_key_env or not profile.api_key_env.replace("_", "").isalnum() or not profile.api_key_env[0].isalpha()):
             raise ValueError("Profile name and environment key are required")
+        if not profile.model.strip():
+            raise ValueError("Provider model is required")
         self._profiles[profile.name] = profile
 
     def complete(self, profile_name: str, request: ProviderRequest) -> ProviderResponse:
         profile = self._profiles.get(profile_name)
         if not profile or not profile.enabled:
             raise AIProviderError("AI provider is not enabled", code="provider-disabled")
-        if profile.protocol != "openai-chat":
+        if profile.protocol == "none":
+            raise AIProviderError("AI features are disabled", code="provider-disabled")
+        if profile.protocol not in {"openai-chat", "ollama-chat"}:
             raise AIProviderError("Unsupported AI provider protocol", code="protocol-unsupported")
-        api_key = os.getenv(profile.api_key_env)
-        if not api_key:
+        api_key = os.getenv(profile.api_key_env) if profile.api_key_env else ""
+        if profile.protocol == "openai-chat" and not api_key:
             raise AIProviderError("AI provider credentials are not configured", code="credentials-missing")
-        endpoint = profile.base_url.rstrip("/") + "/chat/completions"
-        body = json.dumps(request.payload(profile.model), ensure_ascii=False).encode("utf-8")
-        req = Request(endpoint, data=body, method="POST", headers={
-            "Authorization": "Bearer " + api_key,
+        endpoint = profile.base_url.rstrip("/") + ("/api/chat" if profile.protocol == "ollama-chat" else "/chat/completions")
+        payload = request.payload(profile.model)
+        headers = {
             "Content-Type": "application/json",
             "Accept": "application/json",
             "User-Agent": "Accessible-Chess/ai-gateway",
-        })
+        }
+        if profile.protocol == "ollama-chat":
+            payload = {
+                "model": profile.model,
+                "messages": payload["messages"],
+                "stream": False,
+                "think": False,
+                "options": {"temperature": payload["temperature"], "num_predict": payload["max_tokens"]},
+            }
+        else:
+            headers["Authorization"] = "Bearer " + api_key
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        req = Request(endpoint, data=body, method="POST", headers=headers)
         last_error: AIProviderError | None = None
         for attempt in range(3):
             try:
@@ -157,6 +197,18 @@ class AIProviderGateway:
 
     @staticmethod
     def _normalize(profile: ProviderProfile, payload: Mapping[str, Any]) -> ProviderResponse:
+        if profile.protocol == "ollama-chat":
+            message = payload.get("message")
+            text = message.get("content", "") if isinstance(message, Mapping) else ""
+            if not isinstance(text, str) or not text.strip():
+                raise AIProviderError("AI provider returned no completion", code="empty-response")
+            return ProviderResponse(
+                provider=profile.name,
+                model=profile.model,
+                text=text,
+                raw=payload,
+                usage={key: payload[key] for key in ("prompt_eval_count", "eval_count") if key in payload},
+            )
         choices = payload.get("choices")
         if not isinstance(choices, list) or not choices:
             raise AIProviderError("AI provider returned no completion", code="empty-response")

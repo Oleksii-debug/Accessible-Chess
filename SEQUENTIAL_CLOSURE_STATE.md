@@ -196,10 +196,9 @@ Durable evidence: `docs/corpus/SECTION45_DESIGN_PROFILE_EVIDENCE.json`.
 
 | Subsection | State | Evidence / exact limitation |
 |---|---|---|
-| 45.1 | `PARTIAL` | Existing keyboard/sound/settings preferences are present; unified visual settings surface is not implemented. |
-| 45.2–45.3 | `BLOCKED` | Named design profiles and one Apply/Cancel/Reset visual-profile workflow are not implemented. |
-| 45.4 | `PARTIAL` | `acs/settings.py` has bounded version/recovery behavior, but theme/board/layout migration is not closed. |
-| 45.5–45.6 | `BLOCKED` | Cross-platform visual sync/conflict policy and complete combination matrix are not implemented. |
+| 45.1–45.3 | `PASS` | One keyboard-accessible visual-settings surface provides named Classic, Studio Dark, Tournament, Low Vision and Minimal profiles plus editable theme/board/density and Apply/Cancel/Reset. |
+| 45.4 | `PASS` | The selected visual profile is validated and persisted atomically as one bounded settings value with default recovery. |
+| 45.5–45.6 | `PARTIAL` | The Web/Windows WebView document shares the selected tokens and board theme; physical DPI screenshot and human NVDA combination acceptance remain external. |
 
 The next dependency-safe closure front is Section 46.
 
@@ -228,7 +227,7 @@ Durable evidence: `docs/corpus/SECTION49_PROVIDER_GATE_EVIDENCE.json`.
 |---|---|---|
 | 49.1 | `PASS` | Existing Drive `Провайдери` folder and Mistral/other provider subfolders were found by metadata-only inspection; no re-registration was attempted. |
 | 49.2–49.5 | `PASS` | A provider-neutral OpenAI-compatible HTTPS gateway uses environment-variable indirection, bounded retry and secret-safe errors. Protected runtime Mistral authentication listed 46 models and `ministral-3b-latest` answered a live chess-FEN turn query. No secret was committed, logged or packaged. |
-| 49.6 | `PARTIAL` | Runtime provider/model/endpoint/key-variable editing and live text Agent flow exist while Board/GameTree/Stockfish remain authoritative. Vision/audio and a three-provider comparison remain open. |
+| 49.6 | `PARTIAL` | Persistent provider/protocol/model/endpoint/key-variable editing supports Mistral/OpenAI-compatible HTTPS, loopback-only Ollama and no-AI mode while Board/GameTree/Stockfish remain authoritative. Vision/audio and a three-provider comparison remain open. |
 
 The next dependency-safe closure front is Section 50.
 
@@ -240,7 +239,7 @@ Durable evidence: `docs/corpus/SECTION50_CROSS_PRODUCT_EVIDENCE.json`.
 
 | Subsection | State | Evidence / exact limitation |
 |---|---|---|
-| 50.1–50.4 | `PARTIAL` | Real MP4 frames now select only canonical legal moves, update FEN, and expose that state to the provider-neutral Agent. Stockfish/Library/Books remain canonical services, but durable media-session persistence is still open. |
+| 50.1–50.4 | `PARTIAL` | Real MP4 frames select only canonical legal moves, update FEN/Move list, support background queue preparation and timed history projection, and expose that state to Stockfish/Library/Books/Agent services. |
 | 50.5 | `PASS` | Exact MP4 hashes, recognized SAN/timecodes, source-state tests and a successful protected live Mistral result are recorded without credential disclosure. |
 | 50.6 | `PARTIAL` | Both owner TEST_BUILD MP4 inputs pass deterministic prefixes. Multi-provider live comparison and packaged Windows convergence remain open. |
 
@@ -254,7 +253,8 @@ Durable evidence: `docs/corpus/SECTION51_PERSISTENCE_EVIDENCE.json`.
 
 | Subsection | State | Evidence / exact limitation |
 |---|---|---|
-| 51.1–51.5 | `PARTIAL` | Existing settings, ACSDB migration/repair, Library export, Books/Training crash-recovery and classroom corruption contracts are mapped to source/tests; full multi-surface crash, Windows restore and Media/Agent durable-job stores remain open. |
+| 51.1–51.2, 51.4 | `PASS` | Existing settings/ACSDB/Library/Books/Training recovery remains, and visual profiles, AI provider metadata and up to 32 validated prepared-video timelines now persist without secret values or video binaries. |
+| 51.3, 51.5 | `PARTIAL` | Full multi-surface crash campaign and clean Windows restore/upgrade acceptance remain external. |
 
 The next dependency-safe closure front is Section 52.
 
@@ -297,3 +297,7 @@ Durable verification: `tests/test_premium_visual_design.py`, `tests/test_section
 Sections 47–49 received executable source implementation rather than evidence-only placeholders. `web/youtube_iframe_adapter.js` now validates allowed YouTube URLs, embeds only through the official IFrame API, exposes bounded playback/error states, and never downloads or caches YouTube media. `web/index.html` now provides keyboard-accessible YouTube loading plus local `video/*` import with bounded size and object-URL cleanup. `acs/ai_provider_gateway.py` provides editable provider profiles, HTTPS-only OpenAI-compatible requests, bounded retry, normalized responses and secret-safe errors; the WebView API and UI expose provider/model/endpoint/environment-variable editing without revealing key values. Focused unit tests and JavaScript syntax checks pass; the supplied public YouTube URL loaded in browser smoke with a six-second player. Protected Drive-secret live calls, frame-to-FEN conversion, packaged WebView2/NVDA playback and physical acceptance remain honestly unclaimed.
 
 The local media path exposes keyboard-accessible frame capture and deterministic board synchronization. `web/video_board_sync.js` samples the decoded board, waits for stable frames, ranks only legal moves supplied by the Python bridge, rejects ambiguous/noisy frames, and commits the chosen move through the canonical `Board`. The real-video oracle matched 17 Ivanchuk–Kasparov moves and 15 Muzychuk moves exactly. Direct YouTube-frame sampling is intentionally not attempted because the official cross-origin iframe does not expose pixels; users can use the local import path for recognition.
+
+The media workflow now also has accelerated background preparation for a queue of local videos. A separate hidden decoder seeks through each video without disturbing playback, creates a legal-move/timecode timeline, persists up to 32 validated sessions in recovery-safe settings, and restores the ordinary board history and Move list. Paused playback does not advance the board. History navigation provides explicit “keep video time” and “seek video with moves” modes.
+
+Provider profiles now persist metadata without secret values and support three explicit execution modes: OpenAI-compatible HTTPS (including Mistral), loopback-only Ollama (`qwen3:8b` default), and no-AI. Visual settings now provide five named platform profiles with editable theme, board and density plus Apply/Cancel/Reset; one validated settings value restores the choice after restart.

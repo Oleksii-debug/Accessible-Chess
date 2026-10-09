@@ -20,7 +20,7 @@
     "Cloudflare_Workers_AI"
   ],
   "product_state": {
-    "model_gateway": "IMPLEMENTED acs/ai_provider_gateway.py with HTTPS OpenAI-compatible protocol, bounded retry and secret-safe errors",
+    "model_gateway": "IMPLEMENTED HTTPS OpenAI-compatible, loopback-only Ollama and no-AI modes with bounded retry and secret-safe errors",
     "agent_surface": "IMPLEMENTED AccessibleChessAPI profile editor and AI-agent explanation surface in web/index.html",
     "canonical_board_and_stockfish": "present and remain authoritative"
   },
@@ -28,7 +28,9 @@
     "editor metadata never returns key values",
     "Mistral profile is present with environment-variable indirection",
     "provider response normalization, missing-key handling and bounded timeout retry tests",
-    "runtime profile endpoint/model/key-variable editing",
+    "persistent runtime profile protocol/endpoint/model/key-variable editing",
+    "loopback-only Ollama qwen3:8b request/response normalization without a secret",
+    "no-AI mode performs no network call",
     "authenticated Mistral model listing returned 46 models",
     "live ministral-3b-latest chess FEN prompt returned White with usage metadata"
   ],

@@ -64,7 +64,8 @@ class AccessibleWebUiTests(unittest.TestCase):
             "node.setAttribute('aria-rowindex'", "node.setAttribute('aria-colindex'",
         ):
             self.assertIn(marker, self.html)
-        self.assertNotIn("<canvas", self.html.lower())
+        self.assertIn('<canvas id="video-frame-canvas" aria-hidden="true" hidden>', self.html)
+        self.assertIn('<canvas id="video-sync-canvas" aria-hidden="true" hidden>', self.html)
 
     def test_human_nvda_main_document_is_clean(self):
         forbidden = (

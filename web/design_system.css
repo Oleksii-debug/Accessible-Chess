@@ -185,6 +185,18 @@ dialog::backdrop { background: rgb(5 18 29 / 62%); backdrop-filter: blur(3px); }
 #ai-agent-region fieldset { display: grid; gap: .75rem; }
 #ai-agent-region input[type="url"] { min-width: 22rem; }
 #ai-agent-status { min-height: 2.8rem; }
+#video-history-mode { display: flex; flex-wrap: wrap; gap: .65rem 1.25rem; }
+#video-history-mode label { display: inline-flex; align-items: center; gap: .4rem; }
+#visual-settings-status { min-height: 1.7rem; color: var(--ac-muted); }
+[data-density="compact"] main > section, [data-density="compact"] #v2-workspace > main, [data-density="compact"] #v2-workspace > section { padding: .8rem .9rem; }
+[data-density="compact"] .row { gap: .45rem; }
+[data-density="spacious"] main > section, [data-density="spacious"] #v2-workspace > main, [data-density="spacious"] #v2-workspace > section { padding: 1.6rem 1.7rem; }
+[data-density="spacious"] button, [data-density="spacious"] input, [data-density="spacious"] select { min-height: 3rem; font-size: 1.08rem; }
+[data-visual-profile="studio"] main > section { border-color: color-mix(in srgb, var(--ac-gold) 35%, var(--ac-border)); }
+[data-visual-profile="tournament"] #board-grid { box-shadow: 0 0 0 3px color-mix(in srgb, var(--ac-accent) 24%, transparent), var(--ac-shadow); }
+[data-visual-profile="low-vision"] { font-size: 112.5%; }
+[data-visual-profile="low-vision"] main > section, [data-visual-profile="low-vision"] button, [data-visual-profile="low-vision"] input, [data-visual-profile="low-vision"] select { border-width: 2px; }
+[data-visual-profile="minimal"] main > section { box-shadow: none; }
 @media (max-width: 42rem) {
   #video-source-url { min-width: 100%; }
   #youtube-player, #local-video { aspect-ratio: 16 / 10; }

@@ -121,7 +121,7 @@
       await this.tick();
     }
     async tick() {
-      if (!this.active || this.inFlight || !this.video.videoWidth || this.video.readyState < 2) return;
+      if (!this.active || this.inFlight || this.video.paused || this.video.ended || !this.video.videoWidth || this.video.readyState < 2) return;
       this.rect = this.rect || detectBoardRect(this.video, this.canvas);
       if (!this.rect) { this.notify({ type: 'waiting-board' }); return; }
       const current = extractSquareFeatures(this.video, this.rect, this.canvas);
@@ -156,5 +156,92 @@
     }
   }
 
-  global.AccessibleChessVideoSync = { featureDifferences, rankMoveCandidates, detectBoardRect, extractSquareFeatures, VideoBoardSynchronizer };
+  function waitForMediaEvent(node, event, timeoutMs = 10000) {
+    return new Promise((resolve, reject) => {
+      let timer = null;
+      const clean = () => { node.removeEventListener(event, ready); node.removeEventListener('error', failed); if (timer) clearTimeout(timer); };
+      const ready = () => { clean(); resolve(); };
+      const failed = () => { clean(); reject(new Error('Video could not be decoded')); };
+      node.addEventListener(event, ready, { once: true });
+      node.addEventListener('error', failed, { once: true });
+      timer = setTimeout(() => { clean(); reject(new Error('Video seek timed out')); }, timeoutMs);
+    });
+  }
+
+  async function seekVideo(video, seconds) {
+    const target = Math.max(0, Math.min(Number(video.duration) || 0, Number(seconds) || 0));
+    if (video.readyState < 2) await waitForMediaEvent(video, 'loadeddata');
+    if (Math.abs(Number(video.currentTime || 0) - target) < 0.001 && video.readyState >= 2) return;
+    const pending = waitForMediaEvent(video, 'seeked');
+    video.currentTime = target;
+    await pending;
+  }
+
+  class VideoPreparationController {
+    constructor(options) {
+      this.video = options.video;
+      this.canvas = options.canvas;
+      this.api = options.api;
+      this.notify = options.notify || (() => {});
+      this.stepSeconds = clamp(Number(options.stepSeconds) || 0.5, 0.2, 5);
+      this.cancelled = false;
+      this.rect = null;
+      this.baseline = null;
+      this.candidates = [];
+      this.recognized = 0;
+    }
+    cancel() { this.cancelled = true; }
+    async prepare() {
+      if (!this.video || !this.api || typeof this.api.video_prepare_start !== 'function') throw new Error('Video preparation bridge unavailable');
+      if (!this.video.videoWidth) await waitForMediaEvent(this.video, 'loadedmetadata');
+      const started = await this.api.video_prepare_start();
+      if (!started || !started.ok) throw new Error('Video preparation could not start');
+      this.candidates = started.candidates || [];
+      const duration = Number(this.video.duration || 0);
+      if (!Number.isFinite(duration) || duration <= 0 || duration > 24 * 60 * 60) throw new Error('Video duration is invalid');
+      const steps = Math.ceil(duration / this.stepSeconds);
+      this.notify({ type: 'prepare-started', duration, steps });
+      try {
+        for (let index = 0; index <= steps; index += 1) {
+          if (this.cancelled) throw new Error('cancelled');
+          const timecode = Math.min(duration, index * this.stepSeconds);
+          await seekVideo(this.video, timecode);
+          this.rect = this.rect || detectBoardRect(this.video, this.canvas);
+          if (!this.rect) {
+            if (index % 20 === 0) this.notify({ type: 'prepare-progress', progress: index / Math.max(1, steps), timecode, recognized: this.recognized, waitingBoard: true });
+            continue;
+          }
+          const current = extractSquareFeatures(this.video, this.rect, this.canvas);
+          if (!this.baseline) {
+            this.baseline = current;
+            this.notify({ type: 'calibrated', score: this.rect.score });
+            continue;
+          }
+          const result = rankMoveCandidates(featureDifferences(current, this.baseline), this.candidates);
+          if (result.match) {
+            const match = result.match;
+            const committed = await this.api.video_prepare_commit_move(match.candidate.uci, timecode, match.confidence);
+            if (committed && committed.ok) {
+              this.baseline = current;
+              this.candidates = committed.candidates || [];
+              this.recognized += 1;
+              this.notify({ type: 'prepare-move', san: match.candidate.san, timecode, confidence: match.confidence, recognized: this.recognized });
+            }
+          }
+          if (index % 20 === 0 || index === steps) this.notify({ type: 'prepare-progress', progress: index / Math.max(1, steps), timecode, recognized: this.recognized });
+        }
+        const state = await this.api.video_prepare_finish();
+        if (!state || !state.ok) throw new Error(state?.announcement || 'Video preparation could not finish');
+        this.notify({ type: 'prepare-complete', recognized: this.recognized, duration });
+        return state;
+      } catch (error) {
+        if (typeof this.api.video_prepare_cancel === 'function') await this.api.video_prepare_cancel();
+        if (this.cancelled || error?.message === 'cancelled') this.notify({ type: 'prepare-cancelled' });
+        else this.notify({ type: 'prepare-error', message: String(error?.message || error) });
+        throw error;
+      }
+    }
+  }
+
+  global.AccessibleChessVideoSync = { featureDifferences, rankMoveCandidates, detectBoardRect, extractSquareFeatures, seekVideo, VideoBoardSynchronizer, VideoPreparationController };
 })(window);

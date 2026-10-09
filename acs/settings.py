@@ -43,6 +43,9 @@ DEFAULTS: dict[str, Any] = {
     "sound_draw_variant": "1",
     "sound_tick_variant": "1",
     "sound_low_time_variant": "1",
+    "video_sessions_json": "{}",
+    "ai_profiles_json": "{}",
+    "visual_profile_json": "{\"board_theme\":\"wood\",\"density\":\"comfortable\",\"profile\":\"classic\",\"theme\":\"system\"}",
 }
 
 _ALLOWED_LANGUAGE = {"uk", "en"}
@@ -499,6 +502,22 @@ def _validated_value(key: str, value: Any) -> Any:
     if key == "engine_path":
         if type(value) is not str:
             raise SettingsError("engine_path must be a string")
+        return value
+    if key in {"video_sessions_json", "ai_profiles_json", "visual_profile_json"}:
+        if type(value) is not str or len(value) > 900_000:
+            raise SettingsError("application profile index must be bounded JSON text")
+        try:
+            parsed = _parse_settings_json(value)
+        except (TypeError, ValueError, json.JSONDecodeError) as exc:
+            raise SettingsError("application profile index must be valid JSON") from exc
+        limit = 32 if key == "video_sessions_json" else (16 if key == "ai_profiles_json" else 8)
+        if not isinstance(parsed, Mapping) or len(parsed) > limit:
+            raise SettingsError("application profile index must be a bounded object")
+        if key == "visual_profile_json":
+            if set(parsed) != {"profile", "theme", "board_theme", "density"}:
+                raise SettingsError("visual profile fields are invalid")
+            if parsed["profile"] not in {"classic", "studio", "tournament", "low-vision", "minimal"} or parsed["theme"] not in {"system", "light", "dark", "contrast"} or parsed["board_theme"] not in {"wood", "graphite", "blue", "minimal", "high-contrast"} or parsed["density"] not in {"comfortable", "compact", "spacious"}:
+                raise SettingsError("visual profile values are invalid")
         return value
     raise SettingsError(f"validation policy is missing for setting: {key}")
 

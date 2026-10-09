@@ -524,10 +524,8 @@
             actionId = typeof resolved === "string" ? resolved : "";
           }
         }
-        if (
-          !resolverReady &&
-          !event.altKey && !event.ctrlKey && !event.shiftKey && !event.metaKey
-        ) {
+        if (!resolverReady) {
+          if (event.altKey || event.ctrlKey || event.shiftKey || event.metaKey) return;
           if (event.key === "ArrowUp") actionId = "pgn.previous_item";
           else if (event.key === "ArrowDown") actionId = "pgn.next_item";
           else if (event.key === "ArrowLeft") actionId = "pgn.parent_variation";

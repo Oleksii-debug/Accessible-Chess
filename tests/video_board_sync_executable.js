@@ -15,4 +15,17 @@ if (!result.match || result.match.candidate.uci !== 'e2e4') throw new Error('exp
 
 const noisy = differences.map((value, index) => index < 10 ? 30 : value);
 if (global.AccessibleChessVideoSync.rankMoveCandidates(noisy, candidates).match) throw new Error('noisy frame must fail closed');
-console.log('video board sync executable ok');
+
+(async () => {
+  let bridgeCalls = 0;
+  const synchronizer = new global.AccessibleChessVideoSync.VideoBoardSynchronizer({
+    video: { paused: true, ended: false, videoWidth: 640, readyState: 4 },
+    canvas: {},
+    api: { video_sync_commit_move: async () => { bridgeCalls += 1; } },
+  });
+  synchronizer.active = true;
+  await synchronizer.tick();
+  if (bridgeCalls !== 0) throw new Error('paused video must not advance the board');
+  if (typeof global.AccessibleChessVideoSync.VideoPreparationController !== 'function') throw new Error('background preparation controller missing');
+  console.log('video board sync executable ok');
+})().catch(error => { console.error(error); process.exitCode = 1; });

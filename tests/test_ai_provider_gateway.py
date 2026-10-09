@@ -75,6 +75,36 @@ class GatewayTests(unittest.TestCase):
         self.assertEqual(len(calls), 3)
         self.assertEqual(raised.exception.code, "network-error")
 
+    def test_ollama_uses_loopback_without_secret_and_normalizes_response(self):
+        seen = {}
+
+        def opener(request, timeout):
+            seen["url"] = request.full_url
+            seen["auth"] = request.get_header("Authorization")
+            seen["body"] = json.loads(request.data.decode("utf-8"))
+            return FakeResponse({"message": {"content": "Play e4"}, "prompt_eval_count": 9, "eval_count": 3})
+
+        profile = ProviderProfile("ollama", "http://127.0.0.1:11434", "qwen3:8b", "", protocol="ollama-chat")
+        gateway = AIProviderGateway({"ollama": profile}, opener=opener)
+        result = gateway.complete("ollama", ProviderRequest(({"role": "user", "content": "move"},)))
+        self.assertEqual(result.text, "Play e4")
+        self.assertEqual(seen["url"], "http://127.0.0.1:11434/api/chat")
+        self.assertIsNone(seen["auth"])
+        self.assertFalse(seen["body"]["stream"])
+        self.assertFalse(seen["body"]["think"])
+
+    def test_ollama_rejects_non_loopback_http_endpoint(self):
+        gateway = AIProviderGateway()
+        with self.assertRaisesRegex(ValueError, "loopback"):
+            gateway.upsert_profile(ProviderProfile("bad", "http://example.test:11434", "qwen", "", protocol="ollama-chat"))
+
+    def test_no_ai_mode_never_calls_network(self):
+        profile = ProviderProfile("none", "", "", "", protocol="none")
+        gateway = AIProviderGateway({"none": profile}, opener=lambda *_args, **_kwargs: self.fail("network call"))
+        with self.assertRaises(AIProviderError) as raised:
+            gateway.complete("none", ProviderRequest(({"role": "user", "content": "x"},)))
+        self.assertEqual(raised.exception.code, "provider-disabled")
+
 
 if __name__ == "__main__":
     unittest.main()

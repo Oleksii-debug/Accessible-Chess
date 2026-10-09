@@ -10,7 +10,7 @@
     {"title": "Ivanchuk–Kasparov analysis", "source_page": "user-authorized Drive test input", "sha256": "dfac52d40dfba82f22b27796a3853dae0a487b3f8b86b0b17acb5818cfe45077", "format": "MP4/H.264/AAC 640x360", "duration_seconds": 1054.90576, "status": "REAL_VIDEO_ORACLE_PASS_17_MOVES"},
     {"title": "Muzychuk–Koneru analysis", "source_page": "user-authorized Drive test input", "sha256": "090d1002b7ede0b62922d35b531fa33fea555be93acf0acb1391c153adb61e58", "format": "MP4/H.264/AAC 640x360", "duration_seconds": 624.84898, "status": "REAL_VIDEO_ORACLE_PASS_15_MOVES"}
   ],
-  "verified": ["ffprobe decode metadata", "SHA-256 identity", "real frame extraction", "deterministic square-change recognition", "canonical legal-move validation", "17-move and 15-move expected prefixes"],
-  "not_run": ["physical Windows WebView2 playback", "MediaSession restart", "owner packaged acceptance"],
+  "verified": ["ffprobe decode metadata", "SHA-256 identity", "real frame extraction", "deterministic square-change recognition", "canonical legal-move validation", "17-move and 15-move expected prefixes", "pause prevents board advancement", "accelerated hidden-video preparation queue", "prepared timecode timeline and move-list projection"],
+  "not_run": ["physical Windows WebView2 playback", "owner packaged acceptance"],
   "blocked": ["physical Windows/NVDA acceptance", "several public-source license details still require page-level verification before redistribution"]
 }
