@@ -1,11 +1,5 @@
 # AGENTS.md
 
-## CANONICAL SECTION IDS — OWNER'S FINAL 0–53 INDEX (2026-10-09)
-
-**BEFORE READING ANY SECTION-NUMBERED PR, ISSUE, TEST, ROADMAP OR OTHER DOCUMENT, READ [CURRENT_SECTION_INDEX_0_53.md](CURRENT_SECTION_INDEX_0_53.md) AND THE CURRENT CANONICAL DRIVE PLAN.** These define the one and only current Section-number → title → scope mapping, **0–53 inclusive**. The final Section ID is **53**. There are no alternative numbered plans for worker selection or closure. The actual parent Section 39 is **«Практичне тестування всіх форматів і варіацій»**; 37 is **«Законні джерела книг, партій, позицій і шахових баз»**; 38 is **«Завантаження реальних корпусів та інтеграція всіх форматів»**. Every Section ID has exactly its current Drive definition and must never be interpreted from other document headings, past worker prose or a PR's historical label.
-
-**No alternative-number discourse in worker outputs.** Do not describe, compare, translate, reassign or infer numbered Sections from other sets; do not include any commentary on previous numbering, reorderings or alternate interpretations in plans, responses, comments or work-selection logs. Refer only to the stable current Section ID and its exact current name and requirements. Past commits/PRs can be reused solely as implementation/evidence sources for the matching current capability, never as Section-number authorities; never infer DONE from unrelated historical evidence. Current closure statuses remain in `SEQUENTIAL_CLOSURE_STATE.md` and locked subscopes must be preserved. This directive supersedes any contrary prose elsewhere in the repository while leaving all chess functionality, completed implementation and tests intact.
-
 ## HIGHEST-PRIORITY OWNER DIRECTIVE — 2026-10-09: PRESERVE PAID/VERIFIED WORK, ONE SECTION PER RUN
 
 **MANDATORY: [SECTION_CLOSURE_IMMUTABILITY.md](SECTION_CLOSURE_IMMUTABILITY.md) in `main` is binding for every autonomous worker and integrator.** Read it in full before any branch, file, PR, test-baseline, integration or status mutation. This owner directive overrides any conflicting older “start next Section in same run”, multi-Section batch, broad reconvergence, or rework-for-activity instructions. It does not override essential security, safety, test, licensing, evidence-integrity or truthful DONE requirements.
