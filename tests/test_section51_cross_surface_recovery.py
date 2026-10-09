@@ -29,7 +29,9 @@ class _AbruptExit(BaseException):
 
 
 class Section51CrossSurfaceRecoveryTests(unittest.TestCase):
-    def _fixture(\n        self, parent: Path, *, legacy_library: bool = False\n    ) -> tuple[Path, dict[str, bytes]]:
+    def _fixture(
+        self, parent: Path, *, legacy_library: bool = False
+    ) -> tuple[Path, dict[str, bytes]]:
         root = parent / "AccessibleChess"
         root.mkdir()
         # A legacy Settings file forces the actual transaction, while the
