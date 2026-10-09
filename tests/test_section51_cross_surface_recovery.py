@@ -11,6 +11,7 @@ import hashlib
 import json
 from pathlib import Path
 import shutil
+import sqlite3
 import tempfile
 import unittest
 
@@ -28,7 +29,7 @@ class _AbruptExit(BaseException):
 
 
 class Section51CrossSurfaceRecoveryTests(unittest.TestCase):
-    def _fixture(self, parent: Path) -> tuple[Path, dict[str, bytes]]:
+    def _fixture(\n        self, parent: Path, *, legacy_library: bool = False\n    ) -> tuple[Path, dict[str, bytes]]:
         root = parent / "AccessibleChess"
         root.mkdir()
         # A legacy Settings file forces the actual transaction, while the
@@ -38,6 +39,14 @@ class Section51CrossSurfaceRecoveryTests(unittest.TestCase):
         )
         with AcsDatabase(root / "library.acsdb") as database:
             database.add_source("Особиста бібліотека.pgn", "pgn")
+        if legacy_library:
+            # Preserve a genuine older upgrade entrypoint with the precise
+            # schema-v1 test geometry used by existing D07 migration tests.
+            with sqlite3.connect(root / "library.acsdb") as connection:
+                connection.execute("DROP INDEX IF EXISTS idx_positions_key_game_ply")
+                connection.execute("DROP TABLE IF EXISTS import_attempts")
+                connection.execute("PRAGMA user_version=1")
+
 
         durable = {
             "book-progress.json": b'{"completed":["lesson-1"]}\n',
@@ -185,6 +194,41 @@ class Section51CrossSurfaceRecoveryTests(unittest.TestCase):
             self.assertEqual((root / "settings.json").read_bytes(), settings_before)
             self.assertEqual(journal_path.read_bytes(), journal_before)
             self._assert_durable(root, durable)
+
+    def test_legacy_library_schema_migrates_with_all_independent_user_domains(self):
+        with tempfile.TemporaryDirectory() as td:
+            root, durable = self._fixture(Path(td), legacy_library=True)
+            before = sqlite3.connect(root / "library.acsdb")
+            try:
+                self.assertEqual(before.execute("PRAGMA user_version").fetchone()[0], 1)
+            finally:
+                before.close()
+
+            report = Version2UpgradeCoordinator(UserDataLayout(root)).run()
+            self.assertEqual(report.status, "upgraded")
+            self.assertTrue(report.library_migrated)
+            self.assertTrue(report.settings_migrated)
+            self._assert_durable(root, durable)
+            with AcsDatabase(root / "library.acsdb") as database:
+                self.assertEqual(database.schema_version, ACSDB_SCHEMA_VERSION)
+                self.assertEqual(
+                    database.get_source(1)["source_name"],
+                    "Особиста бібліотека.pgn",
+                )
+
+    def test_future_library_schema_blocks_downgrade_and_preserves_all_user_bytes(self):
+        with tempfile.TemporaryDirectory() as td:
+            root, durable = self._fixture(Path(td))
+            with sqlite3.connect(root / "library.acsdb") as connection:
+                connection.execute("PRAGMA user_version=999")
+            settings_before = (root / "settings.json").read_bytes()
+            with self.assertRaises(Version2UpgradeError):
+                Version2UpgradeCoordinator(UserDataLayout(root)).run()
+            self.assertEqual((root / "settings.json").read_bytes(), settings_before)
+            self._assert_durable(root, durable)
+            with sqlite3.connect(root / "library.acsdb") as connection:
+                self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 999)
+                self.assertEqual(connection.execute("SELECT COUNT(*) FROM sources").fetchone()[0], 1)
 
     def test_future_settings_schema_blocks_downgrade_without_touching_user_data(self):
         with tempfile.TemporaryDirectory() as td:
