@@ -46,7 +46,7 @@ class TestSection55BRF(unittest.TestCase):
         self.assertEqual(_BRAILLE_ASCII[0], " ")
         self.assertEqual(_BRAILLE_ASCII[1], "A")
         self.assertEqual(_BRAILLE_ASCII[63], "=")
-        self.assertEqual(_BRAILLE_ASCII[0x2e], ".")
+        self.assertEqual(_BRAILLE_ASCII[0x2e], "!")
         self.assertEqual(_BRAILLE_ASCII[0x3f], "=")
 
     def test_provisional_pef_to_brf_is_deterministic_not_print_ready(self):
