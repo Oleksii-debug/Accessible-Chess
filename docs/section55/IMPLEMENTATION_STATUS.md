@@ -52,3 +52,14 @@ All results are UNVERIFIED_REQUIRES_DECISION; no print-ready certification is al
 - Sections 55.2 and 55.6 therefore have PARTIAL source-format/format-output progress, not closure. Neither a synthetic Liblouis module nor an arbitrary table filename is a certified translation.
 - Exact GitHub Actions results must be read from latest PR head. The latest observed runs were QUEUED, NOT GREEN. No test execution, real device, legal real-book sample, specialist acceptance or main integration is claimed.
 - Keep this PR as canonical single Section 55 finisher, watch live main changes, and never promote any subsection without its full own acceptance evidence.
+
+## Second continuation checkpoint — source/PEF/BRF bundle verification
+
+- New acs/chess_braille_bundle.py and tools/section55_verify_bundle.py independently re-open provisional PEF/BRF, exact original input bytes and JSON quality report; reject missing/extra files, corrupt SHA-256, false print/device qualification, loss of warnings, wrong display map and source mismatch. A passing consistency verification remains **UNVERIFIED**, never a specialist or physical acceptance.
+- The generation CLI now runs that same independent consistency gate on a still-private unpublished directory before promoting artifacts. It refuses to overwrite existing output and rolls back its own temporary files on verification failure.
+- New tests/test_section55_braille_bundle.py checks PEF-only and PEF+BRF positive synthetic bundles; bad source/PEF/BRF/manifest, unexpected/missing files, false DONE-like status and CLI privacy negative outcomes.
+- The complete 64-character BRF display map is checked against an explicit independent expected dot-notation fixture from the published Liblouis en-us-brf.dis table.
+- Native translation is now bounded to <=8192 source characters per semantic segment; XML-invalid controls fail before Liblouis. Multi-line chess descriptions/PGN and blank lines are handled as physical PEF lines rather than passing raw newline controls to the translator.
+- docs/section55/LOCAL_BRAILLE_PREPARATION.md records NVDA-oriented local commands, scope, explicit proof limits and a source-hash verification step.
+- Scoped GitHub Actions test both platforms but the exact-head checks were still QUEUED, NOT GREEN when last inspected. Hardware qualification, licensed real table-closure, formal chess-Braille transliteration, lawfully usable source corpus, reader/device tests, OCR/eBraille and product integration remain unsatisfied.
+- **SECTION 55: 0/16 independently DONE, terminal NOT DONE. Do not move to another section yet.**
