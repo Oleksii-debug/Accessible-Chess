@@ -99,7 +99,7 @@ def verify_original_book(record: dict, external_root: Path) -> dict:
     if type(identity) is not str or not _ID.fullmatch(identity):
         raise LawfulCorpusError("book source id invalid")
     if (
-        record.get("acquisition") != "PINNED_NOT_DOWNLOADED_IN_THIS_PASS"
+        record.get("acquisition") != "PINNED_EPHEMERAL_CHECKOUT_ONLY"
         or record.get("format") not in ("txt", "md")
         or record.get("redistribution") != "NOT_CLEARED"
         or record.get("test_access") != "EXTERNAL_EPHEMERAL_ONLY"

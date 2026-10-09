@@ -1,0 +1,56 @@
+{
+  "documented_unavailable_not_blocking": [
+    "CBF+CBI",
+    "2CBH",
+    "CBONE"
+  ],
+  "external_literature_readback": {
+    "documented_unsupported_encoding": 1,
+    "pinned_raw_originals": 3,
+    "semantic_restart_pass": 2
+  },
+  "negative_recovery": {
+    "checksum_tamper_rejected": true,
+    "damaged_or_oversized_zip_rejected": true,
+    "duplicate_metadata_rejected": true,
+    "path_traversal_rejected": true,
+    "real_book_restart_and_return_point": "PASS"
+  },
+  "real_chessbase_readback": {
+    "acsdb_imported_games": 113,
+    "cbh_companion_files": 14,
+    "cbv_decoded_games": 113,
+    "independent_pgn_oracle_games": 113
+  },
+  "registry": {
+    "canonical_entries": 24,
+    "qualified_local_bytes": 763647,
+    "qualified_local_sources": 14,
+    "supplemental_sources": 69
+  },
+  "rights_boundary": {
+    "automatic_proprietary_download": false,
+    "read_test_redistribute_separate": true,
+    "uncleared_third_party_sources_in_public_release": false
+  },
+  "schema_version": 1,
+  "section": 37,
+  "semantic_readback": {
+    "advanced_annotated_games": 4,
+    "canonical_standard_fen_rows": 636,
+    "epd_fen_rows": 1596,
+    "historical_studies": 1,
+    "opening_tsv_rows": 3865,
+    "real_book_blocks": 1720,
+    "stockfish_pgn_games": 12092
+  },
+  "status": "DONE_TERMINAL",
+  "subsections": {
+    "37.1": "PASS",
+    "37.2": "PASS",
+    "37.3": "PASS",
+    "37.4": "PASS",
+    "37.5": "PASS",
+    "37.6": "PASS"
+  }
+}

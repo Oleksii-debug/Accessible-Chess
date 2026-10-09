@@ -2,13 +2,13 @@
   "schema_version": 1,
   "section": "37.3",
   "observed_date": "2026-10-09",
-  "status": "PARTIAL_GITENBERG_TEXT_ORIGINAL_BYTE_READBACK_NOT_TERMINAL",
-  "description": "Re-fetched genuine original GITenberg source-text objects through authenticated GitHub connector; independent UTF-8 byte SHA-256 and length compared with pre-existing Section 37 research catalog; upstream Git blob SHA was checked. No source binary reproduced in public repository.",
-  "algorithm": "Independent pure-JavaScript SHA-256 operating on full UTF-8 bytes; 3 known-answer vectors: empty string, abc, hello world.",
+  "status": "CORRECTED_RAW_GIT_BLOB_BYTE_READBACK_PASS",
+  "description": "The three genuine original GITenberg source objects were checked out at pinned commits and hashed as raw Git blob bytes. This corrects the earlier Staunton digest and length, which had been computed after a text-to-UTF-8 representation rather than from the original ISO-8859/CRLF blob bytes. No source binary is authorized for public release.",
+  "algorithm": "SHA-256 over exact checked-out raw bytes, cross-checked with git hash-object and the pinned upstream Git blob identifier.",
   "check_results": {
     "sha256_known_answer_vectors": "3/3 PASS",
     "original_file_blob_sha": "3/3 PASS",
-    "original_file_utf8_bytes": "3/3 PASS",
+    "original_file_raw_bytes": "3/3 PASS",
     "original_file_sha256": "3/3 PASS",
     "unchanged_registry_other_66_records": "QUALIFICATION_BEFORE_CATALOG_UPDATE"
   },
@@ -17,14 +17,16 @@
       "source_id": "gutenberg_blue_book_chess_staunton",
       "repo": "GITenberg/The-Blue-Book-of-Chess--13-Teaching-the-Rudiments-of-the-Game-and-Giving-an-Analysis-of-All-t__16377",
       "path": "16377.txt",
+      "commit": "c115db676b0b1badba555d4f8e962cb1e45b1e8d",
       "git_blob": "d946777f0eaee2b5f8f7a73afb9c1dd104eb4142",
-      "bytes": 679686,
-      "sha256": "aa35876c550a5c84d770a9daf2964a2a859c56cae9325ee6e9f261c307cd7b98"
+      "bytes": 679677,
+      "sha256": "156a33246c83c33c507713dc07a7c7af6fc77a534a0c526068c9fb0a92749c98"
     },
     {
       "source_id": "gutenberg_chess_history_bird_original_txt",
       "repo": "GITenberg/Chess-History-and-Reminiscences_4902",
       "path": "4902.txt",
+      "commit": "4366012e90c7ad5d8a182c4b096394beea7b670d",
       "git_blob": "fe18ddf36538952c95c62052b5d05464ca64abe7",
       "bytes": 404528,
       "sha256": "fb4b5ad969566c4ae9c974f7fa606ea7bbfb3aa2697142d05f8bf83d02365149"
@@ -33,6 +35,7 @@
       "source_id": "gutenberg_checkmates_three_fishburne_original_txt",
       "repo": "GITenberg/Checkmates-for-Three-Pieces_4542",
       "path": "4542.txt",
+      "commit": "0c76a71377ef42fb7e9446281bf29b1be187c0ab",
       "git_blob": "ab6af427f4de27d8e98c0cc25e025b1984cc60cb",
       "bytes": 38389,
       "sha256": "f4d8c085d5450013876bfe6d214ba85107afebb37fe6e5fc2bf9c3b58b2c75fb"
@@ -40,8 +43,8 @@
   ],
   "limits": {
     "publisher_live_gutenberg_current_bytes": "NOT_TESTED; GITenberg Git versioned text is the only byte authority validated",
-    "bookdocument_semantic_import": "NOT_RUN",
-    "actual_chess_parser_and_library_restart": "NOT_RUN",
+    "bookdocument_semantic_import": "2/3 PASS_FROM_PINNED_RAW_ORIGINALS; STAUNTON RAW ISO-8859 IS HONESTLY UNSUPPORTED",
+    "actual_chess_parser_and_library_restart": "2/3 PASS; 1/3 EXPECTED UNSUPPORTED-ENCODING REFUSAL",
     "negative_application_security": "NOT_RUN",
     "physical_windows_nvda": "NOT_RUN_FINAL_PRODUCT_GATE",
     "hosted_ci": "NOT_RUN_FOR_THIS_EVIDENCE",

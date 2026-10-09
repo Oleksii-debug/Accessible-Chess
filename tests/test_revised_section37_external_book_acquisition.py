@@ -15,18 +15,21 @@ from tools.revised_section37_external_book_acquisition import (
 BOOK_IDS = {
     "gutenberg_blue_book_chess_staunton": (
         "d946777f0eaee2b5f8f7a73afb9c1dd104eb4142",
-        "aa35876c550a5c84d770a9daf2964a2a859c56cae9325ee6e9f261c307cd7b98",
-        679686,
+        "156a33246c83c33c507713dc07a7c7af6fc77a534a0c526068c9fb0a92749c98",
+        679677,
+        "c115db676b0b1badba555d4f8e962cb1e45b1e8d",
     ),
     "gutenberg_chess_history_bird_original_txt": (
         "fe18ddf36538952c95c62052b5d05464ca64abe7",
         "fb4b5ad969566c4ae9c974f7fa606ea7bbfb3aa2697142d05f8bf83d02365149",
         404528,
+        "4366012e90c7ad5d8a182c4b096394beea7b670d",
     ),
     "gutenberg_checkmates_three_fishburne_original_txt": (
         "ab6af427f4de27d8e98c0cc25e025b1984cc60cb",
         "f4d8c085d5450013876bfe6d214ba85107afebb37fe6e5fc2bf9c3b58b2c75fb",
         38389,
+        "0c76a71377ef42fb7e9446281bf29b1be187c0ab",
     ),
 }
 
@@ -45,7 +48,7 @@ def fake_record(raw: bytes) -> dict:
         "upstream_git_blob": _git_blob(raw),
         "format": "txt",
         "redistribution": "NOT_CLEARED",
-        "acquisition": "PINNED_NOT_DOWNLOADED_IN_THIS_PASS",
+        "acquisition": "PINNED_EPHEMERAL_CHECKOUT_ONLY",
         "test_access": "EXTERNAL_EPHEMERAL_ONLY",
         "public_release": "EXCLUDED",
         "external_checkout_path": "original/original.txt",
@@ -60,32 +63,35 @@ class ExternalOriginalBookTests(unittest.TestCase):
     def test_real_source_catalog_references_are_exact_not_false_downloads(self):
         originals = {r["id"]: r for r in load_catalog()}
         self.assertEqual(_git_blob(b"test"), hashlib.sha1(b"blob 4\0test").hexdigest())
-        for identity, (git_sha, sha256, length) in BOOK_IDS.items():
+        for identity, (git_sha, sha256, length, commit) in BOOK_IDS.items():
             with self.subTest(source=identity):
                 source = originals[identity]
                 self.assertEqual(source["upstream_git_blob"], git_sha)
                 self.assertEqual(source["sha256"], sha256)
                 self.assertEqual(source["indexed_bytes"], length)
+                self.assertEqual(source["upstream_commit"], commit)
                 self.assertEqual(source["format"], "txt")
                 self.assertEqual(source["redistribution"], "NOT_CLEARED")
                 self.assertEqual(source["public_release"], "EXCLUDED")
                 self.assertEqual(source["test_access"], "EXTERNAL_EPHEMERAL_ONLY")
-                self.assertEqual(source["acquisition"], "PINNED_NOT_DOWNLOADED_IN_THIS_PASS")
+                self.assertEqual(source["acquisition"], "PINNED_EPHEMERAL_CHECKOUT_ONLY")
                 self.assertIn("gutenberg.org/ebooks/", source["source_page"])
                 self.assertEqual(source["external_license_git_blob"], "8d062dda262bcdc42d45b861bd796117feb6d0fe")
                 self.assertEqual(source["external_license_indexed_bytes"], 17504)
                 self.assertEqual(source["external_license_sha256"], "1e301e03fb28addf6ad03d42b1429e87679013d1ee7e141c7c968fbef0ad961d")
 
-    def test_section38_three_genuine_external_chess_books_semantic_readback(self):
-        """Original checked-out books -> canonical semantic reader and restart.
+    def test_three_genuine_external_chess_books_source_and_supported_semantic_readback(self):
+        """Original checked-out books -> raw proof and supported reader restart.
 
         This runs in the existing source-only GitHub Actions job, which checks
         out the exact independent upstream Git object. Test-only source bytes
-        and licenses are never copied into a distribution artifact.
+        and licenses are never copied into a distribution artifact. The original
+        Staunton blob is ISO-8859 and must remain an honest unsupported-encoding
+        refusal; the two UTF-8 originals complete canonical semantic restart.
         """
         import os
 
-        from acs.book_text_import import import_text_book
+        from acs.book_text_import import BookTextImportError, import_text_book
         from acs.bookreader import BookReader
         from acs.lawful_corpus_registry import read_verified_source_snapshot
 
@@ -111,6 +117,21 @@ class ExternalOriginalBookTests(unittest.TestCase):
                     root / record["external_checkout_path"], record
                 )
                 self.assertEqual(hashlib.sha256(original).hexdigest(), record["sha256"])
+                if source_id == "gutenberg_blue_book_chess_staunton":
+                    self.assertEqual(
+                        record["original_text_sha256_readback"]["semantic_book_import"],
+                        "UNSUPPORTED_ORIGINAL_ISO_8859_ENCODING_DOCUMENTED",
+                    )
+                    with self.assertRaises(BookTextImportError):
+                        import_text_book(
+                            original,
+                            source_name=Path(record["external_checkout_path"]).name,
+                            source_format="txt",
+                            title=record["title"],
+                            author=record.get("author") or None,
+                            language="en",
+                        )
+                    continue
                 book = import_text_book(
                     original,
                     source_name=Path(record["external_checkout_path"]).name,

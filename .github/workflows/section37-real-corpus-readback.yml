@@ -5,9 +5,15 @@ on:
     paths:
       - 'tools/section37_real_corpus_evidence.py'
       - 'docs/corpus/SECTION37_SOURCE_REGISTRY.json'
+      - 'docs/corpus/revised_sections37_40_sources.json'
+      - 'docs/corpus/SECTION37_GITENBERG_ORIGINAL_TEXT_SHA256_READBACK_20261009.json'
       - 'tests/real_corpus/advanced_training/reti_1921_historical_study_bilingual.pgn'
       - 'tests/test_revised_section37_genuine_advanced_study_readback.py'
+      - 'tests/test_section37_terminal_closure.py'
+      - 'tests/real_corpus/**'
+      - 'tools/section37_closure_gate.py'
       - 'docs/corpus/SECTION37_REAL_CORPUS_READBACK.json'
+      - 'docs/corpus/SECTION37_TERMINAL_CLOSURE_EVIDENCE.json'
       - '.github/workflows/section37-real-corpus-readback.yml'
   workflow_dispatch:
 
@@ -61,6 +67,15 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/product
         run: |
           python -m unittest discover -s tests -p 'test_revised_section37_genuine_advanced_study_readback.py' -v
+
+      - name: Qualify complete Section 37 registry, corpus and recovery gate
+        working-directory: product
+        env:
+          PYTHONPATH: ${{ github.workspace }}/product
+        run: |
+          python -m unittest discover -s tests -p 'test_section37_terminal_closure.py' -v
+          python tools/section37_closure_gate.py \
+            --output docs/corpus/SECTION37_TERMINAL_CLOSURE_EVIDENCE_CI.json
 
       - name: Download real Section 37 sources
         shell: bash
@@ -124,5 +139,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: section37-real-corpus-readback
-          path: product/docs/corpus/SECTION37_REAL_CORPUS_READBACK_CI.json
+          path: |
+            product/docs/corpus/SECTION37_REAL_CORPUS_READBACK_CI.json
+            product/docs/corpus/SECTION37_TERMINAL_CLOSURE_EVIDENCE_CI.json
           if-no-files-found: error
