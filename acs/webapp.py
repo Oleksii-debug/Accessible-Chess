@@ -23,6 +23,7 @@ from .notation import format_accessible_compact_san, format_san
 from .position_text import parse_position_text
 from .ui_review_adapter import ReviewPresentationAdapter
 from .ai_provider_gateway import AIProviderError, AIProviderGateway, ProviderProfile, ProviderRequest
+from .visual_board_contract import BoardSurface, VisualBoardCell, VisualBoardPreferences, VisualBoardSnapshot
 
 VERSION = "0.4.0-dev3"
 
@@ -77,6 +78,7 @@ class AccessibleChessAPI:
         self.video_timeline: list[dict[str, Any]] = []
         self._video_session_memory: dict[str, dict[str, Any]] = {}
         self._visual_profile_memory = {"profile": "classic", "theme": "system", "board_theme": "wood", "density": "comfortable"}
+        self._visual_board_memory = self._visual_board_option_values(VisualBoardPreferences())
 
     @property
     def review_cursor(self) -> int:
@@ -469,6 +471,7 @@ class AccessibleChessAPI:
             "reviewCursor": display_view.ply, "historyLength": len(self.sans),
             "reviewStatus": display_view.status, "atHistoryEnd": self._at_history_end(),
         }
+        state["visualBoard"] = self._section42_visual_board(display_board, state)
         state["videoSync"] = {
             "active": self.video_sync_active,
             "prepared": bool(self.video_timeline),
@@ -858,6 +861,126 @@ class AccessibleChessAPI:
         except (TypeError, ValueError, OSError):
             return {"ok": False}
         return {"ok": True, **values, "announcement": "Visual profile applied." if self.lang == "en" else "Візуальний профіль застосовано."}
+
+
+    @staticmethod
+    def _visual_board_option_values(prefs: VisualBoardPreferences) -> dict[str, Any]:
+        # Existing atomic visual_profile_json remains the single board-palette owner.
+        return {key: value for key, value in prefs.as_dict().items() if key != "boardTheme"}
+
+    @staticmethod
+    def _validate_visual_board_options(raw: object) -> VisualBoardPreferences:
+        if type(raw) is not dict or set(raw) != {
+            "pieceTheme", "orientation", "coordinateMode", "scalePercent",
+            "showLastMove", "fitToWindow", "presentationMode",
+            "animateMoves", "lowPowerMode",
+        }:
+            raise ValueError("invalid Section 42 options")
+        return VisualBoardPreferences(
+            piece_theme=raw["pieceTheme"], orientation=raw["orientation"],
+            coordinate_mode=raw["coordinateMode"], scale_percent=raw["scalePercent"],
+            show_last_move=raw["showLastMove"], fit_to_window=raw["fitToWindow"],
+            presentation_mode=raw["presentationMode"], animate_moves=raw["animateMoves"],
+            low_power_mode=raw["lowPowerMode"],
+        )
+
+    def _section42_preferences(self) -> VisualBoardPreferences:
+        settings = getattr(self, "_settings", None)
+        if settings is None:
+            raw = self._visual_board_memory
+        else:
+            try:
+                raw = json.loads(settings.get("visual_board_preferences_json"))
+            except (TypeError, ValueError, KeyError):
+                raw = self._visual_board_option_values(VisualBoardPreferences())
+        try:
+            prefs = self._validate_visual_board_options(raw)
+        except (ValueError, TypeError):
+            prefs = VisualBoardPreferences()
+        theme = self.visual_profile_get().get("board_theme")
+        palette = {
+            "wood": "classic_wood", "graphite": "modern_graphite",
+            "blue": "tournament_blue", "minimal": "light_minimal",
+            "high-contrast": "high_contrast",
+        }.get(theme, "classic_wood")
+        return prefs.updated("board_theme", palette)
+
+    def _section42_visual_board(self, board: Board, state: dict[str, Any]) -> dict[str, Any]:
+        """Read-only visual cues from canonical Board; no independent chess rules.
+
+        The optional cues are presentation-only and must not affect the saved
+        FEN, GameTree, legal-move authority or NVDA live announcements.
+        """
+        cells = tuple(
+            VisualBoardCell(cell["square"], board.board[parse_sq(cell["square"])] or "",
+                            cell["label"])
+            for cell in state["board"]
+        )
+        prefs = self._section42_preferences()
+        highlights: list[tuple[str, str, str]] = []
+        targets: tuple[str, ...] = ()
+        # Use the *canonical* core's legal/attack predicates only, and only on
+        # the current playable owner (never infer from styled DOM or review text).
+        if state.get("positionComplete"):
+            selected = state.get("selectedSquare")
+            if selected is not None:
+                source = parse_sq(selected)
+                moves = board.legal_moves()
+                targets = tuple(sorted({sq_name(move.to) for move in moves
+                                        if move.frm == source}))
+                source_piece = board.board[source]
+                if source_piece:
+                    for target in board.attacks_from(source):
+                        captured = board.board[target]
+                        purpose = ("defence" if captured and
+                                   color_of(captured) == color_of(source_piece)
+                                   else "attack")
+                        highlights.append((sq_name(target), purpose,
+                                           "#218458" if purpose == "defence"
+                                           else "#d97706"))
+            if board.in_check():
+                king = sq_name(board.king_square(board.turn))
+                mate = not board.legal_moves()
+                highlights.append((king, "mate" if mate else "check",
+                                   "#b91c1c"))
+        last = ((sq_name(board.last_move.frm), sq_name(board.last_move.to))
+                if prefs.show_last_move and board.last_move is not None else None)
+        arrows = ((last[0], last[1], "last-move", "#d97706"),) if last else ()
+        snapshot = VisualBoardSnapshot(
+            surface=BoardSurface.ORDINARY_PLAY,
+            preferences=prefs,
+            cells=cells,
+            selected_square=state["selectedSquare"],
+            last_move=last,
+            legal_targets=targets,
+            highlights=tuple(highlights),
+            arrows=arrows,
+        )
+        return snapshot.as_dict()
+
+    def visual_board_apply(self, options: dict[str, Any]) -> dict[str, Any]:
+        """Persist presentation options only; never touch Board/FEN/ReviewHistory."""
+        try:
+            validated = self._validate_visual_board_options(options)
+            allowed = self._visual_board_option_values(validated)
+            settings = getattr(self, "_settings", None)
+            if settings is None:
+                self._visual_board_memory = allowed
+            else:
+                settings.set("visual_board_preferences_json", json.dumps(
+                    allowed, sort_keys=True, separators=(",", ":")))
+        except (ValueError, TypeError, OSError, KeyError):
+            return {"ok": False, "announcement": (
+                "Invalid board appearance." if self.lang == "en"
+                else "Некоректні параметри вигляду дошки."
+            )}
+        state = self.get_state()
+        state["ok"] = True
+        state["announcement"] = (
+            "Board appearance applied." if self.lang == "en"
+            else "Вигляд шахівниці застосовано."
+        )
+        return state
 
     def visual_profile_export(self) -> dict[str, Any]:
         """Manual Windows/Web transfer; existing Settings remains sole native writer."""
