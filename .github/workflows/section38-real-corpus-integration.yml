@@ -2,6 +2,26 @@ name: Section 38 real corpus integration
 
 on:
   workflow_dispatch:
+  # Qualify the exact PR head; GitHub App-authored pushes need not start push workflows.
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'acs/book_library_import.py'
+      - 'tools/section38_real_corpus_integration.py'
+      - 'tests/test_book_library_import_journey.py'
+      - 'tests/test_section38_source_bound_readback.py'
+      - 'tests/test_revised_section38_stockfish_real_library.py'
+      - 'tests/test_revised_section38_official_openings_library.py'
+      - 'tests/test_revised_section38_owner_seed.py'
+      - 'tools/revised_section38_stockfish_owner_seed.py'
+      - 'tests/test_book_open_preparation.py'
+      - 'acs/version2_application.py'
+      - 'acs/book_docx_import.py'
+      - 'tests/test_revised_section38_docx_book_integration.py'
+      - 'acs/version2_windows_native_dialog_ownership.py'
+      - 'acs/version2_windows_file_workflows.py'
+      - '.github/workflows/section38-real-corpus-integration.yml'
   push:
     paths:
       - 'acs/book_library_import.py'
