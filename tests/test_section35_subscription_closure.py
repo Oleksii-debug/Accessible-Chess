@@ -226,6 +226,37 @@ class Section35SubscriptionTests(unittest.TestCase):
         for vendor in ("stripe", "paypal", "adyen", "braintree", "paddle"):
             self.assertNotIn(vendor, lowered)
 
+
+    def test_section44_subscription_premium_css_is_public_read_only_and_exact(self):
+        self.assertIn(
+            'href="/assets/accessible_chess_subscription_design.css"',
+            (ROOT / "web/accessible_chess_subscription.html").read_text(encoding="utf-8"),
+        )
+        app = AccessibleChessSubscriptionAsgi(self.gateway())
+
+        async def request(path, query=b""):
+            sent = []
+            async def receive():
+                return {"type": "http.request", "body": b"", "more_body": False}
+            async def send(message):
+                sent.append(message)
+            await app(
+                {"type": "http", "method": "GET", "path": path,
+                 "query_string": query, "headers": [], "state": {}},
+                receive, send,
+            )
+            return sent
+        route = "/assets/accessible_chess_subscription_design.css"
+        accepted = asyncio.run(request(route))
+        self.assertEqual(accepted[0]["status"], 200)
+        headers = dict(accepted[0]["headers"])
+        self.assertEqual(headers[b"content-type"], b"text/css; charset=utf-8")
+        self.assertEqual(headers[b"cache-control"], b"no-store")
+        self.assertEqual(headers[b"x-content-type-options"], b"nosniff")
+        self.assertIn(b".ac44-subscription-page", accepted[1]["body"])
+        self.assertEqual(asyncio.run(request(route, b"token=private"))[0]["status"], 400)
+        self.assertEqual(asyncio.run(request("/assets/../../secrets"))[0]["status"], 404)
+
     def test_asgi_serves_public_semantic_page_and_public_snapshot(self):
         app = AccessibleChessSubscriptionAsgi(self.gateway())
 
