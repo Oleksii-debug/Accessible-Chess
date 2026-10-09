@@ -1,0 +1,43 @@
+name: Section 39 shipping original-source qualification
+
+on:
+  pull_request:
+    paths:
+      - "tools/section39_external_book_semantic.py"
+      - "tools/section39_external_position_semantic.py"
+      - "tools/section39_stockfish_original_chess960_epd_qualification.py"
+      - "tests/test_section39_external_book_semantic.py"
+      - "tests/test_section39_external_position_semantic.py"
+      - "tests/test_section39_stockfish_original_chess960_epd_qualification.py"
+      - ".github/workflows/section39-shipping-original-source.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  original-source-contracts:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout exact PR candidate
+        uses: actions/checkout@v4
+      - name: Python environment
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Compile original-source qualification modules
+        run: >-
+          python -m compileall -q
+          tools/section39_external_book_semantic.py
+          tools/section39_external_position_semantic.py
+          tools/section39_stockfish_original_chess960_epd_qualification.py
+      - name: Original books, EPD/FEN and Stockfish real-byte negative/recovery
+        run: >-
+          python -m unittest -v
+          tests.test_section39_external_book_semantic
+          tests.test_section39_external_position_semantic
+          tests.test_section39_stockfish_original_chess960_epd_qualification
