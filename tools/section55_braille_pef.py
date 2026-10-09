@@ -27,6 +27,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from acs.bookdocument import BookDocument
+from acs.book_text_import import import_text_book
 from acs.chess_braille_brf import NABCC_DISPLAY_TABLE, pef_to_provisional_brf
 from acs.chess_braille_factory import (
     BrailleFactoryError, BrailleProfile, LiblouisTranslator, prepare_chess_book_pef,
@@ -46,7 +47,10 @@ def bounded_read(path: Path, max_size: int) -> bytes:
 
 def make_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="Prepare unverified chess-book PEF locally")
-    p.add_argument("--book-json", type=Path, required=True)
+    source = p.add_mutually_exclusive_group(required=True)
+    source.add_argument("--book-json", type=Path, help="Canonical BookDocument JSON")
+    source.add_argument("--source-file", type=Path, help="Lawfully provided .txt or .md book; uses canonical importer")
+    p.add_argument("--book-title", help="Optional title when importing TXT/Markdown")
     p.add_argument("--table-file", type=Path, required=True)
     p.add_argument("--table-id", required=True)
     p.add_argument("--table-version", required=True)
@@ -66,13 +70,27 @@ def run(args: argparse.Namespace) -> int:
     if not args.rights_confirmed:
         raise BrailleFactoryError("Use --rights-confirmed only for an authorized source")
     # This CLI does not make remote requests or send sources to hosted models.
-    try:
-        payload = json.loads(bounded_read(args.book_json, MAX_JSON_BYTES).decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise BrailleFactoryError("Invalid UTF-8 canonical BookDocument JSON") from exc
-    if type(payload) is not dict:
-        raise BrailleFactoryError("Book source must be canonical BookDocument JSON")
-    document = BookDocument.from_dict(payload)
+    if args.book_json is not None:
+        try:
+            payload = json.loads(bounded_read(args.book_json, MAX_JSON_BYTES).decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise BrailleFactoryError("Invalid UTF-8 canonical BookDocument JSON") from exc
+        if type(payload) is not dict:
+            raise BrailleFactoryError("Book source must be canonical BookDocument JSON")
+        document = BookDocument.from_dict(payload)
+    else:
+        extension = args.source_file.suffix.lower()
+        if extension not in {".txt", ".md"}:
+            raise BrailleFactoryError("Direct book source must be TXT or Markdown; all other formats require canonical import first")
+        original = bounded_read(args.source_file, 8 * 1024 * 1024)
+        imported = import_text_book(
+            original, source_name=args.source_file.name,
+            source_format="txt" if extension == ".txt" else "markdown",
+            title=args.book_title, language=args.language,
+        )
+        if imported.warnings:
+            raise BrailleFactoryError("Source import has unresolved warnings; no output published")
+        document = imported.document
     # Never fingerprint one table and invoke a different one through Liblouis.
     try:
         matches = Path(args.table_id).samefile(args.table_file)
