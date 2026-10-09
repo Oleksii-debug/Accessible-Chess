@@ -27,6 +27,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from acs.bookdocument import BookDocument
+from acs.chess_braille_brf import NABCC_DISPLAY_TABLE, pef_to_provisional_brf
 from acs.chess_braille_factory import (
     BrailleFactoryError, BrailleProfile, LiblouisTranslator, prepare_chess_book_pef,
 )
@@ -56,6 +57,8 @@ def make_parser() -> argparse.ArgumentParser:
     p.add_argument("--rights-confirmed", action="store_true")
     p.add_argument("--rights-basis", required=True)
     p.add_argument("--output-folder", type=Path, required=True)
+    p.add_argument("--emit-brf", action="store_true", help="Also write unverified NABCC BRF (requires explicit selected display map)")
+    p.add_argument("--display-table", choices=[NABCC_DISPLAY_TABLE], help="Explicit provisional BRF display mapping")
     return p
 
 
@@ -88,6 +91,11 @@ def run(args: argparse.Namespace) -> int:
         document, profile, translator, rights_confirmed=True,
         rights_basis=args.rights_basis,
     )
+    if args.emit_brf and args.display_table != NABCC_DISPLAY_TABLE:
+        raise BrailleFactoryError("BRF output requires explicit --display-table en-us-brf.dis")
+    if not args.emit_brf and args.display_table is not None:
+        raise BrailleFactoryError("BRF display mapping was selected without --emit-brf")
+    brf = pef_to_provisional_brf(result, display_table=args.display_table) if args.emit_brf else None
     # Refuse clobber or partial publication into a previously accepted folder.
     # A new private temporary folder is assembled on the destination filesystem.
     target = args.output_folder
@@ -98,8 +106,13 @@ def run(args: argparse.Namespace) -> int:
     temporary = Path(tempfile.mkdtemp(prefix=".section55-unverified-", dir=str(target.parent)))
     try:
         (temporary / "chess-book-unverified.pef").write_bytes(result.pef)
+        if brf is not None:
+            (temporary / "chess-book-unverified.brf").write_bytes(brf.data)
         report = {
-            "manifest": result.manifest,
+            "manifest": {**result.manifest, **({
+                "output_brf_sha256": brf.sha256, "brf_display_table": brf.display_table,
+                "brf_print_ready": False,
+            } if brf is not None else {})},
             "warnings": list(result.warnings),
             "notice": "UNVERIFIED; NOT APPROVED FOR DIRECT EMBOSSING OR DISTRIBUTION",
         }
@@ -112,7 +125,7 @@ def run(args: argparse.Namespace) -> int:
         if temporary.exists():
             shutil.rmtree(temporary)
     print("SECTION 55: UNVERIFIED_REQUIRES_DECISION")
-    print("PEF and quality report prepared locally; print readiness NOT established.")
+    print("PEF" + (" and BRF" if brf is not None else "") + " and quality report prepared locally; print readiness NOT established.")
     return 0
 
 
