@@ -164,5 +164,15 @@ class Section55LocalCLITests(unittest.TestCase):
                 run(args)
             self.assertFalse(args.output_folder.exists())
 
+    def test_existing_empty_output_folder_is_never_replaced(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            args = self.args(Path(tmp))
+            args.output_folder.mkdir()
+            with patch.dict("sys.modules", {"louis": SyntheticLouis("louis")}):
+                with self.assertRaises(BrailleFactoryError):
+                    run(args)
+            self.assertTrue(args.output_folder.is_dir())
+            self.assertEqual(list(args.output_folder.iterdir()), [])
+
 if __name__ == "__main__":
     unittest.main()
