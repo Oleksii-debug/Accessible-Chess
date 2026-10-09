@@ -174,5 +174,17 @@ class Section55LocalCLITests(unittest.TestCase):
             self.assertTrue(args.output_folder.is_dir())
             self.assertEqual(list(args.output_folder.iterdir()), [])
 
+    def test_failed_independent_quality_gate_rolls_back_unpublished_package(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            args = self.args(root)
+            with patch.dict("sys.modules", {"louis": SyntheticLouis("louis")}):
+                with patch("tools.section55_braille_pef.verify_provisional_bundle",
+                           side_effect=BrailleFactoryError("Synthetic failed consistency")):
+                    with self.assertRaises(BrailleFactoryError):
+                        run(args)
+            self.assertFalse(args.output_folder.exists())
+            self.assertEqual(list(root.glob(".section55-unverified-*")), [])
+
 if __name__ == "__main__":
     unittest.main()
