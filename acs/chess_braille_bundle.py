@@ -13,6 +13,7 @@ from pathlib import Path
 
 from .chess_braille_brf import NABCC_DISPLAY_TABLE, pef_to_provisional_brf
 from .chess_braille_factory import BrailleFactoryError, BraillePreparation
+from .chess_braille_tables import scan_local_liblouis_table_closure
 
 PEF_FILE = "chess-book-unverified.pef"
 BRF_FILE = "chess-book-unverified.brf"
@@ -31,6 +32,7 @@ class ProvisionalBundleCheck:
     pages: int
     internal_consistency: bool = True
     qualified_print_ready: bool = False
+    table_inventory_verified: bool = False
     status: str = "UNVERIFIED_REQUIRES_DECISION"
 
 
@@ -51,7 +53,8 @@ def _expect_hash(data: bytes, expected: object, field: str) -> str:
     return digest
 
 
-def verify_provisional_bundle(folder: Path, source_file: Path) -> ProvisionalBundleCheck:
+def verify_provisional_bundle(folder: Path, source_file: Path, *,
+                              table_file: Path | None = None) -> ProvisionalBundleCheck:
     """Verify exact local source, PEF, optional BRF, and linked report hashes.
 
     A pass establishes only byte and provisional structure consistency. The
@@ -107,9 +110,22 @@ def verify_provisional_bundle(folder: Path, source_file: Path) -> ProvisionalBun
             raise BrailleFactoryError("BRF bytes are not a lossless rendering of the PEF")
     elif any(key in manifest for key in ("output_brf_sha256", "brf_print_ready", "brf_display_table")):
         raise BrailleFactoryError("BRF output claimed but BRF bytes absent")
+    table_checked = False
+    if table_file is not None:
+        closure = scan_local_liblouis_table_closure(table_file)
+        if closure.closure_sha256 != manifest.get("table_closure_sha256"):
+            raise BrailleFactoryError("Live Liblouis closure differs from package report")
+        actual_files = [{"relative_path": name, "sha256": digest}
+                        for name, digest in closure.files]
+        if actual_files != manifest.get("table_closure_files"):
+            raise BrailleFactoryError("Live Liblouis file inventory differs from report")
+        if closure.total_bytes != manifest.get("table_closure_total_bytes"):
+            raise BrailleFactoryError("Live Liblouis closure size differs from report")
+        table_checked = True
     return ProvisionalBundleCheck(
         output_pef_sha256=pef_sha,
         output_brf_sha256=output_brf,
         source_sha256=source_sha,
         pages=reproduced_brf.pages,
+        table_inventory_verified=table_checked,
     )
