@@ -180,32 +180,45 @@ def _braille_lines(segments: list[str], translator: FormalBrailleTranslator,
         _xml10_text(source, "Source segment")
         if len(source) > 8192:
             raise BrailleFactoryError("Text segment exceeds bounded provisional Braille limits")
-        translated = translator.translate(source)
-        if type(translated) is not str or not translated:
-            raise BrailleFactoryError("Formal translator produced empty/invalid Braille")
-        if len(translated) > MAX_CELLS - cell_count:
-            raise BrailleFactoryError("Braille cell resource budget exceeded")
-        cell_count += len(translated)
-        if any(not ("\u2800" <= c <= "\u283f") for c in translated):
-            raise BrailleFactoryError("Translator output is not six-dot Unicode Braille")
-        # PEF is a prepaginated cell format. Never silently cut words or cells.
-        if translated.startswith(blank) or translated.endswith(blank) or blank + blank in translated:
-            raise BrailleFactoryError("Ambiguous Braille whitespace cannot be paginated losslessly")
-        words = translated.split(blank)
-        row = ""
-        for word in words:
-            if len(word) > columns:
-                raise BrailleFactoryError("A translated word exceeds the selected device width")
-            candidate = (row + blank + word) if row else word
-            if len(candidate) > columns:
+        # Canonical PGN headers and chess annotations commonly contain genuine
+        # source line breaks. Do not send a raw newline to native Liblouis or
+        # misinterpret it as a non-Braille cell. Preserve every source line:
+        # a completely blank line is represented by one all-blank Braille cell.
+        normalized = source.replace("\r\n", "\n").replace("\r", "\n")
+        for physical_source in normalized.split("\n"):
+            if physical_source == "":
+                if cell_count >= MAX_CELLS:
+                    raise BrailleFactoryError("Braille cell resource budget exceeded")
+                cell_count += 1
+                lines.append(blank)
+                continue
+            translated = translator.translate(physical_source)
+            if type(translated) is not str or not translated:
+                raise BrailleFactoryError("Formal translator produced empty/invalid Braille")
+            if len(translated) > MAX_CELLS - cell_count:
+                raise BrailleFactoryError("Braille cell resource budget exceeded")
+            cell_count += len(translated)
+            if any(not ("\u2800" <= cell <= "\u283f") for cell in translated):
+                raise BrailleFactoryError("Translator output is not six-dot Unicode Braille")
+            # PEF is prepaginated: never cut a single Braille word or cell.
+            if (translated.startswith(blank) or translated.endswith(blank)
+                    or blank + blank in translated):
+                raise BrailleFactoryError("Ambiguous Braille whitespace cannot be paginated losslessly")
+            words = translated.split(blank)
+            row = ""
+            for word in words:
+                if len(word) > columns:
+                    raise BrailleFactoryError("A translated word exceeds the selected device width")
+                candidate = (row + blank + word) if row else word
+                if len(candidate) > columns:
+                    lines.append(row)
+                    row = word
+                else:
+                    row = candidate
+            if row:
                 lines.append(row)
-                row = word
-            else:
-                row = candidate
-        if row:
-            lines.append(row)
-        if not row and not words:
-            lines.append("")
+        if len(lines) > MAX_PAGES * 60:
+            raise BrailleFactoryError("Book exceeds provisional physical-row limits")
     if not lines:
         raise BrailleFactoryError("No Braille content was produced")
     return lines
