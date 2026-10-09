@@ -9,7 +9,9 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from acs.lawful_corpus_registry import LawfulCorpusError, read_verified_source_snapshot
+from acs.lawful_corpus_registry import (
+    LawfulCorpusError, inventory_vendored_corpus, load_catalog, read_verified_source_snapshot,
+)
 from tools.revised_sections37_38_offline_manifest import build_manifest
 
 
@@ -77,7 +79,13 @@ class GenuineCorpusReceiptTests(unittest.TestCase):
     def test_actual_original_file_bytes_and_semantic_status_are_distinct(self):
         report = build_manifest()
         self.assertGreaterEqual(report["source_count"], 25)
-        self.assertEqual(report["vendored_cc0_byte_verified_count"], 10)
+        # The real, license-verified corpus gained additional pinned assets.
+        # Compare against the sole canonical inventory, never freeze an obsolete
+        # historical count that would reject authentic additions (10 -> 12).
+        registry = load_catalog(ROOT / "docs/corpus/revised_sections37_40_sources.json")
+        accepted = inventory_vendored_corpus(registry, ROOT, distribution="TEST_BUILD")
+        self.assertEqual(report["vendored_cc0_byte_verified_count"], len(accepted))
+        self.assertGreaterEqual(len(accepted), 10)
         self.assertEqual(report["genuine_test_book_read_count"], 1)
         self.assertFalse(report["revised_section_37_terminal_done"])
         self.assertFalse(report["revised_section_38_terminal_done"])
