@@ -108,7 +108,7 @@ def _sniff_zip(source: bytes) -> str:
             if "mimetype" in seen:
                 try:
                     mimetype = archive.read("mimetype")
-                except (BadZipFile, RuntimeError, ValueError, OSError) as exc:
+                except (BadZipFile, RuntimeError, ValueError, OSError, KeyError, EOFError) as exc:
                     raise FactoryIntakeError("EPUB mimetype cannot be verified") from exc
                 if mimetype == b"application/epub+zip":
                     if "meta-inf/container.xml" not in seen:
@@ -128,7 +128,10 @@ def _sniff_text(source: bytes) -> str:
         else:
             value = source.decode("utf-8-sig")
     except UnicodeDecodeError:
-        value = source.decode("cp1251")
+        try:
+            value = source.decode("cp1251")
+        except UnicodeDecodeError:
+            return "unknown"
     sample = value[:8192]
     if (not sample.strip() or "\x00" in sample or
         any(ord(c) < 32 and c not in "\t\r\n\f" for c in sample)):
