@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "section": "37.2",
+  "date": "2026-10-09",
+  "status": "PARTIAL_NOT_DONE",
+  "evidence_type": "Connector-executed JavaScript static source-vendor identity and ZIP directory-metadata assertions; NOT canonical application test",
+  "official_source": "official-stockfish/books",
+  "pinned_upstream_commit": "65815ccdbc7727cd4f6aee252ba8f67fb740e92f",
+  "checked_current_shipping_ref": "main",
+  "archive_count": 4,
+  "original_vs_vendored_binary_matches": 4,
+  "zip_directory_structure_accepted": 4,
+  "negative_structural_metadata_mutations_rejected": 12,
+  "checks": [
+    "upstream and shipped Git blob SHA match exactly, 4/4",
+    "upstream and shipped complete base64-encoded bytes match exactly, 4/4",
+    "valid ZIP EOCD, bounded central-directory offsets and lengths, local header, sane member paths, no encrypted flag, supported compression and bounded declared sizes, 4/4",
+    "three deliberately corrupted variants of each archive rejected: bad EOCD signature; encryption bit set; declared uncompressed file size changed to 0x7fffffff, 12/12"
+  ],
+  "archives": [
+    {
+      "filename": "startpos.epd.zip",
+      "git_blob": "1cab3bc1cfbfe2291591d454004269b3bcda5ab3",
+      "archive_bytes": 216,
+      "member": "startpos.epd",
+      "uncompressed_declared_bytes": 57,
+      "compressed_declared_bytes": 42,
+      "negative_cases_rejected": 3
+    },
+    {
+      "filename": "FRC_openings.epd.zip",
+      "git_blob": "05710b911d050ba511c382f735034ae90ba35151",
+      "archive_bytes": 6426,
+      "member": "FRC_openings.epd",
+      "uncompressed_declared_bytes": 54720,
+      "compressed_declared_bytes": 6244,
+      "negative_cases_rejected": 3
+    },
+    {
+      "filename": "4mvs_+90_+99.epd.zip",
+      "git_blob": "4ef91a4563e3bb310026f04b731a9ea517117d58",
+      "archive_bytes": 7399,
+      "member": "4mvs_+90_+99.epd",
+      "uncompressed_declared_bytes": 42679,
+      "compressed_declared_bytes": 7217,
+      "negative_cases_rejected": 3
+    },
+    {
+      "filename": "2moves_v2.pgn.zip",
+      "git_blob": "ba7bb324fa5763d961bb50d7a28d03c9462a5e51",
+      "archive_bytes": 57325,
+      "member": "2moves_v2.pgn",
+      "uncompressed_declared_bytes": 1510748,
+      "compressed_declared_bytes": 57149,
+      "negative_cases_rejected": 3
+    }
+  ],
+  "legal_boundary": "Source repo states CC0-1.0; existing owner registry remains TEST_ONLY and its redistribution/public release flags were not changed.",
+  "not_executed": [
+    "ZIP DEFLATE stream decoding and CRC verification",
+    "canonical acs EPD/PGN semantic parser, Library ACSDB import/restart",
+    "application negative/adversarial/recovery tests",
+    "hosted Section37 CI and Windows/NVDA",
+    "CBF+CBI, 2CBH, CBONE independent real corpus and oracles"
+  ],
+  "preserved": [
+    "Sections 0-36 accepted DONE",
+    "37.5/37.6 locked DONE",
+    "PR #2494/#2507 unchanged"
+  ],
+  "closure": "37.1-37.4 remain PARTIAL/ACTIONABLE; parent Section37 NOT TERMINAL DONE"
+}
