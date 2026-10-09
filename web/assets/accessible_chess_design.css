@@ -455,3 +455,114 @@ body:has(#routes) > #error:not(:empty){
     background:Canvas!important;color:CanvasText!important
   }
 }
+
+/* Section 44: real presenter finishing layer, never a second data authority.
+   The selectors below are anchored to IDs and roles emitted by canonical
+   Books/Library/Education/Teacher/Media presenters. */
+#v2-workspace main:has(#book-document-title) :is(figure[role="img"],aside[role="note"],[role="tree"]){
+  max-width:74ch;margin-block:var(--ac41-space-4);
+  padding:var(--ac41-space-3) var(--ac41-space-4);
+  background:var(--ac41-bg);color:var(--ac41-ink);
+  border:1px solid var(--ac41-border);border-radius:var(--ac41-radius);
+  overflow-wrap:anywhere;user-select:text;
+}
+#v2-workspace main:has(#book-document-title) :is(figure[role="img"] figcaption,aside[role="note"] h3){
+  font-weight:700;margin-block:0 var(--ac41-space-2)
+}
+#v2-workspace main:has(#book-document-title) nav[aria-label] ol{
+  display:flex;flex-wrap:wrap;gap:.3rem .8rem;
+  padding-inline-start:var(--ac41-space-4);max-width:76ch
+}
+#v2-workspace #library-import-region{
+  margin-block:var(--ac41-space-4);
+  padding:var(--ac41-space-4);
+  border:1px solid var(--ac41-border);border-radius:var(--ac41-radius)
+}
+#v2-workspace #library-import-region progress{
+  width:100%;height:1rem;accent-color:var(--ac41-action)
+}
+#v2-workspace #library-export-selection{
+  display:grid;gap:var(--ac41-space-2);padding:var(--ac41-space-4)
+}
+#v2-workspace #library-export-selection > div{
+  display:flex;flex-wrap:wrap;gap:var(--ac41-space-2);align-items:center
+}
+#v2-workspace #library-export-selection input[type="checkbox"]{
+  min-width:1.5rem;min-height:1.5rem
+}
+#v2-workspace [data-education-kind] [role="listbox"]{
+  max-height:min(55vh,32rem);overflow:auto
+}
+#v2-workspace #training-solution, #v2-workspace #education-detail{
+  overflow-wrap:anywhere;user-select:text
+}
+#v2-workspace #teacher-visual-region{min-width:0}
+#v2-workspace #teacher-board-wrap{
+  width:100%;max-width:46rem;margin-inline:auto;
+  overflow-x:auto;overscroll-behavior-inline:contain;
+  border-radius:var(--ac41-radius)
+}
+#v2-workspace #teacher-visual-board{
+  width:100%;min-width:20rem;
+  border:2px solid var(--ac41-border);
+  border-radius:var(--ac41-radius);overflow:hidden
+}
+#v2-workspace #teacher-visual-board [role="gridcell"]{
+  min-width:0;min-height:0;aspect-ratio:1/1
+}
+#v2-workspace #teacher-visual-board button[data-square]{
+  width:100%;height:100%;min-width:0;
+  aspect-ratio:1/1;padding:.2rem;
+  font-size:clamp(.85rem,1rem + 1.2vw,2.1rem);
+  border:1px solid var(--ac41-border);border-radius:0;
+  line-height:1.2;overflow-wrap:anywhere
+}
+#v2-workspace #teacher-visual-board button[data-square]:focus-visible{
+  outline:3px solid var(--ac41-focus)!important;
+  outline-offset:-4px!important;z-index:2
+}
+#v2-workspace #teacher-arrow-overlay{
+  pointer-events:none!important;user-select:none
+}
+#v2-workspace #teacher-accessible-summary{
+  max-width:74ch;margin:var(--ac41-space-3) auto;
+  padding:var(--ac41-space-3);
+  border-inline-start:4px solid var(--ac41-action);
+  white-space:pre-wrap;overflow-wrap:anywhere;user-select:text
+}
+/* Native HTML5 and YouTube controls remain in the original hit-testing and
+   accessibility trees; no decorative element is placed above the player. */
+#workspace :is(video,iframe),#v2-workspace :is(video,iframe){
+  display:block;max-width:100%;height:auto
+}
+#workspace iframe,#v2-workspace iframe{
+  width:min(100%,54rem);aspect-ratio:16/9;height:auto;
+  min-height:12rem;border:1px solid var(--ac41-border)
+}
+@media(max-width:38rem){
+  #v2-workspace #teacher-board-wrap{max-width:100%}
+  #v2-workspace #teacher-visual-board button[data-square]{font-size:.88rem}
+  #v2-workspace #library-import-region,
+  #v2-workspace #library-export-selection{padding:var(--ac41-space-2)}
+}
+@media(forced-colors:active){
+  #v2-workspace main:has(#book-document-title) :is(figure[role="img"],aside[role="note"],[role="tree"]),
+  #v2-workspace #library-import-region,
+  #v2-workspace #teacher-visual-board,
+  #v2-workspace #teacher-visual-board button[data-square]{
+    background:Canvas!important;color:CanvasText!important;
+    border-color:CanvasText!important
+  }
+  #v2-workspace #teacher-arrow-overlay{display:none!important}
+  #v2-workspace #teacher-accessible-summary{
+    border-inline-start-color:Highlight!important
+  }
+  #v2-workspace #teacher-visual-board button[data-square]:focus-visible{
+    outline:3px solid Highlight!important
+  }
+}
+@media(prefers-reduced-motion:reduce){
+  #v2-workspace #teacher-visual-region *,#v2-workspace #library-import-region *{
+    animation:none!important;transition:none!important
+  }
+}
