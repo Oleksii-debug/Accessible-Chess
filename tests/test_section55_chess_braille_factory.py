@@ -125,6 +125,18 @@ class TestSection55ProvisionalPEF(unittest.TestCase):
         self.assertTrue(result.pef)
         self.assertIs(result.manifest["print_ready"], False)
 
+    def test_piece_inventory_is_derived_from_canonical_board(self) -> None:
+        from acs.chess_braille_factory import _canonical_lines
+        example = BookDocument(
+            title="Chess",
+            blocks=[Position(fen="4k3/8/8/8/8/8/8/4K3 b - - 0 1")],
+        )
+        segments, source_digest = _canonical_lines(example)
+        self.assertIn("Side to move: Black", segments)
+        self.assertIn("Piece K on e1", segments)
+        self.assertIn("Piece k on e8", segments)
+        self.assertEqual(len(source_digest), 64)
+
     def test_detached_game_and_unresolvable_pgn_cannot_pass(self) -> None:
         from acs.bookdocument import Game
         document = BookDocument(title="Chess", blocks=[Game(game_id=123)])
