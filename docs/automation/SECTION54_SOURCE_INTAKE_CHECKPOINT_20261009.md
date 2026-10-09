@@ -2,11 +2,13 @@
 
 ## Exact scope
 
-This checkpoint targets the foundational intake slice of **54.1** only. The parent **Section 54 is PARTIAL / NOT DONE**. No 54 subsection is declared terminal at this checkpoint. Section 51 is not touched.
+This checkpoint targets foundational slices of **54.1** and **54.11** only. The parent **Section 54 is PARTIAL / NOT DONE**. No 54 subsection is declared terminal at this checkpoint. Section 51 is not touched.
 
-New additive source: `acs/format_factory_intake.py`; regression tests: `tests/test_section54_source_intake.py`; dedicated Ubuntu/Windows workflow: `.github/workflows/section54-source-intake.yml`.
+New additive source: `acs/format_factory_intake.py` and `acs/format_factory_tokens.py`; regression tests: `tests/test_section54_source_intake.py` and `tests/test_section54_factory_tokens.py`; dedicated Ubuntu/Windows workflow: `.github/workflows/section54-source-intake.yml`.
 
 Implemented capability: immutable in-memory source-byte SHA-256 and bounded identity, extension-content mismatch denial, conservative MIME/signature detection of PDF, JPEG, PNG, ZIP/EPUB/DOCX, PGN and structured text. ZIP metadata rejects traversal, duplicate names, special-file entries, encrypted entries, individual/aggregate size overruns and extreme expansion. EPUB container identification does not claim successful EPUB content parsing. Supported TXT/Markdown, HTML, EPUB are delegated to existing BookDocument importers; no alternative chess parser, FEN authority, text converter, or privileged filesystem/network activity is introduced.
+
+54.11 partial: immutable per-run independent INPUT/OUTPUT token envelopes; strict provider output-cap preflight; reservation across concurrent jobs; actual/cached/reasoning usage accounting by model; unknown-billing and overshoot blocking, pre-dispatch cancellation. This is a reusable boundary only: not yet wired to ModelGateway/UI, no durable account usage service, no live provider call, no actual in-flight hard interruption claim. No monetary or monthly budgets.
 
 **Truthful status matrix**
 
@@ -26,9 +28,9 @@ Implemented capability: immutable in-memory source-byte SHA-256 and bounded iden
 - 54.2–54.4: full semantic provenance, multimodal/OCR provider routing and canonical diagram/GameTree legality.
 - 54.5–54.7: user-consented source lookup, natural-language policy/UI and NVDA form.
 - 54.8: tagged PDF/EPUB3/DOCX/PGN conversion, loss manifest and output readback.
-- 54.9–54.12: per-book durable queues, token envelopes, idempotent checkpoints and failure recovery.
+- 54.9–54.12: per-book durable queues, integrate the token governor into actual ModelGateway and persistent runs, idempotent checkpoints, provider response reconciliation and recovery.
 - 54.13–54.15: privacy, QA of real lawful books, Windows/Web product integration, acceptance, final shipping provenance.
 
 ## Verification and integration rule
 
-The committed test file covers deterministic source identification, digest, canonical import reuse, archive traversal and duplicates, forged extensions, malformed EPUB/ZIP, unsupported formats and privacy-preserving path display. **Presence of tests is not evidence of their execution.** Do not call tests PASS before a completed exact-head CI or actual local execution. No authenticated external source was transmitted; no paid API was called. Preserve Sections 0–53 accepted work and 55 separately. After qualification, converge only through the canonical main release path. No DONE without whole 54 acceptance.
+The committed tests cover deterministic source identification, digest, canonical import reuse, archive traversal and duplicates, forged extensions, malformed EPUB/ZIP, unsupported formats, privacy-preserving path display, concurrent token reservations, duplicate IDs, model-level usage and unknown-billing recovery lock. **Presence of tests is not evidence of their execution.** Do not call tests PASS before a completed exact-head CI or actual local execution. No authenticated external source was transmitted; no paid API was called. Preserve Sections 0–53 accepted work and 55 separately. After qualification, converge only through the canonical main release path. No DONE without whole 54 acceptance.
