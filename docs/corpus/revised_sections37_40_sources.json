@@ -1301,6 +1301,7 @@
       "test_access": "PINNED_ORIGINAL_GIT_SOURCE_CI_ONLY",
       "public_release": "EXCLUDED_PENDING_QUALIFICATION",
       "canonical_qa": "Actual Git original blob pinned, full-byte SHA256/source readback pending exact checkout CI",
+      "source_text_readback_evidence": "docs/corpus/SECTION37_EXTREME_PUZZLE_UPSTREAM_READBACK_20261009.json",
       "notes": "Source raw file has original indexed 24,595 puzzles with ratings 400 to 3166, 3000+ tail observed from original source. This is not a user beginner pack; advanced 3000+ derived only."
     },
     {
@@ -1323,6 +1324,7 @@
       "acquisition": "VENDORED_SOURCE_VERIFIED",
       "test_access": "VENDORED_SOURCE_VERIFIED",
       "canonical_qa": "Actual four original source lines normalized into the manually source-mapped CC0 subset; CI additionally asserts literal equality to exact original historical 24,595-row Git checkout",
+      "source_text_readback_evidence": "docs/corpus/SECTION37_EXTREME_PUZZLE_UPSTREAM_READBACK_20261009.json",
       "notes": "The vendored item includes only original Lichess CC0 puzzle data, not GPL-3.0 FeXd application code; FeXd pinned README attributes puzzles to Lichess CC0, while its application is GPL-3.0. Four genuine extreme 3000-3166 *Lichess puzzle* ratings, not FIDE ELO or GM titles. Original FEN before opponent move, solution after first move, original authored study not asserted."
     },
     {
