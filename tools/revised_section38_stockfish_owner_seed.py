@@ -92,7 +92,7 @@ def prepare_owner_test_stockfish_seed(destination: Path, *, repository_root: Pat
     write into the user's live Library, release ZIP, or arbitrary published
     sources. Existing content is never deleted or silently replaced.
     """
-    if type(destination) is not Path or type(repository_root) is not Path:
+    if not isinstance(destination, Path) or not isinstance(repository_root, Path):
         raise TypeError("corpus seed paths must be Path instances")
     derivative, original = _verified_original_pgntree(repository_root)
     raw = derivative.encode("utf-8")
