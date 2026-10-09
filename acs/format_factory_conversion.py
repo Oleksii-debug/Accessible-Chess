@@ -13,6 +13,7 @@ import re
 
 from .bookdocument import BookDocument
 from .format_factory_export import FactoryExportResult, export_factory_preview
+from .format_factory_epub import export_factory_epub3_preview
 from .format_factory_intake import FactoryImportedBook, FactoryIntakeError, import_factory_book
 from .format_factory_policy import FactoryJobPolicy, FactorySelection
 
@@ -85,6 +86,7 @@ def convert_factory_book_private(
     source_language: str,
     allow_semantic_loss: bool = False,
     chapter_heading_level: int | None = None,
+    epub_modified_utc: str | None = None,
 ) -> FactoryConversionResult:
     """Single-call safe conversion of a validated local source to private previews.
 
@@ -107,8 +109,10 @@ def convert_factory_book_private(
         raise FactoryConversionError("External research/AI is not qualified in private preview workflow")
     if type(allow_semantic_loss) is not bool:
         raise FactoryConversionError("Loss permission must be an explicit boolean")
-    if any(fmt not in ("html", "txt") for fmt in policy.output_formats):
+    if any(fmt not in ("html", "txt", "epub3") for fmt in policy.output_formats):
         raise FactoryConversionError("One or more requested exporters are unqualified")
+    if "epub3" in policy.output_formats and not epub_modified_utc:
+        raise FactoryConversionError("EPUB3 requires a verified explicit modification timestamp")
     try:
         imported: FactoryImportedBook = import_factory_book(
             source, source_name=source_name, language=source_language,
@@ -120,6 +124,10 @@ def convert_factory_book_private(
     try:
         selected = _resolve_selection(imported.document, policy.selection, chapter_heading_level=chapter_heading_level)
         rendered = tuple(
+            export_factory_epub3_preview(
+                selected, source_sha256=source_digest, modified_utc=epub_modified_utc,
+                allow_semantic_loss=allow_semantic_loss,
+            ) if fmt == "epub3" else
             export_factory_preview(
                 selected, source_sha256=source_digest, output_format=fmt,
                 allow_semantic_loss=allow_semantic_loss,
