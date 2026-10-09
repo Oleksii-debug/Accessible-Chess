@@ -16,6 +16,7 @@ _MAX_TEXT = 16_384
 _JSON_TYPE = b"application/json; charset=utf-8"
 _HTML_TYPE = b"text/html; charset=utf-8"
 _JS_TYPE = b"text/javascript; charset=utf-8"
+_CSS_TYPE = b"text/css; charset=utf-8"
 
 
 class SubscriptionWebError(ValueError):
@@ -250,6 +251,11 @@ class AccessibleChessSubscriptionAsgi:
                 return
             if method == "GET" and path == "/assets/accessible_chess_subscription.js":
                 await _respond(send, 200, self._javascript, _JS_TYPE)
+                return
+            if method == "GET" and path == "/assets/accessible_chess_subscription_design.css":
+                # Same first-party CSS as the protected Web workspace. The
+                # subscription/registration landing page is intentionally public.
+                await _respond(send, 200, _asset("design_system.css"), _CSS_TYPE)
                 return
             if method == "GET" and path == "/v1/subscription/snapshot":
                 await _respond(send, 200, _json(self._gateway.snapshot(principal)), _JSON_TYPE)
