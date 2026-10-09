@@ -59,7 +59,7 @@ class Stage1ReleaseAccessibleChessAPI(_core.Stage1ReleaseAccessibleChessAPI):
     _WORKSPACE_PANEL_IDS = frozenset({
         "h-board", "h-moves", "h-game-info", "h-engine", "h-input",
         "h-actions", "h-status", "h-white", "h-black", "h-last",
-        "h-settings", "h-help",
+        "h-settings", "h-help", "h-media", "h-ai-agent", "h-engine-play",
     })
     _PRODUCT_LAYOUT_ROUTES = frozenset({
         "pgn", "library", "books", "training", "teacher", "classes",
@@ -77,10 +77,10 @@ class Stage1ReleaseAccessibleChessAPI(_core.Stage1ReleaseAccessibleChessAPI):
             collapsed = value.get("collapsed")
             sizes = value.get("sizes")
             if (
-                type(collapsed) is not list or len(collapsed) > 12
+                type(collapsed) is not list or len(collapsed) > 15
                 or any(type(item) is not str or item not in cls._WORKSPACE_PANEL_IDS for item in collapsed)
                 or len(set(collapsed)) != len(collapsed)
-                or type(sizes) is not dict or len(sizes) > 12
+                or type(sizes) is not dict or len(sizes) > 15
                 or any(
                     type(name) is not str or name not in cls._WORKSPACE_PANEL_IDS
                     or type(size) is not str or size not in {"auto", "medium", "large"}

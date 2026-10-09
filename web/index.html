@@ -158,7 +158,8 @@ window.addEventListener('pywebviewready',async()=>{await refreshState();await lo
   const headings={
     "h-board":1,"h-moves":1,"h-game-info":1,"h-engine":1,"h-input":1,
     "h-actions":1,"h-status":1,"h-white":1,"h-black":1,
-    "h-last":1,"h-settings":1,"h-help":1
+    "h-last":1,"h-settings":1,"h-help":1,
+    "h-media":1,"h-ai-agent":1,"h-engine-play":1
   };
   const SIZES=["auto","medium","large"];
   const labels=(uk,en)=>document.documentElement.lang==="en"?en:uk;
@@ -343,6 +344,29 @@ window.addEventListener('pywebviewready',async()=>{await refreshState();await lo
     if(nativeBridge())hydrateNative();
   }
 })()
+
+
+// Section 43: explicit focus return for existing accessible dialogs.
+// Preserve an already-established external focus (e.g., after starting a game).
+(function installSection43DialogFocusReturn(){
+  "use strict";
+  for(const [dialogId, openerId] of [
+    ["keymap-dialog","open-keymap"],
+    ["help-dialog","open-help"],
+    ["engine-game-dialog","engine-play-open"]
+  ]){
+    const dialog=document.getElementById(dialogId);
+    const opener=document.getElementById(openerId);
+    if(!dialog||!opener)return;
+    dialog.addEventListener("close",()=>{
+      const active=document.activeElement;
+      if(active && active!==document.body && !dialog.contains(active))return;
+      if(!opener.hidden && !opener.disabled && typeof opener.focus==="function"){
+        opener.focus({preventScroll:true});
+      }
+    });
+  }
+})();
 
 </script>
 </body>

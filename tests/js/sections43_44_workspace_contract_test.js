@@ -16,7 +16,7 @@ new vm.Script(code, { filename: "web/index.html:sections43-44" });
 const IDS = [
   "h-board", "h-moves", "h-game-info", "h-engine", "h-input",
   "h-actions", "h-status", "h-white", "h-black", "h-last",
-  "h-settings", "h-help"
+  "h-settings", "h-help", "h-media", "h-ai-agent", "h-engine-play"
 ];
 
 class Element {
@@ -99,7 +99,7 @@ function mount(seed, language = "uk", nativeAPI = null) {
   return {document, saved, panels, main, find: id => document.getElementById(id)};
 }
 const key = "accessible-chess.workspace-layout.v1";
-// Real packaged DOM integration: all 12 sections gain native-focusable controls.
+// Real packaged DOM integration: all 15 sections gain native-focusable controls.
 {
   const app = mount();
   assert.equal(app.main.firstChild.id, "ac43-workspace-controls");
@@ -157,7 +157,7 @@ const key = "accessible-chess.workspace-layout.v1";
   panel.section.appendChild(late);
   assert.equal(panel.section.dataset.ac43Collapsed, "true");
   assert.equal(late.hidden, false, "simulate service repaint outside JS tracker");
-  assert.ok(css.includes('#main-content > section[data-ac43-collapsed="true"] > :not(h2){') &&
+  assert.ok(css.includes('#main-content section[data-ac43-collapsed="true"] > :not(h2):not(h3){') &&
     css.includes("display:none!important;"),
     "late children of collapsed panels must be hidden by the actual stylesheet");
   toggle.click();
@@ -165,6 +165,11 @@ const key = "accessible-chess.workspace-layout.v1";
   assert.equal(late.hidden, false, "new content must become accessible again on expansion");
 }
 
+// Dialog close restores owner focus without stealing an intentional next target.
+{
+  assert.ok(html.includes("installSection43DialogFocusReturn"));
+  assert.ok(html.includes('["engine-game-dialog","engine-play-open"]'));
+}
 // User-facing keyboard layout choices persist; corrupt/bad storage fails closed.
 {
   const app = mount();

@@ -276,7 +276,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   background:var(--ac-surface);padding:1rem;
   max-height:none;box-shadow:var(--ac-shadow-soft);
 }
-#main-content > section[aria-labelledby="h-board"] {grid-column:1/-1}
+#main-content > section[aria-labelledby="h-board"],
+#main-content > section[aria-labelledby="h-media"],
+#main-content > section[aria-labelledby="h-ai-agent"] {grid-column:1/-1}
 #main-content > section:not([data-ac43-collapsed="true"]) {
   min-height:var(--ac43-panel-size,auto);
 }
@@ -290,7 +292,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   margin-inline-start:.75rem;vertical-align:middle;
 }
 .ac43-panel-actions button {font-size:.875em;min-height:2.4rem;padding:.35rem .65rem}
-#main-content > section[data-ac43-collapsed="true"] > :not(h2){
+#main-content section[data-ac43-collapsed="true"] > :not(h2):not(h3){
   display:none!important;
 }
 html[data-ac43-layout="single"] #main-content {grid-template-columns:minmax(0,1fr)}
