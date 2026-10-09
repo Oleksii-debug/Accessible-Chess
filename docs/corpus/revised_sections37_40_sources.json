@@ -1494,6 +1494,21 @@
       "public_release": "EXCLUDED",
       "canonical_qa": "Genuine publisher CBV/PGN external source-byte qualification; no actual download, digest, semantic import or public distribution is inferred",
       "notes": "Exact direct publisher link observed 2026-10-09. This registry entry is discovery only, not a source byte receipt; must verify HTTP 200, source SHA256, full archive contents and canonical application readback on private disposable runner before upgrading."
+    },
+    {
+      "id": "morphy_world_ch_2cbh_complete_source_candidate",
+      "title": "Morphy World Championship 2CBH original full-family candidate with CBH counterpart",
+      "author": "Yarin78/morphy repository; historic chess-score and converted-database upstream rights not independently cleared",
+      "format": "2cbh+2cbg+2cba+2lid+2lgd+2lcd+ini",
+      "source_page": "https://github.com/Yarin78/morphy/tree/c721bacb53dac9619f268346454d419667497f51/test-databases/wch2",
+      "download_url": null,
+      "sha256": null,
+      "max_bytes": 0,
+      "license": "UNVERIFIED per-database test/distribution rights; no explicit source data grant established",
+      "redistribution": "NOT_CLEARED",
+      "acquisition": "UPSTREAM_GIT_TREE_METADATA_ONLY_NOT_DOWNLOADED",
+      "canonical_qa": "UPSTREAM_CBH_V1_V2_ORACLE_DESCRIBED_ONLY; ACCESSIBLE_CHESS_IMPORT_AND_RESTART_NOT_EXECUTED",
+      "notes": "Full seven-file upstream Git tree at c721bacb53dac9619f268346454d419667497f51, byte sizes and Git blob IDs (Git SHA-1 object IDs, NOT SHA-256 of downloaded bytes): wch2.2cbh=f553f17e96acbb035ac62b979ee14e498122bf37 (199488 bytes); wch2.2cbg=faa816d982f373ca8025fa2599678a93dd887fab (5161008 bytes); wch2.2cba=8079d5dde3e93f6279e0a9d26405c2340ff1f324 (2116760 bytes); wch2.2lid=63d1359d1ad2119418f60f2300b916967f02bacc (504074 bytes); wch2.2lgd=307f26f6de27b4292b973c3f5fef0a2ea49a16d6 (84492 bytes); wch2.2lcd=b8e37f652b2588233e670fe9092321d280ef4104 (57344 bytes); wch2.ini=152fbd777d30c09601e7f4fa75ff540ec02ab27d (3305 bytes). morphy-cb2 README documents v2 read/write tests against v1 test-databases/world-ch, using ChessBase-made conversion and matching game IDs. This is a DISCOVERED genuine full-family candidate, NOT verified download, authorization to redistribute, independent oracle PASS, or Accessible Chess supported importer. Keep existing official 2CBH blocked row and protected terminal locks unchanged."
     }
   ]
 }
