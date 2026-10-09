@@ -38,7 +38,10 @@
       const meanings={attack:["Атака","Attack"],defence:["Захист","Defence"],
         idea:["Ідея","Idea"],legal:["Дозволений хід","Legal move"],
         target:["Ціль","Target"],selected:["Вибір","Selection"],
-        custom:["Позначка","Mark"],"last-move":["Останній хід","Last move"]};
+        custom:["Позначка","Mark"],"last-move":["Останній хід","Last move"],
+        check:["Шах","Check"],mate:["Мат","Checkmate"],
+        capture:["Взяття","Capture"],return:["Повернення","Return"],
+        coach:["Підказка тренера","Coach hint"]};
       const pair=meanings[purpose];
       return pair ? pair[en?1:0] : purpose;
     };
