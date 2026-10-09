@@ -25,11 +25,11 @@
   "2026-10-10_section51_incremental_cross_surface_regression": {
     "scope": [
       "51.3 fresh-profile user-owned bytes plus canonical Settings/ACSDB reopen (host-side manual copy; not UI import)",
-      "51.5 rollback on injected exception, crash recovery, checksum-tampered backup denial and future-schema downgrade denial"
+      "51.5 legacy schema-1 upgrade, rollback on injected exception, crash recovery, checksum-tampered backup denial and future-schema downgrade refusal"
     ],
     "test_path": "tests/test_section51_cross_surface_recovery.py",
     "workflow_path": ".github/workflows/section51-cross-surface-recovery.yml",
-    "test_count": 5,
+    "test_count": 7,
     "executed_test_result": "UNVERIFIED",
     "ci_result": "NOT_OBSERVED_TERMINAL",
     "limitations": [
