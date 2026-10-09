@@ -1,0 +1,25 @@
+/* Accessible Chess local isolated Tabler Core 1.6.1 MIT accessibility component.
+ * Based solely on core/scss/layout/_accessibility.scss at
+ * ec33733290bd0f314ca19f6be58bc69a6ab3e4fa (original git blob
+ * 047720ee79039e213612cfbadd6af357534a7735).
+ * Variables and external Bootstrap selectors NOT copied; independently scoped
+ * CSS works offline with the existing semantic WebView/Web UI. Source and full
+ * MIT license are tracked separately in docs/third_party and tabler-core/LICENSE.
+ */
+@media (forced-colors: active) {
+  :focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+  }
+  .ac41-tabler-close {
+    forced-color-adjust: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ac41-icon-pulse, .ac41-icon-rotate, .ac41-status-indicator-animated {
+    animation: none !important;
+  }
+  .ac41-status-loader::after, .ac41-progress-indeterminate::before {
+    animation-duration: 3s !important;
+  }
+}
