@@ -58,7 +58,10 @@ class MasterGenresProofTests(unittest.TestCase):
                 self.assertTrue(item["tested_material_scope"])
                 for row in item["original_or_derived_source_candidates"]:
                     self.assertIn(row["qualification_status"], APPROVED_RIGHTS_BOUNDARIES)
-                    self.assertNotIn("PASS", row["qualification_status"])
+                    # ``PINNED_NOT_DOWNLOADED_IN_THIS_PASS`` records that the
+                    # source was deliberately *not* acquired in this run; the
+                    # substring must not be mistaken for a PASS verdict.
+                    self.assertNotEqual("PASS", row["qualification_status"])
 
     def test_legal_original_sources_are_registered_and_unsupported_chessbase_stays_blocked(self):
         catalog = {r["id"]: r for r in load_catalog()}

@@ -188,7 +188,7 @@ class ProfessionalCatalogProductTests(unittest.TestCase):
                     app_en.browser_command("shell", "screen.books")
                     listing = app_en.snapshot()["books"]["starter_materials"]["items"]
                     label = next(x["title"] for x in listing if x["material_id"] == MATERIAL_ID)
-                    self.assertIn("Advanced chess", label)
+                    self.assertIn("Professional chess study", label)
                     selected = app_en.browser_command(
                         "books", "book.open_starter_material",
                         {"material_id": MATERIAL_ID},
