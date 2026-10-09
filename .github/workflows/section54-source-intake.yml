@@ -1,0 +1,36 @@
+name: Section 54 bounded source-intake qualification
+on:
+  push:
+    branches:
+      - 'work/section54-*'
+    paths:
+      - 'acs/format_factory_intake.py'
+      - 'tests/test_section54_source_intake.py'
+      - '.github/workflows/section54-source-intake.yml'
+  pull_request:
+    paths:
+      - 'acs/format_factory_intake.py'
+      - 'tests/test_section54_source_intake.py'
+      - '.github/workflows/section54-source-intake.yml'
+  workflow_dispatch:
+jobs:
+  intake:
+    name: Canonical ingress and archive safety (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile Python source
+        run: python -m py_compile acs/format_factory_intake.py tests/test_section54_source_intake.py
+      - name: Run section 54 tests
+        run: python -m unittest discover -s tests -p 'test_section54_source_intake.py' -v
