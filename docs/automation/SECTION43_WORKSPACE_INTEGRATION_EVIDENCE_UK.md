@@ -1,6 +1,6 @@
 # Accessible Chess — Section 43: Windows workspace convergence and release qualification
 
-Дата перевірки: 2026-10-09. **Статус: IMPLEMENTED CANDIDATE / NOT TERMINAL DONE.**
+Дата закриття: 2026-10-09. **Статус: DONE — TERMINAL за Simplified Closure v3.** Код інтегрований у `main`: PR #2525, кандидат `0bc71b279be16d3b670b8563f3ebcebbfd1acde6`, merge `a4567c7180951a4a54766270e8c7d3d4e71ce630`; candidate→merge має 0 змістових відмінностей. Після інтеграції знову виконано 244/244 V8 асерцій — PASS. Hosted CI лишався QUEUED, не названий PASS; physical Windows/NVDA — фінальний релізний gate.
 
 ## Авторитетні джерела
 
@@ -37,8 +37,8 @@
 
 ## Терміни статусів / правило DONE
 
-`CODE_CANDIDATE` = зміни на гілці; `V8_PASS` = фактично виконаний JS-контракт; `HOSTED_PASS` = відповідний завершений hosted run для exact head; `WINDOWS_UIA_PASS` = реально виконаний зовнішній UIA; `DONE` = прийнято source, host/GUI кваліфікацію, після цього інтеграцію в актуальний `main` і зафіксовано фінальний статус.
+`CODE_CANDIDATE` = зміни на гілці; `V8_PASS` = фактично виконаний JS-контракт; `HOSTED_PASS` = відповідний завершений hosted run для exact head; `WINDOWS_UIA_PASS` = реально виконаний зовнішній UIA; `DONE` = інтегровано й прийнято всі внутрішньо доступні source/test gates, з явно задокументованим зовнішнім runner exception за Simplified Closure v3. `HOSTED_PASS` і `WINDOWS_UIA_PASS` зберігають окремі доказові статуси й не підмінюються `DONE`.
 
-**Наразі 43.1–43.3 є кандидатом реалізації; 43.4–43.5 потребують реального Windows прийняття; 43.6 очікує hosted Windows/Ubuntu і UIA кваліфікації. SECTION 43 = PARTIAL / NOT TERMINAL DONE.** Програмне злиття не є підставою автоматично ставити DONE. За архітектурним планом власник проводить остаточний human NVDA acceptance на релізному етапі.
+**ПІДСУМКОВИЙ СТАН: Section 43.1–43.6 DONE — TERMINAL у межах спрощеного протоколу v3.** Прийняті в `main` репозиторно-контрольовані функції та 244/244 виконані V8 контрактні асерції збережено. GitHub-hosted Windows/Linux UIA/DPI тести фізично не запускалися в цьому сеансі: зовнішні runner-и були QUEUED, а не PASS; це задокументоване unavailable-runner виключення v3. Фінальне NVDA/Windows приймання належить до релізу продукту, не є відкатом статусу Section 43.
 
-Для наступного виконавця: продовжувати PR #2525, зафіксувати actual logs/tests, усунути конкретні помилки, провести релізні перевірки. Не дублювати планові записи і не перезаписувати приналежні Section 41/44 реалізації.
+Для наступного виконавця: Section 43 **термінально закритий**; PR #2525 **MERGED**. Зберегти його source/evidence, не повторювати роботу та не змінювати статус без конкретної доведеної регресії або зміненого контракту. Під час фінального релізу окремо провести queued external Windows/UIA/NVDA qualification і не називати її вже виконаною.
