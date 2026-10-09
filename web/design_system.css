@@ -428,7 +428,7 @@ html[data-ac43-density="compact"] #main-content > section {padding:.55rem}
   border:1px solid var(--ac-border);
   border-radius:var(--ac-radius-sm);
   background:var(--ac-surface-tint);
-  color:var(--ac-ink);
+  color:var(--ac-text);
   overflow-wrap:anywhere;
 }
 #media-player-region :is(#video-seek,#video-playback-speed,#video-recognition-quality,#video-session-select),
