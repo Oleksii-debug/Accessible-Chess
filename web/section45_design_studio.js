@@ -111,6 +111,16 @@ function currentPrefs() {
   const name=store.selected;
   return {...(own(presets,name)?presets[name]:store.profiles[name])};
 }
+let observedNativeHost=false;
+function nativeHostPresent() {
+  // File-packaged Windows app and WebView2 must never silently fall back to
+  // a second localStorage owner while pywebview is still bootstrapping.
+  if(window.pywebview || (window.chrome && window.chrome.webview) ||
+      (window.location && window.location.protocol==="file:")) {
+    observedNativeHost=true;
+  }
+  return observedNativeHost;
+}
 function nativeApi() {
   const bridge=window.pywebview && window.pywebview.api;
   return bridge && typeof bridge.get_design_studio_state==="function" &&
@@ -283,6 +293,7 @@ async function persist(next) {
     }
     revision=response.revision;store=response.store;
   }else{
+    if(nativeHostPresent())throw new Error("native settings bridge unavailable");
     if(!localWrite(next))throw new Error("browser storage unavailable");
     store=next;
   }
@@ -375,6 +386,12 @@ async function hydrate(){
       return;
     }
   }else{
+    if(nativeHostPresent()){
+      status("Очікування доступу до сховища Windows. Зміни не зберігатимуться.",
+        "Waiting for Windows settings bridge. Saving is disabled.",true);
+      el("ac45-apply").disabled=true;el("ac45-copy").disabled=true;
+      return;
+    }
     store=localRead()||blankStore();
     if(localCorrupt){
       status("Пошкоджені вебпрофілі збережені без змін. Щоб відновити типові значення, натисніть Скинути, тоді Застосувати.",
@@ -463,7 +480,10 @@ function init(){
       status("Профіль змінено в іншій вкладці. Повторно відкрийте сторінку перед збереженням.",
         "Profiles changed in another tab. Reload before saving.",true);
   });
-  window.addEventListener("pywebviewready",()=>void hydrate());
+  window.addEventListener("pywebviewready",()=>{
+    observedNativeHost=true;
+    void hydrate();
+  });
 }
 if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",init);
 else init();
