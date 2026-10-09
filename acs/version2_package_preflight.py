@@ -188,6 +188,10 @@ _REQUIRED_I386_MANAGED_DESKTOP_RUNTIME_FILES = frozenset(
 )
 _REQUIRED_WEB_FILES = (
     "AccessibleChess/web/index.html",
+    "AccessibleChess/web/design_system.css",
+    "AccessibleChess/web/board_themes.css",
+    "AccessibleChess/web/youtube_iframe_adapter.js",
+    "AccessibleChess/web/video_board_sync.js",
     "AccessibleChess/web/stage1_release_bootstrap.js",
     "AccessibleChess/web/stage1_board_actions.js",
     "AccessibleChess/web/full_product_pgn.js",
@@ -1873,9 +1877,6 @@ def _checksums(
             max_bytes=min(limits.max_member_bytes, _MAX_CHECKSUMS_BYTES),
         )
         lines = payload.decode("utf-8-sig", errors="strict").splitlines()
-        expected_line_count = len(inventory) - 1
-        if len(lines) > expected_line_count:
-            _fail("checksum inventory contains too many entries")
     except Version2PackagePreflightError:
         raise
     except (OSError, UnicodeError) as exc:
@@ -1897,6 +1898,10 @@ def _checksums(
             _fail("checksum inventory contains duplicate paths")
         folded.add(key)
         result[relative] = digest
+
+    expected_line_count = len(inventory) - 1
+    if len(lines) > expected_line_count:
+        _fail("checksum inventory contains too many entries")
 
     expected = set(inventory) - {CHECKSUMS_NAME}
     if set(result) != expected:

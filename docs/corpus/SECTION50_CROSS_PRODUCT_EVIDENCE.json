@@ -15,17 +15,20 @@
     "canonical board/FEN/GameTree",
     "Stockfish runtime and analysis UI",
     "Book/Library routes",
-    "local media source catalog"
+    "real local MP4 import and frame capture",
+    "deterministic video square-change synchronizer",
+    "canonical legal-move/FEN bridge",
+    "live Mistral text-agent gateway"
   ],
   "blocked_dependencies": [
-    "Section 47 real packaged video playback/frame capture",
-    "Section 48 YouTube IFrame adapter/live smoke",
-    "Section 49 protected live provider/AI Agent gateway"
+    "physical packaged Windows/WebView2/NVDA acceptance",
+    "automatic recovery after video seeks that skip multiple moves",
+    "Book/Library persistence of recognized video sessions"
   ],
   "not_run": [
-    "video-to-FEN extraction",
-    "YouTube embed seek/pause/unavailable smoke",
-    "Mistral-first and three-provider live comparison",
+    "packaged Windows video-to-FEN execution",
+    "YouTube embed unavailable/reconnect smoke",
+    "three-provider live comparison",
     "cross-provider failure/recovery scenarios",
     "owner packaged end-to-end run"
   ],

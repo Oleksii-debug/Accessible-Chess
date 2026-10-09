@@ -67,6 +67,9 @@ class AccessibleChessAPI:
         self.review_adapter = ReviewPresentationAdapter(self.review_history, language=self.lang)
         self.live_history_node = self.review_history.cursor_node_id
         self.ai_gateway = AIProviderGateway()
+        self.video_sync_active = False
+        self.video_sync_last_timecode = 0.0
+        self.video_sync_last_confidence = 0.0
 
     @property
     def review_cursor(self) -> int:
@@ -486,6 +489,69 @@ class AccessibleChessAPI:
             return {"ok": True, "text": result.text, "provider": result.provider, "model": result.model, "usage": dict(result.usage)}
         except (AIProviderError, ValueError, TypeError):
             return {"ok": False, "announcement": "AI provider request could not be completed." if self.lang == "en" else "Не вдалося виконати запит до AI-провайдера."}
+
+    @staticmethod
+    def _video_move_changed_squares(move) -> list[int]:
+        changed = {move.frm, move.to}
+        if move.castle:
+            rook_from, rook_to = {6: (7, 5), 2: (0, 3), 62: (63, 61), 58: (56, 59)}[move.to]
+            changed.update((rook_from, rook_to))
+        if move.en_passant:
+            changed.add(move.to - 8 if move.to > move.frm else move.to + 8)
+        return sorted(changed)
+
+    def video_sync_start(self) -> dict[str, Any]:
+        """Reset to the standard position and start deterministic video move sync."""
+        state = self.new_game()
+        if not state.get("ok"):
+            return state
+        self.video_sync_active = True
+        self.video_sync_last_timecode = 0.0
+        self.video_sync_last_confidence = 0.0
+        state["videoSync"] = {"active": True, "timecode": 0.0, "confidence": 0.0}
+        state["candidates"] = self.video_sync_candidates().get("candidates", [])
+        return state
+
+    def video_sync_candidates(self) -> dict[str, Any]:
+        if not self.video_sync_active:
+            return {"ok": False, "candidates": [], "announcement": "Video synchronization is not active." if self.lang == "en" else "Синхронізація відео не активна."}
+        candidates = []
+        for move in self.board.legal_moves():
+            candidates.append({
+                "uci": sq_name(move.frm) + sq_name(move.to) + (move.promotion.lower() if move.promotion else ""),
+                "san": self.board.san(move),
+                "fromSquare": move.frm,
+                "toSquare": move.to,
+                "changedSquares": self._video_move_changed_squares(move),
+            })
+        return {"ok": True, "candidates": candidates, "fen": self.board.fen()}
+
+    def video_sync_commit_move(self, uci: str, timecode: float, confidence: float) -> dict[str, Any]:
+        if not self.video_sync_active:
+            return self._error("Video synchronization is not active." if self.lang == "en" else "Синхронізація відео не активна.")
+        try:
+            seconds = float(timecode)
+            score = float(confidence)
+            if not 0.0 <= seconds <= 24 * 60 * 60 or not 0.0 <= score <= 1.0:
+                raise ValueError
+            move = self.board.parse_move(uci)
+        except (TypeError, ValueError):
+            return self._error("The recognized video move is invalid." if self.lang == "en" else "Розпізнаний хід із відео некоректний.")
+        result = self.make_move(sq_name(move.frm) + sq_name(move.to) + (move.promotion.lower() if move.promotion else ""))
+        if result.get("ok"):
+            self.video_sync_last_timecode = seconds
+            self.video_sync_last_confidence = score
+            result["videoSync"] = {"active": True, "timecode": seconds, "confidence": score}
+            result["candidates"] = self.video_sync_candidates().get("candidates", [])
+        return result
+
+    def video_sync_stop(self) -> dict[str, Any]:
+        self.video_sync_active = False
+        state = self.get_state()
+        state["ok"] = True
+        state["videoSync"] = {"active": False, "timecode": self.video_sync_last_timecode, "confidence": self.video_sync_last_confidence}
+        state["announcement"] = "Video synchronization stopped." if self.lang == "en" else "Синхронізацію відео зупинено."
+        return state
 
     def _ok(self, message: str) -> dict[str, Any]:
         self.announcement = message

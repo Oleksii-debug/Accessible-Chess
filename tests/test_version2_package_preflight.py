@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import stat
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 import wave
@@ -149,6 +150,10 @@ def _make_tree(root: Path) -> None:
     web.mkdir()
     web_files = (
         "index.html",
+        "design_system.css",
+        "board_themes.css",
+        "youtube_iframe_adapter.js",
+        "video_board_sync.js",
         "stage1_release_bootstrap.js",
         "stage1_board_actions.js",
         "full_product_pgn.js",
@@ -1100,12 +1105,22 @@ class Version2PackagePreflightTests(unittest.TestCase):
             root = Path(td) / "package"
             root.mkdir()
             _make_tree(root)
+            count, inventory_sha, _alt = _enable_full_sound_inventory(root)
+            _write_checksums(root)
 
-            with patch.object(
-                preflight,
-                "_read_stable_bytes_file",
-                wraps=preflight._read_stable_bytes_file,
-            ) as reader:
+            with (
+                patch.object(preflight, "_USER_SOUND_EXPECTED_WAV_COUNT", count),
+                patch.object(
+                    preflight,
+                    "_USER_SOUND_EXPECTED_INVENTORY_SHA256",
+                    inventory_sha,
+                ),
+                patch.object(
+                    preflight,
+                    "_read_stable_bytes_file",
+                    wraps=preflight._read_stable_bytes_file,
+                ) as reader,
+            ):
                 report = _validate_tree(root)
 
             self.assertEqual(report.integration_sha, _SHA)
@@ -1280,13 +1295,10 @@ class Version2PackagePreflightTests(unittest.TestCase):
             dll = (
                 root
                 / "AccessibleChess"
-                / "clr_loader"
-                / "ffi"
-                / "dlls"
-                / "amd64"
+                / "native"
                 / "ClrLoader.dll"
             )
-            dll.parent.mkdir(parents=True)
+            dll.parent.mkdir(parents=True, exist_ok=True)
             dll.write_bytes(
                 _minimal_windows_pe()
                 + b"\x00compiler=C:\\Users\\Builder\\source\\clr_loader\\ClrLoader.pdb\x00"
@@ -1294,7 +1306,7 @@ class Version2PackagePreflightTests(unittest.TestCase):
             _write_checksums(root)
             report = _validate_tree(root)
             self.assertIn(
-                "AccessibleChess/clr_loader/ffi/dlls/amd64/ClrLoader.dll",
+                "AccessibleChess/native/ClrLoader.dll",
                 report.inventory,
             )
 

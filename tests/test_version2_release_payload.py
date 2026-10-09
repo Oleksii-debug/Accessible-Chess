@@ -22,6 +22,10 @@ from acs.version2_package_assembler import assemble_version2_package_tree
 
 _REQUIRED_WEB_FILES = (
     "index.html",
+    "design_system.css",
+    "board_themes.css",
+    "youtube_iframe_adapter.js",
+    "video_board_sync.js",
     "stage1_release_bootstrap.js",
     "stage1_board_actions.js",
     "full_product_pgn.js",
@@ -167,6 +171,7 @@ class Version2ReleasePayloadTests(unittest.TestCase):
         optional = coff + 20
         pe32_plus = machine == 0x8664
         struct.pack_into("<H", data, optional, 0x20B if pe32_plus else 0x10B)
+        struct.pack_into("<H", data, optional + 68, 0x0002)
 
         section = optional + optional_size
         data[section : section + 8] = b".text\0\0\0"

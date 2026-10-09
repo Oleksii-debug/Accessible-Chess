@@ -28,19 +28,18 @@
     "editor metadata never returns key values",
     "Mistral profile is present with environment-variable indirection",
     "provider response normalization, missing-key handling and bounded timeout retry tests",
-    "runtime profile endpoint/model/key-variable editing"
+    "runtime profile endpoint/model/key-variable editing",
+    "authenticated Mistral model listing returned 46 models",
+    "live ministral-3b-latest chess FEN prompt returned White with usage metadata"
   ],
   "not_run": [
-    "authenticated Mistral model listing",
-    "short/long chess prompts",
-    "FEN/PGN analysis through live model",
-    "401/429/timeout/retry against provider",
-    "three-provider comparison",
-    "text/vision/audio Agent run"
+    "long PGN analysis through live model",
+    "vision/audio Agent run",
+    "three-provider comparison"
   ],
   "blocked": [
-    "protected Drive-secret-to-runtime handoff is unavailable in this execution environment",
-    "live provider endpoint execution with the user's Drive key is intentionally not performed here",
+    "credential is used only from protected runtime input and remains excluded from code/logs/Git/artifacts",
+    "multi-provider live comparison is not yet executed",
     "provider credentials were intentionally not copied into code, logs, GitHub or artifacts"
   ],
   "bilingual_literature_boundary": "No provider literature or large corpus was downloaded in this gate; existing Ukrainian/English project documentation remains the source set."

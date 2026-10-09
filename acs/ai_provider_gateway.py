@@ -81,7 +81,7 @@ def default_profiles() -> dict[str, ProviderProfile]:
         "mistral": ProviderProfile(
             name="mistral",
             base_url=os.getenv("ACS_MISTRAL_BASE_URL", "https://api.mistral.ai/v1"),
-            model=os.getenv("ACS_MISTRAL_MODEL", "mistral-small-latest"),
+            model=os.getenv("ACS_MISTRAL_MODEL", "ministral-3b-latest"),
             api_key_env="ACS_MISTRAL_API_KEY",
         ),
         "openai-compatible": ProviderProfile(

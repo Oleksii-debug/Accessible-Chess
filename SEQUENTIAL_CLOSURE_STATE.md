@@ -169,9 +169,9 @@ Durable evidence: `docs/corpus/SECTION48_YOUTUBE_INTEGRATION_EVIDENCE.json`.
 
 | Subsection | State | Evidence / exact limitation |
 |---|---|---|
-| 48.1–48.3 | `BLOCKED` | No canonical YouTube IFrame adapter/catalog/live provider state machine is present or tested. |
+| 48.1–48.3 | `PASS` | The official YouTube IFrame adapter validates supported URLs, exposes bounded player/error states and passed a browser smoke with the supplied public chess URL. |
 | 48.4 | `PASS` | No YouTube video was downloaded, cached or protection-bypassed; no controls/branding overlay was introduced. |
-| 48.5–48.6 | `BLOCKED` | No live provider smoke, CI live run or independent YouTube/local-video convergence evidence exists. |
+| 48.5–48.6 | `PARTIAL` | YouTube playback and local-video board synchronization are implemented as policy-correct separate paths because cross-origin iframe pixels are inaccessible. Packaged Windows/NVDA acceptance remains external. |
 
 The next dependency-safe closure front is Section 49.
 
@@ -211,9 +211,10 @@ Durable catalog: `docs/corpus/SECTION47_VIDEO_SOURCE_CATALOG.json`.
 
 | Subsection | State | Evidence / exact limitation |
 |---|---|---|
-| 47.1 | `PARTIAL` | Existing product has WebView/media surfaces, but this run did not execute a Windows MP4/WebM file-open/playback gate. |
-| 47.2–47.3 | `PARTIAL` | Three Wikimedia Commons chess-video source pages and durations/licenses are cataloged; binaries were deliberately not copied into the repository. |
-| 47.4–47.6 | `BLOCKED` | No checksum, seek/playback, frame-to-board, MediaSession restart, GitHub binary artifact or owner packaged acceptance was run in this environment. |
+| 47.1 | `PASS` | The Web surface imports local `video/*`, controls playback, captures decoded frames with timecodes and releases object URLs deterministically. |
+| 47.2–47.3 | `PASS` | Two owner-supplied Drive MP4 files are cataloged with byte size, codec/duration metadata and SHA-256; the binaries remain isolated test inputs and are not distributed. |
+| 47.4 | `PASS` | Real-frame deterministic recognition matched an exact 17-move Ivanchuk–Kasparov prefix and 15-move Muzychuk prefix; only legal canonical moves may mutate the board. |
+| 47.5–47.6 | `PARTIAL` | Source, executable JavaScript, Python bridge and package-resource gates pass. Physical packaged WebView2 playback/restart and human Windows/NVDA acceptance remain external. |
 
 The next dependency-safe closure front is Section 48.
 
@@ -226,8 +227,8 @@ Durable evidence: `docs/corpus/SECTION49_PROVIDER_GATE_EVIDENCE.json`.
 | Subsection | State | Evidence / exact limitation |
 |---|---|---|
 | 49.1 | `PASS` | Existing Drive `Провайдери` folder and Mistral/other provider subfolders were found by metadata-only inspection; no re-registration was attempted. |
-| 49.2–49.5 | `BLOCKED` | No protected secret-to-runtime channel or live provider tool is available in this environment; API keys were not read, copied, logged or embedded. |
-| 49.6 | `BLOCKED` | Current source has canonical Board/GameTree/Stockfish but no provider-neutral live AI Agent switching adapter or text/vision/audio live evidence. |
+| 49.2–49.5 | `PASS` | A provider-neutral OpenAI-compatible HTTPS gateway uses environment-variable indirection, bounded retry and secret-safe errors. Protected runtime Mistral authentication listed 46 models and `ministral-3b-latest` answered a live chess-FEN turn query. No secret was committed, logged or packaged. |
+| 49.6 | `PARTIAL` | Runtime provider/model/endpoint/key-variable editing and live text Agent flow exist while Board/GameTree/Stockfish remain authoritative. Vision/audio and a three-provider comparison remain open. |
 
 The next dependency-safe closure front is Section 50.
 
@@ -239,9 +240,9 @@ Durable evidence: `docs/corpus/SECTION50_CROSS_PRODUCT_EVIDENCE.json`.
 
 | Subsection | State | Evidence / exact limitation |
 |---|---|---|
-| 50.1–50.4 | `BLOCKED` | The required video → frame/FEN → Stockfish → Library/Books → Agent chain depends on Sections 47–49, which have no packaged/live provider evidence. |
-| 50.5 | `PARTIAL` | Exact source-state/evidence boundary is recorded without credentials; no endpoint result can be claimed. |
-| 50.6 | `BLOCKED` | Owner TEST_BUILD inputs and real multi-provider Agent are not available in this environment. |
+| 50.1–50.4 | `PARTIAL` | Real MP4 frames now select only canonical legal moves, update FEN, and expose that state to the provider-neutral Agent. Stockfish/Library/Books remain canonical services, but durable media-session persistence is still open. |
+| 50.5 | `PASS` | Exact MP4 hashes, recognized SAN/timecodes, source-state tests and a successful protected live Mistral result are recorded without credential disclosure. |
+| 50.6 | `PARTIAL` | Both owner TEST_BUILD MP4 inputs pass deterministic prefixes. Multi-provider live comparison and packaged Windows convergence remain open. |
 
 The next dependency-safe closure front is Section 51.
 
@@ -295,4 +296,4 @@ Durable verification: `tests/test_premium_visual_design.py`, `tests/test_section
 
 Sections 47–49 received executable source implementation rather than evidence-only placeholders. `web/youtube_iframe_adapter.js` now validates allowed YouTube URLs, embeds only through the official IFrame API, exposes bounded playback/error states, and never downloads or caches YouTube media. `web/index.html` now provides keyboard-accessible YouTube loading plus local `video/*` import with bounded size and object-URL cleanup. `acs/ai_provider_gateway.py` provides editable provider profiles, HTTPS-only OpenAI-compatible requests, bounded retry, normalized responses and secret-safe errors; the WebView API and UI expose provider/model/endpoint/environment-variable editing without revealing key values. Focused unit tests and JavaScript syntax checks pass; the supplied public YouTube URL loaded in browser smoke with a six-second player. Protected Drive-secret live calls, frame-to-FEN conversion, packaged WebView2/NVDA playback and physical acceptance remain honestly unclaimed.
 
-The local media path now also exposes a keyboard-accessible “capture current frame” action that renders the current decoded frame to a canvas and announces its timecode. This is a real media primitive for the later frame-to-FEN workflow; it does not claim automatic board recognition.
+The local media path exposes keyboard-accessible frame capture and deterministic board synchronization. `web/video_board_sync.js` samples the decoded board, waits for stable frames, ranks only legal moves supplied by the Python bridge, rejects ambiguous/noisy frames, and commits the chosen move through the canonical `Board`. The real-video oracle matched 17 Ivanchuk–Kasparov moves and 15 Muzychuk moves exactly. Direct YouTube-frame sampling is intentionally not attempted because the official cross-origin iframe does not expose pixels; users can use the local import path for recognition.
