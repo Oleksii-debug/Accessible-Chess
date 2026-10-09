@@ -103,6 +103,55 @@ class Section42ShippingRuntimeTests(unittest.TestCase):
             with self.assertRaises(SettingsError):
                 settings.set("visual_board_preferences_json", "not json")
 
+    def test_canonical_legal_attack_defence_and_check_mate_cues(self):
+        from acs.chesscore import Board, parse_sq
+        api = AccessibleChessAPI("en")
+        original = api.board.fen()
+        original_tree = api.review_history.export_tree()
+        api.selected_source = parse_sq("g1")
+        visual = api.get_state()["visualBoard"]
+        self.assertEqual(set(visual["legalTargets"]), {"f3", "h3"})
+        self.assertIn({"square": "e2", "purpose": "defence", "color": "#218458"},
+                      visual["highlights"])
+        self.assertIn({"square": "f3", "purpose": "attack", "color": "#d97706"},
+                      visual["highlights"])
+        self.assertEqual(api.board.fen(), original)
+        self.assertEqual(api.review_history.export_tree(), original_tree)
+        api.selected_source = None
+
+        for fen, outcome in (
+            ("4k3/8/8/8/8/8/4R3/4K3 b - - 0 1", "check"),
+            ("7k/6Q1/5K2/8/8/8/8/8 b - - 0 1", "mate"),
+        ):
+            with self.subTest(outcome=outcome):
+                pos = Board(fen)
+                state = {"board": api._board_cells(pos),
+                         "selectedSquare": None, "positionComplete": True}
+                cues = api._section42_visual_board(pos, state)
+                self.assertTrue(any(x["purpose"] == outcome for x in cues["highlights"]))
+                self.assertEqual(cues["legalTargets"], [])
+                self.assertEqual(pos.fen(), fen)
+                self.assertEqual(api.board.fen(), original)
+
+    def test_last_move_arrow_is_presentation_only_and_can_be_disabled(self):
+        api = AccessibleChessAPI("en")
+        self.assertTrue(api.make_move("e4")["ok"])
+        old_fen = api.board.fen()
+        old_tree = api.review_history.export_tree()
+        visual = api.get_state()["visualBoard"]
+        self.assertEqual(visual["lastMove"], {"from": "e2", "to": "e4"})
+        self.assertIn({"from": "e2", "to": "e4",
+                       "purpose": "last-move", "color": "#d97706"},
+                      visual["arrows"])
+        options = self._options(api)
+        options["showLastMove"] = False
+        self.assertTrue(api.visual_board_apply(options)["ok"])
+        hidden = api.get_state()["visualBoard"]
+        self.assertIsNone(hidden["lastMove"])
+        self.assertEqual(hidden["arrows"], [])
+        self.assertEqual(api.board.fen(), old_fen)
+        self.assertEqual(api.review_history.export_tree(), old_tree)
+
     def test_document_exposes_keyboard_controls_and_safe_fallback(self):
         html = (ROOT / "web/index.html").read_text(encoding="utf-8")
         css = (ROOT / "web/board_themes.css").read_text(encoding="utf-8")
