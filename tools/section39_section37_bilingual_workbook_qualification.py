@@ -21,7 +21,9 @@ from acs.version2_application import Version2Application
 from acs.section40_bilingual_master_workbook_runtime import (
     ORIGINAL_SOURCE_GIT_BLOB, _ORIGINAL_SOURCE_TEXT,
 )
-from tools.revised_section37_bilingual_workbook_pack import load_advanced_workbook, make_pack
+from tools.revised_section37_bilingual_workbook_pack import (
+    _canonical_solver_position, load_advanced_workbook, make_pack,
+)
 from tools.revised_sections37_38_offline_manifest import ROOT, _source_head
 
 REPORT = ROOT / "section39-section37-bilingual-ten-native-books-qualification.json"
@@ -91,7 +93,12 @@ def qualify_bilingual_books(*, root: Path = ROOT) -> tuple[dict, dict[str, bytes
         for lang in LANGUAGES for ext in EXTENSIONS
     }:
         raise LawfulCorpusError("bilingual five-format original derived source inventory changed")
-    expected_fens = tuple(lesson["fen_before_opponent_move"]
+    # The source records Lichess's pre-opponent-move FEN for provenance, while
+    # the learner's book correctly shows the canonical position after that
+    # published opponent move.  Compare the actual study position in every
+    # native format; source-byte verification above still protects the
+    # original FEN and move order.
+    expected_fens = tuple(_canonical_solver_position(lesson)
                           for lesson in work["lessons"])
     outputs = []
     locations = {}

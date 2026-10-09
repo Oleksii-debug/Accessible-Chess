@@ -230,7 +230,10 @@ def build_master_qa_matrix() -> dict:
 
 def publish_master_qa_matrix(destination: Path) -> dict:
     """No owner overwrite or half-created 800-cell evidence on interruption."""
-    if type(destination) is not Path:
+    # ``Path`` materializes a platform-specific subclass.  Accept that
+    # canonical ``Path`` family rather than rejecting valid Windows/Posix
+    # destinations before the no-clobber publisher can run.
+    if not isinstance(destination, Path):
         raise TypeError("master matrix output must be a Path")
     if destination.exists() or destination.is_symlink():
         raise FileExistsError("would overwrite the owner QA coverage report")

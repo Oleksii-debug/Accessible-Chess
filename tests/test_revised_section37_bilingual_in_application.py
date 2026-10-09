@@ -89,13 +89,13 @@ class BilingualOwnerBooksProductReadback(unittest.TestCase):
                             )
 
                         first = app()
-                        count = first.commit_prepared_book_open(
+                        warning_count = first.commit_prepared_book_open(
                             Version2Application.prepare_book_open(source)
                         )
-                        self.assertIsInstance(count, int)
-                        self.assertGreater(count, 20)
+                        self.assertEqual(warning_count, 0)
                         self.assertEqual(first.shell.current_route.route_id, "books")
                         self.assertIsNotNone(first.books)
+                        self.assertGreater(len(first.reader.document.blocks), 20)
                         before = first.reader.next_block()
                         self.assertIsNotNone(before)
                         first.save_book_progress()

@@ -23,6 +23,10 @@ SHA40 = re.compile(r"^[a-f0-9]{40}$")
 SHA256 = re.compile(r"^[a-f0-9]{64}$")
 SAFE = re.compile(r"^[A-Za-z0-9_+.-]{1,96}$")
 SUFFIXES = frozenset({".cbh", ".cbg", ".cbp", ".cbt", ".cba", ".cbs", ".cbc", ".cbe", ".cbj", ".cbl", ".cbm"})
+# libcbh keeps a title-tree cache beside the classic eleven-file family. It
+# is not consumed or claimed by this receipt, but it is present in the pinned
+# upstream fixtures. Other unregistered .cb* companions still fail closed.
+KNOWN_NON_CONSUMED_SUFFIXES = frozenset({".cbtt"})
 MAX_FILE = 32 * 1024 * 1024
 MAX_FAMILY = 64 * 1024 * 1024
 
@@ -124,10 +128,15 @@ def verify_gpl_cbh_family(record: dict, checkout: Path) -> dict:
     family = gtest / dirname
     if not family.is_dir() or family.is_symlink():
         raise LawfulCorpusError("original CBH family directory absent or indirect")
-    available = {
-        path.name for path in family.iterdir()
-        if path.name.startswith(stem + ".") and path.suffix.lower().startswith(".cb")
+    matching = tuple(path for path in family.iterdir() if path.name.startswith(stem + "."))
+    unexpected = {
+        path.name for path in matching
+        if path.suffix.lower().startswith(".cb")
+        and path.suffix.lower() not in SUFFIXES | KNOWN_NON_CONSUMED_SUFFIXES
     }
+    if unexpected:
+        raise LawfulCorpusError("real CBH companion family has an unregistered .cb* member")
+    available = {path.name for path in matching if path.suffix.lower() in SUFFIXES}
     if available != set(expected):
         raise LawfulCorpusError("real CBH companion family incomplete or unexpectedly changed")
 

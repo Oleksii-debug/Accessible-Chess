@@ -1,5 +1,6 @@
 """Source-bound Section 39 to 40 offline product acceptance tests."""
 from __future__ import annotations
+import json
 from pathlib import Path
 import tempfile
 import unittest

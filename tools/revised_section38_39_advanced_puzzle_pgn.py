@@ -139,7 +139,10 @@ def publish_advanced_pgn(destination: Path) -> dict[str, object]:
     Exact same no-clobber publisher as the canonical shipping package assembler.
     A competing writer, crash, or invalid source cannot expose partial files.
     """
-    if type(destination) is not Path:
+    # ``Path`` is a factory which returns the platform-specific subclass
+    # (``PosixPath``/``WindowsPath``), so an exact-type check rejects every
+    # legitimate path on both CI platforms.
+    if not isinstance(destination, Path):
         raise TypeError("advanced output destination must be a Path")
     if destination.exists() or destination.is_symlink():
         raise FileExistsError("advanced owner QA destination exists")

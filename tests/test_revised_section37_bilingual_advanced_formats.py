@@ -121,6 +121,16 @@ class BilingualSourceGroundingTests(unittest.TestCase):
         self.assertFalse(receipt["section37_terminal_done"])
         self.assertEqual(len(receipt["generated_files"]), 10)
 
+    def test_generated_epub_and_docx_archives_are_byte_deterministic(self):
+        work = load_advanced_workbook()
+        first = make_pack(work)
+        second = make_pack(work)
+        for language in LANGS:
+            for extension in ("epub", "docx"):
+                name = f"section37-advanced-workbook-{language}.{extension}"
+                with self.subTest(name=name):
+                    self.assertEqual(first[name], second[name])
+
     def test_canonical_txt_and_markdown_book_readback_are_bilingual_and_chess_semantic(self):
         work = load_advanced_workbook()
         for lang in LANGS:

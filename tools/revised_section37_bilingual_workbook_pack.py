@@ -31,6 +31,17 @@ SOURCE = Path(__file__).resolve().parents[1] / (
 OUTNAME = "section37-advanced-workbook"
 MAX_LESSONS = 100
 LANGS = ("uk", "en")
+ZIP_MEMBER_TIMESTAMP = (2020, 1, 1, 0, 0, 0)
+
+
+def _write_deterministic_zip_member(
+    archive: ZipFile, name: str, body: bytes, *, compress_type: int
+) -> None:
+    """Write stable cross-run archive bytes for SHA-bound package evidence."""
+    item = ZipInfo(name, date_time=ZIP_MEMBER_TIMESTAMP)
+    item.compress_type = compress_type
+    item.external_attr = 0o100644 << 16
+    archive.writestr(item, body)
 
 
 def _verify_original_cc0_puzzle_lineage(lessons: list[dict]) -> None:
@@ -325,7 +336,9 @@ def render_docx(data: dict, lang: str) -> bytes:
             "word/_rels/document.xml.rels": document_rels,
             "docProps/core.xml": core,
         }.items():
-            z.writestr(name, body)
+            _write_deterministic_zip_member(
+                z, name, body, compress_type=ZIP_DEFLATED
+            )
     return buf.getvalue()
 
 
@@ -370,14 +383,18 @@ def render_epub3(data: dict, lang: str) -> bytes:
     ).encode("utf-8")
     buf = BytesIO()
     with ZipFile(buf, "w") as z:
-        z.writestr("mimetype", b"application/epub+zip", compress_type=ZIP_STORED)
+        _write_deterministic_zip_member(
+            z, "mimetype", b"application/epub+zip", compress_type=ZIP_STORED
+        )
         for name, body in {
             "META-INF/container.xml": container,
             "OEBPS/book.opf": opf,
             "OEBPS/lesson.xhtml": render_html(data, lang, xhtml=True),
             "OEBPS/nav.xhtml": nav,
         }.items():
-            z.writestr(name, body, compress_type=ZIP_DEFLATED)
+            _write_deterministic_zip_member(
+                z, name, body, compress_type=ZIP_DEFLATED
+            )
     return buf.getvalue()
 
 
