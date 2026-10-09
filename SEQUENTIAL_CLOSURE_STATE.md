@@ -1,5 +1,17 @@
 # Sequential Closure State
 
+## Owner-preservation notice — 2026-10-09 (binding; no silent rework)
+
+**READ FIRST:** [SECTION_CLOSURE_IMMUTABILITY.md](SECTION_CLOSURE_IMMUTABILITY.md) and the highest-priority 2026-10-09 directive in [AGENTS.md](AGENTS.md). They forbid routine reimplementation, evidence downgrades, duplicate rewrites or unqualified mass merges of completed work and limit each new worker execution to **ONE current actionable parent Section**. Every genuinely completed subsection must be recorded durably as DONE with exact SHA/tests/readback before proceeding to its next unfinished subsection. Do not launch the following parent Section in the same run.
+
+**Already accepted in main:** Sections **0–36 DONE — TERMINAL**. Do not reopen except for concrete proven regression/invalid evidence/material contract change/broken later integration.
+
+**Completed work in candidate lineage — PROTECTED / PENDING MAIN INTEGRATION, not automatically main DONE:** [PR #2506](https://github.com/Oleksii-debug/Accessible-Chess/pull/2506) (`work/owner-gameplay-section37-20261009`) protects the exact tested subscopes `37.5`, `37.6`, `38.5`, `40.2`, `40.5`, `41.3`–`41.5`, `42.2`, `45.1`–`45.4`, `46.6`, `50.5`, `51.1`, `51.2`, `51.4`, plus other implemented source/evidence on Sections 37–46 and 50–53. **PR #2506 separately reports Sections 47, 48, 49 as TERMINAL DONE / WORKER LOCKED on that lineage.** Preserve that code and evidence; neither silently rebuild it nor claim accepted-main closure until a conflict-safe merge, exact acceptance and post-merge readback. Older PR #2494 may contain unique required corpus/format work and must be reviewed before any supersession.
+
+**Status honesty:** The rows below remain the *accepted-main* closure record until valid integration; the protected candidate may be more advanced. The next accepted-main unfinished parent Section is **37**, with completed subscopes skipped. A record showing PARTIAL/BLOCKED for the rest of the same Section does not downgrade its legitimately completed subscopes. A queued CI or an unmerged PR is not terminal integration evidence.
+
+---
+
 This file is the durable GitHub mirror for ordered Section/Subsection closure.
 
 ## Єдиний канонічний план Accessible Chess — 0–53
