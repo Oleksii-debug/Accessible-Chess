@@ -57,7 +57,7 @@ def verify_provisional_bundle(folder: Path, source_file: Path) -> ProvisionalBun
     A pass establishes only byte and provisional structure consistency. The
     source must be independently lawfully authorized and qualified externally.
     """
-    if type(folder) is not Path or type(source_file) is not Path:
+    if not isinstance(folder, Path) or not isinstance(source_file, Path):
         raise BrailleFactoryError("Local folder and source Path objects are required")
     if folder.is_symlink() or not folder.is_dir():
         raise BrailleFactoryError("Package directory does not exist or is a link")
