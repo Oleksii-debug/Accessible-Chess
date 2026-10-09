@@ -104,4 +104,22 @@ for (const scenario of [
   assert.ok(fs.existsSync(path.join(root, "tests/js", scenario)),
     "real behavioral DOM/ARIA/keyboard regression is absent: " + scenario);
 }
+
+// Section 44.5: prove that the styled statuses are the *shipped* service-owned
+// selectable, non-live DOM nodes, including live/recorded Media and AI Agent.
+// No invented spectator, subscription, provider or external YouTube controls.
+for (const id of ["video-status","video-prepare-status","video-sync-status",
+                  "video-frame-timecode","ai-agent-status","ai-voice-status"]) {
+  assert.match(html, new RegExp('id="'+id+'"[^>]*role="status"[^>]*aria-live="off"'),
+    "missing quiet canonical semantic status: " + id);
+  assert.ok(css.includes("#" + id), "unstyled real Media/AI state: " + id);
+}
+for (const id of ["video-seek","video-playback-speed","video-recognition-quality",
+                  "video-session-select","ai-provider-select","ai-prompt","ai-speech-rate"]) {
+  assert.ok(html.includes('id="'+id+'"'), "missing real keyboard input: "+id);
+  assert.ok(css.includes("#"+id), "missing scaled/focused input style: "+id);
+}
+assert.ok(css.includes("Section 44.5") && css.includes("@media (forced-colors:active)"),
+  "Media/AI state styling must retain offline high-contrast semantics");
+
 console.log("Section 44: PASS — 6 real V2 routes, canonical presenters, 12 styled controls, media/AI, accessibility and existing DOM suites");
