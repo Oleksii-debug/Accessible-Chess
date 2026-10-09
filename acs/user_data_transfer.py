@@ -19,7 +19,7 @@ import shutil
 import stat
 import tempfile
 
-from .version2_package_assembler import _publish_directory_no_replace
+from .version2_package_assembler import (\n    Version2PackageAssemblyError,\n    _publish_directory_no_replace,\n)
 from .version2_upgrade import (
     UserDataLayout,
     Version2UpgradeCoordinator,
