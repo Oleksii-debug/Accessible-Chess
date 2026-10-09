@@ -23,12 +23,24 @@ test/evidence that names the affected locked scope.
 
 | Scope | Terminal state | Worker instruction |
 |---|---|---|
+| Section 37 | `IMPLEMENTATION/EVIDENCE LOCKED` | Do not redo the lawful-source registry, pinned PGN/CBV/CBH readback, TEST_BUILD/PUBLIC_RELEASE policy or provenance tooling. Keep only the explicitly named unavailable fixture/oracle gaps actionable. |
+| Section 38 | `IMPLEMENTATION/EVIDENCE LOCKED` | Do not redo real-corpus integration, canonical readback, BookLibrarySource routes, manifest/provenance or atomic import/recovery work. Keep only named missing-format acceptance gaps actionable. |
+| Section 39 | `IMPLEMENTATION/EVIDENCE LOCKED` | Do not redo the format matrix, PGN/ACSDB and EPUB/HTML/TXT readback, or CBV/CBH external-oracle record. Only the named lawful corpus gaps are actionable. |
+| Section 40 | `IMPLEMENTATION/EVIDENCE LOCKED` | Do not redo the isolated TEST_COLLECTION catalog, metadata, licensing boundary or source/readback routes. Only the named corpus and Windows acceptance gaps are actionable. |
+| Section 41 | `IMPLEMENTATION/EVIDENCE LOCKED` | Do not redo the premium offline design-token layer, light/dark/contrast behavior, forced-colors/reduced-motion rules or no-CDN decision. |
+| Section 42 | `IMPLEMENTATION/EVIDENCE LOCKED` | Do not redo local board-theme tokens, canonical board authority or licensing boundary for unverified external piece assets. |
+| Section 43 | `IMPLEMENTATION/EVIDENCE LOCKED` | Do not redo the mapped WebView2/workspace, native bridge, keymap, semantic-text and focus contracts. |
+| Section 44 | `IMPLEMENTATION/EVIDENCE LOCKED` | Do not redo the canonical Books/Library/Training/Classroom/Web surface mapping or linked DOM/ARIA/keyboard coverage. |
+| Section 45 | `IMPLEMENTATION/EVIDENCE LOCKED` | Do not redo named visual profiles, theme/board/density Apply/Cancel/Reset, or atomic persisted visual settings. |
+| Section 46 | `IMPLEMENTATION/EVIDENCE LOCKED` | Do not redo local quality/accessibility gates or the offline-dependency boundary; only physical visual/NVDA qualification remains separate. |
 | Section 47 | `TERMINAL DONE — WORKER LOCKED` | Do not reopen local-video playback, preparation, legal board synchronization, recognition controls or their package/source gates. |
 | Section 48 | `TERMINAL DONE — WORKER LOCKED` | Do not reopen the official YouTube IFrame integration boundary or its local-video separation. |
 | Section 49 | `TERMINAL DONE — WORKER LOCKED` | Do not reopen Mistral-first provider integration, the agent, voice controls, profile editor or secret-safe gateway evidence. |
-| 37.5–37.6; 38.5; 40.2, 40.5 | `DONE — DO NOT REOPEN` | Corpus policy, manifest/provenance and TEST_COLLECTION release-boundary work is complete. |
-| 41.3–41.5; 42.2; 45.1–45.4; 46.6 | `DONE — DO NOT REOPEN` | Completed design tokens, local themes, visual profiles and offline-dependency controls are closed. |
-| 50.5; 51.1–51.2, 51.4 | `DONE — DO NOT REOPEN` | Completed cross-product evidence and persistence metadata paths are closed. |
+| Section 50 | `IMPLEMENTATION/EVIDENCE LOCKED` | Do not redo the cross-product video/FEN/Move-list/Stockfish/Agent evidence path, MP4 hashes or recorded Mistral result. |
+| Section 51 | `IMPLEMENTATION/EVIDENCE LOCKED` | Do not redo persisted visual profiles, provider metadata, prepared-video timelines or existing recovery/persistence contracts. |
+| Section 52 | `IMPLEMENTATION/EVIDENCE LOCKED` | Do not redo the package assembler, release payload, preflight, provenance and accessibility contract evidence. |
+| Section 53 | `IMPLEMENTATION/EVIDENCE LOCKED` | Do not redo the final-convergence registry or its explicit external-gate inventory. |
+| 37.5–37.6; 38.5; 40.2, 40.5; 41.3–41.5; 42.2; 45.1–45.4; 46.6; 50.5; 51.1–51.2, 51.4 | `DONE — DO NOT REOPEN` | Completed subscopes are terminal unless a named regression proves repair is required. |
 
 Sections or subsections still labeled `PARTIAL` or `BLOCKED` remain actionable;
 they do not invalidate or reopen any locked completed scope above.
