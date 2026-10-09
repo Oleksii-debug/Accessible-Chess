@@ -173,7 +173,7 @@ class MITCbvaultNoFalsePassTests(unittest.TestCase):
                 return complete_child(args, **kwargs)
 
             with patch.object(m.subprocess, "Popen", side_effect=oversized_stub):
-                with self.assertRaisesRegex(LawfulCorpusError, "bounded complete PGN"):
+                with self.assertRaisesRegex(LawfulCorpusError, "output exceeds resource budget"):
                     m._run_external_pgn(binary, source)
 
             def stderr_bomb(args, **kwargs):
