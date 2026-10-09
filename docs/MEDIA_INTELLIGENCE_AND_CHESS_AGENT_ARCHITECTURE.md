@@ -322,3 +322,7 @@ Workers should verify current upstream revisions/policies before adoption, but s
 - faster-whisper speech-recognition candidate: https://github.com/SYSTRAN/faster-whisper
 
 These are implementation anchors, not automatic dependency approvals. Exact version/SHA, model provenance, licenses, Windows behavior, redistribution obligations, accessibility behavior and our own deterministic acceptance corpus remain required before adoption.
+
+## Optional downstream reuse — Format Factory 54 / Braille Factory 55 (inactive)
+
+Future owner-approved optional Sections 54 and 55 may consume the present Universal Chess Agent provider gateway, vision/text tools, canonical Board/GameTree/Stockfish and evidence validation as **clients**, with independent task/queue state and user-approved per-run INPUT/OUTPUT token caps. These optional features must never create a second chess authority, a duplicate provider credentials store, bypass privacy/source-search permissions or silently cause paid inference. Section 55 initially serves **chess book transcription and printer/display production**. Both sections are **OPTIONAL / NOT STARTED** and not active required Media/Agent work, not dependencies of current baseline Sections 0–53, not launchable by normal workers without a fresh explicit owner command. Full specifications are in `docs/OPTIONAL_FORMAT_FACTORY_AND_CHESS_BRAILLE_ENGINEERING.md` and the current Google Drive Section plan.
