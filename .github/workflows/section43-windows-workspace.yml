@@ -49,6 +49,31 @@ jobs:
           tests.test_stage1_packaged_focus_origin_contract
           tests.test_premium_visual_design
           tests.test_version2_release_accessibility_contract
+      - name: Install pinned Windows WinForms and WebView2 UIA probe dependencies
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          python -m pip install --disable-pip-version-check pywebview==6.2.1 pythonnet==3.1.0 clr-loader==0.3.1 cffi==2.1.1 pycparser==3.0 typing-extensions==4.16.0
+          if($LASTEXITCODE -ne 0){ throw "Pinned Windows native UIA probe dependencies failed" }
+      - name: Execute real WinForms MenuBar UIA and Windows dialogs/keyboard oracles
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS='--force-renderer-accessibility'
+          python scripts/p0_native_menubar_uia_oracle.py
+          if($LASTEXITCODE -ne 0){ throw "Real Windows process-scoped MenuBar UIA oracle failed" }
+          python -m unittest -v tests.test_v2_windows_native_dialog_ownership tests.test_v2_windows_nvda_file_workflows tests.test_v2_remapped_keyboard_native_editing
+          if($LASTEXITCODE -ne 0){ throw "Windows native dialog and keyboard oracles failed" }
+      - name: Save real Windows external UIA probe receipt
+        if: always() && runner.os == 'Windows'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: section43-winforms-external-uia-source-evidence
+          path: p0-native-menubar-uia-source-summary.json
+          if-no-files-found: warn
+          retention-days: 14
       - name: Exact source real Windows Edge DPI, screenshot and live DOM smoke
         if: runner.os == 'Windows'
         run: python scripts/section43_windows_visual_smoke.py
