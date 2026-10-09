@@ -8,6 +8,7 @@ WebView integration script.  The QA-owned strict Windows harness is untouched.
 """
 
 from pathlib import Path
+import json
 import tempfile
 from typing import Any
 
@@ -47,6 +48,97 @@ class Stage1ReleaseAccessibleChessAPI(_core.Stage1ReleaseAccessibleChessAPI):
             _core._LOG.exception("Could not persist move feedback preference")
             return {**self.get_move_feedback_settings(), "ok": False}
         return self.get_move_feedback_settings()
+
+    # Section 43: presentation-only preferences share the same atomic,
+    # upgrade-locked Settings writer as the already-shipped native UI.  The
+    # Edge/WebView2 private profile is NOT a durable persistence authority.
+    _PRESENTATION_LAYOUT_KEYS = {
+        "workspace": "workspace_layout_json",
+        "product": "product_layout_json",
+    }
+    _WORKSPACE_PANEL_IDS = frozenset({
+        "h-board", "h-moves", "h-game-info", "h-engine", "h-input",
+        "h-actions", "h-status", "h-white", "h-black", "h-last",
+        "h-settings", "h-help",
+    })
+    _PRODUCT_LAYOUT_ROUTES = frozenset({
+        "pgn", "library", "books", "training", "teacher", "classes",
+    })
+
+    @classmethod
+    def _valid_presentation_layout(cls, kind: object, value: object) -> dict[str, Any] | None:
+        if type(kind) is not str or kind not in cls._PRESENTATION_LAYOUT_KEYS:
+            return None
+        if type(value) is not dict or type(value.get("version")) is not int or value["version"] != 1:
+            return None
+        if kind == "workspace":
+            if set(value) != {"version", "collapsed", "sizes", "density", "layout"}:
+                return None
+            collapsed = value.get("collapsed")
+            sizes = value.get("sizes")
+            if (
+                type(collapsed) is not list or len(collapsed) > 12
+                or any(type(item) is not str or item not in cls._WORKSPACE_PANEL_IDS for item in collapsed)
+                or len(set(collapsed)) != len(collapsed)
+                or type(sizes) is not dict or len(sizes) > 12
+                or any(
+                    type(name) is not str or name not in cls._WORKSPACE_PANEL_IDS
+                    or type(size) is not str or size not in {"auto", "medium", "large"}
+                    for name, size in sizes.items()
+                )
+                or type(value.get("density")) is not str
+                or value["density"] not in {"comfortable", "compact"}
+                or type(value.get("layout")) is not str
+                or value["layout"] not in {"auto", "single"}
+            ):
+                return None
+            return {
+                "version": 1, "collapsed": list(collapsed), "sizes": dict(sizes),
+                "density": value["density"], "layout": value["layout"],
+            }
+        if set(value) != {"version", "routes"}:
+            return None
+        routes = value.get("routes")
+        if (
+            type(routes) is not dict or len(routes) > 6
+            or any(
+                type(name) is not str or name not in cls._PRODUCT_LAYOUT_ROUTES
+                or type(mode) is not str or mode not in {"comfortable", "compact", "reading"}
+                for name, mode in routes.items()
+            )
+        ):
+            return None
+        return {"version": 1, "routes": dict(routes)}
+
+    def get_presentation_layout(self, kind: str) -> dict[str, Any]:
+        if type(kind) is not str or kind not in self._PRESENTATION_LAYOUT_KEYS:
+            return {"ok": False}
+        settings = getattr(self, "_settings", None)
+        if not (settings is not None and getattr(settings, "_baseline_known", False) and getattr(settings, "_write_blocked_reason", None) is None):
+            return {"ok": False}
+        try:
+            raw = settings.get(self._PRESENTATION_LAYOUT_KEYS[kind], "")
+            if type(raw) is not str or len(raw) > 2048:
+                return {"ok": False}
+            value = self._valid_presentation_layout(kind, json.loads(raw))
+        except (ValueError, TypeError, KeyError):
+            return {"ok": False}
+        return {"ok": True, "layout": value} if value is not None else {"ok": False}
+
+    def save_presentation_layout(self, kind: str, layout: object) -> dict[str, Any]:
+        value = self._valid_presentation_layout(kind, layout)
+        settings = getattr(self, "_settings", None)
+        if value is None or not (settings is not None and getattr(settings, "_baseline_known", False) and getattr(settings, "_write_blocked_reason", None) is None):
+            return {"ok": False}
+        try:
+            serialized = json.dumps(value, separators=(",", ":"), ensure_ascii=True, sort_keys=True)
+            if len(serialized) > 2048:
+                return {"ok": False}
+            settings.set(self._PRESENTATION_LAYOUT_KEYS[kind], serialized)
+        except Exception:
+            _core._LOG.exception("Could not persist bounded UI layout preference")
+            return {"ok": False}
+        return {"ok": True, "layout": value}
 
     @staticmethod
     def _binding_context(value: object) -> str:
