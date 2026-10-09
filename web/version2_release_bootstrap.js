@@ -10,6 +10,17 @@
 
   let currentLanguage = documentRef.documentElement.lang === "en" ? "en" : "uk";
   let currentRouteId = "board";
+  // Keep already committed, unchanged navigation and reading focus stable on rollback.
+  let committedNavigationSignature = null;
+  let committedPresentationSignature = null;
+  function presentationSignature(snapshot) {
+    try {
+      const serialized = JSON.stringify(snapshot, function (key, value) {
+        return key === "shell_publication_token" ? undefined : value;
+      });
+      return serialized && serialized.length <= 2000000 ? serialized : null;
+    } catch (_) { return null; }
+  }
   let pendingShellPublicationToken = 0;
   let shellPublicationRequestSequence = 0;
   let pendingShellPublicationRequestId = 0;
@@ -325,7 +336,7 @@
       "shell.presentation_rollback",
       token
     ).then(function () {
-      return refresh(true).then(function () {
+      return refresh(true, true).then(function () {
         clearPendingShellPublication(token);
         announce(failedMessage);
         return true;
@@ -340,7 +351,7 @@
       // authority before allowing another route. A pure transport rejection
       // remains uncertain, so retain the token for the next interaction.
       if (error && error.hostResponded) {
-        return refresh(true).then(function () {
+        return refresh(true, true).then(function () {
           clearPendingShellPublication(token);
           announce(failedMessage);
           return true;
@@ -504,7 +515,11 @@
     return {
       routeIds: routeIds,
       currentRouteIds: currentRouteIds,
-      fragment: fragment
+      fragment: fragment,
+      signature: JSON.stringify(snapshot.navigation.map(function (item) {
+        return [item.route_id, item.action_id, item.label,
+          item.current === true || item.current === "true"];
+      }))
     };
   }
 
@@ -516,7 +531,12 @@
       uiTextFor(language, "Розділи Accessible Chess", "Accessible Chess sections")
     );
     navHeading.textContent = uiTextFor(language, "Розділи", "Sections");
-    navList.replaceChildren(navigationState.fragment);
+    // Replacing identical controls during failed product navigation breaks
+    // active keyboard focus/selection despite canonical host rollback.
+    if (committedNavigationSignature !== navigationState.signature) {
+      navList.replaceChildren(navigationState.fragment);
+      committedNavigationSignature = navigationState.signature;
+    }
     currentRouteId = routeId;
     if (typeof global.showStage1Route === "function") global.showStage1Route(routeId);
   }
@@ -591,7 +611,7 @@
     throw new TypeError("unsupported V2 product route");
   }
 
-  function render(snapshot, restoreFocus) {
+  function render(snapshot, restoreFocus, preserveUnchanged) {
     if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) return;
 
     const nextLanguage =
@@ -620,6 +640,14 @@
       throw new TypeError("V2 navigation current-route contract is invalid");
     }
 
+    const signature = presentationSignature(snapshot);
+    if (preserveUnchanged && signature !== null &&
+        signature === committedPresentationSignature &&
+        navigationState.signature === committedNavigationSignature &&
+        currentRouteId === routeId) {
+      return;
+    }
+
     const requestedFocus = validFocusId(screen.focus_target)
       ? screen.focus_target
       : "";
@@ -641,6 +669,7 @@
 
       // Only a fully rendered product surface may commit the shell state.
       commitShellChrome(navigationState, nextLanguage, routeId);
+      committedPresentationSignature = signature;
       originalMain.hidden = true;
       workspace.hidden = false;
 
@@ -657,6 +686,7 @@
     // Stage-1 fallback focus may target the newly committed navigation button,
     // so publish navigation before restoring Stage-1 focus.
     commitShellChrome(navigationState, nextLanguage, routeId);
+    committedPresentationSignature = signature;
     workspace.hidden = true;
     workspace.replaceChildren();
     originalMain.hidden = false;
@@ -669,7 +699,7 @@
     return Number.isSafeInteger(token) && token > 0 ? token : 0;
   }
 
-  function refresh(restoreFocus) {
+  function refresh(restoreFocus, preserveUnchanged) {
     const bridge = api();
     if (!bridge || typeof bridge.v2_snapshot !== "function") return Promise.resolve();
     return bridge.v2_snapshot().then(function (snapshot) {
@@ -697,7 +727,7 @@
           }
         });
       }
-      render(snapshot, !!restoreFocus);
+      render(snapshot, !!restoreFocus, !!preserveUnchanged);
     });
   }
 
