@@ -20,9 +20,10 @@ def main() -> int:
     parser.add_argument("--folder", type=Path, required=True)
     parser.add_argument("--original-source", type=Path, required=True,
                         help="Same original input file passed to the provisional generator")
+    parser.add_argument("--table-file", type=Path, help="Optional on-disk transitive Liblouis include inventory check")
     args = parser.parse_args()
     try:
-        report = verify_provisional_bundle(args.folder, args.original_source)
+        report = verify_provisional_bundle(args.folder, args.original_source, table_file=args.table_file)
     except (BrailleFactoryError, OSError, ValueError, TypeError):
         # Stable failure without exposing private paths, source text or tables.
         print("SECTION 55: FAIL — provisional package did not pass local consistency",
@@ -30,6 +31,7 @@ def main() -> int:
         return 2
     print("SECTION 55: PASS — local provisional package consistency only")
     print("Pages:", report.pages)
+    print("Liblouis local table inventory rechecked:", "yes" if report.table_inventory_verified else "not supplied")
     print("Status: UNVERIFIED_REQUIRES_DECISION; qualified print readiness: false")
     return 0
 
