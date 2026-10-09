@@ -689,7 +689,10 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
                     def mutate_during_material_build(document, target):
                         candidate = build_book_training_material(document, target)
                         if not drift:
-                            block = document.blocks[target]
+                            # Builder receives a detached indexed BookDocument;
+                            # mutate the actual live authoring root to exercise
+                            # the revision-drift fail-closed authority.
+                            block = app.reader.document.blocks[target]
                             self.assertIsInstance(block, Exercise)
                             drift["index"] = target
                             drift["prompt"] = block.prompt
