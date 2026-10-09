@@ -88,6 +88,7 @@ class OriginalGPLCompanionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             record = sample_fixture(root)
+            (root / "gtest/Annotation/Sample.cbtt").write_bytes(b"upstream title tree cache")
             before = sorted(p.relative_to(root).as_posix() for p in root.rglob("*"))
             result = verify_gpl_cbh_family(record, root)
             self.assertEqual(result["original_companion_count"], 11)
