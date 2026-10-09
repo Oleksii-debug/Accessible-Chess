@@ -1,0 +1,48 @@
+name: Section 43 Windows Workspace Convergence
+on:
+  push:
+    branches: [finish/section43-workspace-convergence-20261009]
+  pull_request:
+    branches: [main]
+    paths:
+      - 'web/index.html'
+      - 'web/version2_final_product_bootstrap.js'
+      - 'web/design_system.css'
+      - 'acs/settings.py'
+      - 'acs/stage1_release_ui.py'
+      - 'tests/js/section43_workspace_convergence_test.js'
+      - 'tests/test_section43_native_layout_persistence.py'
+      - '.github/workflows/section43-workspace-convergence.yml'
+  workflow_dispatch: {}
+permissions:
+  contents: read
+jobs:
+  regression:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Exact source and whitespace
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          git diff --check HEAD
+      - name: Native DOM / keyboard / recovery
+        run: |
+          node --check web/version2_final_product_bootstrap.js
+          node --check tests/js/section43_workspace_convergence_test.js
+          node tests/js/section43_workspace_convergence_test.js
+      - name: Existing native settings persistence + adversarial tests
+        run: |
+          python -m py_compile acs/settings.py acs/stage1_release_ui.py tests/test_section43_native_layout_persistence.py
+          python -m unittest -v tests.test_section43_native_layout_persistence tests.test_settings tests.test_settings_corruption_security
+      - name: Retain Stage1 web integration
+        run: |
+          python -m unittest -v tests.test_accessible_webui tests.test_stage1_release_composition_ui
