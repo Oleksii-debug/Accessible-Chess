@@ -417,3 +417,34 @@ html[data-ac43-density="compact"] #main-content > section {padding:.55rem}
 #v2-workspace[data-ac43-size="large"] {max-height:75rem}
 #v2-workspace[data-ac43-size="auto"] {max-height:none;overflow:visible;resize:none}
 #ac43-product-layout button {min-height:2.65rem}
+
+/* Section 44.5 — actual Media/AI service statuses share the premium language.
+   Only existing canonical controls; no replacement player, chat or provider UI. */
+#media-player-region :is(#video-status,#video-prepare-status,#video-sync-status,#video-frame-timecode),
+#ai-agent-region :is(#ai-agent-status,#ai-voice-status) {
+  min-width:0;
+  max-width:100%;
+  padding:.65rem .8rem;
+  border:1px solid var(--ac-border);
+  border-radius:var(--ac-radius-sm);
+  background:var(--ac-surface-tint);
+  color:var(--ac-ink);
+  overflow-wrap:anywhere;
+}
+#media-player-region :is(#video-seek,#video-playback-speed,#video-recognition-quality,#video-session-select),
+#ai-agent-region :is(#ai-provider-select,#ai-prompt,#ai-speech-rate) {
+  max-width:100%;
+}
+#media-player-region :is(#video-seek,#video-playback-speed,#video-recognition-quality,#video-session-select):focus-visible,
+#ai-agent-region :is(#ai-provider-select,#ai-prompt,#ai-speech-rate):focus-visible {
+  outline:3px solid var(--ac-focus);
+  outline-offset:2px;
+}
+@media (forced-colors:active) {
+  #media-player-region :is(#video-status,#video-prepare-status,#video-sync-status,#video-frame-timecode),
+  #ai-agent-region :is(#ai-agent-status,#ai-voice-status) {
+    background:Canvas;
+    color:CanvasText;
+    border:1px solid CanvasText;
+  }
+}
