@@ -80,8 +80,11 @@ class FactoryQueueTests(unittest.TestCase):
                                     result_sha256=artifact, verified=True, now=4)
         with self.assertRaises(FactoryQueueError):
             self.q.transition(lease, now=5, target="DONE", artifact_sha256=artifact)
+        with self.assertRaises(FactoryQueueError):
+            self.q.transition(lease, now=5, target="DONE", artifact_sha256=artifact,
+                              coverage_verified=True, expected_fragment_ids=("page", "missing"))
         result = self.q.transition(lease, now=6, target="DONE", artifact_sha256=artifact,
-                                    coverage_verified=True)
+                                    coverage_verified=True, expected_fragment_ids=("page",))
         self.assertEqual(result.state, "DONE")
         self.assertIsNone(FactoryJobQueue(self.db).acquire(now=7))
 
@@ -93,6 +96,26 @@ class FactoryQueueTests(unittest.TestCase):
         self.assertEqual(lease.job_id, "high")
         self.q.transition(lease, now=5, target="PAUSED")
         self.assertEqual(self.q.acquire(now=6).job_id, "low")
+
+    def test_owner_authorized_resume_requeues_without_identity_drift(self) -> None:
+        self.q.submit("job-1", policy(), now=1)
+        lease = self.q.acquire(now=2)
+        assert lease is not None
+        result = self.q.transition(lease, now=3, target="PAUSED")
+        self.assertEqual(result.state, "PAUSED")
+        with self.assertRaises(FactoryQueueError):
+            self.q.resume("job-1", expected_policy_sha256=result.policy_sha256, now=4)
+        with self.assertRaises(FactoryQueueError):
+            self.q.resume("job-1", expected_policy_sha256="f" * 64, now=4, user_confirmed=True)
+        resumed = FactoryJobQueue(self.db).resume(
+            "job-1", expected_policy_sha256=result.policy_sha256, now=4, user_confirmed=True,
+        )
+        self.assertEqual(resumed.state, "WAITING")
+        newer = self.q.acquire(now=5)
+        assert newer is not None
+        self.assertEqual(newer.attempts, 2)
+        with self.assertRaises(FactoryQueueError):
+            self.q.heartbeat(lease, now=6)
 
     def test_invalid_data_does_not_mutate_active_job(self) -> None:
         self.q.submit("job-1", policy(), now=20)
