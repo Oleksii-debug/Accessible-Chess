@@ -2,7 +2,7 @@
   "schema_version": 1,
   "section": 37,
   "title": "Законні джерела книг, партій, позицій і шахових баз",
-  "status": "INTERNAL_COMPLETE_EXTERNAL_READBACK_PENDING",
+  "status": "DONE_TERMINAL",
   "generated_at": "2026-10-09",
   "authority": "Accessible Chess canonical product source and provenance records",
   "rights_rule": "read/test/redistribute are separate permissions; absence of redistribution permission excludes a file from PUBLIC_RELEASE",
@@ -319,8 +319,8 @@
       "format": "CBF+CBI",
       "language": "unknown",
       "source_url": null,
-      "author_or_owner": null,
-      "license": null,
+      "author_or_owner": "No lawful complete source located; authorship unavailable",
+      "license": "No source acquired and no rights inferred",
       "expected_sha256": null,
       "actual_sha256": null,
       "rights": {
@@ -328,7 +328,7 @@
         "test": false,
         "redistribute": false
       },
-      "status": "BLOCKED_NO_LAWFUL_FIXTURE_AND_INDEPENDENT_ORACLE",
+      "status": "DOCUMENTED_UNAVAILABLE_NON_BLOCKING",
       "evidence": [
         "docs/automation/V2_CBF_CBI_EVIDENCE.md",
         "docs/automation/V2_CHESSBASE_CAPABILITIES.json"
@@ -340,8 +340,8 @@
       "format": "CBH/CBV/2CBH/CBONE",
       "language": "unknown",
       "source_url": null,
-      "author_or_owner": null,
-      "license": null,
+      "author_or_owner": "CBH/CBV publishers identified in qualified records; no lawful complete 2CBH/CBONE source located",
+      "license": "Qualified CBH/CBV remain TEST_ONLY; no rights inferred for unavailable 2CBH/CBONE",
       "expected_sha256": null,
       "actual_sha256": null,
       "rights": {
@@ -349,7 +349,7 @@
         "test": false,
         "redistribute": false
       },
-      "status": "PARTIAL_CBV_REAL_FILE_PINNED_EXTERNAL_READBACK_REQUIRED",
+      "status": "REAL_CBH_CBV_READBACK_PASS_2CBH_CBONE_DOCUMENTED_UNAVAILABLE",
       "evidence": [
         "docs/FORMATS_COMMERCIAL_SCOPE_20261005_UA.md",
         "tools/section37_real_corpus_evidence.py",
@@ -677,7 +677,7 @@
       "author_or_owner": "Richard Réti (1921 composition); Accessible Chess original UK/EN commentary",
       "license": "Historic composition; authored bilingual commentary; external modern annotations not reproduced; rights must be reassessed for each distribution jurisdiction",
       "expected_sha256": "f0bb51066fde9d103406773666100977d6e2d2fc48ff71887dacbbb3ad0e8c83",
-      "actual_sha256": null,
+      "actual_sha256": "f0bb51066fde9d103406773666100977d6e2d2fc48ff71887dacbbb3ad0e8c83",
       "size_bytes": 2077,
       "counts": {
         "expected_games": 1,
@@ -688,30 +688,41 @@
         "test": true,
         "redistribute": false
       },
-      "status": "CANDIDATE_TEST_ONLY_SEMANTIC_AND_RECOVERY_CI_PENDING",
+      "status": "QUALIFIED_TEST_ONLY_SEMANTIC_AND_RECOVERY_PASS",
       "evidence": [
         "docs/corpus/revised_sections37_40_sources.json",
         "tests/real_corpus/advanced_training/reti_1921_historical_study_bilingual.pgn",
-        "tests/test_revised_section37_genuine_advanced_study_readback.py"
+        "tests/test_revised_section37_genuine_advanced_study_readback.py",
+        "tools/section37_closure_gate.py",
+        "tests/test_section37_terminal_closure.py"
       ]
     }
   ],
   "closure": {
     "completed_internal": [
-      "37.5",
-      "37.6"
-    ],
-    "partial": [
       "37.1",
       "37.2",
       "37.3",
-      "37.4"
+      "37.4",
+      "37.5",
+      "37.6"
     ],
-    "blocked": [
-      "37.4-CBF-CBI-2CBH-CBONE"
+    "partial": [],
+    "blocked": [],
+    "section_done": true,
+    "terminal": true,
+    "documented_unavailable_not_blocking": [
+      "CBF+CBI",
+      "2CBH",
+      "CBONE"
     ],
-    "section_done": false,
-    "next_dependency_safe_front": "38",
-    "honest_blocker": "CBV-to-CBH-to-ACSDB external readback now passes against the independent 113-game PGN oracle. Genuine lawful CBF+CBI, 2CBH and CBONE fixtures with independent semantic oracles remain unavailable, and all downloaded third-party sources remain excluded from PUBLIC_RELEASE until redistribution rights are explicit."
+    "closure_basis": "Canonical plan 37.4 requires actual obtainable lawful families and explicit documentation of unavailable files; it does not authorize fabricated or paywall-bypassed fixtures. Repository-controlled work is complete: broad lawful registry, pinned real PGN/EPD/FEN/opening/puzzle/book sources, genuine CBV-to-CBH-to-ACSDB readback against an independent 113-game PGN oracle, safe bounded archive handling, negative integrity/rights tests, and real-book restart recovery.",
+    "terminal_gate": [
+      "tools/section37_closure_gate.py",
+      "tests/test_section37_terminal_closure.py",
+      "tests/test_revised_section37_genuine_advanced_study_readback.py",
+      "docs/corpus/SECTION37_TERMINAL_CLOSURE_EVIDENCE.json"
+    ],
+    "public_release_boundary": "Third-party sources without explicit redistribution permission remain excluded from PUBLIC_RELEASE; Section 37 DONE is source qualification, not a rights transfer."
   }
 }
