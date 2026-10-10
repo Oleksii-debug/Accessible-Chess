@@ -24,6 +24,7 @@ from .full_product_actions import (
 from .full_product_native_menu import (
     FullProductNativeMenuController,
     NativeMenuItemKind,
+    NativeMenuItemSpec,
     NativeTopMenuSpec,
     build_full_product_menu_spec,
 )
@@ -224,13 +225,68 @@ def build_version2_menu_spec(
 
 
 class Version2NativeMenuController(FullProductNativeMenuController):
-    """Owner controller behavior with only the Version 2 menu projection changed."""
+    """Version 2 menu plus an opt-in, after-shutdown owner-data export action."""
+
+    def __init__(
+        self,
+        *args: Any,
+        owner_export_callback: Callable[[], Any] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        if owner_export_callback is not None and not callable(owner_export_callback):
+            raise TypeError("owner export callback must be callable")
+        self._owner_export_callback = owner_export_callback
 
     def spec(self) -> tuple[NativeTopMenuSpec, ...]:
-        return build_version2_menu_spec(
+        menus = build_version2_menu_spec(
             self._adapter.registry,
             language=self._adapter.shell.language,
         )
+        if self._owner_export_callback is None:
+            return menus
+        language = self._adapter.shell.language
+        label = (
+            "Create complete backup and exit"
+            if language is UILanguage.EN
+            else "Створити повну копію даних і вийти"
+        )
+        exported = []
+        for menu in menus:
+            if menu.menu_id != "file":
+                exported.append(menu)
+                continue
+            items = list(menu.items)
+            # Add immediately before native Exit. Existing command routing,
+            # enabled-state, keyboard bindings and menu positions remain stable.
+            exit_index = next(
+                (
+                    index for index, item in enumerate(items)
+                    if item.host_command == "app.exit"
+                ),
+                len(items),
+            )
+            items.insert(
+                exit_index,
+                NativeMenuItemSpec(
+                    NativeMenuItemKind.HOST,
+                    label,
+                    host_command="owner.export_all",
+                ),
+            )
+            exported.append(NativeTopMenuSpec(menu.menu_id, menu.label, tuple(items)))
+        return tuple(exported)
+
+    def activate(self, item: NativeMenuItemSpec):
+        if (
+            item.kind is NativeMenuItemKind.HOST
+            and item.host_command == "owner.export_all"
+        ):
+            if self._owner_export_callback is None:
+                raise RuntimeError("owner-data export is unavailable")
+            self._owner_export_callback()
+            return None
+        return super().activate(item)
 
 
 def validate_version2_profile() -> None:
