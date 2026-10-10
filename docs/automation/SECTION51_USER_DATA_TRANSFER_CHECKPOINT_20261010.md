@@ -59,9 +59,9 @@ relinking; preserved bytes alone do not establish cross-machine playback.
 - `tests/test_section51_cross_surface_recovery.py`: 7 scenarios for
   full-domain backup/restart, schema-1 upgrade, future-schema refusal,
   rollback/crash retry and corrupt-copy denial.
-- `tests/test_section51_owner_data_transfer.py`: 8 scenarios for actual
+- `tests/test_section51_owner_data_transfer.py`: 10 scenarios for actual
   transfer, tamper/traversal rejection, preexisting destination protection,
-  future-schema refusal, backup-history protection, publication-race denial and source-parent symlink refusal.
+  future-schema refusal, backup-history protection, publication-race denial and source-parent symlink refusal, current-schema transfer and future-Library-schema refusal.
 - `.github/workflows/section51-cross-surface-recovery.yml`: exact-head
   Ubuntu and Windows unittest + retained upgrade suites + selftest.
 
