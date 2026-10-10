@@ -265,7 +265,48 @@ def qualify_original_publisher_pair(
         original_pgn = root / "published.pgn"
         original_pgn.write_bytes(expected_raw)
         target = root / "expanded"
-        _extract_with_mit(binary, archive, target)
+        try:
+            _extract_with_mit(binary, archive, target)
+        except LawfulCorpusError:
+            # The real original publisher pair was downloaded and hashed,
+            # but its external-only unpacker could not qualify it. Retain
+            # that genuine evidence as BLOCKED; do not fabricate decoded
+            # games, semantic fidelity, or a successful SQLite readback.
+            return {
+                "schema": "acs-section38-39-external-NWC-original-cbv-pgn-oracle-v1",
+                "publisher_index": PUBLISHER,
+                "publisher": "Northwest Chess",
+                "canonical_source_ids": [CBV_SOURCE_ID, PGN_SOURCE_ID],
+                "source_acquisition_authority": "acs.lawful_corpus_registry.load_catalog",
+                "edition": "January 2013 annotated published games",
+                "original_pgn_url": PGN_URL,
+                "original_cbv_url": CBV_URL,
+                "observed_source_pgn_sha256": hashlib.sha256(expected_raw).hexdigest(),
+                "observed_source_cbv_sha256": hashlib.sha256(cbv_raw).hexdigest(),
+                "source_pgn_bytes": len(expected_raw),
+                "source_cbv_bytes": len(cbv_raw),
+                "source_original_sha256_previously_pinned": False,
+                "pgn_expected_games": len(expected_games),
+                "cbv_decoder_actual_games": None,
+                "same_game_count": False,
+                "original_pgn_recovery_warning_count": expected_recovery_warnings,
+                "cbv_decoded_pgn_recovery_warning_count": None,
+                "complete_original_header_and_annotation_comparison": False,
+                "actual_acsdb_imported_games": None,
+                "actual_acsdb_restart_game_count": None,
+                "acsdb_restart_full_semantic_match": False,
+                "acsdb_reimport_reused": False,
+                "full_semantic_game_tree_match": False,
+                "source_acquisition": "ORIGINAL_EXTERNAL_HTTP200_TEST_ONLY_UNPINNED_OBSERVATION",
+                "qualification": "BLOCKED",
+                "blocked_reason": "MIT_EXTERNAL_CBV_UNPACK_FAILED_CLOSED",
+                "terminal_cbv_format_pass": False,
+                "product_cbv_backend_changed": False,
+                "original_files_redistributed": False,
+                "owner_release_included": False,
+                "section38_terminal_done": False,
+                "section39_terminal_done": False,
+            }
         candidates = [
             file for file in target.rglob("*")
             if file.is_file() and not file.is_symlink()
