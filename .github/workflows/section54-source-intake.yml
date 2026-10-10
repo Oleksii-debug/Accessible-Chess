@@ -52,6 +52,14 @@ on:
       - 'web/format_factory_policy_form.js'
       - 'tests/js/format_factory_policy_form_test.js'
       - '.github/workflows/section54-source-intake.yml'
+      - 'acs/format_factory_conversion.py'
+      - 'acs/format_factory_epub.py'
+      - 'acs/format_factory_docx.py'
+      - 'acs/format_factory_cli.py'
+      - 'tests/test_section54_factory_conversion.py'
+      - 'tests/test_section54_factory_epub.py'
+      - 'tests/test_section54_factory_docx.py'
+      - 'tests/test_section54_factory_cli.py'
   workflow_dispatch:
 jobs:
   factory:
