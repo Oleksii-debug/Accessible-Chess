@@ -13,6 +13,7 @@ import tempfile
 from typing import Any
 
 from . import stage1_release_ui_core as _core
+from . import webapp as _webapp
 from .stage1_release_ui_core import *  # noqa: F401,F403 - compatibility surface
 from .stage1_release_ui_core import _asset_root, _shared_spoken_san
 from .engine_play_service import EngineGameIntent
@@ -23,6 +24,90 @@ from .webapp_keymap import KeymapAwareAccessibleChessAPI
 
 class Stage1ReleaseAccessibleChessAPI(_core.Stage1ReleaseAccessibleChessAPI):
     """Release API with the saturation board-command dispatcher enabled."""
+
+    def _commit_engine_move(self, move: str) -> None:
+        """Publish an engine move through the canonical atomic Board transaction."""
+        self._pending_engine_move_board_state = self._capture_engine_takeback_state()
+        result = _webapp.AccessibleChessAPI.make_move(self, move)
+        if result.get("ok") is not True:
+            self._pending_engine_move_board_state = None
+            raise RuntimeError("engine move could not be committed")
+
+    def _request_engine_reply(self) -> tuple[bool, str]:
+        """Accept clock state before publishing sound for an engine move."""
+        session = self._engine_session
+        if session is None:
+            return False, self._pause_engine_after_failure()
+        self._pending_engine_move_board_state = None
+        self._engine_thinking = True
+        before = len(self.sans)
+        try:
+            result = session.request_engine_move()
+        except Exception:
+            pending = self._pending_engine_move_board_state
+            self._pending_engine_move_board_state = None
+            if pending is not None:
+                try:
+                    self._restore_engine_takeback_state(pending)
+                except Exception as exc:
+                    return False, self._block_unrecoverable_takeback(exc)["announcement"]
+            try:
+                snapshot = session.snapshot()
+                if snapshot.lifecycle.status is GameStatus.FINISHED:
+                    self._engine_game_phase = "finished"
+                    self._engine_game_error = None
+                    self._record_engine_clock(snapshot)
+                    self._play_game_end_sound()
+                    return True, self._outcome_text(snapshot)
+            except Exception:
+                pass
+            return False, self._pause_engine_after_failure()
+        finally:
+            self._engine_thinking = False
+
+        self._pending_engine_move_board_state = None
+        if result.move is None:
+            try:
+                snapshot = session.snapshot()
+            except Exception:
+                return False, self._pause_engine_after_failure()
+            if snapshot.lifecycle.status is GameStatus.FINISHED:
+                self._engine_game_phase = "finished"
+                return True, self._outcome_text(snapshot)
+            return False, self._pause_engine_after_failure()
+        if len(self.sans) != before + 1:
+            return False, self._pause_engine_after_failure()
+
+        if self._suppress_next_engine_move_sound_for_start:
+            self._suppress_next_engine_move_sound_for_start = False
+        else:
+            self._play_latest_move()
+        try:
+            after_move = session.snapshot()
+            self._record_engine_clock(after_move)
+        except Exception:
+            return False, self._pause_engine_after_failure()
+        engine_san = _shared_spoken_san(self.sans[-1], self.lang)
+        if after_move.lifecycle.status is GameStatus.FINISHED:
+            self._engine_game_phase = "finished"
+            self._play_game_end_sound()
+            return True, (
+                f"Stockfish зіграв: {engine_san}. {self._outcome_text(after_move)}"
+                if self.lang == "uk"
+                else f"Stockfish played: {engine_san}. {self._outcome_text(after_move)}"
+            )
+        terminal = self._finish_engine_game_from_board()
+        if terminal is not None:
+            return True, (
+                f"Stockfish зіграв: {engine_san}. {self._outcome_text(terminal)}"
+                if self.lang == "uk"
+                else f"Stockfish played: {engine_san}. {self._outcome_text(terminal)}"
+            )
+        return True, (
+            f"Stockfish зіграв: {engine_san}. Ваш хід."
+            if self.lang == "uk"
+            else f"Stockfish played: {engine_san}. Your move."
+        )
 
     def get_state(self) -> dict[str, Any]:
         state = super().get_state()

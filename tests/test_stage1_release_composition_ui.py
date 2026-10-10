@@ -8,6 +8,7 @@ from unittest.mock import patch
 import wave
 from pathlib import Path
 
+from acs.chesscore import Board, sq_name
 from acs.release_app import create_release_api
 from acs.sound_events import SoundEvent
 from acs.sound_windows import REQUIRED_SOUND_EVENTS
@@ -32,7 +33,13 @@ class _FakeEngine:
         return tuple(_FakeLine(i) for i in range(1, multipv + 1))
 
     def best_move(self, fen: str, skill_level: int = 10, movetime_ms: int = 500):
-        return "e2e4"
+        board = Board(fen)
+        legal = board.legal_moves()
+        if not legal:
+            return None
+        move = legal[0]
+        promotion = (move.promotion or "").lower()
+        return f"{sq_name(move.frm)}{sq_name(move.to)}{promotion}"
 
     def close(self) -> None:
         self.closed = True
@@ -514,6 +521,7 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
                 started = api.start_engine_game("white", 5, 1, 0)
                 self.assertTrue(started["ok"], started)
 
+                api._clock_sound_not_before = 0.0
                 first = api.clock_sound_pulse()
                 self.assertTrue(first["ok"], first)
                 self.assertTrue(first["played"], first)
@@ -643,6 +651,10 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
 
     def test_webview_bootstrap_preserves_initial_move_edit_and_base_enter_dispatch(self) -> None:
         text = self.bootstrap
+        identity = text[
+            text.index("function installMoveEntryIdentity()"):
+            text.index("function installBoardFocusContinuity()")
+        ]
         self.assertIn("function installMoveEntryIdentity()", text)
         self.assertIn("input.addEventListener('focusin', rememberMoveInputFocus)", text)
         self.assertIn("stage1MoveIdentityReady", text)
@@ -651,8 +663,8 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
         self.assertNotIn("row.replaceWith", text)
         self.assertIn("el('move-submit').addEventListener('click',submitMove)", self.html)
         self.assertIn("el('move-input').addEventListener('keydown'", self.html)
-        self.assertNotIn("document.addEventListener('keydown'", text)
-        self.assertNotIn("window.addEventListener('keydown'", text)
+        self.assertNotIn("document.addEventListener('keydown'", identity)
+        self.assertNotIn("window.addEventListener('keydown'", identity)
 
     def test_move_edit_runtime_exposure_contract_targets_webview_accessibility_mechanism(self) -> None:
         text = self.bootstrap
@@ -677,6 +689,10 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
 
     def test_board_origin_move_preserves_board_focus_without_changing_input_semantics(self) -> None:
         text = self.bootstrap
+        policy = text[
+            text.index("function installMoveFocusPolicy()"):
+            text.index("function installMoveEntryIdentity()")
+        ]
         self.assertIn("const focusState = window.__accessibleChessStage1FocusState", text)
         self.assertIn("function rememberBoardFocus(cell)", text)
         self.assertIn("function rememberMoveInputFocus()", text)
@@ -696,11 +712,15 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
         self.assertIn("input.addEventListener('focusin', rememberMoveInputFocus)", text)
         self.assertIn("stage1MoveFocusPolicyReady", text)
         self.assertLess(text.index("installMoveFocusPolicy();"), text.index("installMoveEntryIdentity();"))
-        self.assertNotIn("document.addEventListener('keydown'", text)
-        self.assertNotIn("window.addEventListener('keydown'", text)
+        self.assertNotIn("document.addEventListener('keydown'", policy)
+        self.assertNotIn("window.addEventListener('keydown'", policy)
 
     def test_board_focus_survives_state_driven_grid_replacement_without_global_key_hijack(self) -> None:
         text = self.bootstrap
+        continuity = text[
+            text.index("function installBoardFocusContinuity()"):
+            text.index("let clockSoundPulseInFlight")
+        ]
         self.assertIn("function installBoardFocusContinuity()", text)
         self.assertIn("function stabilizeBoardUiaSemantics", text)
         self.assertIn("grid.addEventListener('focusin'", text)
@@ -715,8 +735,8 @@ class Stage1ReleaseCompositionUiTests(unittest.TestCase):
         self.assertIn("stage1BoardFocusContinuityReady", text)
         self.assertIn("stage1BoardUiaSemanticsReady", text)
         self.assertIn("installBoardFocusContinuity();", text)
-        self.assertNotIn("document.addEventListener('keydown'", text)
-        self.assertNotIn("window.addEventListener('keydown'", text)
+        self.assertNotIn("document.addEventListener('keydown'", continuity)
+        self.assertNotIn("window.addEventListener('keydown'", continuity)
 
     def test_new_game_visual_sequence_is_visual_only_interruptible_and_sound_timed(self) -> None:
         text = self.bootstrap

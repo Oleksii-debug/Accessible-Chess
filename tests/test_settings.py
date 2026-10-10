@@ -11,6 +11,26 @@ from acs.version2_upgrade_base import _UpgradeLock
 
 
 class SettingsTests(unittest.TestCase):
+    def test_windows_path_and_handle_ctime_are_not_cross_compared(self):
+        common = {
+            "st_dev": 7,
+            "st_ino": 11,
+            "st_size": 100,
+            "st_mtime_ns": 123,
+        }
+        pathname = mock.Mock(**common, st_ctime_ns=456)
+        handle = mock.Mock(**common, st_ctime_ns=789)
+        with (
+            mock.patch.object(settings_module.os.path, "samestat", return_value=True),
+            mock.patch.object(settings_module.os, "name", "nt"),
+        ):
+            self.assertTrue(
+                settings_module._same_file_version(
+                    pathname, handle, cross_interface=True
+                )
+            )
+            self.assertFalse(settings_module._same_file_version(pathname, handle))
+
     def test_defaults_preserve_existing_runtime_contract(self):
         with tempfile.TemporaryDirectory() as td:
             settings = Settings(Path(td) / "settings.json")
