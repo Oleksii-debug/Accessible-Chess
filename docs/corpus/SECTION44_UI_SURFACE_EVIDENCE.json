@@ -100,7 +100,11 @@
       },
       "main_workflow_blob_sha": "5c4b6f1c8996cbd56bbd2ff67b99109c1d315bb6",
       "main_push_run": 38010786595,
-      "main_push_run_status_at_record": "QUEUED; NOT_CLAIMED_SUCCESS"
+      "main_push_run_status_at_record": "COMPLETED_SUCCESS",
+      "main_push_run_jobs": {
+        "ubuntu": "SUCCESS",
+        "windows": "SUCCESS"
+      }
     }
   },
   "blocked": [],
