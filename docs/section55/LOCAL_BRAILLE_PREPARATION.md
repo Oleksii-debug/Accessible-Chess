@@ -42,6 +42,14 @@ This standalone verifier does not need an installed Liblouis because it checks e
 - On failure before publication, unpublished temporary files are cleaned up. Raw private paths/text are not printed in error messages.
 - The package contains the explicit rights_basis that the user typed. Use a privacy-appropriate generic rights basis if it would otherwise reveal private legal information.
 
+## Optional source-readable HTML preview for NVDA
+
+To create the unverified, keyboard-navigable local HTML preview together with a PEF package, append --emit-html to the preparation command. Its file name is chess-book-unverified.html. You can open it directly in a browser without network access. Use NVDA heading navigation (H), link navigation (K), and the page links in the navigation section. The original semantic chess text, including supported FEN and diagram alt text, is exposed separately; the Unicode Braille cell pages are visually shown as UNVERIFIED and are not presented to NVDA as a trustworthy transcription.
+
+The preview uses only escaped original source text, static semantic HTML, restrictive CSP, a skip link, and a heading-based table of contents. It contains no JavaScript, tracking, or external resources.
+
+The quality report includes an HTML SHA-256 and explicit html_print_ready=false. The independent verifier reconstructs the original source semantics and the HTML output from the original book and PEF before accepting a package. This output does NOT implement the finalized eBraille specification, literary chess-Braille editorial acceptance, or physical embossing.
+
 ## Remaining mandatory Section 55 gates
 
 Actual supported languages/Liblouis full table-closure pinning; formal standardized chess notation and independent forward/back-translation; rights-evidenced multi-edition intake/PDF and OCR/PGN/FEN; tactile diagram and real embosser profiles (duplex, page size, paper geometry); actual eBraille, pagination and large-volume book queue/restart; professional qualified chess Braille QA; lawfully sourced corpus; validated hardware print proof and blind-reader acceptance; accessible end-user UI and packaging; product-level integration. No Section 55.x subsection is DONE.
