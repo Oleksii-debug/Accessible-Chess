@@ -111,6 +111,12 @@ def scan_local_liblouis_table_closure(path: Path) -> LocalTableClosure:
                 if matched is None:
                     raise BrailleFactoryError("Ambiguous Liblouis include directive")
                 operand = matched.group(1)
+                # Validate the raw spelling before pathlib normalizes away
+                # lexical aliases such as "./" and doubled "/" separators.
+                # An inventory must never silently pin a different spelling
+                # from the input consumed by an external Liblouis resolver.
+                if any(part in ("", ".", "..") for part in operand.split("/")):
+                    raise BrailleFactoryError("Unsafe Liblouis include target")
                 subpath = Path(operand)
                 # A backslash or colon can mean a path separator, drive,
                 # or alternate stream on Windows while resolving differently
