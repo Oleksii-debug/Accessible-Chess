@@ -23,7 +23,11 @@ class SyntheticLouis(types.ModuleType):
     def translateString(tables, source, mode):
         if mode != (SyntheticLouis.ucBrl | SyntheticLouis.dotsIO) or not tables:
             raise ValueError("Wrong synthetic mode/table")
-        return "\u2801" * len(source)  # fixture only, never readable language Braille
+        # A synthetic *structural* translator must preserve word boundaries.
+        # A blanket one-cell mapping collapses spaces into an unbreakable
+        # word, falsely failing valid paragraphs at narrow device widths.
+        # This fixture is NOT a real literary or chess Braille translation.
+        return "".join("\u2800" if char == " " else "\u2801" for char in source)
 
 
 class Section55LocalCLITests(unittest.TestCase):
@@ -49,6 +53,14 @@ class Section55LocalCLITests(unittest.TestCase):
         if emit_brf:
             cli.extend(["--emit-brf", "--display-table", "en-us-brf.dis"])
         return make_parser().parse_args(cli)
+
+    def test_synthetic_translator_preserves_braille_word_boundaries(self):
+        translator = SyntheticLouis("louis")
+        self.assertEqual(
+            translator.translateString("synthetic.ctb", "A white king", 3),
+            "\u2801\u2800" + "\u2801" * 5 + "\u2800" + "\u2801" * 4,
+        )
+        self.assertEqual(len(translator.translateString("synthetic.ctb", "Knight", 3)), 6)
 
     def test_one_book_pef_and_brf_with_manifest_hashes(self):
         with tempfile.TemporaryDirectory() as tmp:
