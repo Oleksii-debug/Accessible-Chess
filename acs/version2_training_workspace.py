@@ -222,6 +222,10 @@ class Version2BookTrainingWorkspace:
             block = indexed_document.blocks[index]
             if not isinstance(block, Exercise):
                 continue
+            # Copy only the bounded successor semantic block, not the entire
+            # potentially large indexed Book; a builder mutating its detached
+            # input may never publish a stale candidate or persist Training.
+            successor_before = block.as_dict()
             try:
                 candidate = build_book_training_material(indexed_document, index)
             except BookTrainingError:
@@ -234,6 +238,14 @@ class Version2BookTrainingWorkspace:
                 # malformed authoring state before checking revision authority.
                 self.reader.block_snapshot(index)
                 raise
+            # Also verify the *detached* semantic source: a callback may have
+            # changed the block handed to the material constructor while the
+            # live BookReader revision remained unchanged.
+            try:
+                if block.as_dict() != successor_before:
+                    raise RuntimeError("Book changed after BookReader creation")
+            except (TypeError, ValueError, AttributeError):
+                raise RuntimeError("Book changed after BookReader creation") from None
             # The material builder consumes the mutable BookDocument. Revalidate
             # the whole indexed revision after derivation so a concurrent/in-place
             # authoring mutation cannot become the next Training publication.

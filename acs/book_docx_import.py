@@ -77,6 +77,7 @@ def _safe_members(archive: zipfile.ZipFile) -> dict[str, zipfile.ZipInfo]:
             or (item.flag_bits & 1)
             or stat.S_IFMT(mode) not in {0, stat.S_IFREG, stat.S_IFDIR}
             or name in result
+            or name.rsplit("/", 1)[-1].casefold() in {"vbaproject.bin", "vbadata.xml"}
         ):
             raise DocxBookImportError("DOCX archive contains unsafe members")
         if not item.is_dir():

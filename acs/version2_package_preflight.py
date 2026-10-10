@@ -1712,7 +1712,7 @@ def _validate_required_runtime_resources(
         # Exact source Git blob identities are independent of mutable SHA256SUMS
         # so an attacker cannot legitimize altered SVG/CSS by rewriting checksums.
         pinned_assets = {
-            "web/assets/accessible_chess_design.css": "30b4580623cc4ceb947fdec1f9b7ab7d2f5bcdb3",
+            "web/assets/accessible_chess_design.css": "dceba51a0b49d4411470c909561c5d5670a3c811",
             "web/assets/tabler-core/LICENSE": "aa69649cde83c2d6517ec2498a9c10f5bb3bf54c",
             "web/assets/tabler-core/SECTION41_CORE_PROVENANCE.json": "1e0225f937e46bcc6669213d1fe181a5cc145902",
             "web/assets/tabler-core/accessibility.css": "0fe8f69f90411731513c9926827fb609bf51b267",
