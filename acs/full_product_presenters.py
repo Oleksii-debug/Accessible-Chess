@@ -159,6 +159,10 @@ def _canonical_library_page(
 
 def _safe_source_label(value: object) -> str:
     """Keep useful source identity without projecting local directory paths."""
+    # Canonical BookBlock/ReadingLocation source_anchor is optional. Absence
+    # means no visible source label, not an invalid book or navigation state.
+    if value is None:
+        return ""
     if type(value) is not str:
         raise TypeError("library source label must be text")
     if len(value) > _MAX_LIBRARY_PROVIDER_TEXT:

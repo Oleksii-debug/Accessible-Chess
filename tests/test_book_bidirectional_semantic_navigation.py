@@ -83,6 +83,23 @@ class BookBidirectionalSemanticNavigationTests(unittest.TestCase):
             ],
         )
 
+    def test_optional_source_anchor_is_safe_in_canonical_book_presentation(self) -> None:
+        # A book without optional anchors must remain navigable, including the
+        # Position handoff; an absent anchor is not a malformed source label.
+        presenter = BookReaderPresenter(BookReader(self.make_document()))
+        self.assertEqual(presenter.current().source_anchor, "")
+        self.assertEqual(presenter.next_position().source_anchor, "")
+        self.assertEqual(presenter.next_game().source_anchor, "")
+
+        named = BookDocument(
+            title="Named source anchor",
+            blocks=[Heading(text="Chapter", source_anchor="chapter-one")],
+        )
+        self.assertEqual(
+            BookReaderPresenter(BookReader(named)).current().source_anchor,
+            "chapter-one",
+        )
+
     def test_reverse_commands_are_registered_and_progress_atomic(self) -> None:
         for command in ("book.previous_position", "book.previous_game"):
             with self.subTest(command=command):
