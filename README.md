@@ -23,3 +23,6 @@ New domain/application work must preserve one canonical chess/application truth 
 ### Professional localization QA and explicit post-DONE audit
 
 For every future language subsection, DONE requires independently qualified contextual linguistic review of all words, phrases, idioms, full sentences, grammar, style, orthography, punctuation, chess terms and accessible spoken UI, plus real product tests; machine translation or key coverage alone does not count. After all 0–55 are DONE and localization is activated, an explicitly assigned worker whose continent is fully DONE performs a linguist audit; demonstrated translation errors permit a documented narrowly scoped REOPEN/repair/retest/reclose of only the affected language, with main SHA and GitHub+Drive status evidence. No change to other DONE.
+
+### Official 60-parent chess roadmap
+Official parent numbering is **1–60**; Section 0 is historical foundation, excluded. Existing 55.1–55.16 Braille plus account/auth 55.17, updates 55.18, consent/analytics 55.19 and site/legal/licensing 55.20 all belong to **one Section 55**. Current owner scope: **52/60 parent DONE**, 8/60 unfinished. See `SEQUENTIAL_CLOSURE_STATE.md` and canonical Google Drive plan. No lettered extra parent Sections.
