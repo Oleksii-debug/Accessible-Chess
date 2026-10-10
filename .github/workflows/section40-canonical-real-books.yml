@@ -1,0 +1,33 @@
+name: Section 40 canonical real offline Books acceptance
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'acs/section40_*'
+      - 'acs/version2_starter_content_application.py'
+      - 'tests/test_revised_section40_reti_runtime.py'
+      - 'tests/test_section40_bilingual_master_workbook_product.py'
+      - 'tests/test_revised_section40_advanced_training.py'
+      - 'tests/test_w3_p0f_starter_books_training_content.py'
+      - '.github/workflows/section40-canonical-real-books.yml'
+  workflow_dispatch: {}
+permissions:
+  contents: read
+jobs:
+  real-books:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+      - name: Exact-original bilingual workbook and Réti playable Book/Board integration
+        run: python -m unittest -v tests.test_revised_section40_reti_runtime tests.test_section40_bilingual_master_workbook_product tests.test_w3_p0f_starter_books_training_content
