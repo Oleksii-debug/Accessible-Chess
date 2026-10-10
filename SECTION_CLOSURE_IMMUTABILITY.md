@@ -1,5 +1,10 @@
 # Accessible Chess — immutable completed work and one-section execution
 
+## Later-wave Section 56–60 localization gate — 2026-10-10
+
+The canonical Drive plan now contains **future** Sections **56–60**: Europe/Caucasus 39, Asia 20, Africa 12, Americas 2, Australia/Oceania 4 = **77 individual language subsections** / **82 English-labeled menu options** (6 English variants). This is a registration/specification only; NOT DONE, NOT IMPLEMENTED and **NOT ACTIONABLE** before **ALL 0–55 parent Sections** (including active 54/55 and 53) become terminal DONE in main and Drive. Do not let earlier `one Section per run` or active 54/55 permissions accidentally open this deferred wave. Once unlocked, select 56→57→58→59→60 and numerically earliest unfinished language subsection. Each actual subsection completion requires **immediate** durable GitHub and Google Drive DONE evidence, exact main SHA, execution+negative/recovery/accessibility proof and independent qualified language/chess QA. No invented translation, native-speaker QA, external voice availability or acceptance. Preserve earlier terminal Sections; no second i18n or chess authority. Refer to `docs/i18n/SECTION56_60_DESIGN_AND_ACCEPTANCE.md` and the 77-language machine scope registry.
+
+
 **OWNER DIRECTIVE — 2026-10-09. Binding for every worker.** Read alongside root `AGENTS.md`, the canonical Google Drive plan (Sections 0–53), live `SEQUENTIAL_CLOSURE_STATE.md`, current-shipping `main`, and active PR/branch heads. This directive supersedes older contradictory worker count, work-volume, reimplementation, automatic-next-section, and terminal-lock instructions. It does **not** relax correctness, tests, security, licensing, or truthful DONE requirements.
 
 ## Mandatory preservation — DO NOT REDO
