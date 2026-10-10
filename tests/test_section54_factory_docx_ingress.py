@@ -143,7 +143,7 @@ class Section54DocxIngressTests(unittest.TestCase):
                         f'<!DOCTYPE {root} [<!ENTITY injected "UNTRUSTED_ENTITY_TEXT">]>'
                         + body
                     )
-                    raw = (b"\\xff\\xfe" if encoding == "utf-16-le" else b"\\xfe\\xff") + xml.encode(encoding)
+                    raw = (b"\xff\xfe" if encoding == "utf-16-le" else b"\xfe\xff") + xml.encode(encoding)
                     parts = dict(clean_parts)
                     parts[part] = raw
                     packed = BytesIO()
@@ -155,7 +155,7 @@ class Section54DocxIngressTests(unittest.TestCase):
                     self.assertNotIn("UNTRUSTED_ENTITY_TEXT", str(raised.exception))
 
     def test_utf16_docx_without_doctype_remains_readable(self) -> None:
-        for encoding, bom in (("utf-16-le", b"\\xff\\xfe"), ("utf-16-be", b"\\xfe\\xff")):
+        for encoding, bom in (("utf-16-le", b"\xff\xfe"), ("utf-16-be", b"\xfe\xff")):
             with self.subTest(encoding=encoding):
                 document = (
                     '<?xml version="1.0" encoding="UTF-16"?>'
