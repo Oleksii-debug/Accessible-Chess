@@ -30,10 +30,10 @@ Board, Stockfish, Sections 0–53 or Section 55.
 
 ## Evidence and open gates
 
-Nine local tests were run successfully on Python 3.11-compatible syntax
+Ten local tests were run successfully on Python 3.11-compatible syntax
 using the installed `pypdf 5.9.0` library, including an actual generated
 PDF text-page extraction, encrypted-PDF rejection, page-count rejection,
-source spoof rejection and private error redaction. **Local tests used a
+source spoof rejection, fabricated approval rejection and private error redaction. **Local tests used a
 temporary minimal canonical-intake stub**, not the real checkout (GitHub DNS
 is unavailable in the working container); therefore these are focused unit
 smokes only, NOT real repository integration or acceptance. The committed
