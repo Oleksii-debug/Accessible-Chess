@@ -54,6 +54,16 @@ class BoundedZipMemberTests(unittest.TestCase):
         for bad in ("../private", "/absolute", "other\\evil", "folder/../private", "C:evil"):
             with self.subTest(path=bad):
                 self.write_zip([("original.pgn", b"valid"), (bad, b"data")])
+                # On Windows ZipInfo converts backslashes to forward slashes
+                # when constructing a new member. Restore the exact hostile
+                # raw archive name in both local and central headers before
+                # testing the *reader*'s rejection of that original name.
+                if "\\\\" in bad:
+                    normalized = bad.replace("\\\\", "/").encode("utf-8")
+                    original = bad.encode("utf-8")
+                    raw_archive = self.archive.read_bytes()
+                    self.assertIn(normalized, raw_archive)
+                    self.archive.write_bytes(raw_archive.replace(normalized, original))
                 self.assert_refused(bad)
 
     def test_refuses_budget_exhaustion_and_bad_args(self):
