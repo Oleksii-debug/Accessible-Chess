@@ -7,6 +7,7 @@ on:
     paths:
       - 'web/full_product_library.js'
       - 'tests/js/library_event_boundary_test.js'
+      - 'tests/test_dev1_library_webview_projection.py'
       - 'acs/library_webview_projection.py'
       - 'acs/library_export_webview_projection.py'
       - 'acs/library_webview_bridge.py'
@@ -15,6 +16,7 @@ on:
     paths:
       - 'web/full_product_library.js'
       - 'tests/js/library_event_boundary_test.js'
+      - 'tests/test_dev1_library_webview_projection.py'
       - 'acs/library_webview_projection.py'
       - 'acs/library_export_webview_projection.py'
       - 'acs/library_webview_bridge.py'
