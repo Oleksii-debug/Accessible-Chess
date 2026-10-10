@@ -167,6 +167,51 @@ class OwnerDataTransferTests(unittest.TestCase):
                 (destination / "foreign.txt").read_bytes(), b"never overwrite"
             )
 
+    def test_current_schema_profile_transfers_without_downgrade_or_data_loss(self):
+        with tempfile.TemporaryDirectory() as td:
+            parent = Path(td)
+            source = self._source(parent)
+            from acs.version2_upgrade import Version2UpgradeCoordinator
+
+            self.assertEqual(
+                Version2UpgradeCoordinator(UserDataLayout(source)).run().status,
+                "upgraded",
+            )
+            exported = export_owner_profile(UserDataLayout(source))
+            target = parent / "current-profile"
+            self.assertEqual(import_owner_profile(exported, target), "already_current")
+            self.assertEqual(
+                (target / "books" / "мої-уроки.txt").read_bytes(),
+                (source / "books" / "мої-уроки.txt").read_bytes(),
+            )
+            with AcsDatabase(target / "library.acsdb") as database:
+                self.assertEqual(database.schema_version, ACSDB_SCHEMA_VERSION)
+                self.assertEqual(
+                    database.get_source(1)["source_name"], "Особисті партії.pgn"
+                )
+
+    def test_future_library_schema_transfer_is_refused_without_creating_profile(self):
+        with tempfile.TemporaryDirectory() as td:
+            parent = Path(td)
+            source = self._source(parent)
+            from sqlite3 import connect
+
+            connection = connect(source / "library.acsdb")
+            try:
+                connection.execute("PRAGMA user_version=999")
+                connection.commit()
+            finally:
+                connection.close()
+            exported = export_owner_profile(UserDataLayout(source))
+            target = parent / "newer-schema"
+            with self.assertRaises(UserDataTransferError):
+                import_owner_profile(exported, target)
+            self.assertFalse(target.exists())
+            self.assertEqual(
+                (source / "accounts" / "profile.json").read_bytes(),
+                b'{"user":"owner"}\n',
+            )
+
     def test_future_schema_blocks_staged_import_without_touching_target(self):
         with tempfile.TemporaryDirectory() as td:
             parent = Path(td)
