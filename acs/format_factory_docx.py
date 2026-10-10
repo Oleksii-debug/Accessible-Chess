@@ -107,7 +107,7 @@ def _numbering(list_instances: tuple[tuple[int, bool, int], ...]) -> str:
             f'<w:numbering xmlns:w="{_W}">{"".join(abstract)}{instances}</w:numbering>')
 
 
-def _parts(wire: dict[str, object], identity: str, timestamp: str) -> dict[str, str]:
+def _parts(wire: dict[str, object], identity: str, timestamp: str) -> tuple[dict[str, str], tuple[str, ...]]:
     paragraphs = [_paragraph(wire["title"], style="Title")]
     losses: list[str] = []
     list_instances: list[tuple[int, bool, int]] = []
