@@ -19,6 +19,31 @@ MAX_TABLE_CLOSURE_BYTES = 16 * 1024 * 1024
 _INCLUDE_OPCODE = re.compile(r"^include\s+(\S+)\s*(?:#.*)?$")
 
 
+# A local POSIX inventory must not attest a dependency graph that Win32 could
+# interpret as a device, an alternate file or an invalid path. These constraints
+# apply to every path prefix, including the main table, before filesystem IO.
+# Reference: Microsoft Learn, "Naming Files, Paths, and Namespaces".
+_WINDOWS_DISALLOWED = frozenset('<>:"\\|?*')
+_WINDOWS_DEVICE_STEMS = frozenset(
+    {"con", "prn", "aux", "nul"}
+    | {f"{prefix}{digit}" for prefix in ("com", "lpt")
+       for digit in "123456789¹²³"}
+)
+
+
+def _reject_nonportable_component(component: str) -> None:
+    stem = component.split(".", 1)[0].rstrip(" ").casefold()
+    if (
+        not component or component in (".", "..")
+        or component.endswith((".", " "))
+        or stem in _WINDOWS_DEVICE_STEMS
+        or any(ord(char) < 32 or char in _WINDOWS_DISALLOWED
+               for char in component)
+    ):
+        raise BrailleFactoryError("Nonportable Windows Liblouis table path component")
+
+
+
 @dataclass(frozen=True, slots=True)
 class LocalTableClosure:
     files: tuple[tuple[str, str], ...]
@@ -74,8 +99,7 @@ def scan_local_liblouis_table_closure(path: Path) -> LocalTableClosure:
                 raise BrailleFactoryError("Ambiguous case-insensitive Liblouis include alias")
         cursor = root_dir
         for component in relative_unresolved.parts:
-            if component in (".", ".."):
-                raise BrailleFactoryError("Unsafe Liblouis include path component")
+            _reject_nonportable_component(component)
             cursor = cursor / component
             if cursor.is_symlink():
                 raise BrailleFactoryError("Symlink in Liblouis include path is forbidden")
