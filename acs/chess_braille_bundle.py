@@ -14,12 +14,17 @@ from pathlib import Path
 from .chess_braille_brf import NABCC_DISPLAY_TABLE, pef_to_provisional_brf
 from .chess_braille_factory import BrailleFactoryError, BraillePreparation
 from .chess_braille_tables import scan_local_liblouis_table_closure
+from .chess_braille_html import render_local_braille_html
+from .bookdocument import BookDocument
+from .book_text_import import import_text_book
 
 PEF_FILE = "chess-book-unverified.pef"
 BRF_FILE = "chess-book-unverified.brf"
+HTML_FILE = "chess-book-unverified.html"
 REPORT_FILE = "quality-report.json"
 MAX_PEF_SIZE = 32 * 1024 * 1024
 MAX_BRF_SIZE = 32 * 1024 * 1024
+MAX_HTML_SIZE = 32 * 1024 * 1024
 MAX_REPORT_SIZE = 64 * 1024
 MAX_SOURCE_SIZE = 32 * 1024 * 1024
 
@@ -29,6 +34,7 @@ class ProvisionalBundleCheck:
     output_pef_sha256: str
     output_brf_sha256: str | None
     source_sha256: str
+    output_html_sha256: str | None = None
     pages: int
     internal_consistency: bool = True
     qualified_print_ready: bool = False
@@ -65,9 +71,11 @@ def verify_provisional_bundle(folder: Path, source_file: Path, *,
     if folder.is_symlink() or not folder.is_dir():
         raise BrailleFactoryError("Package directory does not exist or is a link")
     entries = {entry.name for entry in folder.iterdir()}
-    if entries not in (
+    if not entries in (
         {PEF_FILE, REPORT_FILE},
         {PEF_FILE, BRF_FILE, REPORT_FILE},
+        {PEF_FILE, HTML_FILE, REPORT_FILE},
+        {PEF_FILE, BRF_FILE, HTML_FILE, REPORT_FILE},
     ):
         raise BrailleFactoryError("The provisional package contains missing or unexpected entries")
     raw_report = _read_regular_file(folder / REPORT_FILE, MAX_REPORT_SIZE)
@@ -110,6 +118,35 @@ def verify_provisional_bundle(folder: Path, source_file: Path, *,
             raise BrailleFactoryError("BRF bytes are not a lossless rendering of the PEF")
     elif any(key in manifest for key in ("output_brf_sha256", "brf_print_ready", "brf_display_table")):
         raise BrailleFactoryError("BRF output claimed but BRF bytes absent")
+    output_html: str | None = None
+    if HTML_FILE in entries:
+        if manifest.get("html_print_ready") is not False:
+            raise BrailleFactoryError("HTML preview claims false print-readiness")
+        html_bytes = _read_regular_file(folder / HTML_FILE, MAX_HTML_SIZE)
+        output_html = _expect_hash(html_bytes, manifest.get("output_html_sha256"), "output_html_sha256")
+        if source_file.suffix.lower() == ".json":
+            try:
+                payload = json.loads(source.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise BrailleFactoryError("Original canonical JSON could not be reparsed") from exc
+            original_document = BookDocument.from_dict(payload)
+        elif source_file.suffix.lower() in {".md", ".txt"}:
+            imported = import_text_book(
+                source, source_name=source_file.name,
+                source_format="markdown" if source_file.suffix.lower() == ".md" else "txt",
+                title=manifest.get("source_title_override"),
+                language=manifest.get("language"),
+            )
+            if imported.warnings:
+                raise BrailleFactoryError("Original imported HTML source has unresolved warnings")
+            original_document = imported.document
+        else:
+            raise BrailleFactoryError("Unknown source type for independent HTML edition verification")
+        reproduced_html = render_local_braille_html(original_document, preparation)
+        if reproduced_html.data != html_bytes:
+            raise BrailleFactoryError("HTML preview does not round-trip from original semantic source and PEF")
+    elif any(key in manifest for key in ("output_html_sha256", "html_print_ready", "source_title_override")):
+        raise BrailleFactoryError("HTML preview claimed but file missing")
     table_checked = False
     if table_file is not None:
         closure = scan_local_liblouis_table_closure(table_file)
@@ -126,6 +163,7 @@ def verify_provisional_bundle(folder: Path, source_file: Path, *,
         output_pef_sha256=pef_sha,
         output_brf_sha256=output_brf,
         source_sha256=source_sha,
+        output_html_sha256=output_html,
         pages=reproduced_brf.pages,
         table_inventory_verified=table_checked,
     )
