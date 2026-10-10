@@ -165,12 +165,12 @@ class Section54SourceIntakeTests(unittest.TestCase):
     def test_late_binary_controls_do_not_become_semantic_text(self) -> None:
         # The format-sniff window is 8192 chars, but every decoded source
         # character must be checked before it reaches the canonical importer.
-        prefix = b"Normal chess prose and chapter text.\\n" * 300
+        prefix = b"Normal chess prose and chapter text.\n" * 300
         self.assertGreater(len(prefix), 8192)
         self.assertTrue(
-            inspect_factory_source(prefix + b"Last paragraph.\\n", source_name="book.txt").can_import_as_book
+            inspect_factory_source(prefix + b"Last paragraph.\n", source_name="book.txt").can_import_as_book
         )
-        for byte in (b"\\x00", b"\\x07", b"\\x1f", b"\\x7f"):
+        for byte in (b"\x00", b"\x07", b"\x1f", b"\x7f"):
             with self.subTest(control=byte):
                 data = prefix + byte + b"Later text."
                 receipt = inspect_factory_source(data, source_name="book.txt")
