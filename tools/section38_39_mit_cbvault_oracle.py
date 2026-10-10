@@ -141,9 +141,17 @@ def _run_external_pgn(binary: Path, source: Path) -> bytes:
                     raise LawfulCorpusError("MIT cbvault produced unsafe PGN output")
                 return metadata.st_size
 
+            # cbvault 0.1.4's Headers/Annotations readers strip ".cbh",
+            # but its Entities::open appends .cbp/.cbt/.cbc/.cbs to the
+            # argument literally. Supplying "base.cbh" therefore asks for
+            # nonexistent "base.cbh.cbp" and fails before the JSON receipt.
+            # Pass the genuine, verified classic database *stem* instead.
+            if source.suffix.lower() != ".cbh" or not source.is_file() or source.is_symlink():
+                raise LawfulCorpusError("MIT CBH oracle requires a direct .cbh original")
+            database_stem = source.with_suffix("")
             with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
                 process = subprocess.Popen(
-                    [os.fspath(binary), "pgn", os.fspath(source), os.fspath(output), "--json"],
+                    [os.fspath(binary), "pgn", os.fspath(database_stem), os.fspath(output), "--json"],
                     cwd=os.fspath(binary.parent), stdin=subprocess.DEVNULL,
                     stdout=stdout, stderr=stderr, shell=False,
                 )
