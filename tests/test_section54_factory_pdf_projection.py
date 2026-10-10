@@ -1,11 +1,14 @@
 """PDF text projection must reuse the canonical BookDocument and not infer chess."""
 
+from dataclasses import replace
 from io import BytesIO
 import unittest
+from unittest.mock import patch
 
 from pypdf import PdfWriter
 from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 
+from acs.book_text_import import import_text_book
 from acs.format_factory_pdf_probe import FactoryPdfProbeError
 from acs.format_factory_pdf_projection import (
     FactoryPdfTextProjection, project_factory_text_pdf_private,
@@ -75,6 +78,26 @@ class PdfTextProjectionTests(unittest.TestCase):
             project_factory_text_pdf_private(
                 b"%PDF-1.7 no actual objects", source_name="bad.pdf",
             )
+
+    def test_canonical_import_warnings_are_not_duplicated(self):
+        def imported_with_warning(*args, **kwargs):
+            result = import_text_book(*args, **kwargs)
+            result.document.warnings.append("ORIGINAL_IMPORT_WARNING")
+            return replace(result, warnings=("ORIGINAL_IMPORT_WARNING",))
+
+        with patch(
+            "acs.format_factory_pdf_projection.import_text_book",
+            side_effect=imported_with_warning,
+        ):
+            result = project_factory_text_pdf_private(
+                _pdf_pages("Some text."), source_name="book.pdf",
+            )
+        self.assertEqual(
+            result.document.warnings.count("ORIGINAL_IMPORT_WARNING"), 1,
+        )
+        self.assertEqual(
+            result.warnings.count("ORIGINAL_IMPORT_WARNING"), 1,
+        )
 
     def test_caller_cannot_override_release_status(self):
         with self.assertRaises(TypeError):
