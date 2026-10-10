@@ -29,6 +29,38 @@ class TestSection55TableClosure(unittest.TestCase):
             changed = scan_local_liblouis_table_closure(main)
             self.assertNotEqual(first.closure_sha256, changed.closure_sha256)
 
+    def test_raw_include_path_aliases_fail_before_path_normalization(self):
+        # pathlib.Path collapses './' and repeated separators, hiding distinct
+        # input spellings that an external Liblouis resolver might interpret
+        # differently. The local table inventory must reject them verbatim.
+        invalid = (
+            "./child.cti", "dir/./child.cti", "dir//child.cti",
+            "dir/../child.cti", "dir/child.cti/",
+        )
+        for operand in invalid:
+            with self.subTest(operand=operand), tempfile.TemporaryDirectory() as tmp:
+                base = Path(tmp)
+                (base / "dir").mkdir()
+                (base / "child.cti").write_text("# child\n", encoding="utf-8")
+                (base / "dir" / "child.cti").write_text("# nested\n", encoding="utf-8")
+                main = base / "main.ctb"
+                main.write_text(f"include {operand}\n", encoding="utf-8")
+                with self.assertRaises(BrailleFactoryError):
+                    scan_local_liblouis_table_closure(main)
+
+    def test_canonical_relative_nested_include_still_works(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            (base / "dir").mkdir()
+            (base / "dir" / "child.cti").write_text("# nested\n", encoding="utf-8")
+            main = base / "main.ctb"
+            main.write_text("include dir/child.cti\n", encoding="utf-8")
+            closure = scan_local_liblouis_table_closure(main)
+            self.assertEqual(
+                tuple(name for name, _ in closure.files),
+                ("dir/child.cti", "main.ctb"),
+            )
+
     def test_absolute_and_traversal_include_fail_closed(self):
         for operand in ("../unsafe.ctb", "/other/unsafe.ctb", "dir/../unsafe.ctb"):
             with self.subTest(operand=operand), tempfile.TemporaryDirectory() as tmp:
