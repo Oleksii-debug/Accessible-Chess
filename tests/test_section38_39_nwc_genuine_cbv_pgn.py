@@ -113,6 +113,34 @@ class NorthwestChessSourceOnlyTests(unittest.TestCase):
                         expected_binary_sha256=digest,
                     )
 
+    def test_partial_original_cbv_extraction_reports_only_bounded_counters(self):
+        from unittest.mock import MagicMock
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            binary, source, target = root / "cbvault", root / "real.cbv", root / "expanded"
+            binary.write_bytes(b"stub")
+            source.write_bytes(b"original archive")
+            def partial(args, **kwargs):
+                self.assertEqual(args[-3:], ["--threads", "1", "--json"])
+                kwargs["stdout"].write(
+                    b'{"written":2,"bytes":100,"skipped":["/secret/owner.cbh: invalid"]}\n'
+                )
+                kwargs["stdout"].flush()
+                child = MagicMock()
+                child.poll.return_value = 1
+                child.returncode = 1
+                return child
+
+            with patch.object(nw.subprocess, "Popen", side_effect=partial):
+                with self.assertRaisesRegex(
+                    LawfulCorpusError,
+                    r"refused real publisher original \(exit=1; written=2; skipped=1\)",
+                ) as error:
+                    nw._extract_with_mit(binary, source, target)
+            self.assertNotIn("secret", str(error.exception))
+            self.assertNotIn("owner.cbh", str(error.exception))
+
     def test_real_original_cbv_extraction_timeout_kills_child_and_publishes_nothing(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
