@@ -17,3 +17,9 @@ At checkpoint creation, the new exact-head CI run had not yet concluded successf
 ## Resumption
 
 Use the latest **live** PR #2530 head and inspect the current GitHub checks before any further edit. The shared branch has parallel writers, so re-fetch blob SHA and update narrowly; do not overwrite the main Section54 checkpoint when changed concurrently. If tests fail, fix only the actual failing assertion/source defect and repeat exact-SHA qualification.
+
+## Private conversion integration (same scoped PR lineage)
+
+`acs/format_factory_conversion.py` now performs `audit_factory_book_chess(selected)` **before rendering** and refuses every selected BookDocument with a failed canonical chess structure audit. Its private result carries the full `FactoryChessAudit` record so consumers can separately see legal-vs-source-unverified status. This remains an in-memory preview, never an automatic rights/print/publication approval. `tests/test_section54_factory_chess_audit_integration.py` adds three end-to-end conversion-path cases for a legal multi-move PGN, illegal SAN and chess-free Markdown. These new tests are included in the two-OS workflow and no hosted PASS is claimed until the latest exact-head job concludes.
+
+The worker branch is moving in parallel; preserve the live PR head and coordinate shared-file changes. Parent 54 and 54.4 are still **PARTIAL / NOT DONE** until source-page fidelity, lawful independent corroboration, Web/Windows/NVDA and real licensed-corpus gates pass.
