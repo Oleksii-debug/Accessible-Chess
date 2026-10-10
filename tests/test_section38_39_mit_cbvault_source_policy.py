@@ -109,6 +109,63 @@ class MITCbvaultNoFalsePassTests(unittest.TestCase):
             m._original_games_signature((with_comment,)),
         )
 
+    def test_real_decoder_failure_keeps_three_immutable_original_family_receipts(self):
+        from types import SimpleNamespace
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            backend = root / "mit-backend"
+            backend.mkdir()
+            upstream = root / "original-gpl"
+            upstream.mkdir()
+            binary = root / "cbvault"
+            binary.write_bytes(b"test-only binary")
+            entries = []
+            for index in range(3):
+                dirname, stem = f"Family{index}", f"Original{index}"
+                folder = upstream / "gtest" / dirname
+                folder.mkdir(parents=True)
+                (folder / (stem + ".cbh")).write_bytes(b"fixture")
+                (folder / "original.pgn").write_text(
+                    '[Event "Original"]\\n[Result "*"]\\n\\n1. e4 e5 *\\n',
+                    encoding="utf-8",
+                )
+                entries.append({
+                    "id": f"original-family-{index}",
+                    "external_companion_git_blobs": {"test": "pinned"},
+                    "external_fixture_directory": dirname,
+                    "external_fixture_stem": stem,
+                    "external_oracle_filename": "original.pgn",
+                })
+            source_receipt = ({"family": 0}, {"family": 1}, {"family": 2})
+            with (
+                patch.object(m, "load_catalog", return_value=entries),
+                patch.object(m, "original_cbh_source_receipts", return_value=source_receipt),
+                patch.object(m, "_bounded_file_digest", return_value=("a" * 64, 16)),
+                patch.object(m.subprocess, "run",
+                             return_value=SimpleNamespace(stdout=m.BACKEND_COMMIT)) as get_commit,
+                patch.object(m, "_run_external_pgn",
+                             side_effect=LawfulCorpusError("MIT cbvault export failed closed")) as decode,
+            ):
+                result = m.qualify_mit_cbvault(
+                    backend_binary=binary,
+                    original_libcbh_checkout=upstream,
+                    backend_checkout=backend,
+                    expected_product_head="f" * 40,
+                )
+            self.assertEqual(decode.call_count, 3)
+            self.assertEqual(get_commit.call_count, 1)
+            self.assertEqual(len(result["families"]), 3)
+            self.assertEqual(result["cbh_actual_fixture_count"], 3)
+            self.assertFalse(result["section38_terminal_done"])
+            for item in result["families"]:
+                self.assertEqual(item["qualification"], "BLOCKED")
+                self.assertEqual(item["blocked_reason"], "MIT_EXTERNAL_DECODER_FAILED_CLOSED")
+                self.assertIsNone(item["actual_pgn_sha256"])
+                self.assertIsNone(item["observed_games"])
+                self.assertFalse(item["full_source_game_tree_match"])
+                self.assertEqual(item["expected_games"], 1)
+
     def test_real_source_mode_does_not_succeed_when_cli_returns_empty(self):
         with tempfile.TemporaryDirectory() as tmp:
             binary = Path(tmp) / "stub"
