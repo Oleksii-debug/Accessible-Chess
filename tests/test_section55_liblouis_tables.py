@@ -152,16 +152,16 @@ class TestSection55TableClosure(unittest.TestCase):
         for operand in invalid:
             with self.subTest(operand=operand), tempfile.TemporaryDirectory() as tmp:
                 main = Path(tmp) / "main.ctb"
-                main.write_text(f"include {operand}\\n", encoding="utf-8")
+                main.write_text(f"include {operand}\n", encoding="utf-8")
                 with self.assertRaisesRegex(BrailleFactoryError, "Nonportable Windows"):
                     scan_local_liblouis_table_closure(main)
 
     def test_portable_unicode_table_component_remains_supported(self):
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
-            (base / "échecs.cti").write_text("# valid table\\n", encoding="utf-8")
+            (base / "échecs.cti").write_text("# valid table\n", encoding="utf-8")
             main = base / "main.ctb"
-            main.write_text("include échecs.cti\\n", encoding="utf-8")
+            main.write_text("include échecs.cti\n", encoding="utf-8")
             closure = scan_local_liblouis_table_closure(main)
             self.assertEqual(
                 tuple(name for name, _ in closure.files),
