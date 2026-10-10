@@ -47,6 +47,11 @@ def scan_local_liblouis_table_closure(path: Path) -> LocalTableClosure:
         raise BrailleFactoryError("Liblouis main table path is ambiguous")
     visited: dict[str, bytes] = {}
     visiting: set[str] = set()
+    # Every file *and directory prefix* has one portable spelling. On common
+    # Windows filesystems, differing case can resolve to the same resource,
+    # while on Linux they can identify distinct files. Never attest a table
+    # closure whose include graph has such cross-platform ambiguity.
+    portable_spellings: dict[str, str] = {}
     total = 0
 
     def visit(file: Path) -> None:
@@ -58,6 +63,15 @@ def scan_local_liblouis_table_closure(path: Path) -> LocalTableClosure:
             relative_unresolved = file.relative_to(root_dir)
         except ValueError as exc:
             raise BrailleFactoryError("Liblouis include leaves pinned local table root") from exc
+        # Use unresolved spelling before Path.resolve() can erase a case alias.
+        # Prefix checks also reject A/x.cti alongside a/y.cti, which would
+        # otherwise combine different directories on case-insensitive hosts.
+        prefixes = tuple("/".join(relative_unresolved.parts[:depth])
+                         for depth in range(1, len(relative_unresolved.parts) + 1))
+        for spelling in prefixes:
+            existing = portable_spellings.get(spelling.casefold())
+            if existing is not None and existing != spelling:
+                raise BrailleFactoryError("Ambiguous case-insensitive Liblouis include alias")
         cursor = root_dir
         for component in relative_unresolved.parts:
             if component in (".", ".."):
@@ -76,6 +90,10 @@ def scan_local_liblouis_table_closure(path: Path) -> LocalTableClosure:
             raise BrailleFactoryError("Cyclic Liblouis table includes are unsupported")
         if relative in visited:
             return
+        # Reserve names prior to recursion so a nested include cannot use a
+        # case-variant spelling of a parent that is still being scanned.
+        for spelling in prefixes:
+            portable_spellings[spelling.casefold()] = spelling
         if len(visited) + len(visiting) >= MAX_TABLE_FILES:
             raise BrailleFactoryError("Liblouis table file count exceeded")
         with resolved.open("rb") as handle:
