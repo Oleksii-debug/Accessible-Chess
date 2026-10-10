@@ -18,6 +18,7 @@ on:
       - 'tests/test_book_html_pgn_loss_accounting.py'
       - 'tests/test_pgn_board_start_authority.py'
       - 'tests/test_book_library_import_journey.py'
+      - 'tests/test_v2_book_board_workflow.py'
       - 'tests/test_book_training_variant_authority.py'
       - 'tests/test_book_html_inline_image_order.py'
       - '.github/workflows/book-html-epub-pgn-collections.yml'
