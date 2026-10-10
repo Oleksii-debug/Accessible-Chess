@@ -3,15 +3,9 @@ name: Section 39 shipping original-source qualification
 on:
   pull_request:
     paths:
-      - "tools/section39_external_book_semantic.py"
-      - "tools/section39_external_position_semantic.py"
+      - "tools/section39_*.py"
+      - "tests/test_section39*.py"
       - "acs/epd.py"
-      - "tools/section39_stockfish_original_chess960_epd_qualification.py"
-      - "tests/test_section39_external_book_semantic.py"
-      - "tests/test_section39_external_position_semantic.py"
-      - "tests/test_section39_stockfish_original_chess960_epd_qualification.py"
-      - "tools/section39_real_official_gutenberg_epub_html.py"
-      - "tests/test_section39_real_official_gutenberg_epub_html.py"
       - ".github/workflows/section39-shipping-original-source.yml"
   workflow_dispatch:
 
@@ -40,5 +34,8 @@ jobs:
           tools/section39_external_position_semantic.py
           tools/section39_stockfish_original_chess960_epd_qualification.py
           tools/section39_real_official_gutenberg_epub_html.py
+          tools/section39_pgn_semantic_signature.py
+          tools/section39_new_section37_annotated_pgn_qualification.py
+          tools/section39_reti_historical_bilingual_study.py
       - name: Section 39 original-source regression discovery
         run: python -m unittest discover -v -s tests -p 'test_section39*.py'
