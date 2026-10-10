@@ -61,7 +61,7 @@ def _paragraph(value: str, *, style: str | None = None,
     return f'<w:p>{properties}{_text_run(value)}</w:p>'
 
 
-def _styles() -> str:
+def _styles(language: str) -> str:
     styles = [
         ('Normal', 'Normal', 'paragraph', False),
         ('Title', 'Book Title', 'paragraph', False),
@@ -78,7 +78,9 @@ def _styles() -> str:
             f'<w:style w:type="{style_type}" w:styleId="{style_id}">'
             f'<w:name w:val="{escape(title, quote=True)}"/>{ppr}</w:style>'
         )
-    return f'<?xml version="1.0" encoding="utf-8"?><w:styles xmlns:w="{_W}">{"".join(result)}</w:styles>'
+    return (f'<?xml version="1.0" encoding="utf-8"?><w:styles xmlns:w="{_W}">'
+            f'<w:docDefaults><w:rPrDefault><w:rPr><w:lang w:val="{escape(language, quote=True)}"/>'
+            f'</w:rPr></w:rPrDefault></w:docDefaults>{"".join(result)}</w:styles>')
 
 
 def _numbering() -> str:
@@ -166,6 +168,7 @@ def _parts(wire: dict[str, object], identity: str, timestamp: str) -> dict[str, 
         f'<cp:coreProperties xmlns:cp="{_CP}" xmlns:dc="{_DC}" xmlns:dcterms="{_DCTERMS}" '
         'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">'
         f'<dc:title>{escape(wire["title"])}</dc:title>'
+        f'<dc:language>{escape(wire["language"])}</dc:language>'
         f'<dc:identifier>urn:sha256:{identity}</dc:identifier>'
         f'<dcterms:modified xsi:type="dcterms:W3CDTF">{timestamp}</dcterms:modified>'
         '</cp:coreProperties>'
@@ -176,7 +179,7 @@ def _parts(wire: dict[str, object], identity: str, timestamp: str) -> dict[str, 
         "docProps/core.xml": core,
         "word/document.xml": document,
         "word/_rels/document.xml.rels": word_rels,
-        "word/styles.xml": _styles(),
+        "word/styles.xml": _styles(wire["language"]),
         "word/numbering.xml": _numbering(),
     }, tuple(dict.fromkeys(losses)))
 
@@ -193,6 +196,9 @@ def export_factory_docx_preview(
         raise FactoryExportError("Explicit loss permission required")
     timestamp, archive_time = _modified_utc(modified_utc)
     wire = document.as_dict()
+    language = wire["language"]
+    if type(language) is not str or re.fullmatch(r"[a-z]{2,3}(?:-[A-Za-z]{2,8})?", language) is None:
+        raise FactoryExportError("Accessible DOCX needs an explicit qualified language")
     identity = sha256((source_id + ":" + sha256(json.dumps(
         wire, ensure_ascii=False, sort_keys=True, separators=(",", ":")
     ).encode("utf-8")).hexdigest()).encode("ascii")).hexdigest()
