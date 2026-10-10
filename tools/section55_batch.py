@@ -205,7 +205,6 @@ def process_batch(queue_file: Path, output_root: Path, *, max_per_run: int) -> t
                     "pef_sha256": check.output_pef_sha256,
                     "brf_sha256": check.output_brf_sha256,
                     "html_sha256": check.output_html_sha256,
-                "ukaaf_sha256": check.output_ukaaf_sha256,
                     "ukaaf_sha256": check.output_ukaaf_sha256,
                 }
                 prior = journal["completed"].get(key)
@@ -227,6 +226,7 @@ def process_batch(queue_file: Path, output_root: Path, *, max_per_run: int) -> t
                 "pef_sha256": check.output_pef_sha256,
                 "brf_sha256": check.output_brf_sha256,
                 "html_sha256": check.output_html_sha256,
+                "ukaaf_sha256": check.output_ukaaf_sha256,
             }
             _atomic_journal(journal_path, journal)
             processed += 1
