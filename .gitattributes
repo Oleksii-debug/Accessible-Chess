@@ -9,3 +9,8 @@ tests/real_corpus/advanced_training/reti_1921_historical_study_bilingual.pgn -te
 
 # Preserve every pinned original source byte on all checkout platforms.
 tests/real_corpus/** -text
+
+# Additional explicit Section39 original chess book and puzzle byte identities.
+tests/real_corpus/books/gitenberg_capablanca_33870.txt -text
+tests/real_corpus/advanced_training/lichess_cc0_advanced_puzzles_100_sample.json -text
+tests/real_corpus/advanced_training/lichess_cc0_extreme_3000_3166_original_puzzles.json -text
