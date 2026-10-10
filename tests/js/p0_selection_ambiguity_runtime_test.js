@@ -5,7 +5,9 @@ const fs = require("fs");
 const vm = require("vm");
 
 function extractSelectionAuthority(path, restoreName, endMarker, kind) {
-  const source = fs.readFileSync(path, "utf8");
+  // Git for Windows may check out LF-authored JavaScript with CRLF line endings.
+  // Normalize only the test input; preserve the shipping runtime unmodified.
+  const source = fs.readFileSync(path, "utf8").replace(/\r\n/g, "\n");
   const start = source.indexOf("  function contextMatchScore(");
   const end = source.indexOf(endMarker, start);
   assert.ok(start >= 0 && end > start, "selection authority not found in " + path);
