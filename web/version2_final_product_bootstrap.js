@@ -39,7 +39,44 @@
   workspace.setAttribute("aria-live", "off");
   workspace.hidden = true;
 
+  // Sections 43-44: UI-only layout controls follow the existing semantic
+  // navigation, never the product snapshot or native command owner.
+  const workspaceLayout = documentRef.createElement("div");
+  workspaceLayout.id = "ac43-product-layout";
+  workspaceLayout.hidden = true;
+  const workspaceLayoutLabel = documentRef.createElement("label");
+  workspaceLayoutLabel.htmlFor = "ac43-product-mode";
+  const workspaceLayoutMode = documentRef.createElement("select");
+  workspaceLayoutMode.id = "ac43-product-mode";
+  for (const [value, uk, en] of [
+    ["comfortable", "Звичайний вигляд", "Comfortable layout"],
+    ["compact", "Компактний вигляд", "Compact layout"],
+    ["reading", "Великий текст і читання", "Large text and reading"]
+  ]) {
+    const choice = documentRef.createElement("option");
+    choice.value = value;
+    choice.dataset.uk = uk;
+    choice.dataset.en = en;
+    workspaceLayoutMode.appendChild(choice);
+  }
+  workspaceLayout.appendChild(workspaceLayoutLabel);
+  workspaceLayout.appendChild(workspaceLayoutMode);
+  const workspaceCollapse = documentRef.createElement("button");
+  workspaceCollapse.type = "button";
+  workspaceCollapse.id = "ac43-product-collapse";
+  workspaceCollapse.setAttribute("aria-controls", "v2-workspace");
+  workspaceLayout.appendChild(workspaceCollapse);
+  const workspaceSize = documentRef.createElement("button");
+  workspaceSize.type = "button";
+  workspaceSize.id = "ac43-product-size";
+  workspaceLayout.appendChild(workspaceSize);
+  const workspaceReset = documentRef.createElement("button");
+  workspaceReset.type = "button";
+  workspaceReset.id = "ac43-product-restore";
+  workspaceLayout.appendChild(workspaceReset);
+
   originalMain.parentNode.insertBefore(nav, originalMain);
+  originalMain.parentNode.insertBefore(workspaceLayout, originalMain);
   originalMain.parentNode.insertBefore(workspace, originalMain);
 
   const selectionStyle = documentRef.createElement("style");
@@ -244,6 +281,191 @@
   });
 
   const productRoutes = new Set(["pgn", "library", "books", "training", "teacher", "classes"]);
+
+  // A durable presentation preference per existing route. Fail closed on
+  // inaccessible/corrupt storage and never write application/position data.
+  const layoutStorageKey = "accessible-chess.product-layout.v1";
+  const productModeValues = new Set(["comfortable", "compact", "reading"]);
+  function readProductLayouts() {
+    try {
+      const storage = global.localStorage;
+      const source = storage && storage.getItem(layoutStorageKey);
+      if (!source || source.length > 1024) return {};
+      const parsed = JSON.parse(source);
+      if (!parsed || parsed.version !== 1 ||
+          !parsed.routes || typeof parsed.routes !== "object" ||
+          Array.isArray(parsed.routes)) return {};
+      const routes = {};
+      for (const route of productRoutes) {
+        if (productModeValues.has(parsed.routes[route])) {
+          routes[route] = parsed.routes[route];
+        }
+      }
+      return routes;
+    } catch (_) {
+      return {};
+    }
+  }
+  const productLayouts = readProductLayouts();
+  // Route-scoped content panel sizes and collapsed state use the SAME
+  // presentation-only Settings key and version; old mode-only values migrate.
+  const productPanelSizes = ["auto", "medium", "large"];
+  function readProductPanels() {
+    try {
+      const raw = global.localStorage && global.localStorage.getItem(layoutStorageKey);
+      if (!raw || raw.length > 2048) return {};
+      const parsed = JSON.parse(raw);
+      if (!parsed || parsed.version !== 1 || !parsed.panels ||
+          typeof parsed.panels !== "object" || Array.isArray(parsed.panels)) return {};
+      const panels = {};
+      for (const route of productRoutes) {
+        const panel = parsed.panels[route];
+        if (panel && typeof panel === "object" && !Array.isArray(panel) &&
+            typeof panel.collapsed === "boolean" && productPanelSizes.includes(panel.size)) {
+          panels[route] = {collapsed: panel.collapsed, size: panel.size};
+        }
+      }
+      return panels;
+    } catch (_) {
+      return {};
+    }
+  }
+  const productPanels = readProductPanels();
+  let productLayoutDirty = false;
+  let productNativeHydrationStarted = false;
+  let productNativeWrites = Promise.resolve();
+  let productSaveFailureAnnounced = false;
+  function productNativeWriteResult(ok) {
+    if (ok) { productSaveFailureAnnounced = false; return; }
+    if (productSaveFailureAnnounced) return;
+    productSaveFailureAnnounced = true;
+    announce(uiText(
+      "Не вдалося зберегти вигляд розділу в налаштуваннях Windows.",
+      "Could not save section layout to Windows settings."
+    ));
+  }
+  function queueNativeProductLayout() {
+    const bridge = api();
+    if (!bridge || typeof bridge.save_presentation_layout !== "function") return;
+    const payload = { version: 1, routes: Object.assign({}, productLayouts),
+      panels: Object.assign({}, productPanels) };
+    productNativeWrites = productNativeWrites.then(function () {
+      return Promise.resolve(bridge.save_presentation_layout("product", payload))
+        .then(function (result) { productNativeWriteResult(!!(result && result.ok === true)); });
+    }).catch(function () { productNativeWriteResult(false); });
+  }
+  function persistProductLayouts() {
+    productLayoutDirty = true;
+    try {
+      if (global.localStorage) {
+        global.localStorage.setItem(layoutStorageKey, JSON.stringify({
+          version: 1, routes: productLayouts, panels: productPanels
+        }));
+      }
+    } catch (_) {}
+    queueNativeProductLayout();
+  }
+  function hydrateNativeProductLayout() {
+    if (productNativeHydrationStarted) return;
+    const bridge = api();
+    if (!bridge || typeof bridge.get_presentation_layout !== "function") return;
+    productNativeHydrationStarted = true;
+    if (productLayoutDirty) { queueNativeProductLayout(); return; }
+    Promise.resolve(bridge.get_presentation_layout("product")).then(function (result) {
+      if (productLayoutDirty || !result || result.ok !== true) return;
+      const layout = result.layout;
+      if (!layout || layout.version !== 1 ||
+          !layout.routes || typeof layout.routes !== "object" ||
+          Array.isArray(layout.routes)) return;
+      for (const route of productRoutes) delete productLayouts[route];
+      for (const route of productRoutes) {
+        if (productModeValues.has(layout.routes[route])) {
+          productLayouts[route] = layout.routes[route];
+        }
+      }
+      for (const route of productRoutes) delete productPanels[route];
+      const nativePanels = layout.panels && typeof layout.panels === "object" &&
+        !Array.isArray(layout.panels) ? layout.panels : {};
+      for (const route of productRoutes) {
+        const candidate = nativePanels[route];
+        if (candidate && typeof candidate === "object" && !Array.isArray(candidate) &&
+            typeof candidate.collapsed === "boolean" &&
+            productPanelSizes.includes(candidate.size)) {
+          productPanels[route] = {
+            collapsed: candidate.collapsed, size: candidate.size
+          };
+        }
+      }
+      applyProductLayout(currentRouteId, currentLanguage);
+    }).catch(function () {});
+  }
+  function applyProductLayout(routeId, language) {
+    const active = productRoutes.has(routeId);
+    workspaceLayout.hidden = !active;
+    if (!active) {
+      workspace.removeAttribute("data-ac43-presentation");
+      workspace.removeAttribute("data-ac43-collapsed");
+      workspace.removeAttribute("data-ac43-size");
+      return;
+    }
+    workspaceLayoutLabel.textContent = (language === "en" ? "Workspace layout" : "Вигляд розділу");
+    for (const option of workspaceLayoutMode.options) {
+      option.textContent = language === "en" ? option.dataset.en : option.dataset.uk;
+    }
+    const mode = productModeValues.has(productLayouts[routeId])
+      ? productLayouts[routeId] : "comfortable";
+    workspaceLayoutMode.value = mode;
+    workspace.dataset.ac43Presentation = mode;
+    const panel = productPanels[routeId] || {collapsed: false, size: "auto"};
+    workspace.dataset.ac43Collapsed = panel.collapsed ? "true" : "false";
+    workspace.dataset.ac43Size = panel.size;
+    workspaceCollapse.setAttribute("aria-expanded", panel.collapsed ? "false" : "true");
+    workspaceCollapse.textContent = panel.collapsed
+      ? (language === "en" ? "Expand workspace" : "Розгорнути робочу область")
+      : (language === "en" ? "Collapse workspace" : "Згорнути робочу область");
+    workspaceSize.textContent = (language === "en" ? "Panel height: " : "Висота панелі: ") +
+      (panel.size === "large" ? (language === "en" ? "large" : "велика") :
+       panel.size === "medium" ? (language === "en" ? "medium" : "середня") :
+       (language === "en" ? "auto" : "авто"));
+    workspaceReset.textContent = language === "en" ? "Restore workspace" : "Відновити робочу область";
+  }
+  function currentProductPanel() {
+    const panel = productPanels[currentRouteId];
+    return panel || {collapsed: false, size: "auto"};
+  }
+  workspaceCollapse.addEventListener("click", function () {
+    if (!productRoutes.has(currentRouteId)) return;
+    const panel = currentProductPanel();
+    productPanels[currentRouteId] = {collapsed: !panel.collapsed, size: panel.size};
+    applyProductLayout(currentRouteId, currentLanguage);
+    persistProductLayouts();
+    workspaceCollapse.focus({preventScroll:true});
+  });
+  workspaceSize.addEventListener("click", function () {
+    if (!productRoutes.has(currentRouteId)) return;
+    const panel = currentProductPanel();
+    const next = productPanelSizes[(productPanelSizes.indexOf(panel.size) + 1) % productPanelSizes.length];
+    productPanels[currentRouteId] = {collapsed: panel.collapsed, size: next};
+    applyProductLayout(currentRouteId, currentLanguage);
+    persistProductLayouts();
+    workspaceSize.focus({preventScroll:true});
+  });
+  workspaceReset.addEventListener("click", function () {
+    if (!productRoutes.has(currentRouteId)) return;
+    delete productLayouts[currentRouteId];
+    delete productPanels[currentRouteId];
+    applyProductLayout(currentRouteId, currentLanguage);
+    persistProductLayouts();
+    workspaceReset.focus({preventScroll:true});
+  });
+  workspaceLayoutMode.addEventListener("change", function () {
+    if (!productRoutes.has(currentRouteId)) return;
+    const mode = workspaceLayoutMode.value;
+    if (!productModeValues.has(mode)) return;
+    productLayouts[currentRouteId] = mode;
+    workspace.dataset.ac43Presentation = mode;
+    persistProductLayouts();
+  });
 
   function emptyStatusId(routeId) {
     return productRoutes.has(routeId) ? "v2-" + routeId + "-empty-status" : "";
@@ -457,6 +679,7 @@
     const screen = snapshot.screen && typeof snapshot.screen === "object" ? snapshot.screen : {};
     const routeId = String(screen.route_id || "board");
     currentRouteId = routeId;
+    applyProductLayout(routeId, currentLanguage);
     if (typeof global.showStage1Route === "function") global.showStage1Route(routeId);
     const requestedFocus = String(screen.focus_target || "");
     const heading = String(screen.heading || "");
@@ -576,6 +799,10 @@
     }
   }, true);
 
+  if (typeof global.addEventListener === "function") {
+    global.addEventListener("pywebviewready", hydrateNativeProductLayout);
+  }
+  hydrateNativeProductLayout();
   refresh(true).catch(function () {
     announce(uiText("Не вдалося завантажити розділи Version 2.", "Could not load Version 2 sections."));
   });

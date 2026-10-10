@@ -1,0 +1,72 @@
+name: Section 42 CC0 source and raster qualification (shipping main)
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'web/assets/pieces/rhosgfx/**'
+      - 'web/index.html'
+      - 'web/board_themes.css'
+      - 'web/board_overlay_renderer.js'
+      - 'acs/settings.py'
+      - 'acs/version2_package_preflight.py'
+      - 'acs/webapp.py'
+      - 'acs/visual_board_contract.py'
+      - 'tests/test_section42_main_presentation_contract.py'
+      - 'tests/test_section42_shipping_runtime.py'
+      - 'tests/test_section42_package_artifacts.py'
+      - 'tests/js/section42_overlay_runtime_test.js'
+      - 'tools/revised_section42_render_piece_pack.py'
+      - 'tests/test_revised_section42_raster_qualification.py'
+      - '.github/workflows/section42-original-art-main.yml'
+  workflow_dispatch: {}
+permissions:
+  contents: read
+jobs:
+  originals:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+      - name: Real visual-only overlays with hostile/partial inputs (Node V8)
+        run: |
+          node --check web/board_overlay_renderer.js
+          node --check tests/js/section42_overlay_runtime_test.js
+          node tests/js/section42_overlay_runtime_test.js
+      - name: Genuine asset, presentation, shipping UI, settings restart and compatibility tests
+        run: |
+          python -m unittest -v tests.test_revised_section42_raster_qualification tests.test_section42_main_presentation_contract tests.test_section42_shipping_runtime tests.test_section42_package_artifacts tests.test_visual_profiles tests.test_section42_board_themes
+
+  raster:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+      - name: Install pinned offline raster build dependencies
+        run: python -m pip install --only-binary=:all: 'CairoSVG==2.7.1' 'Pillow==11.3.0'
+      - name: Render 48 PNG/WebP assets from original 12 verified SVGs
+        run: python -m tools.revised_section42_render_piece_pack --output artifacts/section42-rhosgfx
+      - name: Audit all physical raster outputs against receipt
+        run: |
+          python -c "import json,pathlib,hashlib; p=pathlib.Path('artifacts/section42-rhosgfx'); r=json.loads((p/'RASTER_RECEIPT.json').read_text()); assert r['originals']==12 and r['outputs']==48; assert all((p/a['file']).is_file() and hashlib.sha256((p/a['file']).read_bytes()).hexdigest()==a['sha256'] for a in r['assets'])"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: section42-rhosgfx-pinned-png-webp
+          path: artifacts/section42-rhosgfx/
+          retention-days: 14
+          if-no-files-found: error

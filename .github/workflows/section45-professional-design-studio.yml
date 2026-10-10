@@ -1,0 +1,91 @@
+name: Section 45 Professional Design Studio Exact Source
+on:
+  push:
+    branches:
+      - main
+      - section45/current-main-professional-design-studio-convergence-20261010-gpt6
+    paths:
+      - 'acs/section45_design_profiles.py'
+      - 'acs/stage1_release_ui.py'
+      - 'acs/settings.py'
+      - 'acs/web_client_http.py'
+      - 'acs/version2_package_preflight.py'
+      - 'web/section45_design_studio.js'
+      - 'web/accessible_chess_web.js'
+      - 'web/accessible_chess_web.html'
+      - 'web/index.html'
+      - 'web/assets/accessible_chess_design.css'
+      - 'tests/js/section45_*.js'
+      - 'tests/test_section45_*.py'
+      - '.github/workflows/section45-professional-design-studio.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'acs/section45_design_profiles.py'
+      - 'acs/stage1_release_ui.py'
+      - 'acs/settings.py'
+      - 'acs/web_client_http.py'
+      - 'acs/version2_package_preflight.py'
+      - 'web/section45_design_studio.js'
+      - 'web/accessible_chess_web.js'
+      - 'web/accessible_chess_web.html'
+      - 'web/index.html'
+      - 'web/assets/accessible_chess_design.css'
+      - 'tests/js/section45_*.js'
+      - 'tests/test_section45_*.py'
+      - '.github/workflows/section45-professional-design-studio.yml'
+  workflow_dispatch: {}
+permissions:
+  contents: read
+concurrency:
+  group: section45-studio-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+jobs:
+  studio-python-javascript:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    steps:
+      - name: Checkout immutable exact SHA
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Verify source and no whitespace errors
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          git diff --check HEAD^ HEAD
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Compile and run real Settings / Studio / ASGI / Package QA
+        run: >-
+          python -m unittest -v
+          tests.test_section45_design_profiles
+          tests.test_section45_package_studio_asset
+          tests.test_section45_web_premium_assets
+          tests.test_section45_transfer_matrix
+          tests.test_visual_profiles
+          tests.test_section42_board_themes
+          tests.test_version2_package_preflight
+          tests.test_section34_web_client
+      - name: Run full real studio and 3456 canonical Web renderer combinations
+        run: |
+          node --check web/section45_design_studio.js
+          node --check web/accessible_chess_web.js
+          node --check tests/js/section45_design_studio_dom_test.js
+          node --check tests/js/section45_web_board_profile_integration_test.js
+          node tests/js/section45_design_studio_dom_test.js
+          node tests/js/section45_web_board_profile_integration_test.js
+      - name: Python/JavaScript exact visual-only transfer parity
+        run: python tools/section45_transfer_oracle.py section45_python_oracle.json
+      - name: Test native bridge and Web transfer, including 300 cases
+        env:
+          SECTION45_PYTHON_ORACLE: section45_python_oracle.json
+        run: node tests/js/section45_visual_transfer_matrix.js

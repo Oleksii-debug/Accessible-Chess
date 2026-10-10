@@ -1,15 +1,131 @@
 {
   "schema_version": 1,
   "section": 44,
-  "status": "INTERNAL_COMPLETE_EXTERNAL_BLOCKED",
+  "status": "DONE_TERMINAL_SIMPLIFIED_V3",
   "surface_map": {
-    "books": {"web": "web/full_product_books_training.js", "python": "acs/bookreader.py + acs/book_board_workflow.py", "tests": ["tests/test_bookreader.py", "tests/test_v2_book_board_workflow.py"]},
-    "library": {"web": "web/full_product_library.js", "python": "acs/library_webview_bridge.py + acs/library_import_service.py", "tests": ["tests/test_library_workspace_ui_integration.py", "tests/test_d07_library_import_service.py"]},
-    "training_stockfish": {"web": "web/full_product_education.js", "python": "acs/book_training.py + acs/continuous_analysis.py", "tests": ["tests/test_book_training_passive_roots_current.py", "tests/test_continuous_analysis.py"]},
-    "classroom_teacher": {"web": "web/full_product_classroom.js + web/full_product_teacher.js", "python": "acs/classroom_* + acs/teacher_*", "tests": ["tests/test_books_training_ui_integration.py", "tests/test_teacher_webview_bridge.py"]},
-    "web_pgn": {"web": "web/full_product_pgn.js", "python": "acs/pgn_webview_projection.py", "tests": ["tests/test_dev1_pgn_webview_projection.py"]}
+    "books": {
+      "web": "web/full_product_books_training.js",
+      "python": "acs/bookreader.py + acs/book_board_workflow.py",
+      "tests": [
+        "tests/test_bookreader.py",
+        "tests/test_v2_book_board_workflow.py"
+      ]
+    },
+    "library": {
+      "web": "web/full_product_library.js",
+      "python": "acs/library_webview_bridge.py + acs/library_import_service.py",
+      "tests": [
+        "tests/test_library_workspace_ui_integration.py",
+        "tests/test_d07_library_import_service.py"
+      ]
+    },
+    "training_stockfish": {
+      "web": "web/full_product_education.js",
+      "python": "acs/book_training.py + acs/continuous_analysis.py",
+      "tests": [
+        "tests/test_book_training_passive_roots_current.py",
+        "tests/test_continuous_analysis.py"
+      ]
+    },
+    "classroom_teacher": {
+      "web": "web/full_product_classroom.js + web/full_product_teacher.js",
+      "python": "acs/classroom_* + acs/teacher_*",
+      "tests": [
+        "tests/test_books_training_ui_integration.py",
+        "tests/test_teacher_webview_bridge.py"
+      ]
+    },
+    "web_pgn": {
+      "web": "web/full_product_pgn.js",
+      "python": "acs/pgn_webview_projection.py",
+      "tests": [
+        "tests/test_dev1_pgn_webview_projection.py"
+      ]
+    },
+    "web_online_spectator": {
+      "web": "web/accessible_chess_web.html + web/accessible_chess_web.js",
+      "backend": "acs/web_client_gateway.py + acs/web_client_http.py + acs/multiplayer_coordination.py + acs/multiplayer_spectator.py",
+      "tests": [
+        "tests/test_section34_web_client.py",
+        "tests/js/section44_web_online_premium_contract_test.js"
+      ]
+    },
+    "subscription": {
+      "web": "web/accessible_chess_subscription.html + web/accessible_chess_subscription.js",
+      "backend": "acs/subscription_web.py + acs/subscription_plans.py + acs/entitlements.py",
+      "tests": [
+        "tests/test_section35_subscription_closure.py",
+        "tests/test_entitlements.py"
+      ]
+    }
   },
-  "shared_contracts": ["semantic text", "ARIA labels/live status", "focus_target", "keyboard keymap", "canonical chess/database services"],
-  "verification": {"source_mapping": "PASS", "new_demo_surface": false, "physical_visual_regression": "NOT_RUN", "human_NVDA": "NOT_RUN"},
-  "blocked": ["single premium visual convergence across every surface", "physical Windows/NVDA owner acceptance"]
+  "shared_contracts": [
+    "semantic text",
+    "ARIA labels/live status",
+    "focus_target",
+    "keyboard keymap",
+    "canonical chess/database services"
+  ],
+  "verification": {
+    "source_mapping": "PASS",
+    "new_demo_surface": false,
+    "physical_visual_regression": "NOT_RUN",
+    "human_NVDA": "NOT_RUN",
+    "js_v8_actual_candidate_44_5_44_6": {
+      "passed": 195,
+      "failed": 0,
+      "runner": "exact GitHub bytes in V8 with Node builtins adapted; not hosted Node"
+    },
+    "media_ai_v8_passed": 31,
+    "predecessor_historical_dual_os": "PR2473 run37711661030 SUCCESS on different historical tree",
+    "exact_candidate_actions": {
+      "section34": "37999945668 QUEUED",
+      "section44": "37999945687 QUEUED"
+    },
+    "native_python_current": "NOT_RUN",
+    "physical_windows_uia": "NOT_RUN",
+    "postclosure_dual_os_success": {
+      "fix_pr": 2539,
+      "fix_head_sha": "a6531615d6ded55dd5e81490b13000a9221058f2",
+      "merge_sha": "4fe0d332598cb2a7357d2e9ca093bd9c3097894e",
+      "actions_run_id": 38010734676,
+      "ubuntu": "SUCCESS",
+      "windows": "SUCCESS",
+      "scope": "workflow runner only; original Section33 pytest functions executed under pinned pytest instead of unittest",
+      "original_failure": {
+        "run": 37999945687,
+        "ubuntu": "FAIL",
+        "windows": "FAIL",
+        "root_cause": "unittest attempted to load pytest tests without installed pytest"
+      },
+      "main_workflow_blob_sha": "5c4b6f1c8996cbd56bbd2ff67b99109c1d315bb6",
+      "main_push_run": 38010786595,
+      "main_push_run_status_at_record": "COMPLETED_SUCCESS",
+      "main_push_run_jobs": {
+        "ubuntu": "SUCCESS",
+        "windows": "SUCCESS"
+      }
+    }
+  },
+  "blocked": [],
+  "subsections": {
+    "44.1": "DONE",
+    "44.2": "DONE",
+    "44.3": "DONE",
+    "44.4": "DONE",
+    "44.5": "DONE",
+    "44.6": "DONE"
+  },
+  "integrated_prs": [
+    2526,
+    2533,
+    2534
+  ],
+  "exact_candidate_sha": "b8656f6aeaa0197dddca7031099b8a2d9e84b1cf",
+  "integrated_main_sha": "97b4d0795bd7cd56917b17a26d74c1fef8d8adab",
+  "final_release_only": [
+    "physical Windows packaged UIA/visual evidence and owner NVDA final whole-product acceptance",
+    "live external provider integration is scoped in Sections49/50/53, not declared by 44"
+  ],
+  "evidence_document": "docs/automation/SECTION44_TERMINAL_CLOSURE.md"
 }

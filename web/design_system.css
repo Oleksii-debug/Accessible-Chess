@@ -254,3 +254,258 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   *, *::before, *::after { animation-duration: 1ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: 1ms !important; }
   button:hover:not(:disabled) { transform: none; }
 }
+
+/* Section 44: component-specific presentation of existing canonical surfaces.
+   All selectors target real Book/Library/Training/Teacher/PGN/Media controls.
+   Presentation never creates, edits, or replaces any chess or user-data state. */
+#v2-workspace #book-document-title,
+#v2-workspace #education-detail-heading {
+  font-size: clamp(1.35rem, 2.4vw, 1.9rem);
+  line-height: 1.23;
+  overflow-wrap: anywhere;
+  margin-block: .35rem .8rem;
+}
+#v2-workspace #book-document-author {
+  color: var(--ac-muted);
+  font-size: .98rem;
+  margin-bottom: 1.1rem;
+}
+#v2-workspace :is(#book-bookmark-name, #training-answer, #pgn-comment-text, #teacher-pointer-input) {
+  width: min(100%, 48rem);
+  max-width: 100%;
+  box-sizing: border-box;
+}
+#v2-workspace :is(#training-solution, #library-import-region, #library-export-selection, #education-detail) {
+  border: 1px solid var(--ac-border);
+  border-radius: var(--ac-radius-sm);
+  background: var(--ac-surface-tint);
+  padding: clamp(.65rem, 1.7vw, 1.05rem);
+  overflow-wrap: anywhere;
+}
+#v2-workspace :is([role="tree"], [role="listbox"]) {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+#v2-workspace [role="treeitem"] {
+  margin-block: .12rem;
+  padding: .4rem .65rem;
+  border-inline-start: 3px solid transparent;
+  border-radius: var(--ac-radius-sm);
+}
+#v2-workspace [role="treeitem"][aria-selected="true"],
+#v2-workspace [role="treeitem"][aria-current="true"] {
+  border-inline-start-color: var(--ac-gold);
+  background: var(--ac-gold-soft);
+  color: var(--ac-accent-strong);
+}
+#v2-workspace :is([role="treeitem"], [role="option"]):focus-visible,
+#v2-workspace [role="toolbar"] :focus-visible {
+  outline: 3px solid var(--ac-focus);
+  outline-offset: 2px;
+}
+#v2-workspace [role="toolbar"] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .5rem;
+  max-width: 100%;
+  padding-block: .45rem;
+}
+#v2-workspace :is(#teacher-orientation-toggle, #pgn-refresh-view) {
+  margin-block: .5rem;
+}
+#teacher-visual-board [role="gridcell"] button:focus-visible {
+  outline: 3px solid var(--ac-focus);
+  outline-offset: -3px;
+}
+#v2-workspace :is(#training-solution, .pgn-comments, .library-source) {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 42rem) {
+  #v2-workspace [role="toolbar"] > * { max-width: 100%; }
+  #v2-workspace :is([role="treeitem"], [role="option"]) { overflow-wrap: anywhere; }
+}
+@media (forced-colors: active) {
+  #v2-workspace :is(#training-solution, #library-import-region, #library-export-selection, #education-detail, [role="treeitem"][aria-selected="true"]) {
+    background: Canvas;
+    color: CanvasText;
+    border-color: CanvasText;
+  }
+  #v2-workspace :is([role="treeitem"], [role="option"]):focus-visible,
+  #v2-workspace [role="toolbar"] :focus-visible,
+  #teacher-visual-board [role="gridcell"] button:focus-visible { outline-color: Highlight; }
+}
+
+
+/* Section 43: canonical workspace composition; visual only, no state authority.
+   Preserve logical DOM/tab order, native text selection and keyboard focus. */
+#ac43-workspace-controls {
+  grid-column:1/-1;
+  display:flex;flex-wrap:wrap;align-items:center;gap:.75rem;
+  padding:1rem;border:1px solid var(--ac-border);
+  border-radius:var(--ac-radius-sm);background:var(--ac-surface-raised);
+}
+#ac43-workspace-controls label {font-weight:650}
+#ac43-workspace-controls select {min-width:7rem;max-width:100%}
+#main-content {
+  max-width:100rem;display:grid;grid-template-columns:minmax(0,1.5fr) minmax(19rem,1fr);
+  align-items:start;gap:1rem;
+}
+#main-content > section {
+  min-width:0;overflow-wrap:anywhere;min-height:0;
+  border:1px solid var(--ac-border);border-radius:var(--ac-radius-sm);
+  background:var(--ac-surface);padding:1rem;
+  max-height:none;box-shadow:var(--ac-shadow-soft);
+}
+#main-content > section[aria-labelledby="h-board"],
+#main-content > section[aria-labelledby="h-media"],
+#main-content > section[aria-labelledby="h-ai-agent"] {grid-column:1/-1}
+#main-content > section:not([data-ac43-collapsed="true"]) {
+  min-height:var(--ac43-panel-size,auto);
+}
+#ac43-workspace-controls :is(button,select):focus-visible,
+.ac43-panel-actions button:focus-visible,
+#ac43-product-layout select:focus-visible {
+  outline:3px solid var(--ac-focus);outline-offset:3px;
+}
+.ac43-panel-actions {
+  display:inline-flex;flex-wrap:wrap;gap:.35rem;
+  margin-inline-start:.75rem;vertical-align:middle;
+}
+.ac43-panel-actions button {font-size:.875em;min-height:2.4rem;padding:.35rem .65rem}
+#main-content section[data-ac43-collapsed="true"] > :not(h2):not(h3){
+  display:none!important;
+}
+html[data-ac43-layout="single"] #main-content {grid-template-columns:minmax(0,1fr)}
+html[data-ac43-layout="single"] #main-content > section {grid-column:1/-1}
+html[data-ac43-density="compact"] #main-content > section {padding:.55rem}
+#ac43-product-layout {
+  display:flex;gap:.65rem;align-items:center;flex-wrap:wrap;
+  padding:.75rem;margin-block:.75rem;
+  border:1px solid var(--ac-border);border-radius:var(--ac-radius-sm);
+  background:var(--ac-surface);
+}
+#v2-workspace[data-ac43-presentation="reading"] {
+  font-size:1.2rem;line-height:1.65;max-width:76rem;
+}
+#v2-workspace[data-ac43-presentation="compact"] {
+  font-size:.95rem;line-height:1.35;
+}
+#v2-workspace[data-ac43-presentation="compact"] :is(section,article) {padding:.65rem}
+@media (max-width:900px) {
+  #main-content {grid-template-columns:minmax(0,1fr)}
+  #main-content > section {grid-column:1/-1}
+}
+@media (forced-colors:active) {
+  #main-content > section,#ac43-workspace-controls,#ac43-product-layout {
+    border:1px solid CanvasText;background:Canvas;color:CanvasText;box-shadow:none;
+  }
+}
+@media (prefers-reduced-motion:reduce) {
+  #main-content *,#ac43-workspace-controls *,#ac43-product-layout * {
+    transition:none!important;animation:none!important;
+  }
+}
+
+/* Section 43.3: per-module actual workspaces, not demo route panels.
+   Controls remain in the preceding navigation toolbar while collapsed. */
+#v2-workspace[data-ac43-collapsed="true"] {display:none!important}
+#v2-workspace[data-ac43-size="medium"],
+#v2-workspace[data-ac43-size="large"] {overflow:auto;resize:vertical}
+#v2-workspace[data-ac43-size="medium"] {max-height:40rem}
+#v2-workspace[data-ac43-size="large"] {max-height:75rem}
+#v2-workspace[data-ac43-size="auto"] {max-height:none;overflow:visible;resize:none}
+#ac43-product-layout button {min-height:2.65rem}
+
+/* Section 44.5 — actual Media/AI service statuses share the premium language.
+   Only existing canonical controls; no replacement player, chat or provider UI. */
+#media-player-region :is(#video-status,#video-prepare-status,#video-sync-status,#video-frame-timecode),
+#ai-agent-region :is(#ai-agent-status,#ai-voice-status) {
+  min-width:0;
+  max-width:100%;
+  padding:.65rem .8rem;
+  border:1px solid var(--ac-border);
+  border-radius:var(--ac-radius-sm);
+  background:var(--ac-surface-tint);
+  color:var(--ac-text);
+  overflow-wrap:anywhere;
+}
+#media-player-region :is(#video-seek,#video-playback-speed,#video-recognition-quality,#video-session-select),
+#ai-agent-region :is(#ai-provider-select,#ai-prompt,#ai-speech-rate) {
+  max-width:100%;
+}
+#media-player-region :is(#video-seek,#video-playback-speed,#video-recognition-quality,#video-session-select):focus-visible,
+#ai-agent-region :is(#ai-provider-select,#ai-prompt,#ai-speech-rate):focus-visible {
+  outline:3px solid var(--ac-focus);
+  outline-offset:2px;
+}
+@media (forced-colors:active) {
+  #media-player-region :is(#video-status,#video-prepare-status,#video-sync-status,#video-frame-timecode),
+  #ai-agent-region :is(#ai-agent-status,#ai-voice-status) {
+    background:Canvas;
+    color:CanvasText;
+    border:1px solid CanvasText;
+  }
+}
+
+/* Section 44.5: exact, shared real Web/Online/Spectator/subscription shells.
+   These selectors apply to existing service DOM; no second board/provider UI. */
+.ac44-web-page, .ac44-subscription-page {
+  min-height:100vh; max-width:100%; color:var(--ac-text);
+  background:var(--ac-bg); overflow-wrap:anywhere;
+}
+.ac44-web-page :is(header,nav,#workspace),
+.ac44-subscription-page :is(header,#main) {
+  max-width:var(--ac-content); margin-inline:auto;
+}
+.ac44-web-page #routes {display:flex;flex-wrap:wrap;gap:.5rem;align-items:stretch}
+.ac44-web-page #routes li {min-width:0}
+.ac44-web-page #routes .route-button {
+  min-height:2.75rem; border:2px solid var(--ac-border);
+  border-radius:var(--ac-radius-sm); background:var(--ac-surface);
+  color:var(--ac-text);
+}
+.ac44-web-page #routes .route-button[aria-current="page"] {
+  background:var(--ac-accent-soft);border-color:var(--ac-accent-strong);
+  color:var(--ac-accent-strong);font-weight:700;
+}
+.ac44-web-page #workspace > section,
+.ac44-subscription-page #main > section {
+  padding:1rem; margin-block:1rem; border:1px solid var(--ac-border);
+  border-radius:var(--ac-radius);background:var(--ac-surface);
+  box-shadow:var(--ac-shadow-soft);
+}
+.ac44-web-page :is(#status,#error,#route-description,#content,#progress-text,#commands),
+.ac44-subscription-page :is(#status,#error,#account-state,#plan-details,#confirmation,#data-safety) {
+  max-width:100%;overflow-wrap:anywhere;white-space:pre-wrap;
+}
+.ac44-web-page #board-grid {max-width:min(100%,56rem);min-width:0}
+.ac44-web-page #board-grid [role="gridcell"] {
+  min-width:0; min-height:2.75rem; overflow-wrap:anywhere;
+}
+.ac44-web-page :is(button,select,textarea,input,a):focus-visible,
+.ac44-subscription-page :is(button,select,textarea,input,a):focus-visible {
+  outline:3px solid var(--ac-focus);outline-offset:3px;
+}
+.ac44-subscription-page #plan-form :is(select,button),
+.ac44-subscription-page #cancel-confirmation :is(button) {max-width:100%}
+@media(max-width:42rem){
+ .ac44-web-page #routes {display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,9rem),1fr))}
+ .ac44-web-page #workspace > section,
+ .ac44-subscription-page #main > section {padding:.7rem}
+}
+@media(forced-colors:active){
+ .ac44-web-page #routes .route-button[aria-current="page"] {
+   border:2px solid Highlight;background:Canvas;color:CanvasText;
+ }
+ .ac44-web-page #workspace > section,
+ .ac44-subscription-page #main > section {
+   background:Canvas;color:CanvasText;border-color:CanvasText;box-shadow:none;
+ }
+}
+@media(prefers-reduced-motion:reduce){
+ .ac44-web-page *, .ac44-subscription-page * {
+   animation:none!important;transition:none!important;scroll-behavior:auto!important;
+ }
+}

@@ -2,6 +2,10 @@
 # These files are verified by Git blob SHA in the cross-platform saturation contract.
 acs/stage1_release_ui_core.py -text
 acs/webapp_keymap_core.py -text
+
+# Retain SHA-pinned original chess PGN corpus bytes on Windows/Linux runners.
+tests/real_corpus/advanced_training/lichess_cc0_2200_both_players_annotated_original_games.pgn -text
+tests/real_corpus/advanced_training/reti_1921_historical_study_bilingual.pgn -text
 # Source-bound offline chess files are verified against original SHA-256/Git blobs.
 # Keep exact bytes on Windows runners; auto-CRLF would invalidate legitimate originals.
 # Original upstream corpora carry byte-pinned whitespace by design; preserve it.
