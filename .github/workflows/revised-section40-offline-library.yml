@@ -45,11 +45,13 @@ on:
       - 'tests/real_corpus/**'
   workflow_dispatch: {}
 concurrency:
-  group: ${{ github.workflow }}-pr-${{ github.event.pull_request.number || github.ref }}
-  # An obsolete queued run was holding the PR concurrency slot while the
-  # current exact-head candidate waited with zero jobs. Only newest HEAD can
-  # qualify Section40; superseded-SHA jobs are not acceptance evidence.
-  cancel-in-progress: true
+  # Exact-SHA isolation: independent PR commits must not cancel one another's
+  # real 76-test Ubuntu/Windows qualification midway through an owner run.
+  # The older PR-wide false setting starved newer SHA runs, while the PR-wide
+  # true setting cancelled already running Windows gates after unrelated pushes.
+  # Each frozen SHA now gets one non-cancelling and separately auditable run.
+  group: ${{ github.workflow }}-pr-${{ github.event.pull_request.number || github.ref }}-sha-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
