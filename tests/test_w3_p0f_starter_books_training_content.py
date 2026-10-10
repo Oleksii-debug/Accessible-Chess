@@ -138,7 +138,20 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
 
                     catalogue = app.snapshot()["books"]["starter_materials"]
                     self.assertEqual(EXPECTED_BOOKLETS, catalogue["booklet_count"])
-                    self.assertEqual(EXPECTED_BOOKLETS + 1, len(catalogue["items"]))
+                    self.assertEqual(EXPECTED_BOOKLETS + 5, len(catalogue["items"]))
+                    self.assertEqual(
+                        {
+                            "advanced-lichess-16-original",
+                            "extreme-lichess-4-original",
+                            "historical-reti-1921-original-study",
+                            "section37-advanced-twelve-bilingual-source-workbook",
+                        },
+                        {
+                            item["material_id"] for item in catalogue["items"]
+                            if item["material_id"] != "starter-course"
+                            and not item["material_id"].startswith("starter-booklet-")
+                        },
+                    )
                     self.assertEqual("starter-course", catalogue["current_id"])
                     self.assertEqual(
                         EXPECTED_BOOKLETS,
