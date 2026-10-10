@@ -45,6 +45,28 @@ def _resolve_selection(document: BookDocument, selection: FactorySelection, *, c
     """Enforce complete semantic chapter spans; never invent page/edition anchors."""
     if selection.kind == "all":
         return document
+    if selection.kind in ("positions", "diagrams", "games"):
+        # These numbers are semantic Book block ordinals, NOT estimated PDF
+        # pages or inferred moves within a PGN game. Never invent anchors.
+        eligible = {
+            "positions": frozenset(("Position", "Diagram", "Exercise")),
+            "diagrams": frozenset(("Diagram",)),
+            "games": frozenset(("Game",)),
+        }[selection.kind]
+        wire = document.as_dict()
+        numbered = [
+            block for block in wire["blocks"] if block["kind"] in eligible
+        ]
+        expected = sum(end - start + 1 for start, end in selection.ranges)
+        if not numbered or selection.ranges[-1][1] > len(numbered):
+            raise FactoryConversionError("Selected semantic items are missing from source")
+        chosen = [
+            block for number, block in enumerate(numbered, start=1)
+            if _included(number, selection.ranges)
+        ]
+        if len(chosen) != expected:
+            raise FactoryConversionError("Selected semantic item set is incomplete")
+        return BookDocument.from_dict({**wire, "blocks": chosen})
     if selection.kind != "chapters":
         raise FactoryConversionError(
             "Requested scope lacks a qualified canonical anchor resolver"
