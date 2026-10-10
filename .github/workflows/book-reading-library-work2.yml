@@ -93,7 +93,12 @@ jobs:
         run: |
           import importlib
           import inspect
+          import os
+          import sys
           import unittest
+          # GitHub's 'shell: python' executes a temporary script outside the
+          # checkout; explicitly restore the repository root for acs imports.
+          sys.path.insert(0, os.getcwd())
           patterns = (
             'test_book_html_pgn_loss_accounting.py', 'test_pgn_board_start_authority.py',
             'test_book_library_import_journey.py', 'test_v2_book_board_workflow.py',
