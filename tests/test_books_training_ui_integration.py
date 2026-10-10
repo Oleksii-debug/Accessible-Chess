@@ -130,8 +130,10 @@ class BooksTrainingUIIntegrationTests(unittest.TestCase):
         reader.go_to(2)
         material = build_current_book_training_material(reader)
         shell = AccessibleShellState(language=UILanguage.EN, initial_route="books")
+        # Canonical Training opens on the editable answer input. The prompt
+        # remains semantic reading content, but is not a keyboard focus target.
         self.assertEqual(
-            "training-prompt",
+            "training-answer",
             shell.open_route("training", current_focus_id="book-block-2"),
         )
 

@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 from acs.bookdocument import BookDocument, Diagram, Game, Heading, Paragraph, VariationTree
 from acs.bookreader import BookReader
-from acs.book_webview_projection import BookWebViewProjection
+from acs.book_webview_projection import BookWebViewProjection, _safe_visible_block_text
 from acs.full_product_presenters import BookBlockView, BookReaderPresenter, TrainingPresenter
 from acs.full_product_ui_shell import UILanguage
 from acs.training import ExerciseDefinition, ExerciseSession, ExerciseStep
@@ -99,7 +99,7 @@ class BookProjectionTests(unittest.TestCase):
             )
         with self.assertRaisesRegex(ValueError, "position presence"):
             self.projection._snapshot_from_block(
-                replace(block, kind="Position", role="group", position_fen=None)
+                replace(block, kind="Position", role="group", position_fen=None, heading_level=None)
             )
 
     def test_snapshot_rejects_book_block_subclass_before_attribute_hooks(self) -> None:
@@ -367,7 +367,7 @@ class BookProjectionTests(unittest.TestCase):
                 side_effect=AssertionError("redaction must not scan raw oversize text"),
             ) as redact,
         ):
-            with self.assertRaisesRegex(ValueError, "visible-text budget"):
+            with self.assertRaisesRegex(ValueError, "raw text budget"):
                 self.projection._snapshot_from_block(
                     replace(paragraph, text="xxxxx")
                 )
@@ -467,12 +467,16 @@ class BookProjectionTests(unittest.TestCase):
 
 
     def test_snapshot_visible_text_budget_matches_webview_utf16_units(self) -> None:
-        paragraph = self.presenter.next_block()
+        # Target the bounded UTF-16 text ingress directly. Patching the shared
+        # 12 MiB ceiling to four also rejects the fixed "Paragraph" kind label
+        # at the earlier DTO metadata guard, obscuring this exact boundary.
         with patch("acs.book_webview_projection._MAX_BOOK_BLOCK_VISIBLE_CHARS", 4):
+            self.assertEqual(
+                "😀😀",
+                _safe_visible_block_text("😀😀", language=UILanguage.EN),
+            )
             with self.assertRaisesRegex(ValueError, "visible-text budget"):
-                self.projection._snapshot_from_block(
-                    replace(paragraph, text="😀😀😀")
-                )
+                _safe_visible_block_text("😀😀😀", language=UILanguage.EN)
 
     def test_snapshot_list_aggregate_budget_matches_webview_utf16_units(self) -> None:
         block = self.presenter.current()
@@ -485,6 +489,11 @@ class BookProjectionTests(unittest.TestCase):
                         role="list",
                         heading_level=None,
                         list_items=("😀", "😀", "a"),
+                        title="",
+                        text="",
+                        source_anchor="",
+                        warning="",
+                        heading_path=(),
                         list_ordered=False,
                         list_start=None,
                     )
@@ -1056,6 +1065,9 @@ class TrainingProjectionTests(unittest.TestCase):
                     frozenset({"e4"}),
                     explanation="x" * 1201,
                 ),
+                # The first answer must remain an accepted intermediate step:
+                # a completed exercise displays completion feedback instead.
+                ExerciseStep(frozenset({"Kh2"})),
             ),
             title="Rollback explanation",
         )

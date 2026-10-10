@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 from acs.bookdocument import BookDocument, Heading, Paragraph
 from acs.bookreader import BookReader
@@ -50,17 +51,31 @@ class BooksTrainingAtomicityTests(unittest.TestCase):
             title="Book",
             blocks=[Heading(text="First", level=1), Paragraph(text="Second")],
         )
-        presenter = MutatingBookPresenter(BookReader(document))
+        presenter = BookReaderPresenter(BookReader(document), language=UILanguage.EN)
         projection = BookWebViewProjection(
             presenter,
             lambda _action, _payload: None,
             language=UILanguage.EN,
         )
-        snapshot = projection.snapshot()
-        self.assertEqual(1, presenter.current_calls)
+        original_current = presenter.current
+        current_calls = 0
+        live_index_after_capture = None
+
+        def capture_then_advance():
+            nonlocal current_calls, live_index_after_capture
+            current_calls += 1
+            captured = original_current()
+            if current_calls == 1:
+                presenter._reader.next_block()
+                live_index_after_capture = presenter._reader.index
+            return captured
+
+        with patch.object(presenter, "current", side_effect=capture_then_advance):
+            snapshot = projection.snapshot()
+        self.assertEqual(1, current_calls)
         self.assertEqual(0, snapshot["block"]["index"])
         self.assertEqual("First", snapshot["block"]["text"])
-        self.assertEqual(1, presenter.live_index_after_capture)
+        self.assertEqual(1, live_index_after_capture)
 
     def test_training_passive_snapshot_uses_exactly_one_immutable_training_view(self) -> None:
         definition = ExerciseDefinition(
@@ -69,15 +84,49 @@ class BooksTrainingAtomicityTests(unittest.TestCase):
             steps=(ExerciseStep(frozenset({"e4"})), ExerciseStep(frozenset({"Kh2"}))),
             title="Exercise",
         )
-        presenter = MutatingTrainingPresenter(ExerciseSession(definition))
+        presenter = TrainingPresenter(ExerciseSession(definition), language=UILanguage.EN)
         projection = TrainingWebViewProjection(presenter, language=UILanguage.EN)
-        snapshot = projection.snapshot()
-        self.assertEqual(1, presenter.view_calls)
+        original_view = presenter.view
+        view_calls = 0
+        live_step_after_capture = None
+
+        def capture_then_advance():
+            nonlocal view_calls, live_step_after_capture
+            view_calls += 1
+            captured = original_view()
+            if view_calls == 1:
+                presenter.session.submit("e4")
+                live_step_after_capture = presenter.session.step_index
+            return captured
+
+        with patch.object(presenter, "view", side_effect=capture_then_advance):
+            snapshot = projection.snapshot()
+        self.assertEqual(1, view_calls)
         self.assertEqual(1, snapshot["progress"]["step"])
         self.assertEqual(0, snapshot["progress"]["attempts"])
-        self.assertEqual(1, presenter.live_step_after_capture)
+        self.assertEqual(1, live_step_after_capture)
         self.assertEqual(1, presenter.session.attempts)
 
+
+    def test_noncanonical_book_presenter_is_rejected_before_override_hooks(self) -> None:
+        document = BookDocument(title="Book", blocks=[Heading(text="First", level=1)])
+        with self.assertRaisesRegex(TypeError, "presenter must be BookReaderPresenter"):
+            BookWebViewProjection(
+                MutatingBookPresenter(BookReader(document)),
+                lambda _action, _payload: None,
+                language=UILanguage.EN,
+            )
+
+    def test_noncanonical_training_presenter_is_rejected_before_override_hooks(self) -> None:
+        definition = ExerciseDefinition(
+            exercise_id="ex-reject", start_fen=FEN,
+            steps=(ExerciseStep(frozenset({"e4"})),), title="Exercise",
+        )
+        with self.assertRaisesRegex(TypeError, "presenter must be TrainingPresenter"):
+            TrainingWebViewProjection(
+                MutatingTrainingPresenter(ExerciseSession(definition)),
+                language=UILanguage.EN,
+            )
 
 if __name__ == "__main__":
     unittest.main()
