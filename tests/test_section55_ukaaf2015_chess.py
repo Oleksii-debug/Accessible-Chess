@@ -12,6 +12,7 @@ from acs.chesscore import Board
 from acs.chess_braille_factory import BrailleFactoryError
 from acs.chess_braille_ukaaf2015 import (
     STANDARD_ID, decode_ukaaf2015_position_cells, encode_ukaaf2015_position,
+    encode_ukaaf2015_simple_san,
 )
 
 
@@ -74,6 +75,46 @@ class TestUKAAF2015ForsythPositions(unittest.TestCase):
         second = encode_ukaaf2015_position(Board.START)
         self.assertEqual(first, second)
 
+
+
+class TestUKAAF2015AlgebraicSubset(unittest.TestCase):
+    def test_exact_published_code_2015_moves(self):
+        # Fixed partial examples independently drawn from UKAAF 2015 §§3.2-3.9, 2.2.
+        examples = {
+            "Rf4": "⠗⠋⠲",
+            "d5": "⠙⠢",
+            "cxd5": "⠉⠰⠙⠢",
+            "f5+": "⠘⠋⠢",
+            "Rxf4+": "⠗⠸⠋⠲",
+            "Nce5": "⠎⠉⠑⠢",
+            "Nb1c3": "⠎⠃⠂⠉⠒",
+            "N1c3": "⠎⠂⠉⠒",
+            "Re8#": "⠗⠑⠦⠜⠍",
+        }
+        for san, braille in examples.items():
+            with self.subTest(san=san):
+                result = encode_ukaaf2015_simple_san(san)
+                self.assertEqual(result.cells, braille)
+                self.assertFalse(result.move_legality_proven)
+                self.assertFalse(result.layout_qualified)
+                self.assertEqual(result.status, "UNVERIFIED_REQUIRES_DECISION")
+
+    def test_uncovered_chess_codes_fail_closed(self):
+        unsupported = (
+            "O-O", "O-O-O", "0-0", "a8=Q", "e8=Q+", "Qd2!",
+            "Rxh8??", "Nf3?!", "1.e4", "1...e5", "cxd6 e.p.",
+            "cd5", "exd6=Q", "Nac3=Q", "p4", "Bxe5#?", "Kg0",
+        )
+        for san in unsupported:
+            with self.subTest(san=san):
+                with self.assertRaises(BrailleFactoryError):
+                    encode_ukaaf2015_simple_san(san)
+
+    def test_subset_is_deterministic_and_six_dot_only(self):
+        first = encode_ukaaf2015_simple_san("Nxf4+")
+        second = encode_ukaaf2015_simple_san("Nxf4+")
+        self.assertEqual(first, second)
+        self.assertTrue(all("\u2800" <= ch <= "\u283f" for ch in first.cells))
 
 if __name__ == "__main__":
     unittest.main()
