@@ -5,6 +5,7 @@ on:
     paths:
       - 'acs/section40_*'
       - 'acs/version2_starter_content_application.py'
+      - 'acs/version2_training_workspace.py'
       - 'tests/test_revised_section40_reti_runtime.py'
       - 'tests/test_section40_bilingual_master_workbook_product.py'
       - 'tests/test_revised_section40_advanced_training.py'
