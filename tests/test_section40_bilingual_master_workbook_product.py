@@ -72,7 +72,7 @@ class GenuineTwelveAdvancedWorkbookProductTests(unittest.TestCase):
                         progress_store=BookProgressStore(root / "books-progress.json"),
                         engine_assistance=EngineAssistedWorkflowService(analysis),
                         board_dispatch=lambda *_: None,
-                        board_position_projector=lambda fen: {"fen": fen},
+                        board_position_projector=lambda fen: {"ok": True, "fen": fen},
                     )
                 first = application()
                 try:
@@ -134,7 +134,7 @@ class GenuineTwelveAdvancedWorkbookProductTests(unittest.TestCase):
                     progress_store=BookProgressStore(root / "books.json"),
                     engine_assistance=EngineAssistedWorkflowService(analysis),
                     board_dispatch=lambda *_: None,
-                    board_position_projector=lambda fen: {"fen": fen},
+                    board_position_projector=lambda fen: {"ok": True, "fen": fen},
                 )
                 try:
                     app.shell.set_language(UILanguage.EN)
