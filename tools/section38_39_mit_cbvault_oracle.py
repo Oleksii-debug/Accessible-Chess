@@ -398,7 +398,13 @@ def main() -> None:
         temp.unlink(missing_ok=True)
     print(json.dumps({
         "source_commit_sha": candidate_head,
-        "qualified_external_families": len(report["families"]),
+        "observed_original_families": len(report["families"]),
+        "qualified_external_families": sum(
+            x["qualification"] == "PASS" for x in report["families"]
+        ),
+        "blocked_original_families": sum(
+            x["qualification"] == "BLOCKED" for x in report["families"]
+        ),
         "semantically_equivalent": sum(x["qualification"] == "PASS" for x in report["families"]),
         "two_cbh_supported_here": False,
         "section38_done": False,
