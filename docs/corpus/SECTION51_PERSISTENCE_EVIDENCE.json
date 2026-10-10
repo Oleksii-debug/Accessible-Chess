@@ -1,7 +1,9 @@
 {
   "schema_version": 1,
   "section": 51,
-  "status": "INTERNAL_COMPLETE_EXTERNAL_BLOCKED",
+  "status": "DONE_TERMINAL_SIMPLIFIED_CLOSURE_V3",
+  "qualified_source_sha": "caf184fd322b620263027add2af135087924a931",
+  "executed_utc_date": "2026-10-10",
   "implemented_or_mapped": {
     "settings": ["acs/settings.py", "tests/test_settings.py", "tests/test_settings_corruption_security.py"],
     "visual_profiles": ["validated visual_profile_json", "tests/test_visual_profiles.py"],
@@ -16,10 +18,26 @@
   "subsections": {
     "51.1": "PASS",
     "51.2": "PASS",
-    "51.3": "PARTIAL",
+    "51.3": "PASS",
     "51.4": "PASS",
-    "51.5": "PARTIAL"
+    "51.5": "PASS"
+  },
+  "terminal_execution": {
+    "focused_tests": "89/89 PASS",
+    "cross_surface_recovery": "7/7 PASS",
+    "owner_transfer": "10/10 PASS",
+    "native_backup_menu": "5/5 PASS",
+    "upgrade_recovery_integrity": "5/5 PASS",
+    "settings_media_ai_visual_migration_portable_regressions": "62/62 PASS"
+  },
+  "source_sha256": {
+    "acs/user_data_transfer.py": "b1d8905d8fb83426e9ce091214ea531470fa638ee31ccf1b3f95e203d008a2d1",
+    "acs/version2_release_ui.py": "b4a4debca30d0fc0a2c17a5e3c5b54ba4679ebf2bdb312e44cc52b7e8c1d2d12",
+    "tests/test_section51_cross_surface_recovery.py": "fbaf052b3c328ba5ad76b5b4a2700f1fe68ce273e2bc0e6994e23e06f0f5829b",
+    "tests/test_section51_owner_data_transfer.py": "c16aa3ee1fe285f2c6c783c47cda6c3e8331d24d4e6248d50b21d30c050a3d39",
+    "tests/test_section51_windows_owner_backup_menu.py": "c592033aed5ee377167f87d8c3cf5d0f9c42c9562a936c4204219ae1ce047f8f"
   },
   "not_run": ["full multi-surface crash campaign", "clean Windows restore/upgrade run", "owner NVDA export/import acceptance"],
-  "blockers": ["physical Windows/package recovery evidence is unavailable"]
+  "blockers": [],
+  "external_final_release_evidence": ["physical Windows package recovery drill", "owner NVDA export/import acceptance"]
 }
