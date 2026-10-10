@@ -131,6 +131,10 @@ class MITCbvaultNoFalsePassTests(unittest.TestCase):
             binary, source = Path(tmp) / "safe-decoder", Path(tmp) / "original.cbh"
             binary.write_bytes(b"stub")
             source.write_bytes(b"original")
+            # cbvault's entity importer appends companion suffixes to the
+            # supplied basename; a full .cbh pathname is not accepted here.
+            with self.assertRaisesRegex(LawfulCorpusError, "direct .cbh original"):
+                m._run_external_pgn(binary, Path(tmp) / "not_a_chessbase.pgn")
             exact = b'[Event "Original expert"]\n\n1. e4 e5 *\n'
             observed = []
 
@@ -138,7 +142,7 @@ class MITCbvaultNoFalsePassTests(unittest.TestCase):
                 self.assertIsNot(kwargs["stdout"], m.subprocess.PIPE)
                 self.assertIsNot(kwargs["stderr"], m.subprocess.PIPE)
                 self.assertIs(kwargs["shell"], False)
-                self.assertEqual(tuple(args[:3]), (str(binary), "pgn", str(source)))
+                self.assertEqual(tuple(args[:3]), (str(binary), "pgn", str(source.with_suffix(""))))
                 self.assertEqual(len(args), 5, "cbvault requires output path and structured report flag")
                 self.assertEqual(args[4], "--json")
                 self.assertEqual(Path(args[3]).suffix, ".pgn")
