@@ -1,0 +1,1551 @@
+{
+  "schema": "acs-deferred-i18n-scope-v1",
+  "created": "2026-10-10",
+  "status": "SPECIFICATION_ONLY_WAITING_PREDECESSORS",
+  "live_status_authority": "SEQUENTIAL_CLOSURE_STATE.md",
+  "scope_authority": "Canonical Accessible Chess Google Drive plan",
+  "prerequisite": "Sections 1–55 DONE, including 55.17–55.20, and historical foundation Section 0 DONE.",
+  "execution_order": "56 -> 57 -> 58 -> 59 -> 60; one language subsection at a time, one parent section per run",
+  "counts": {
+    "languages": 77,
+    "menu_options": 82,
+    "english_variants": 6,
+    "additional_english_menu_variants": 5,
+    "per_section": [
+      {
+        "section": 56,
+        "count": 39
+      },
+      {
+        "section": 57,
+        "count": 20
+      },
+      {
+        "section": 58,
+        "count": 12
+      },
+      {
+        "section": 59,
+        "count": 2
+      },
+      {
+        "section": 60,
+        "count": 4
+      }
+    ]
+  },
+  "menu_labels": "English-only names, never native names/country-only substitutes",
+  "english_variants": [
+    {
+      "locale": "en-US",
+      "display_name_en": "English (United States)"
+    },
+    {
+      "locale": "en-GB",
+      "display_name_en": "English (United Kingdom)"
+    },
+    {
+      "locale": "en-AU",
+      "display_name_en": "English (Australia)"
+    },
+    {
+      "locale": "en-NZ",
+      "display_name_en": "English (New Zealand)"
+    },
+    {
+      "locale": "en-CA",
+      "display_name_en": "English (Canada)"
+    },
+    {
+      "locale": "en-NL",
+      "display_name_en": "English (Netherlands)"
+    }
+  ],
+  "locale_options": [
+    {
+      "locale": "en-US",
+      "display_name_en": "English (United States)",
+      "language_subsection": "56.1"
+    },
+    {
+      "locale": "en-GB",
+      "display_name_en": "English (United Kingdom)",
+      "language_subsection": "56.1"
+    },
+    {
+      "locale": "en-AU",
+      "display_name_en": "English (Australia)",
+      "language_subsection": "56.1"
+    },
+    {
+      "locale": "en-NZ",
+      "display_name_en": "English (New Zealand)",
+      "language_subsection": "56.1"
+    },
+    {
+      "locale": "en-CA",
+      "display_name_en": "English (Canada)",
+      "language_subsection": "56.1"
+    },
+    {
+      "locale": "en-NL",
+      "display_name_en": "English (Netherlands)",
+      "language_subsection": "56.1"
+    },
+    {
+      "locale": "ru",
+      "display_name_en": "Russian",
+      "language_subsection": "56.2"
+    },
+    {
+      "locale": "de",
+      "display_name_en": "German",
+      "language_subsection": "56.3"
+    },
+    {
+      "locale": "fr",
+      "display_name_en": "French",
+      "language_subsection": "56.4"
+    },
+    {
+      "locale": "es",
+      "display_name_en": "Spanish",
+      "language_subsection": "56.5"
+    },
+    {
+      "locale": "tr",
+      "display_name_en": "Turkish",
+      "language_subsection": "56.6"
+    },
+    {
+      "locale": "it",
+      "display_name_en": "Italian",
+      "language_subsection": "56.7"
+    },
+    {
+      "locale": "pt",
+      "display_name_en": "Portuguese",
+      "language_subsection": "56.8"
+    },
+    {
+      "locale": "uk",
+      "display_name_en": "Ukrainian",
+      "language_subsection": "56.9"
+    },
+    {
+      "locale": "pl",
+      "display_name_en": "Polish",
+      "language_subsection": "56.10"
+    },
+    {
+      "locale": "nl",
+      "display_name_en": "Dutch",
+      "language_subsection": "56.11"
+    },
+    {
+      "locale": "ro",
+      "display_name_en": "Romanian",
+      "language_subsection": "56.12"
+    },
+    {
+      "locale": "hu",
+      "display_name_en": "Hungarian",
+      "language_subsection": "56.13"
+    },
+    {
+      "locale": "el",
+      "display_name_en": "Greek",
+      "language_subsection": "56.14"
+    },
+    {
+      "locale": "cs",
+      "display_name_en": "Czech",
+      "language_subsection": "56.15"
+    },
+    {
+      "locale": "sv",
+      "display_name_en": "Swedish",
+      "language_subsection": "56.16"
+    },
+    {
+      "locale": "bg",
+      "display_name_en": "Bulgarian",
+      "language_subsection": "56.17"
+    },
+    {
+      "locale": "sr",
+      "display_name_en": "Serbian",
+      "language_subsection": "56.18"
+    },
+    {
+      "locale": "fi",
+      "display_name_en": "Finnish",
+      "language_subsection": "56.19"
+    },
+    {
+      "locale": "da",
+      "display_name_en": "Danish",
+      "language_subsection": "56.20"
+    },
+    {
+      "locale": "nb",
+      "display_name_en": "Norwegian",
+      "language_subsection": "56.21"
+    },
+    {
+      "locale": "sk",
+      "display_name_en": "Slovak",
+      "language_subsection": "56.22"
+    },
+    {
+      "locale": "hr",
+      "display_name_en": "Croatian",
+      "language_subsection": "56.23"
+    },
+    {
+      "locale": "be",
+      "display_name_en": "Belarusian",
+      "language_subsection": "56.24"
+    },
+    {
+      "locale": "az",
+      "display_name_en": "Azerbaijani",
+      "language_subsection": "56.25"
+    },
+    {
+      "locale": "hy",
+      "display_name_en": "Armenian",
+      "language_subsection": "56.26"
+    },
+    {
+      "locale": "ka",
+      "display_name_en": "Georgian",
+      "language_subsection": "56.27"
+    },
+    {
+      "locale": "lt",
+      "display_name_en": "Lithuanian",
+      "language_subsection": "56.28"
+    },
+    {
+      "locale": "sl",
+      "display_name_en": "Slovenian",
+      "language_subsection": "56.29"
+    },
+    {
+      "locale": "lv",
+      "display_name_en": "Latvian",
+      "language_subsection": "56.30"
+    },
+    {
+      "locale": "sq",
+      "display_name_en": "Albanian",
+      "language_subsection": "56.31"
+    },
+    {
+      "locale": "et",
+      "display_name_en": "Estonian",
+      "language_subsection": "56.32"
+    },
+    {
+      "locale": "bs",
+      "display_name_en": "Bosnian",
+      "language_subsection": "56.33"
+    },
+    {
+      "locale": "mk",
+      "display_name_en": "Macedonian",
+      "language_subsection": "56.34"
+    },
+    {
+      "locale": "is",
+      "display_name_en": "Icelandic",
+      "language_subsection": "56.35"
+    },
+    {
+      "locale": "cnr",
+      "display_name_en": "Montenegrin",
+      "language_subsection": "56.36"
+    },
+    {
+      "locale": "mt",
+      "display_name_en": "Maltese",
+      "language_subsection": "56.37"
+    },
+    {
+      "locale": "ga",
+      "display_name_en": "Irish",
+      "language_subsection": "56.38"
+    },
+    {
+      "locale": "lb",
+      "display_name_en": "Luxembourgish",
+      "language_subsection": "56.39"
+    },
+    {
+      "locale": "zh-Hans",
+      "display_name_en": "Chinese",
+      "language_subsection": "57.1"
+    },
+    {
+      "locale": "hi",
+      "display_name_en": "Hindi",
+      "language_subsection": "57.2"
+    },
+    {
+      "locale": "bn",
+      "display_name_en": "Bengali",
+      "language_subsection": "57.3"
+    },
+    {
+      "locale": "id",
+      "display_name_en": "Indonesian",
+      "language_subsection": "57.4"
+    },
+    {
+      "locale": "ur",
+      "display_name_en": "Urdu",
+      "language_subsection": "57.5"
+    },
+    {
+      "locale": "ja",
+      "display_name_en": "Japanese",
+      "language_subsection": "57.6"
+    },
+    {
+      "locale": "ar",
+      "display_name_en": "Arabic",
+      "language_subsection": "57.7"
+    },
+    {
+      "locale": "vi",
+      "display_name_en": "Vietnamese",
+      "language_subsection": "57.8"
+    },
+    {
+      "locale": "fil",
+      "display_name_en": "Filipino",
+      "language_subsection": "57.9"
+    },
+    {
+      "locale": "ko",
+      "display_name_en": "Korean",
+      "language_subsection": "57.10"
+    },
+    {
+      "locale": "fa",
+      "display_name_en": "Persian",
+      "language_subsection": "57.11"
+    },
+    {
+      "locale": "pa-Guru",
+      "display_name_en": "Punjabi",
+      "language_subsection": "57.12"
+    },
+    {
+      "locale": "th",
+      "display_name_en": "Thai",
+      "language_subsection": "57.13"
+    },
+    {
+      "locale": "ta",
+      "display_name_en": "Tamil",
+      "language_subsection": "57.14"
+    },
+    {
+      "locale": "ms",
+      "display_name_en": "Malay",
+      "language_subsection": "57.15"
+    },
+    {
+      "locale": "uz-Latn",
+      "display_name_en": "Uzbek",
+      "language_subsection": "57.16"
+    },
+    {
+      "locale": "my",
+      "display_name_en": "Burmese",
+      "language_subsection": "57.17"
+    },
+    {
+      "locale": "kk",
+      "display_name_en": "Kazakh",
+      "language_subsection": "57.18"
+    },
+    {
+      "locale": "km",
+      "display_name_en": "Khmer",
+      "language_subsection": "57.19"
+    },
+    {
+      "locale": "he",
+      "display_name_en": "Hebrew",
+      "language_subsection": "57.20"
+    },
+    {
+      "locale": "sw",
+      "display_name_en": "Swahili",
+      "language_subsection": "58.1"
+    },
+    {
+      "locale": "ha",
+      "display_name_en": "Hausa",
+      "language_subsection": "58.2"
+    },
+    {
+      "locale": "am",
+      "display_name_en": "Amharic",
+      "language_subsection": "58.3"
+    },
+    {
+      "locale": "yo",
+      "display_name_en": "Yoruba",
+      "language_subsection": "58.4"
+    },
+    {
+      "locale": "ig",
+      "display_name_en": "Igbo",
+      "language_subsection": "58.5"
+    },
+    {
+      "locale": "om",
+      "display_name_en": "Oromo",
+      "language_subsection": "58.6"
+    },
+    {
+      "locale": "so",
+      "display_name_en": "Somali",
+      "language_subsection": "58.7"
+    },
+    {
+      "locale": "zu",
+      "display_name_en": "Zulu",
+      "language_subsection": "58.8"
+    },
+    {
+      "locale": "xh",
+      "display_name_en": "Xhosa",
+      "language_subsection": "58.9"
+    },
+    {
+      "locale": "af",
+      "display_name_en": "Afrikaans",
+      "language_subsection": "58.10"
+    },
+    {
+      "locale": "mg",
+      "display_name_en": "Malagasy",
+      "language_subsection": "58.11"
+    },
+    {
+      "locale": "rw",
+      "display_name_en": "Kinyarwanda",
+      "language_subsection": "58.12"
+    },
+    {
+      "locale": "ht",
+      "display_name_en": "Haitian Creole",
+      "language_subsection": "59.1"
+    },
+    {
+      "locale": "gn",
+      "display_name_en": "Guarani",
+      "language_subsection": "59.2"
+    },
+    {
+      "locale": "tpi",
+      "display_name_en": "Tok Pisin",
+      "language_subsection": "60.1"
+    },
+    {
+      "locale": "mi",
+      "display_name_en": "Maori",
+      "language_subsection": "60.2"
+    },
+    {
+      "locale": "fj",
+      "display_name_en": "Fijian",
+      "language_subsection": "60.3"
+    },
+    {
+      "locale": "sm",
+      "display_name_en": "Samoan",
+      "language_subsection": "60.4"
+    }
+  ],
+  "sections": [
+    {
+      "section": 56,
+      "name_uk": "Європа та Кавказ",
+      "items": [
+        {
+          "id": "56.1",
+          "name_uk": "Англійська",
+          "display_name_en": "English",
+          "locale": "en",
+          "countries_uk": "Велика Британія та інші англомовні країни",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "56.2",
+          "name_uk": "Російська",
+          "display_name_en": "Russian",
+          "locale": "ru",
+          "countries_uk": "Росія",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "56.3",
+          "name_uk": "Німецька",
+          "display_name_en": "German",
+          "locale": "de",
+          "countries_uk": "Німеччина",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "56.4",
+          "name_uk": "Французька",
+          "display_name_en": "French",
+          "locale": "fr",
+          "countries_uk": "Франція",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "56.5",
+          "name_uk": "Іспанська",
+          "display_name_en": "Spanish",
+          "locale": "es",
+          "countries_uk": "Іспанія",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "56.6",
+          "name_uk": "Турецька",
+          "display_name_en": "Turkish",
+          "locale": "tr",
+          "countries_uk": "Туреччина",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "56.7",
+          "name_uk": "Італійська",
+          "display_name_en": "Italian",
+          "locale": "it",
+          "countries_uk": "Італія",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "56.8",
+          "name_uk": "Португальська",
+          "display_name_en": "Portuguese",
+          "locale": "pt",
+          "countries_uk": "Португалія",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "56.9",
+          "name_uk": "Українська",
+          "display_name_en": "Ukrainian",
+          "locale": "uk",
+          "countries_uk": "Україна",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "56.10",
+          "name_uk": "Польська",
+          "display_name_en": "Polish",
+          "locale": "pl",
+          "countries_uk": "Польща",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "56.11",
+          "name_uk": "Нідерландська",
+          "display_name_en": "Dutch",
+          "locale": "nl",
+          "countries_uk": "Нідерланди",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "56.12",
+          "name_uk": "Румунська",
+          "display_name_en": "Romanian",
+          "locale": "ro",
+          "countries_uk": "Румунія, Молдова",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "56.13",
+          "name_uk": "Угорська",
+          "display_name_en": "Hungarian",
+          "locale": "hu",
+          "countries_uk": "Угорщина",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "56.14",
+          "name_uk": "Грецька",
+          "display_name_en": "Greek",
+          "locale": "el",
+          "countries_uk": "Греція",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "56.15",
+          "name_uk": "Чеська",
+          "display_name_en": "Czech",
+          "locale": "cs",
+          "countries_uk": "Чехія",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "56.16",
+          "name_uk": "Шведська",
+          "display_name_en": "Swedish",
+          "locale": "sv",
+          "countries_uk": "Швеція",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "56.17",
+          "name_uk": "Болгарська",
+          "display_name_en": "Bulgarian",
+          "locale": "bg",
+          "countries_uk": "Болгарія",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "56.18",
+          "name_uk": "Сербська",
+          "display_name_en": "Serbian",
+          "locale": "sr",
+          "countries_uk": "Сербія",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "56.19",
+          "name_uk": "Фінська",
+          "display_name_en": "Finnish",
+          "locale": "fi",
+          "countries_uk": "Фінляндія",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "56.20",
+          "name_uk": "Данська",
+          "display_name_en": "Danish",
+          "locale": "da",
+          "countries_uk": "Данія",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "56.21",
+          "name_uk": "Норвезька",
+          "display_name_en": "Norwegian",
+          "locale": "nb",
+          "countries_uk": "Норвегія",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "56.22",
+          "name_uk": "Словацька",
+          "display_name_en": "Slovak",
+          "locale": "sk",
+          "countries_uk": "Словаччина",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "56.23",
+          "name_uk": "Хорватська",
+          "display_name_en": "Croatian",
+          "locale": "hr",
+          "countries_uk": "Хорватія",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "56.24",
+          "name_uk": "Білоруська",
+          "display_name_en": "Belarusian",
+          "locale": "be",
+          "countries_uk": "Білорусь",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "56.25",
+          "name_uk": "Азербайджанська",
+          "display_name_en": "Azerbaijani",
+          "locale": "az",
+          "countries_uk": "Азербайджан",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "56.26",
+          "name_uk": "Вірменська",
+          "display_name_en": "Armenian",
+          "locale": "hy",
+          "countries_uk": "Вірменія",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "56.27",
+          "name_uk": "Грузинська",
+          "display_name_en": "Georgian",
+          "locale": "ka",
+          "countries_uk": "Грузія",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "56.28",
+          "name_uk": "Литовська",
+          "display_name_en": "Lithuanian",
+          "locale": "lt",
+          "countries_uk": "Литва",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "56.29",
+          "name_uk": "Словенська",
+          "display_name_en": "Slovenian",
+          "locale": "sl",
+          "countries_uk": "Словенія",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "56.30",
+          "name_uk": "Латиська",
+          "display_name_en": "Latvian",
+          "locale": "lv",
+          "countries_uk": "Латвія",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "56.31",
+          "name_uk": "Албанська",
+          "display_name_en": "Albanian",
+          "locale": "sq",
+          "countries_uk": "Албанія",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "56.32",
+          "name_uk": "Естонська",
+          "display_name_en": "Estonian",
+          "locale": "et",
+          "countries_uk": "Естонія",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "56.33",
+          "name_uk": "Боснійська",
+          "display_name_en": "Bosnian",
+          "locale": "bs",
+          "countries_uk": "Боснія і Герцеговина",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "56.34",
+          "name_uk": "Македонська",
+          "display_name_en": "Macedonian",
+          "locale": "mk",
+          "countries_uk": "Північна Македонія",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "56.35",
+          "name_uk": "Ісландська",
+          "display_name_en": "Icelandic",
+          "locale": "is",
+          "countries_uk": "Ісландія",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "56.36",
+          "name_uk": "Чорногорська",
+          "display_name_en": "Montenegrin",
+          "locale": "cnr",
+          "countries_uk": "Чорногорія",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "56.37",
+          "name_uk": "Мальтійська",
+          "display_name_en": "Maltese",
+          "locale": "mt",
+          "countries_uk": "Мальта",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "56.38",
+          "name_uk": "Ірландська",
+          "display_name_en": "Irish",
+          "locale": "ga",
+          "countries_uk": "Ірландія",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "56.39",
+          "name_uk": "Люксембурзька",
+          "display_name_en": "Luxembourgish",
+          "locale": "lb",
+          "countries_uk": "Люксембург",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        }
+      ]
+    },
+    {
+      "section": 57,
+      "name_uk": "Азія",
+      "items": [
+        {
+          "id": "57.1",
+          "name_uk": "Китайська",
+          "display_name_en": "Chinese",
+          "locale": "zh-Hans",
+          "countries_uk": "Китай, спрощена писемність",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "57.2",
+          "name_uk": "Гінді",
+          "display_name_en": "Hindi",
+          "locale": "hi",
+          "countries_uk": "Індія",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "57.3",
+          "name_uk": "Бенгальська",
+          "display_name_en": "Bengali",
+          "locale": "bn",
+          "countries_uk": "Бангладеш, Індія",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "57.4",
+          "name_uk": "Індонезійська",
+          "display_name_en": "Indonesian",
+          "locale": "id",
+          "countries_uk": "Індонезія",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "57.5",
+          "name_uk": "Урду",
+          "display_name_en": "Urdu",
+          "locale": "ur",
+          "countries_uk": "Пакистан",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "57.6",
+          "name_uk": "Японська",
+          "display_name_en": "Japanese",
+          "locale": "ja",
+          "countries_uk": "Японія",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "57.7",
+          "name_uk": "Арабська",
+          "display_name_en": "Arabic",
+          "locale": "ar",
+          "countries_uk": "Саудівська Аравія та інші арабські країни",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "57.8",
+          "name_uk": "В'єтнамська",
+          "display_name_en": "Vietnamese",
+          "locale": "vi",
+          "countries_uk": "В'єтнам",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "57.9",
+          "name_uk": "Філіппінська",
+          "display_name_en": "Filipino",
+          "locale": "fil",
+          "countries_uk": "Філіппіни",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "57.10",
+          "name_uk": "Корейська",
+          "display_name_en": "Korean",
+          "locale": "ko",
+          "countries_uk": "Південна Корея",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "57.11",
+          "name_uk": "Перська",
+          "display_name_en": "Persian",
+          "locale": "fa",
+          "countries_uk": "Іран",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "57.12",
+          "name_uk": "Пенджабська",
+          "display_name_en": "Punjabi",
+          "locale": "pa-Guru",
+          "countries_uk": "Індія, письмо гурмукхі",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "57.13",
+          "name_uk": "Тайська",
+          "display_name_en": "Thai",
+          "locale": "th",
+          "countries_uk": "Таїланд",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "57.14",
+          "name_uk": "Тамільська",
+          "display_name_en": "Tamil",
+          "locale": "ta",
+          "countries_uk": "Індія, Шрі-Ланка",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "57.15",
+          "name_uk": "Малайська",
+          "display_name_en": "Malay",
+          "locale": "ms",
+          "countries_uk": "Малайзія",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "57.16",
+          "name_uk": "Узбецька",
+          "display_name_en": "Uzbek",
+          "locale": "uz-Latn",
+          "countries_uk": "Узбекистан, латиниця",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "57.17",
+          "name_uk": "Бірманська",
+          "display_name_en": "Burmese",
+          "locale": "my",
+          "countries_uk": "М'янма",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "57.18",
+          "name_uk": "Казахська",
+          "display_name_en": "Kazakh",
+          "locale": "kk",
+          "countries_uk": "Казахстан",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "57.19",
+          "name_uk": "Кхмерська",
+          "display_name_en": "Khmer",
+          "locale": "km",
+          "countries_uk": "Камбоджа",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "57.20",
+          "name_uk": "Іврит",
+          "display_name_en": "Hebrew",
+          "locale": "he",
+          "countries_uk": "Ізраїль",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        }
+      ]
+    },
+    {
+      "section": 58,
+      "name_uk": "Африка",
+      "items": [
+        {
+          "id": "58.1",
+          "name_uk": "Суахілі",
+          "display_name_en": "Swahili",
+          "locale": "sw",
+          "countries_uk": "Танзанія, Кенія",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "58.2",
+          "name_uk": "Хауса",
+          "display_name_en": "Hausa",
+          "locale": "ha",
+          "countries_uk": "Нігерія, Нігер",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "58.3",
+          "name_uk": "Амхарська",
+          "display_name_en": "Amharic",
+          "locale": "am",
+          "countries_uk": "Ефіопія",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "58.4",
+          "name_uk": "Йоруба",
+          "display_name_en": "Yoruba",
+          "locale": "yo",
+          "countries_uk": "Нігерія",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "58.5",
+          "name_uk": "Ігбо",
+          "display_name_en": "Igbo",
+          "locale": "ig",
+          "countries_uk": "Нігерія",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "58.6",
+          "name_uk": "Оромо",
+          "display_name_en": "Oromo",
+          "locale": "om",
+          "countries_uk": "Ефіопія",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "58.7",
+          "name_uk": "Сомалійська",
+          "display_name_en": "Somali",
+          "locale": "so",
+          "countries_uk": "Сомалі",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "58.8",
+          "name_uk": "Зулуська",
+          "display_name_en": "Zulu",
+          "locale": "zu",
+          "countries_uk": "Південно-Африканська Республіка",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "58.9",
+          "name_uk": "Коса",
+          "display_name_en": "Xhosa",
+          "locale": "xh",
+          "countries_uk": "Південно-Африканська Республіка",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "58.10",
+          "name_uk": "Африкаанс",
+          "display_name_en": "Afrikaans",
+          "locale": "af",
+          "countries_uk": "Південно-Африканська Республіка, Намібія",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "58.11",
+          "name_uk": "Малагасійська",
+          "display_name_en": "Malagasy",
+          "locale": "mg",
+          "countries_uk": "Мадагаскар",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "58.12",
+          "name_uk": "Кіньяруанда",
+          "display_name_en": "Kinyarwanda",
+          "locale": "rw",
+          "countries_uk": "Руанда",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        }
+      ]
+    },
+    {
+      "section": 59,
+      "name_uk": "Північна та Південна Америка",
+      "items": [
+        {
+          "id": "59.1",
+          "name_uk": "Гаїтянська креольська",
+          "display_name_en": "Haitian Creole",
+          "locale": "ht",
+          "countries_uk": "Гаїті",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "59.2",
+          "name_uk": "Гуарані",
+          "display_name_en": "Guarani",
+          "locale": "gn",
+          "countries_uk": "Парагвай",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        }
+      ]
+    },
+    {
+      "section": 60,
+      "name_uk": "Австралія та Океанія",
+      "items": [
+        {
+          "id": "60.1",
+          "name_uk": "Ток-пісін",
+          "display_name_en": "Tok Pisin",
+          "locale": "tpi",
+          "countries_uk": "Папуа Нова Гвінея",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "60.2",
+          "name_uk": "Маорі",
+          "display_name_en": "Maori",
+          "locale": "mi",
+          "countries_uk": "Нова Зеландія",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "60.3",
+          "name_uk": "Фіджійська",
+          "display_name_en": "Fijian",
+          "locale": "fj",
+          "countries_uk": "Фіджі",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        },
+        {
+          "id": "60.4",
+          "name_uk": "Самоанська",
+          "display_name_en": "Samoan",
+          "locale": "sm",
+          "countries_uk": "Самоа",
+          "status": "WAITING_PREDECESSORS",
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVDA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
+        }
+      ]
+    }
+  ],
+  "notes": [
+    "Each numbered child is exactly one language; only English has six menu entries grouped under 56.1.",
+    "English (Netherlands) is English-language regional UI use in the Netherlands, not the Dutch language or a standard separate English dialect; Dutch is nl.",
+    "All other non-English languages have one standard locale choice; language-country examples do not assert exclusive or sole official-language status.",
+    "Chosen written profiles include zh-Hans, pa-Guru, uz-Latn and Norwegian nb; no claims of all scripts or dialects.",
+    "No actual application translations or QA are implemented by this planning manifest. Language/subsection DONE requires accepted main implementation and tests plus qualified linguistic review.",
+    "User content, third-party books, chess game records and AI responses are not silently rewritten when switching app locale."
+  ],
+  "professional_linguistic_qa_policy": {
+    "applies_to": "Every single language subsection 56.1 through 60.4 inclusive, and all six English options of 56.1",
+    "required_full_review": [
+      "all contextual words and semantic equivalents",
+      "all expressions and collocations",
+      "all sentences and idioms",
+      "normative grammar morphology syntax agreement and dynamically inflected placeholders",
+      "orthography punctuation capitalization typography Unicode script and bidirectionality",
+      "register tone politeness pragmatics and natural style",
+      "professionally accepted chess and accessibility/NVDA terminology",
+      "all first-party runtime surfaces, not sample-only checks"
+    ],
+    "quality_rule": "Professional, semantically exact, culturally and grammatically normative translation—not mechanical word-for-word rendering or unreviewed machine/AI output.",
+    "evidence": "Per-key source/target/context/reviewer/review-qualification and date/issues/fixes/accepted main SHA, runtime UI/negative/recovery test receipts; external qualified independent review must be actually conducted.",
+    "unavailable_reviewer_state": "LINGUISTIC_QA_PENDING, do not claim DONE",
+    "post_done_audit": "On new explicit launch when all target continent's language subsections are DONE, execute per-key contextual linguistic review, not repeat implementation. If a demonstrated error is found, record exact evidence and formally REOPEN only affected language subsection, repair narrowly, rerun qualified independent review and regression/integration tests, then reclose with GitHub and Drive readback. Do not rewrite unaffected DONE work.",
+    "scope_gate": "Sections 1–55 DONE, including 55.17–55.20, and historical foundation Section 0 DONE."
+  },
+  "official_parent_count": 61,
+  "parent_section_range": "1–61",
+  "section61": {
+    "label": "FINAL_ALL_MODULES_ALL_LANGUAGES_BUILD_AND_RELEASE",
+    "status": "WAITING_PREDECESSORS_NOT_DONE_SPECIFICATION_ONLY",
+    "acceptance": "docs/SECTION61_FINAL_PRODUCT_RELEASE_ENGINEERING.md",
+    "may_start_only_after": "ALL Sections1–60 terminal DONE on accepted GitHub main AND canonical Drive, including ALL 77 distinct languages / 82 choices / 55.1–55.20, with historical foundation0 also DONE",
+    "may_not_start_early": [
+      "implementation",
+      "compilation",
+      "integration",
+      "release QA",
+      "release delivery",
+      "Section61 DONE"
+    ]
+  }
+}

@@ -140,3 +140,11 @@ This is a technical design companion, **not a second numbered plan**. Section cl
 Canonical Google Drive document: https://docs.google.com/document/d/1ITsUBFwwETRICctcOWLd6atuMcCFZg6v5-wVFumIyxE/edit
 
 Current product code/closure: GitHub `main`, root `AGENTS.md` and `SEQUENTIAL_CLOSURE_STATE.md`. This engineering specification authorizes scoped work now but does not claim that code, provider runs, hardware tests or production release are already completed.
+
+## Future i18n Sections 56–60 do not preempt active factories
+
+Localization Sections 56–60 are owner-approved **DEFERRED SPECIFICATION ONLY**. Their activation requires actual terminal DONE for **all 0–55, including this Section 54 and Section 55**. Do not start translating factory UI or publishing i18n bundles under Sections 56–60 while these factories remain active/open. Once permitted, factory UI/ARIA/system messages are covered by the full 77-language locale specification, but existing private document contents, Braille translation tables, chess notation and book-language data remain governed by the factory's separate rights/verification contracts; an interface localization is NOT an automatically verified 77-language Braille translation. Details: `docs/i18n/SECTION56_60_DESIGN_AND_ACCEPTANCE.md` and the canonical Drive plan.
+
+## Офіційна нумерація після уточнення власника 10.10.2026
+
+Офіційно **60 батьківських розділів (1–60)**. Базовий історичний 0 завершений, але НЕ входить до числа 60. Колишні буквені доповнення до 55 НЕ є окремими розділами: тепер це **55.17 — акаунти; 55.18 — оновлення без втрат; 55.19 — аналітика й повідомлення про приватність; 55.20 — сайт, ліцензії та експлуатація**. Braille 55.1–55.16 зберігаються; весь 55 має DONE лише після виконання 55.1–55.20. Офіційний стан: **52/60 DONE**, вісім незавершених (53–60). Локалізацію 56–60 не починати до завершення 55.17–55.20.
