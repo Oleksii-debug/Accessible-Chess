@@ -485,7 +485,11 @@
           "locale": "en",
           "countries_uk": "Велика Британія та інші англомовні країни",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "56.2",
@@ -494,7 +498,11 @@
           "locale": "ru",
           "countries_uk": "Росія",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "56.3",
@@ -503,7 +511,11 @@
           "locale": "de",
           "countries_uk": "Німеччина",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "56.4",
@@ -512,7 +524,11 @@
           "locale": "fr",
           "countries_uk": "Франція",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "56.5",
@@ -521,7 +537,11 @@
           "locale": "es",
           "countries_uk": "Іспанія",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "56.6",
@@ -530,7 +550,11 @@
           "locale": "tr",
           "countries_uk": "Туреччина",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "56.7",
@@ -539,7 +563,11 @@
           "locale": "it",
           "countries_uk": "Італія",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "56.8",
@@ -548,7 +576,11 @@
           "locale": "pt",
           "countries_uk": "Португалія",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "56.9",
@@ -557,7 +589,11 @@
           "locale": "uk",
           "countries_uk": "Україна",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "56.10",
@@ -566,7 +602,11 @@
           "locale": "pl",
           "countries_uk": "Польща",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "56.11",
@@ -575,7 +615,11 @@
           "locale": "nl",
           "countries_uk": "Нідерланди",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "56.12",
@@ -584,7 +628,11 @@
           "locale": "ro",
           "countries_uk": "Румунія, Молдова",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "56.13",
@@ -593,7 +641,11 @@
           "locale": "hu",
           "countries_uk": "Угорщина",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "56.14",
@@ -602,7 +654,11 @@
           "locale": "el",
           "countries_uk": "Греція",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "56.15",
@@ -611,7 +667,11 @@
           "locale": "cs",
           "countries_uk": "Чехія",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "56.16",
@@ -620,7 +680,11 @@
           "locale": "sv",
           "countries_uk": "Швеція",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "56.17",
@@ -629,7 +693,11 @@
           "locale": "bg",
           "countries_uk": "Болгарія",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "56.18",
@@ -638,7 +706,11 @@
           "locale": "sr",
           "countries_uk": "Сербія",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "56.19",
@@ -647,7 +719,11 @@
           "locale": "fi",
           "countries_uk": "Фінляндія",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "56.20",
@@ -656,7 +732,11 @@
           "locale": "da",
           "countries_uk": "Данія",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "56.21",
@@ -665,7 +745,11 @@
           "locale": "nb",
           "countries_uk": "Норвегія",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "56.22",
@@ -674,7 +758,11 @@
           "locale": "sk",
           "countries_uk": "Словаччина",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "56.23",
@@ -683,7 +771,11 @@
           "locale": "hr",
           "countries_uk": "Хорватія",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "56.24",
@@ -692,7 +784,11 @@
           "locale": "be",
           "countries_uk": "Білорусь",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "56.25",
@@ -701,7 +797,11 @@
           "locale": "az",
           "countries_uk": "Азербайджан",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "56.26",
@@ -710,7 +810,11 @@
           "locale": "hy",
           "countries_uk": "Вірменія",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "56.27",
@@ -719,7 +823,11 @@
           "locale": "ka",
           "countries_uk": "Грузія",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "56.28",
@@ -728,7 +836,11 @@
           "locale": "lt",
           "countries_uk": "Литва",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "56.29",
@@ -737,7 +849,11 @@
           "locale": "sl",
           "countries_uk": "Словенія",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "56.30",
@@ -746,7 +862,11 @@
           "locale": "lv",
           "countries_uk": "Латвія",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "56.31",
@@ -755,7 +875,11 @@
           "locale": "sq",
           "countries_uk": "Албанія",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "56.32",
@@ -764,7 +888,11 @@
           "locale": "et",
           "countries_uk": "Естонія",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "56.33",
@@ -773,7 +901,11 @@
           "locale": "bs",
           "countries_uk": "Боснія і Герцеговина",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "56.34",
@@ -782,7 +914,11 @@
           "locale": "mk",
           "countries_uk": "Північна Македонія",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "56.35",
@@ -791,7 +927,11 @@
           "locale": "is",
           "countries_uk": "Ісландія",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "56.36",
@@ -800,7 +940,11 @@
           "locale": "cnr",
           "countries_uk": "Чорногорія",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "56.37",
@@ -809,7 +953,11 @@
           "locale": "mt",
           "countries_uk": "Мальта",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "56.38",
@@ -818,7 +966,11 @@
           "locale": "ga",
           "countries_uk": "Ірландія",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "56.39",
@@ -827,7 +979,11 @@
           "locale": "lb",
           "countries_uk": "Люксембург",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         }
       ]
     },
@@ -842,7 +998,11 @@
           "locale": "zh-Hans",
           "countries_uk": "Китай, спрощена писемність",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "57.2",
@@ -851,7 +1011,11 @@
           "locale": "hi",
           "countries_uk": "Індія",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "57.3",
@@ -860,7 +1024,11 @@
           "locale": "bn",
           "countries_uk": "Бангладеш, Індія",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "57.4",
@@ -869,7 +1037,11 @@
           "locale": "id",
           "countries_uk": "Індонезія",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "57.5",
@@ -878,7 +1050,11 @@
           "locale": "ur",
           "countries_uk": "Пакистан",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "57.6",
@@ -887,7 +1063,11 @@
           "locale": "ja",
           "countries_uk": "Японія",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "57.7",
@@ -896,7 +1076,11 @@
           "locale": "ar",
           "countries_uk": "Саудівська Аравія та інші арабські країни",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "57.8",
@@ -905,7 +1089,11 @@
           "locale": "vi",
           "countries_uk": "В'єтнам",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "57.9",
@@ -914,7 +1102,11 @@
           "locale": "fil",
           "countries_uk": "Філіппіни",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "57.10",
@@ -923,7 +1115,11 @@
           "locale": "ko",
           "countries_uk": "Південна Корея",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "57.11",
@@ -932,7 +1128,11 @@
           "locale": "fa",
           "countries_uk": "Іран",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "57.12",
@@ -941,7 +1141,11 @@
           "locale": "pa-Guru",
           "countries_uk": "Індія, письмо гурмукхі",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "57.13",
@@ -950,7 +1154,11 @@
           "locale": "th",
           "countries_uk": "Таїланд",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "57.14",
@@ -959,7 +1167,11 @@
           "locale": "ta",
           "countries_uk": "Індія, Шрі-Ланка",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "57.15",
@@ -968,7 +1180,11 @@
           "locale": "ms",
           "countries_uk": "Малайзія",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "57.16",
@@ -977,7 +1193,11 @@
           "locale": "uz-Latn",
           "countries_uk": "Узбекистан, латиниця",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "57.17",
@@ -986,7 +1206,11 @@
           "locale": "my",
           "countries_uk": "М'янма",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "57.18",
@@ -995,7 +1219,11 @@
           "locale": "kk",
           "countries_uk": "Казахстан",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "57.19",
@@ -1004,7 +1232,11 @@
           "locale": "km",
           "countries_uk": "Камбоджа",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "57.20",
@@ -1013,7 +1245,11 @@
           "locale": "he",
           "countries_uk": "Ізраїль",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         }
       ]
     },
@@ -1028,7 +1264,11 @@
           "locale": "sw",
           "countries_uk": "Танзанія, Кенія",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "58.2",
@@ -1037,7 +1277,11 @@
           "locale": "ha",
           "countries_uk": "Нігерія, Нігер",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "58.3",
@@ -1046,7 +1290,11 @@
           "locale": "am",
           "countries_uk": "Ефіопія",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "58.4",
@@ -1055,7 +1303,11 @@
           "locale": "yo",
           "countries_uk": "Нігерія",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "58.5",
@@ -1064,7 +1316,11 @@
           "locale": "ig",
           "countries_uk": "Нігерія",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "58.6",
@@ -1073,7 +1329,11 @@
           "locale": "om",
           "countries_uk": "Ефіопія",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "58.7",
@@ -1082,7 +1342,11 @@
           "locale": "so",
           "countries_uk": "Сомалі",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "58.8",
@@ -1091,7 +1355,11 @@
           "locale": "zu",
           "countries_uk": "Південно-Африканська Республіка",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "58.9",
@@ -1100,7 +1368,11 @@
           "locale": "xh",
           "countries_uk": "Південно-Африканська Республіка",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "58.10",
@@ -1109,7 +1381,11 @@
           "locale": "af",
           "countries_uk": "Південно-Африканська Республіка, Намібія",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "58.11",
@@ -1118,7 +1394,11 @@
           "locale": "mg",
           "countries_uk": "Мадагаскар",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "58.12",
@@ -1127,7 +1407,11 @@
           "locale": "rw",
           "countries_uk": "Руанда",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         }
       ]
     },
@@ -1142,7 +1426,11 @@
           "locale": "ht",
           "countries_uk": "Гаїті",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "59.2",
@@ -1151,7 +1439,11 @@
           "locale": "gn",
           "countries_uk": "Парагвай",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         }
       ]
     },
@@ -1166,7 +1458,11 @@
           "locale": "tpi",
           "countries_uk": "Папуа Нова Гвінея",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "60.2",
@@ -1175,7 +1471,11 @@
           "locale": "mi",
           "countries_uk": "Нова Зеландія",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "60.3",
@@ -1184,7 +1484,11 @@
           "locale": "fj",
           "countries_uk": "Фіджі",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         },
         {
           "id": "60.4",
@@ -1193,7 +1497,11 @@
           "locale": "sm",
           "countries_uk": "Самоа",
           "status": "WAITING_PREDECESSORS",
-          "accepted_sha": null
+          "accepted_sha": null,
+          "linguistic_quality_contract": "PROFESSIONAL_PER_KEY_SEMANTICS_IDIOMS_GRAMMAR_STYLE_CHESS_NVIDIA",
+          "linguistic_quality_status": "WAITING_PREDECESSORS",
+          "linguistic_review_evidence": null,
+          "post_done_linguistic_audit_rule": "EXPLICIT_LAUNCH_ONLY_EVIDENCE_BASED_TARGETED_REOPEN"
         }
       ]
     }
@@ -1205,5 +1513,23 @@
     "Chosen written profiles include zh-Hans, pa-Guru, uz-Latn and Norwegian nb; no claims of all scripts or dialects.",
     "No actual application translations or QA are implemented by this planning manifest. Language/subsection DONE requires accepted main implementation and tests plus qualified linguistic review.",
     "User content, third-party books, chess game records and AI responses are not silently rewritten when switching app locale."
-  ]
+  ],
+  "professional_linguistic_qa_policy": {
+    "applies_to": "Every single language subsection 56.1 through 60.4 inclusive, and all six English options of 56.1",
+    "required_full_review": [
+      "all contextual words and semantic equivalents",
+      "all expressions and collocations",
+      "all sentences and idioms",
+      "normative grammar morphology syntax agreement and dynamically inflected placeholders",
+      "orthography punctuation capitalization typography Unicode script and bidirectionality",
+      "register tone politeness pragmatics and natural style",
+      "professionally accepted chess and accessibility/NVDA terminology",
+      "all first-party runtime surfaces, not sample-only checks"
+    ],
+    "quality_rule": "Professional, semantically exact, culturally and grammatically normative translation—not mechanical word-for-word rendering or unreviewed machine/AI output.",
+    "evidence": "Per-key source/target/context/reviewer/review-qualification and date/issues/fixes/accepted main SHA, runtime UI/negative/recovery test receipts; external qualified independent review must be actually conducted.",
+    "unavailable_reviewer_state": "LINGUISTIC_QA_PENDING, do not claim DONE",
+    "post_done_audit": "On new explicit launch when all target continent's language subsections are DONE, execute per-key contextual linguistic review, not repeat implementation. If a demonstrated error is found, record exact evidence and formally REOPEN only affected language subsection, repair narrowly, rerun qualified independent review and regression/integration tests, then reclose with GitHub and Drive readback. Do not rewrite unaffected DONE work.",
+    "scope_gate": "Localization development and even later audits are allowed only after all Sections 0–55 have terminal DONE."
+  }
 }
