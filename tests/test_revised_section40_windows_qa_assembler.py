@@ -37,6 +37,7 @@ def _prepared_fixture(work: Path) -> tuple[Path, Path]:
     # assets together with the real Section40 Windows package contract.
     for relative in (
         "web/index.html",
+        "web/section45_design_studio.js",
         "web/assets/accessible_chess_design.css",
         "web/assets/tabler/chess-rook.svg",
         "web/assets/tabler/adjustments.svg",
@@ -90,6 +91,7 @@ class Section40RealWindowsQAPackageTests(unittest.TestCase):
                 members = set(archive.namelist())
                 self.assertIn("AccessibleChess/web/assets/tabler-core/LICENSE", members)
                 self.assertIn("AccessibleChess/web/assets/accessible_chess_design.css", members)
+                self.assertIn("AccessibleChess/web/section45_design_studio.js", members)
                 self.assertIn(
                     "AccessibleChess/release-content/user-library-seed/manifest.json",
                     members,
