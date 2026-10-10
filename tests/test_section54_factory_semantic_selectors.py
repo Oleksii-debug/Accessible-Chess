@@ -35,28 +35,37 @@ def make_policy(source: bytes, kind: str, ranges: str) -> FactoryJobPolicy:
 
 
 class SemanticSelectionTests(unittest.TestCase):
-    def convert(self, source: bytes, name: str, kind: str, ranges: str):
+    def convert(self, source: bytes, name: str, kind: str, ranges: str, *, allow_semantic_loss: bool = False):
         return convert_factory_book_private(
             source, source_name=name,
             policy=make_policy(source, kind, ranges),
             source_language="en",
+            allow_semantic_loss=allow_semantic_loss,
         )
 
     def test_second_position_is_only_second_semantic_position(self):
-        result = self.convert(POSITIONS, "positions.md", "positions", "2")
+        result = self.convert(POSITIONS, "positions.md", "positions", "2", allow_semantic_loss=True)
         body = result.outputs[0].output_bytes.decode("utf-8")
         self.assertIn(FEN_AFTER_E4, body)
         self.assertNotIn(FEN_START, body)
         self.assertEqual(result.selected_block_count, 1)
         self.assertEqual(result.chess_audit.legal_chess_blocks, 1)
         self.assertFalse(result.chess_audit.source_verified)
+        self.assertEqual(result.outputs[0].losses, ("ORIGINAL_DIAGRAM_GRAPHICS_NOT_REPRODUCED",))
 
     def test_diagram_selector_excludes_non_diagram_positions(self):
-        result = self.convert(POSITIONS, "positions.md", "diagrams", "1")
+        result = self.convert(POSITIONS, "positions.md", "diagrams", "1", allow_semantic_loss=True)
         body = result.outputs[0].output_bytes.decode("utf-8")
         self.assertIn(FEN_AFTER_E4, body)
         self.assertNotIn(FEN_START, body)
         self.assertIn("<figure", body)
+        self.assertEqual(result.outputs[0].losses, ("ORIGINAL_DIAGRAM_GRAPHICS_NOT_REPRODUCED",))
+
+    def test_diagram_previews_require_explicit_graphics_loss_consent(self):
+        for kind, ordinal in (("positions", "2"), ("diagrams", "1")):
+            with self.subTest(kind=kind):
+                with self.assertRaises(FactoryConversionError):
+                    self.convert(POSITIONS, "positions.md", kind, ordinal)
 
     def test_second_game_selection_keeps_its_own_moves_and_annotations(self):
         result = self.convert(GAMES, "collection.pgn", "games", "2")
