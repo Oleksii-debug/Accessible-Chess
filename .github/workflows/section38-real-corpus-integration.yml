@@ -2,11 +2,49 @@ name: Section 38 real corpus integration
 
 on:
   workflow_dispatch:
-  push:
+  # Qualify the exact PR head; GitHub App-authored pushes need not start push workflows.
+  pull_request:
+    branches:
+      - main
     paths:
       - 'acs/book_library_import.py'
       - 'tools/section38_real_corpus_integration.py'
       - 'tests/test_book_library_import_journey.py'
+      - 'tests/test_section38_source_bound_readback.py'
+      - 'tests/test_section38_bounded_zip_member.py'
+      - 'tools/section38_bounded_zip_member.py'
+      - 'tests/test_revised_section38_stockfish_real_library.py'
+      - 'tests/test_revised_section38_official_openings_library.py'
+      - 'tests/test_revised_section38_owner_seed.py'
+      - 'tools/revised_section38_stockfish_owner_seed.py'
+      - 'tests/test_book_open_preparation.py'
+      - 'acs/version2_application.py'
+      - 'acs/book_docx_import.py'
+      - 'tests/test_revised_section38_docx_book_integration.py'
+      - 'acs/version2_windows_native_dialog_ownership.py'
+      - 'acs/version2_windows_file_workflows.py'
+      - '.github/workflows/section38-real-corpus-integration.yml'
+  # Only validate main on push; PR branches are covered by pull_request.
+  push:
+    branches:
+      - main
+    paths:
+      - 'acs/book_library_import.py'
+      - 'tools/section38_real_corpus_integration.py'
+      - 'tests/test_book_library_import_journey.py'
+      - 'tests/test_section38_source_bound_readback.py'
+      - 'tests/test_section38_bounded_zip_member.py'
+      - 'tools/section38_bounded_zip_member.py'
+      - 'tests/test_revised_section38_stockfish_real_library.py'
+      - 'tests/test_revised_section38_official_openings_library.py'
+      - 'tests/test_revised_section38_owner_seed.py'
+      - 'tools/revised_section38_stockfish_owner_seed.py'
+      - 'tests/test_book_open_preparation.py'
+      - 'acs/version2_application.py'
+      - 'acs/book_docx_import.py'
+      - 'tests/test_revised_section38_docx_book_integration.py'
+      - 'acs/version2_windows_native_dialog_ownership.py'
+      - 'acs/version2_windows_file_workflows.py'
       - '.github/workflows/section38-real-corpus-integration.yml'
 
 permissions:
@@ -28,10 +66,10 @@ jobs:
           mkdir -p "$RUNNER_TEMP/section38/chessit" "$RUNNER_TEMP/section38/extracted/alekhine" "$RUNNER_TEMP/section38/gutenberg-33870/html"
           curl --fail --location --retry 3 --max-time 90 -o "$RUNNER_TEMP/section38/chessit/cotswold_2023.pgn" https://www.chessit.co.uk/Congresses/Cotswold/2023/Cotswold_Open_2023.pgn
           curl --fail --location --retry 3 --max-time 90 -o "$RUNNER_TEMP/alekhine.zip" https://www.pgnmentor.com/players/Alekhine.zip
-          unzip -p "$RUNNER_TEMP/alekhine.zip" Alekhine.pgn > "$RUNNER_TEMP/section38/extracted/alekhine/Alekhine.pgn"
+          python -m tools.section38_bounded_zip_member "$RUNNER_TEMP/alekhine.zip" Alekhine.pgn "$RUNNER_TEMP/section38/extracted/alekhine/Alekhine.pgn" --max-bytes 134217728
           curl --fail --location --retry 3 --max-time 90 -o "$RUNNER_TEMP/section38/gutenberg-33870/pg33870.txt" https://www.gutenberg.org/cache/epub/33870/pg33870.txt
           curl --fail --location --retry 3 --max-time 90 -o "$RUNNER_TEMP/gutenberg.zip" https://www.gutenberg.org/cache/epub/33870/pg33870-h.zip
-          unzip -q "$RUNNER_TEMP/gutenberg.zip" 'pg33870-images.html' -d "$RUNNER_TEMP/section38/gutenberg-33870/html"
+          python -m tools.section38_bounded_zip_member "$RUNNER_TEMP/gutenberg.zip" pg33870-images.html "$RUNNER_TEMP/section38/gutenberg-33870/html/pg33870-images.html" --max-bytes 67108864
           curl --fail --location --retry 3 --max-time 90 -o "$RUNNER_TEMP/section38/gutenberg-33870/pg33870.epub3" https://www.gutenberg.org/ebooks/33870.epub3.images
       - name: Run Section 38 readback
         run: |
@@ -49,7 +87,46 @@ jobs:
           python tools/section40_test_collection_catalog.py \
             --corpus-root "$RUNNER_TEMP/section38" \
             --output "$RUNNER_TEMP/section40-catalog.json"
-      - name: Run focused integration tests
+      - name: Run original-file and native Book Open regression tests
         env:
           PYTHONPATH: tests
-        run: python -m unittest -v tests.test_book_library_import_journey
+        run: |
+          python -m unittest -v \
+            tests.test_book_library_import_journey \
+            tests.test_book_open_preparation \
+            tests.test_section38_source_bound_readback \
+            tests.test_section38_bounded_zip_member \
+            tests.test_revised_section38_docx_book_integration
+      - name: Run genuine vendored Stockfish and Lichess ECO sources through canonical Library
+        env:
+          PYTHONPATH: tests
+        run: |
+          python -m unittest -v \
+            tests.test_revised_section38_stockfish_real_library \
+            tests.test_revised_section38_official_openings_library \
+            tests.test_revised_section38_owner_seed
+      - name: Preserve exact-source test receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: section38-real-source-readback-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/section38-evidence.json
+            ${{ runner.temp }}/section39-evidence.json
+            ${{ runner.temp }}/section40-catalog.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  native-epub3-windows:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify original EPUB3 Book Open and source integrity on Windows
+        env:
+          PYTHONPATH: tests
+        run: |
+          python -m unittest -v tests.test_book_open_preparation tests.test_section38_source_bound_readback tests.test_section38_bounded_zip_member tests.test_revised_section38_docx_book_integration

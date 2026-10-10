@@ -7,6 +7,8 @@ import time
 import unittest
 from unittest import mock
 
+from test_book_html_pgn_loss_accounting import html_book, epub_book
+
 from acs.acsdb import AcsDatabase
 from acs.analysis_service import AnalysisService
 from acs.book_progress_store import BookProgressStore
@@ -57,6 +59,21 @@ class BookOpenPreparationTests(unittest.TestCase):
             self.assertIsNone(prepared.document.language)
             self.assertEqual(prepared.warnings, ())
             self.assertIn("Доступні шахи", prepared.document.title)
+
+    def test_actual_epub3_suffix_uses_canonical_prepared_book_open(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            source = Path(raw) / "Тренування.epub3"
+            source.write_bytes(epub_book(html_book(
+                '[Event "Навчальний приклад"]\\n'
+                '[White "Олексій"]\\n[Black "Bob"]\\n'
+                '1. e4 {Position} e5 *'
+            )))
+            before = source.read_bytes()
+            prepared = Version2Application.prepare_book_open(source)
+            self.assertIs(type(prepared), PreparedBookOpen)
+            self.assertTrue(prepared.book_key)
+            self.assertGreater(len(prepared.document.blocks), 0)
+            self.assertEqual(source.read_bytes(), before)
 
     def test_cancel_token_reaches_semantic_import_checkpoint(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
