@@ -4,7 +4,7 @@
   "status": "SPECIFICATION_ONLY_WAITING_PREDECESSORS",
   "live_status_authority": "SEQUENTIAL_CLOSURE_STATE.md",
   "scope_authority": "Canonical Accessible Chess Google Drive plan",
-  "prerequisite": "All existing Sections 0 through 55 plus newly inserted Sections 55A through 55D terminal DONE before any localization development begins",
+  "prerequisite": "Sections 1–55 DONE, including 55.17–55.20, and historical foundation Section 0 DONE.",
   "execution_order": "56 -> 57 -> 58 -> 59 -> 60; one language subsection at a time, one parent section per run",
   "counts": {
     "languages": 77,
@@ -1530,6 +1530,7 @@
     "evidence": "Per-key source/target/context/reviewer/review-qualification and date/issues/fixes/accepted main SHA, runtime UI/negative/recovery test receipts; external qualified independent review must be actually conducted.",
     "unavailable_reviewer_state": "LINGUISTIC_QA_PENDING, do not claim DONE",
     "post_done_audit": "On new explicit launch when all target continent's language subsections are DONE, execute per-key contextual linguistic review, not repeat implementation. If a demonstrated error is found, record exact evidence and formally REOPEN only affected language subsection, repair narrowly, rerun qualified independent review and regression/integration tests, then reclose with GitHub and Drive readback. Do not rewrite unaffected DONE work.",
-    "scope_gate": "Localization development and even later audits are allowed only after all Sections 0–55 and new Sections 55A–55D have terminal DONE."
-  }
+    "scope_gate": "Sections 1–55 DONE, including 55.17–55.20, and historical foundation Section 0 DONE."
+  },
+  "official_parent_count": 60
 }
