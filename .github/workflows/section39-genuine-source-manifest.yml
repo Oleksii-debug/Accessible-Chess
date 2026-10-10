@@ -1,0 +1,30 @@
+name: Section 39 genuine source manifest prerequisite
+
+on:
+  pull_request:
+    paths:
+      - "tools/revised_sections37_38_offline_manifest.py"
+      - "tests/test_revised_section37_38_offline_manifest.py"
+      - ".github/workflows/section39-genuine-source-manifest.yml"
+      - ".gitattributes"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verified-source-manifest:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Original source snapshot and manifest compilation
+        run: python -m compileall -q tools/revised_sections37_38_offline_manifest.py
+      - name: Source byte/rights/recovery/adversarial tests
+        run: python -m unittest discover -v -s tests -p 'test_revised_section37_38_offline_manifest.py'
