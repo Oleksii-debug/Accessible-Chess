@@ -1,0 +1,66 @@
+name: Section 51 Cross-Surface Recovery
+
+on:
+  push:
+    branches:
+      - work/section51-cross-surface-restore-20261010
+  pull_request:
+    paths:
+      - 'tests/test_section51_cross_surface_recovery.py'
+      - 'tests/test_section51_owner_data_transfer.py'
+      - 'tests/test_section51_windows_owner_backup_menu.py'
+      - 'acs/version2_profile.py'
+      - 'acs/version2_final_product_profile.py'
+      - 'acs/version2_release_ui.py'
+      - 'acs/full_product_native_menu.py'
+      - 'acs/user_data_transfer.py'
+      - '.github/workflows/section51-cross-surface-recovery.yml'
+      - 'acs/version2_upgrade.py'
+      - 'acs/version2_upgrade_base.py'
+      - 'acs/settings.py'
+      - 'acs/acsdb.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: section51-cross-surface-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  regression:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - name: Verify checkout identity and clean diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          git diff --check HEAD^ HEAD
+      - name: Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.10'
+      - name: Compile exact test
+        run: python -m compileall -q acs/user_data_transfer.py acs/version2_profile.py acs/version2_final_product_profile.py acs/version2_release_ui.py acs/full_product_native_menu.py tests/test_section51_cross_surface_recovery.py tests/test_section51_owner_data_transfer.py tests/test_section51_windows_owner_backup_menu.py
+      - name: Cross-surface data preservation, migration and rollback
+        run: python -m unittest -v tests.test_section51_cross_surface_recovery tests.test_section51_owner_data_transfer tests.test_section51_windows_owner_backup_menu tests.test_version2_release_ui tests.test_version2_windows_composition_profile tests.test_version2_final_product_composition
+      - name: Retained upgrade correctness and tamper-recovery contracts
+        run: >-
+          python -m unittest -v
+          tests.test_version2_upgrade
+          tests.test_version2_upgrade_recovery_integrity
+          tests.test_v2_upgrade_training_progress_artifact_control
+      - name: Canonical product selftest
+        run: python -m acs.selftest

@@ -47,7 +47,7 @@ class NativeMenuItemSpec:
             if not self.action_id or self.host_command:
                 raise ValueError("native action item requires exactly one action id")
         elif self.kind is NativeMenuItemKind.HOST:
-            if self.action_id or self.host_command not in {"app.exit", "pgn.convert_utf8"}:
+            if self.action_id or self.host_command not in {"app.exit", "pgn.convert_utf8", "owner.export_all"}:
                 raise ValueError("unsupported native host command")
 
 

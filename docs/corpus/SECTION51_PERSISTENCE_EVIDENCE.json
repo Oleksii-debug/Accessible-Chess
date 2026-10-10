@@ -22,4 +22,53 @@
   },
   "not_run": ["full multi-surface crash campaign", "clean Windows restore/upgrade run", "owner NVDA export/import acceptance"],
   "blockers": ["physical Windows/package recovery evidence is unavailable"]
+,
+  "2026-10-10_section51_incremental_cross_surface_regression": {
+    "scope": [
+      "51.3 fresh-profile user-owned bytes plus canonical Settings/ACSDB reopen (host-side manual copy; not UI import)",
+      "51.5 legacy schema-1 upgrade, rollback on injected exception, crash recovery, checksum-tampered backup denial and future-schema downgrade refusal"
+    ],
+    "test_path": "tests/test_section51_cross_surface_recovery.py",
+    "workflow_path": ".github/workflows/section51-cross-surface-recovery.yml",
+    "test_count": 7,
+    "executed_test_result": "UNVERIFIED",
+    "ci_result": "NOT_OBSERVED_TERMINAL",
+    "limitations": [
+      "no in-product accessible all-state export/import UI",
+      "no complete application-level cross-version compatibility matrix",
+      "no clean-machine owner/NVDA acceptance",
+      "no actual completed dual-OS test evidence at this checkpoint"
+    ],
+    "parent_section": "NOT_DONE"
+  },
+  "2026-10-10_section51_owner_portability_implementation": {
+    "module": "acs/user_data_transfer.py",
+    "public_entrypoint": "python -m acs.user_data_transfer export/import (text + JSON for keyboard/screen reader)",
+    "scope": [
+      "Canonical upgrade snapshot export under *.upgrade-backups folder with per-file SHA256",
+      "Checksum-verified transfer directory import into a nonexistent profile",
+      "Canonical Settings and ACSDB migration before atomic no-replace publication",
+      "Preserve independent Books, Training, Classroom, Media, Agent and Accounts bytes via existing backup scanner",
+      "Refuse modified manifests, digest changes, existing destination, future schema"
+    ],
+    "test_module": "tests/test_section51_owner_data_transfer.py",
+    "regression_scenarios": 10,
+    "actual_test_result": "PREVIOUS_EXACT_HEAD_WINDOWS_PASS_38010402562; NEW_HEAD_PENDING_17_CASES",
+    "hosted_ci_result": "QUEUED_AT_CHECKPOINT",
+    "limit": "Owner backup source requires original *.upgrade-backups directory; app should be closed; no GUI picker and physical Windows/NVDA validation; not a terminal Section 51 acceptance",
+    "subsection": "51.3 PARTIAL",
+    "parent_section": "NOT_DONE"
+  }
+,
+  "2026-10-10_section51_post_shutdown_native_menu_candidate": {
+    "status": "PENDING_QUALIFICATION",
+    "menu_action": "File > Створити повну копію даних і вийти",
+    "activation": "native Version2NativeMenuController and shipping FinalProductNativeMenuController optional callback",
+    "lifecycle": "version2_release_ui dispatches canonical owner export after completed shutdown",
+    "safe_on_failed_shutdown": "export not invoked",
+    "test_module": "tests/test_section51_windows_owner_backup_menu.py",
+    "cases": 5,
+    "owner_nvda_test": "NOT_EXECUTED",
+    "parent_section": "NOT_DONE"
+  }
 }

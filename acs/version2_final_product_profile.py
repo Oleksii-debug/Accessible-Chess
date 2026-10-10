@@ -26,6 +26,7 @@ from .version2_profile import (
     VERSION2_FULL_PRODUCT_ACTIONS,
     build_version2_action_registry,
     build_version2_menu_spec,
+    Version2NativeMenuController,
 )
 
 FINAL_PRODUCT_EXTRA_SCREEN_ACTION_IDS = frozenset(
@@ -226,11 +227,15 @@ def build_final_product_menu_spec(
     return tuple(base)
 
 
-class FinalProductNativeMenuController(FullProductNativeMenuController):
+class FinalProductNativeMenuController(Version2NativeMenuController):
+    """The shipping final-product menu retains the opt-in owner backup action."""
+
     def spec(self) -> tuple[NativeTopMenuSpec, ...]:
-        return build_final_product_menu_spec(
-            self._adapter.registry,
-            language=self._adapter.shell.language,
+        return self._with_owner_export_menu(
+            build_final_product_menu_spec(
+                self._adapter.registry,
+                language=self._adapter.shell.language,
+            )
         )
 
 
