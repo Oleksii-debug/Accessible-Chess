@@ -110,7 +110,14 @@ class PackagedP0GHotkeyResultProbeContractTests(unittest.TestCase):
         self.assertEqual(actions["analysis.pv2"]["binding"], "Alt+2")
         self.assertEqual(actions["analysis.pv2"]["registryContext"], "analysis")
         self.assertIn("if(e.target.closest('#board-application'))return", self.web)
-        self.assertIn("resolveBinding(eventChord(e),'board','board')", self.web)
+        # The shipping handler projects its context candidate first, then
+        # requires the central bridge to authorize that exact action ID.
+        # A stale direct resolveBinding(eventChord(...)) assertion no longer
+        # proves board -> analysis -> global precedence or ID verification.
+        self.assertIn("for(const context of ['board','analysis','global'])", self.web)
+        self.assertIn("const projected=keymapActionForEvent(e,context)", self.web)
+        self.assertIn("const a=await resolveBinding(chord,'board','board')", self.web)
+        self.assertIn("if(a&&a.actionId===candidate)executeAction(a.actionId)", self.web)
         self.assertIn("resolveBinding(chord,'analysis','analysis')", self.web)
 
     def test_probe_proves_causal_action_state_separately_from_accessible_result(self) -> None:
