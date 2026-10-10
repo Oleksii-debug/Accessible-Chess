@@ -51,6 +51,20 @@ def scan_local_liblouis_table_closure(path: Path) -> LocalTableClosure:
 
     def visit(file: Path) -> None:
         nonlocal total
+        # Checking only the final component misses symlinked directories that
+        # resolve to another location *within* the pinned tree.  Such an alias
+        # makes the include dependency identity ambiguous across machines.
+        try:
+            relative_unresolved = file.relative_to(root_dir)
+        except ValueError as exc:
+            raise BrailleFactoryError("Liblouis include leaves pinned local table root") from exc
+        cursor = root_dir
+        for component in relative_unresolved.parts:
+            if component in (".", ".."):
+                raise BrailleFactoryError("Unsafe Liblouis include path component")
+            cursor = cursor / component
+            if cursor.is_symlink():
+                raise BrailleFactoryError("Symlink in Liblouis include path is forbidden")
         if file.is_symlink() or not file.is_file():
             raise BrailleFactoryError("Included Liblouis table is missing, linked or nonregular")
         try:
