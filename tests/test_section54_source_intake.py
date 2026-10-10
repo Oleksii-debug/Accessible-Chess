@@ -139,6 +139,13 @@ class Section54SourceIntakeTests(unittest.TestCase):
         unsafe = unsafe.replace(b"bad/member", b"bad\\member")
         with self.assertRaises(FactoryIntakeError):
             inspect_factory_source(unsafe, source_name="backslash.zip")
+        # ZipInfo may truncate NUL-bearing names when decoding archive
+        # metadata. Inspect the original header, not the sanitized filename.
+        nul_name = make_zip({"bad/entry.txt": b"x"})
+        self.assertEqual(nul_name.count(b"bad/entry.txt"), 2)
+        nul_name = nul_name.replace(b"bad/entry.txt", b"bad\x00entry.txt")
+        with self.assertRaises(FactoryIntakeError):
+            inspect_factory_source(nul_name, source_name="nul.zip")
         dest = BytesIO()
         with ZipFile(dest, "w") as archive:
             archive.writestr("A.txt", "first")
