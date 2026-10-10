@@ -50,6 +50,14 @@ The preview uses only escaped original source text, static semantic HTML, restri
 
 The quality report includes an HTML SHA-256 and explicit html_print_ready=false. The independent verifier reconstructs the original source semantics and the HTML output from the original book and PEF before accepting a package. This output does NOT implement the finalized eBraille specification, literary chess-Braille editorial acceptance, or physical embossing.
 
+## Optional verified-roundtrip chess-diagram cells (UKAAF 2015, UK only)
+
+To produce an additional preliminary six-dot chess-position catalog, append --emit-ukaaf-diagrams to the preparation command, with a local language profile of en or en-GB. The source must contain explicit canonical Position/Diagram/Exercise FEN nodes in a BookDocument or Markdown fencing recognized by the current importer. Output file: chess-diagrams-ukaaf2015-unverified.json.
+
+This catalog identifies the original semantic block, full FEN, UKAAF-2015-5.1 chess-position cells and exact 64-square reconstructed placement. The generation step refuses missing semantic positions, unsupported languages or uncertain source. The independent verifier reconstructs the source-bound catalog and checks it byte for byte along with the package report.
+
+The UKAAF code profile and sample are traceable in docs/section55/UKAAF_2015_CHESS_STANDARD.md. **This covers only the diagram cell string**, not regulated printed-game indentation, physical tactile diagrams, professional chess-Braille page breaks or complete PGN notation. A simple SAN lexical subset is available internally; the full game code still requires professional verification.
+
 ## Remaining mandatory Section 55 gates
 
 Actual supported languages/Liblouis full table-closure pinning; formal standardized chess notation and independent forward/back-translation; rights-evidenced multi-edition intake/PDF and OCR/PGN/FEN; tactile diagram and real embosser profiles (duplex, page size, paper geometry); actual eBraille, pagination and large-volume book queue/restart; professional qualified chess Braille QA; lawfully sourced corpus; validated hardware print proof and blind-reader acceptance; accessible end-user UI and packaging; product-level integration. No Section 55.x subsection is DONE.
