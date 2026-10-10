@@ -3,5 +3,9 @@
 acs/stage1_release_ui_core.py -text
 acs/webapp_keymap_core.py -text
 
-# Never normalize source-licensed SHA-pinned corpus bytes (Windows CRLF protection).
+# Retain SHA-pinned original chess PGN corpus bytes on Windows/Linux runners.
+tests/real_corpus/advanced_training/lichess_cc0_2200_both_players_annotated_original_games.pgn -text
+tests/real_corpus/advanced_training/reti_1921_historical_study_bilingual.pgn -text
+
+# Preserve every pinned original source byte on all checkout platforms.
 tests/real_corpus/** -text
