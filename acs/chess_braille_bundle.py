@@ -34,8 +34,8 @@ class ProvisionalBundleCheck:
     output_pef_sha256: str
     output_brf_sha256: str | None
     source_sha256: str
-    output_html_sha256: str | None = None
     pages: int
+    output_html_sha256: str | None = None
     internal_consistency: bool = True
     qualified_print_ready: bool = False
     table_inventory_verified: bool = False
