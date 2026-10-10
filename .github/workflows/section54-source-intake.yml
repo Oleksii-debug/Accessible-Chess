@@ -1,0 +1,90 @@
+name: Section 54 bounded factory qualification
+on:
+  push:
+    branches:
+      - 'work/section54-*'
+    paths:
+      - 'acs/format_factory_intake.py'
+      - 'acs/format_factory_docx_import.py'
+      - 'tests/test_section54_factory_docx_ingress.py'
+      - 'acs/format_factory_pgn_book.py'
+      - 'acs/format_factory_tokens.py'
+      - 'acs/format_factory_policy.py'
+      - 'acs/format_factory_queue.py'
+      - 'acs/format_factory_export.py'
+      - 'acs/format_factory_conversion.py'
+      - 'acs/format_factory_epub.py'
+      - 'acs/format_factory_docx.py'
+      - 'acs/format_factory_cli.py'
+      - 'acs/format_factory_chess_audit.py'
+      - 'tests/test_section54_factory_chess_audit.py'
+      - 'tests/test_section54_factory_chess_audit_integration.py'
+      - 'tests/test_section54_factory_semantic_selectors.py'
+      - 'tests/test_section54_source_intake.py'
+      - 'tests/test_section54_factory_pgn_book.py'
+      - 'tests/test_section54_factory_tokens.py'
+      - 'tests/test_section54_factory_policy.py'
+      - 'tests/test_section54_factory_queue.py'
+      - 'tests/test_section54_factory_export.py'
+      - 'tests/test_section54_factory_conversion.py'
+      - 'tests/test_section54_factory_epub.py'
+      - 'tests/test_section54_factory_docx.py'
+      - 'tests/test_section54_factory_cli.py'
+      - 'web/format_factory_policy_form.js'
+      - 'tests/js/format_factory_policy_form_test.js'
+      - '.github/workflows/section54-source-intake.yml'
+  pull_request:
+    paths:
+      - 'acs/format_factory_intake.py'
+      - 'acs/format_factory_docx_import.py'
+      - 'tests/test_section54_factory_docx_ingress.py'
+      - 'acs/format_factory_pgn_book.py'
+      - 'acs/format_factory_tokens.py'
+      - 'acs/format_factory_policy.py'
+      - 'acs/format_factory_queue.py'
+      - 'acs/format_factory_export.py'
+      - 'acs/format_factory_chess_audit.py'
+      - 'tests/test_section54_factory_chess_audit.py'
+      - 'tests/test_section54_factory_chess_audit_integration.py'
+      - 'tests/test_section54_factory_semantic_selectors.py'
+      - 'tests/test_section54_source_intake.py'
+      - 'tests/test_section54_factory_pgn_book.py'
+      - 'tests/test_section54_factory_tokens.py'
+      - 'tests/test_section54_factory_policy.py'
+      - 'tests/test_section54_factory_queue.py'
+      - 'tests/test_section54_factory_export.py'
+      - 'web/format_factory_policy_form.js'
+      - 'tests/js/format_factory_policy_form_test.js'
+      - '.github/workflows/section54-source-intake.yml'
+      - 'acs/format_factory_conversion.py'
+      - 'acs/format_factory_epub.py'
+      - 'acs/format_factory_docx.py'
+      - 'acs/format_factory_cli.py'
+      - 'tests/test_section54_factory_conversion.py'
+      - 'tests/test_section54_factory_epub.py'
+      - 'tests/test_section54_factory_docx.py'
+      - 'tests/test_section54_factory_cli.py'
+  workflow_dispatch:
+jobs:
+  factory:
+    name: Format intake and token envelopes (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile exact Python sources
+        run: python -m py_compile acs/format_factory_chess_audit.py tests/test_section54_factory_chess_audit.py tests/test_section54_factory_chess_audit_integration.py tests/test_section54_factory_semantic_selectors.py acs/format_factory_intake.py acs/format_factory_docx_import.py tests/test_section54_factory_docx_ingress.py acs/format_factory_pgn_book.py acs/format_factory_tokens.py acs/format_factory_policy.py acs/format_factory_queue.py acs/format_factory_export.py acs/format_factory_conversion.py acs/format_factory_epub.py acs/format_factory_docx.py acs/format_factory_cli.py tests/test_section54_source_intake.py tests/test_section54_factory_pgn_book.py tests/test_section54_factory_tokens.py tests/test_section54_factory_policy.py tests/test_section54_factory_queue.py tests/test_section54_factory_export.py tests/test_section54_factory_conversion.py tests/test_section54_factory_epub.py tests/test_section54_factory_docx.py tests/test_section54_factory_cli.py
+      - name: Execute Section 54 unit and negative tests
+        run: python -m unittest discover -s tests -p 'test_section54_*.py' -v
+      - name: Check and execute accessible policy form DOM tests
+        run: node tests/js/format_factory_policy_form_test.js

@@ -1,0 +1,31 @@
+name: Section 54 source evidence independent qualification
+on:
+  push:
+    branches:
+      - 'work/section54-source-evidence-*'
+  pull_request:
+    paths:
+      - 'acs/format_factory_source_evidence.py'
+      - 'tests/test_section54_factory_source_evidence.py'
+      - '.github/workflows/section54-source-evidence.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source-evidence:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile source and test
+        run: python -m py_compile acs/format_factory_source_evidence.py tests/test_section54_factory_source_evidence.py
+      - name: Execute source-bound positive and negative tests
+        run: python -m unittest discover -s tests -p 'test_section54_factory_source_evidence.py' -v
