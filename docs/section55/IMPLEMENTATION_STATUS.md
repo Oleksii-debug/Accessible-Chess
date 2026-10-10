@@ -1,5 +1,18 @@
 # Section 55 — Chess Braille production handoff
 
+## CURRENT OWNER-AUTHORIZED STATUS — 2026-10-10
+
+**ONE Section 55, 20 subsections 55.1–55.20; 0/20 TERMINAL DONE (0%).**
+The 16-subsection inventory and 0/16 counters below are historical Braille-only checkpoints, not the current parent scope or terminal closure authority. Canonical accepted-main `SEQUENTIAL_CLOSURE_STATE.md` and the single Google Drive plan remain controlling. No separate 55A–55D parent Sections exist.
+
+- **55.1–55.16:** chess Braille factory; existing work is PARTIAL/OPEN and not independently print-ready or integrated into shipping main.
+- **55.17:** signup/verification/login/session/account/RBAC — NOT DONE, must reuse the canonical identity/security authority.
+- **55.18:** lossless signed updates/reinstall/rollback — NOT DONE, must preserve Section 51–52 data/release authorities.
+- **55.19:** lawfully disclosed and controlled diagnostics/aggregate metrics — NOT DONE; official privacy notice and lawful processing prerequisites remain external/unverified.
+- **55.20:** production website/licensing/legal/ops — NOT DONE; owner/legal identity, certified signing, payment/merchant, live hosting and human approvals must not be invented.
+
+**CI repair in the canonical draft PR #2529:** a synthetic Liblouis fixture formerly converted ordinary spaces into nonblank cells, wrongly making a valid multiword paragraph one unbreakable 20+-cell word. The test double now emits actual Braille blank separators; the production overlong-word rejection is unchanged. The two-OS workflow now uses a single `unittest discover` invocation, because Windows PowerShell otherwise returned success despite an earlier test-process failure. Original exact-head run `38011429821` (SHA `d6ac753e91846e2fb34c022ef14e094bba00505c`) had Ubuntu FAILURE and Windows misleading SUCCESS with the same test ERROR. The repaired exact-head run `38067358755` at `5075e6e1b38a6389cd2ebcfd66c7c0e51f36b954` was QUEUED at this checkpoint, **not a claimed PASS**. This repair does not establish real tables/embosser, rights, print-ready output, human NVDA or DONE.
+
 Status: **PARTIAL / IMPLEMENTATION OPEN / NOT DONE**.
 Canonical owner scope: Drive ACCESSIBLE CHESS SECTION PLAN, 55.1–55.16.
 Do not replace that scope, accepted Sections 0–53 or the canonical Board/PGN/Book authorities.
