@@ -63,11 +63,11 @@
   "2026-10-10_section51_post_shutdown_native_menu_candidate": {
     "status": "PENDING_QUALIFICATION",
     "menu_action": "File > Створити повну копію даних і вийти",
-    "activation": "native Version2NativeMenuController optional callback",
+    "activation": "native Version2NativeMenuController and shipping FinalProductNativeMenuController optional callback",
     "lifecycle": "version2_release_ui dispatches canonical owner export after completed shutdown",
     "safe_on_failed_shutdown": "export not invoked",
     "test_module": "tests/test_section51_windows_owner_backup_menu.py",
-    "cases": 4,
+    "cases": 5,
     "owner_nvda_test": "NOT_EXECUTED",
     "parent_section": "NOT_DONE"
   }
