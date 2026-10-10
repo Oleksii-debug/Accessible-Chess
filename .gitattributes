@@ -14,3 +14,8 @@ tests/real_corpus/** -text
 tests/real_corpus/books/gitenberg_capablanca_33870.txt -text
 tests/real_corpus/advanced_training/lichess_cc0_advanced_puzzles_100_sample.json -text
 tests/real_corpus/advanced_training/lichess_cc0_extreme_3000_3166_original_puzzles.json -text
+
+# Preserve independently SHA-pinned Section41 assets on Windows package QA.
+web/assets/accessible_chess_design.css -text
+web/assets/tabler/** -text
+web/assets/tabler-core/** -text
