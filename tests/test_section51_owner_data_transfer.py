@@ -190,27 +190,36 @@ class OwnerDataTransferTests(unittest.TestCase):
                     database.get_source(1)["source_name"], "Особисті партії.pgn"
                 )
 
-    def test_future_library_schema_transfer_is_refused_without_creating_profile(self):
+    def test_future_library_schema_rejects_export_without_creating_transfer(self):
         with tempfile.TemporaryDirectory() as td:
             parent = Path(td)
             source = self._source(parent)
-            from sqlite3 import connect
+            import sqlite3
 
-            connection = connect(source / "library.acsdb")
+            connection = sqlite3.connect(source / "library.acsdb")
             try:
                 connection.execute("PRAGMA user_version=999")
                 connection.commit()
             finally:
                 connection.close()
-            exported = export_owner_profile(UserDataLayout(source))
-            target = parent / "newer-schema"
-            with self.assertRaises(UserDataTransferError):
-                import_owner_profile(exported, target)
-            self.assertFalse(target.exists())
+            saved_bytes = (source / "accounts" / "profile.json").read_bytes()
+            with self.assertRaisesRegex(
+                UserDataTransferError, "profile export failed validation"
+            ):
+                export_owner_profile(UserDataLayout(source))
             self.assertEqual(
                 (source / "accounts" / "profile.json").read_bytes(),
-                b'{"user":"owner"}\n',
+                saved_bytes,
             )
+            backup_root = parent / "AccessibleChess.upgrade-backups"
+            if backup_root.exists():
+                self.assertFalse(
+                    any(
+                        p.name.startswith("owner-transfer-") and
+                        (p / "manifest.json").exists()
+                        for p in backup_root.iterdir()
+                    )
+                )
 
     def test_future_schema_blocks_staged_import_without_touching_target(self):
         with tempfile.TemporaryDirectory() as td:
