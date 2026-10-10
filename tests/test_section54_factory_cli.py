@@ -4,9 +4,11 @@ from contextlib import redirect_stderr, redirect_stdout
 from hashlib import sha256
 from io import StringIO
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 from zipfile import ZipFile
 
 from acs.format_factory_cli import run_offline_private_factory
@@ -51,6 +53,25 @@ class FactoryOfflineCliTests(unittest.TestCase):
         self.assertEqual(manifest["status"], "PARTIAL_PREVIEW_ONLY")
         self.assertEqual(manifest["outputs"][0]["sha256"], sha256(html.read_bytes()).hexdigest())
         self.assertIn(b"Accessible chess text", html.read_bytes())
+
+    def test_path_replacement_between_stat_and_open_is_refused(self) -> None:
+        """A changed pathname must not silently import replacement book bytes."""
+        replacement = self.dir / "replacement.md"
+        replacement.write_bytes(b"# Different book\n\nPrivate content.\n")
+        original_open = os.open
+        source_path = self.source
+
+        def replace_before_open(path, flags, *args, **kwargs):
+            if Path(path) == source_path:
+                os.replace(replacement, source_path)
+            return original_open(path, flags, *args, **kwargs)
+
+        with mock.patch("acs.format_factory_cli.os.open", side_effect=replace_before_open):
+            code, _, error = self.call()
+        self.assertEqual(code, 2)
+        self.assertFalse(list(self.out.iterdir()))
+        self.assertNotIn("Private content", error)
+        self.assertNotIn(str(source_path), error)
 
     def test_repeat_does_not_overwrite_or_delete_existing_results(self) -> None:
         self.assertEqual(self.call()[0], 0)
