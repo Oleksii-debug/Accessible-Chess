@@ -1,5 +1,6 @@
 from pathlib import Path
 import re
+import subprocess
 import unittest
 
 
@@ -36,6 +37,15 @@ class YouTubeAdapterContractTests(unittest.TestCase):
             self.assertIn(token, self.index)
         self.assertIn('accept="video/*"', self.index)
         self.assertIn('youtube_iframe_adapter.js', self.index)
+
+    def test_runtime_seek_pause_state_and_unavailable_boundary(self):
+        script = ROOT / "tests" / "js" / "youtube_iframe_adapter_runtime.test.js"
+        result = subprocess.run(
+            ["node", str(script), str(ADAPTER)],
+            cwd=ROOT, capture_output=True, text=True, timeout=20, check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("PASS", result.stdout)
 
 
 if __name__ == "__main__":

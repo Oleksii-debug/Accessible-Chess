@@ -54,6 +54,7 @@
       this.container = null;
       this.listeners = new Set();
       this.videoId = null;
+      this.sourceUrl = null;
       this.destroyed = false;
     }
     on(listener) { if (typeof listener === 'function') this.listeners.add(listener); return () => this.listeners.delete(listener); }
@@ -65,27 +66,52 @@
       if (!container) throw new YouTubeIntegrationError('Player container is required', 'missing-container');
       this.container = container;
       this.videoId = id;
+      this.sourceUrl = String(url).trim();
       this.emit('loading', { videoId: id });
-      const YT = await ensureApi();
+      let YT;
+      try { YT = await ensureApi(); }
+      catch (error) { this.emit('offline', { videoId: id }); throw error; }
       if (this.player && typeof this.player.destroy === 'function') this.player.destroy();
       this.player = new YT.Player(container, {
         videoId: id,
         host: 'https://www.youtube.com',
         playerVars: { playsinline: 1, rel: 0, modestbranding: 1, iv_load_policy: 3 },
         events: {
-          onReady: () => this.emit('ready', { videoId: id }),
+          onReady: () => this.emit('ready', { videoId: id, ...this.snapshot() }),
           onStateChange: event => {
             const map = { [-1]: 'loading', 0: 'ended', 1: 'playing', 2: 'paused', 3: 'buffering', 5: 'ready' };
             const type = map[event.data];
-            if (type) this.emit(type, { videoId: id });
+            if (type) this.emit(type, { videoId: id, ...this.snapshot() });
           },
           onError: event => this.emit(event.data === 101 || event.data === 150 ? 'unavailable' : 'error', { code: event.data, videoId: id })
         }
       });
       return id;
     }
+    snapshot() {
+      if (!this.player) return { ready: false, videoId: this.videoId, timecode: 0, duration: 0 };
+      const safeNumber = method => {
+        try { const value = Number(this.player[method]()); return Number.isFinite(value) && value >= 0 ? value : 0; }
+        catch (_) { return 0; }
+      };
+      return { ready: true, videoId: this.videoId, timecode: safeNumber('getCurrentTime'), duration: safeNumber('getDuration') };
+    }
     play() { if (!this.player) return false; try { this.player.playVideo(); return true; } catch (_) { this.emit('autoplay-blocked'); return false; } }
     pause() { if (!this.player) return false; try { this.player.pauseVideo(); return true; } catch (_) { return false; } }
+    seek(seconds) {
+      if (!this.player || typeof this.player.seekTo !== 'function') return false;
+      const value = Number(seconds);
+      const duration = this.snapshot().duration;
+      if (!Number.isFinite(value) || value < 0 || (duration > 0 && value > duration)) return false;
+      try { this.player.seekTo(value, true); return true; } catch (_) { return false; }
+    }
+    async reconnect() {
+      if (!this.sourceUrl || !this.container) throw new YouTubeIntegrationError('Nothing to reconnect', 'not-loaded');
+      const sourceUrl = this.sourceUrl, container = this.container;
+      this.emit('reconnect', { videoId: this.videoId });
+      this.destroyed = false;
+      return this.load(sourceUrl, container);
+    }
     destroy() { this.destroyed = true; if (this.player && typeof this.player.destroy === 'function') this.player.destroy(); this.player = null; this.listeners.clear(); }
   }
 

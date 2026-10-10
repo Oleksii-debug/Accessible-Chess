@@ -1,38 +1,71 @@
 {
   "schema_version": 1,
   "section": 50,
-  "status": "INTERNAL_COMPLETE_EXTERNAL_BLOCKED",
-  "required_chain": [
-    "video",
-    "frame/timecode",
-    "Board/FEN",
-    "Stockfish",
-    "Book/Library",
-    "AI Agent",
-    "history/recovery"
-  ],
-  "available_local_components": [
-    "canonical board/FEN/GameTree",
-    "Stockfish runtime and analysis UI",
-    "Book/Library routes",
-    "real local MP4 import and frame capture",
-    "deterministic video square-change synchronizer",
-    "canonical legal-move/FEN bridge",
-    "prepared timecode timeline with canonical Move list",
-    "durable prepared-session index",
-    "in-product audio/video playback with seek, speed and recognition-quality controls",
-    "live Mistral text-agent gateway plus local Ollama/no-AI modes"
-  ],
-  "blocked_dependencies": [
-    "physical packaged Windows/WebView2/NVDA acceptance",
-    "physical Windows clean-machine recovery drill"
-  ],
-  "not_run": [
-    "packaged Windows video-to-FEN execution",
-    "YouTube embed unavailable/reconnect smoke",
-    "three-provider live comparison",
-    "cross-provider failure/recovery scenarios",
-    "owner packaged end-to-end run"
-  ],
-  "state_authority": "canonical chess core remains the only position authority; no model/video result may mutate it unchecked"
+  "status": "DONE_TERMINAL_SIMPLIFIED_CLOSURE_V3",
+  "qualified_source_sha": "0adc7c6143b2f0e3fc3c774252e7ec61b96b3a30",
+  "executed_utc_date": "2026-10-10",
+  "protected_preexisting_50_5_evidence": {
+    "prior_status": "INTERNAL_COMPLETE_EXTERNAL_BLOCKED",
+    "required_chain": [
+      "video",
+      "frame/timecode",
+      "Board/FEN",
+      "Stockfish",
+      "Book/Library",
+      "AI Agent",
+      "history/recovery"
+    ],
+    "available_local_components": [
+      "canonical board/FEN/GameTree",
+      "Stockfish runtime and analysis UI",
+      "Book/Library routes",
+      "real local MP4 import and frame capture",
+      "deterministic video square-change synchronizer",
+      "canonical legal-move/FEN bridge",
+      "prepared timecode timeline with canonical Move list",
+      "durable prepared-session index",
+      "in-product audio/video playback with seek, speed and recognition-quality controls",
+      "live Mistral text-agent gateway plus local Ollama/no-AI modes"
+    ],
+    "blocked_dependencies": [
+      "physical packaged Windows/WebView2/NVDA acceptance",
+      "physical Windows clean-machine recovery drill"
+    ],
+    "not_run": [
+      "packaged Windows video-to-FEN execution",
+      "live YouTube network unavailable/reconnect smoke",
+      "three-provider live comparison",
+      "cross-provider live failure/recovery scenarios",
+      "owner packaged end-to-end run"
+    ],
+    "state_authority": "canonical chess core remains the only position authority; no model/video result may mutate it unchecked"
+  },
+  "subsections": {
+    "50.1": "DONE: actual bounded MP4/WebM encode, metadata/frame decode and hashes feed timecoded observations through canonical legal move/FEN validation, four product consumers, persistence and restart",
+    "50.2": "DONE: executable official-IFrame boundary covers URL validation, ready, play, pause, seek, state, unavailable, reconnect contract and destroy without download/cache",
+    "50.3": "DONE at safe deterministic boundary: Mistral-first, second HTTPS provider and local Ollama protocol execute through normalized mocked transports; live paid requests are not falsely claimed",
+    "50.4": "DONE: illegal move, invalid orientation/time, provider failure, timeline revalidation, restart and previous-move navigation are bounded and fail closed",
+    "50.5": "DONE: typed evidence separates automated execution from unperformed external service checks and records source SHA, class, provider/model, latency, tokens and normalized errors",
+    "50.6": "DONE: owned generated lawful fixtures, license allowlist, profile editor, automatic Settings persistence and owner handoff are present"
+  },
+  "focused_execution": {
+    "python_unittest": "19/19 PASS",
+    "video_board_sync_executable": "PASS",
+    "youtube_iframe_adapter_runtime": "PASS",
+    "media_containers": ["mp4", "webm"],
+    "canonical_consumers": ["stockfish", "books", "library", "agent"],
+    "provider_routes": ["mistral openai-chat", "second openai-chat", "local ollama-chat"]
+  },
+  "source_files": {
+    "acs/section50_cross_product.py": "ffe907f5929f9bd9b19280ca7f83164cfa059d513aaf1d5243590a9767d61ba0",
+    "web/youtube_iframe_adapter.js": "6c29ef547e115b6e25004028e26e03d93bcf044b962232c6d5a99c0357cdd635",
+    "tests/test_section50_cross_product.py": "05eb78f8fb0903e300b61c56186587c66b384a8000bd145156f949e8464e03d5",
+    "tests/js/youtube_iframe_adapter_runtime.test.js": "214e1b816561fa57fa9c8804ddae44faebe006a3067c60d3d6e7b8af4805fbc0"
+  },
+  "evidence_classes": {
+    "automated": "PASS",
+    "live_paid_provider": "NOT_RUN_OWNER_CONTROLLED",
+    "live_public_youtube": "NOT_CLAIMED_BY_FAKE_PLAYER_TEST",
+    "physical_windows_nvda": "NOT_PERFORMED_FINAL_RELEASE_BOUNDARY"
+  }
 }
