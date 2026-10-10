@@ -50,6 +50,7 @@ class Section54DocxIngressTests(unittest.TestCase):
             ('<w:p><w:r><w:drawing/></w:r></w:p>', {}),
             ('<w:p><w:pPr><w:numPr/></w:pPr><w:r><w:t>List</w:t></w:r></w:p>', {}),
             (simple, {"word/media/diagram.png": b"PNG"}),
+            (simple, {"word/activeX/control1.bin": b"unsafe embedded control"}),
             (simple, {"word/_rels/document.xml.rels": (
                 b'<Relationships><Relationship TargetMode="External" '
                 b'Target="https://example.invalid/private"/></Relationships>'

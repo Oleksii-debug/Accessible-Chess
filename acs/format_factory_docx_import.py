@@ -50,7 +50,7 @@ def _reject_unsupported_package_parts(archive: ZipFile) -> None:
     names = [info.filename.lower() for info in archive.infolist()]
     unsupported = (
         "word/media/", "word/embeddings/", "word/charts/", "word/diagrams/",
-        "word/activeX/", "word/footnotes.xml", "word/endnotes.xml",
+        "word/activex/", "word/footnotes.xml", "word/endnotes.xml",
         "word/comments.xml", "word/numbering.xml", "word/websettings.xml",
         "word/vbaproject.bin",
     )
