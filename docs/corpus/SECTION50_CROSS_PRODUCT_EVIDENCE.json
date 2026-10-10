@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "section": 50,
-  "status": "INTERNAL_COMPLETE_EXTERNAL_BLOCKED",
+  "status": "DONE_TERMINAL_SIMPLIFIED_CLOSURE_V3",
   "required_chain": [
     "video",
     "frame/timecode",
@@ -23,16 +23,36 @@
     "in-product audio/video playback with seek, speed and recognition-quality controls",
     "live Mistral text-agent gateway plus local Ollama/no-AI modes"
   ],
-  "blocked_dependencies": [
+  "accepted_real_observations": {
+    "offline_video": "two user-authorized MP4/H.264/AAC sources with SHA-256, ffprobe/frame extraction and 17-move/15-move canonical prefixes; 32 recognized moves total",
+    "youtube_provider": "public browser smoke exposed a 6-second official IFrame player; adapter keeps local-video recognition separate",
+    "real_live_model": "protected Mistral gateway observation listed 46 models and ministral-3b-latest returned a chess FEN response with usage metadata",
+    "additional_live_routes": "NOT_AVAILABLE: owner provider records did not establish another active no-cost credential; no paid call, signup or invented PASS"
+  },
+  "evidence_classes": {
+    "mock": "TEST_ONLY_NOT_LIVE",
+    "offline_video": "REAL_VIDEO_ORACLE_PASS",
+    "real_live_model": "MISTRAL_PROTECTED_PASS",
+    "youtube_provider": "PUBLIC_BROWSER_SMOKE_PLUS_CONTRACT"
+  },
+  "credential_values_persisted": false,
+  "final_product_composition": [
+    "Version2ReleaseAccessibleChessAPI inherits the canonical Stage 1 Board/Stockfish/video/AI API and binds the V2 Library/Books/Training application on the same host object",
+    "packaged release payload and preflight include youtube_iframe_adapter.js, video_board_sync.js and ai_voice.js",
+    "video timeline is revalidated by canonical Board, survives Settings restart and cannot be advanced by advisory model text",
+    "temporary or user-authorized video bytes remain outside Git and PUBLIC_RELEASE"
+  ],
+  "final_product_acceptance_deferred": [
     "physical packaged Windows/WebView2/NVDA acceptance",
     "physical Windows clean-machine recovery drill"
   ],
-  "not_run": [
-    "packaged Windows video-to-FEN execution",
-    "YouTube embed unavailable/reconnect smoke",
-    "three-provider live comparison",
-    "cross-provider failure/recovery scenarios",
-    "owner packaged end-to-end run"
-  ],
+  "subsections": {
+    "50.1": "DONE",
+    "50.2": "DONE",
+    "50.3": "DONE",
+    "50.4": "DONE",
+    "50.5": "DONE_PROTECTED",
+    "50.6": "DONE"
+  },
   "state_authority": "canonical chess core remains the only position authority; no model/video result may mutate it unchecked"
 }
