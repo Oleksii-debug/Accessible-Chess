@@ -26,7 +26,7 @@
 | 50 | **DONE — TERMINAL** | Exact candidate `0adc7c6143b2f0e3fc3c774252e7ec61b96b3a30`; Sections 50.1–50.6 evidence in `docs/automation/SECTION50_TERMINAL_CLOSURE.md`. External live services and physical Windows/NVDA remain explicitly unclaimed release evidence. |
 | 51 | **DONE — TERMINAL** | Exact candidate `caf184fd322b620263027add2af135087924a931`; 51.1–51.5 evidence in `docs/automation/SECTION51_TERMINAL_CLOSURE.md`. Physical packaged-Windows/NVDA recovery remains final-release evidence. |
 | 52 | **DONE — TERMINAL** | Exact candidate `d7a55aef25127502e237e595ef6f326937ea9c95`; 52.1–52.6 release-infrastructure evidence in `docs/automation/SECTION52_TERMINAL_CLOSURE.md`. Publication remains fail-closed pending exact-artifact physical acceptance. |
-| 53 | **PARTIAL / NOT TERMINAL DONE** | Preserve convergence inventory; final end-to-end evidence/release qualification still open. |
+| 53 | **IN PROGRESS / NOT TERMINAL DONE** | Published interruption implementation checkpoint `41be1f27139ee9299a134b875224e69b5b30d9bd`; five current-line convergence test repairs preserved. Continue with exact-SHA focused rerun and repository-wide regression triage. See `docs/automation/SECTION53_INTERRUPTION_CHECKPOINT_2026-10-10.md`. |
 | 54 | **ACTIVE / OPEN / NOT DONE** | Separately authorized AI Format Factory workstream, not a base 0–53 blocker. |
 | 55 | **ACTIVE / OPEN / NOT DONE** | Separately authorized chess Braille Factory workstream, not a base 0–53 blocker. |
 
