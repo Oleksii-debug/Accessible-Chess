@@ -92,6 +92,53 @@ class TestSection55TableClosure(unittest.TestCase):
                 ("dir/child.cti", "main.ctb"),
             )
 
+    def test_case_only_file_aliases_are_rejected_on_all_hosts(self):
+        # A single Windows file can answer both spellings; Linux can hold two.
+        # Neither interpretation is a portable, independently pinned closure.
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            child = base / "child.cti"
+            child.write_text("# canonical\\n", encoding="utf-8")
+            uppercase = base / "CHILD.cti"
+            if not uppercase.exists():
+                uppercase.write_text("# other Linux file\\n", encoding="utf-8")
+            main = base / "main.ctb"
+            main.write_text(
+                "include child.cti\\ninclude CHILD.cti\\n", encoding="utf-8"
+            )
+            with self.assertRaisesRegex(BrailleFactoryError, "case-insensitive"):
+                scan_local_liblouis_table_closure(main)
+
+    def test_case_only_directory_aliases_are_rejected(self):
+        # Whole-path case checks miss a parent directory alias if the
+        # descendants differ, e.g. A/x.cti and a/y.cti.
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            upper = base / "A"
+            lower = base / "a"
+            upper.mkdir()
+            if not lower.exists():
+                lower.mkdir()
+            (upper / "x.cti").write_text("# first\\n", encoding="utf-8")
+            (lower / "y.cti").write_text("# second\\n", encoding="utf-8")
+            main = base / "main.ctb"
+            main.write_text(
+                "include A/x.cti\\ninclude a/y.cti\\n", encoding="utf-8"
+            )
+            with self.assertRaisesRegex(BrailleFactoryError, "case-insensitive"):
+                scan_local_liblouis_table_closure(main)
+
+    def test_identical_repeated_include_remains_valid(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            (base / "child.cti").write_text("# child\\n", encoding="utf-8")
+            main = base / "main.ctb"
+            main.write_text(
+                "include child.cti\\ninclude child.cti\\n", encoding="utf-8"
+            )
+            closure = scan_local_liblouis_table_closure(main)
+            self.assertEqual(len(closure.files), 2)
+
     def test_absolute_and_traversal_include_fail_closed(self):
         for operand in ("../unsafe.ctb", "/other/unsafe.ctb", "dir/../unsafe.ctb"):
             with self.subTest(operand=operand), tempfile.TemporaryDirectory() as tmp:
