@@ -4,4 +4,6 @@ acs/stage1_release_ui_core.py -text
 acs/webapp_keymap_core.py -text
 # Source-bound offline chess files are verified against original SHA-256/Git blobs.
 # Keep exact bytes on Windows runners; auto-CRLF would invalidate legitimate originals.
-tests/real_corpus/** -text
+# Original upstream corpora carry byte-pinned whitespace by design; preserve it.
+# Exclude these external originals from diff --check while checking code normally.
+tests/real_corpus/** -text -whitespace
