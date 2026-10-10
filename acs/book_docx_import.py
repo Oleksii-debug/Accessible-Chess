@@ -13,7 +13,7 @@ from pathlib import PurePosixPath
 import zipfile
 from xml.etree import ElementTree
 
-from .book_text_import import BookTextFormat, import_text_book
+from .bookdocument import BookDocument, Heading, Paragraph
 
 MAX_DOCX_SOURCE_BYTES = 8 * 1024 * 1024
 _MAX_DOCX_UNCOMPRESSED_BYTES = 16 * 1024 * 1024
@@ -74,7 +74,7 @@ def import_docx_book(source: bytes, *, source_name: str, control_checkpoint=None
     body = document_root.find(_W + "body")
     if body is None:
         raise ValueError("DOCX has no reading body")
-    lines: list[str] = []
+    blocks: list[Heading | Paragraph] = []
     for paragraph in body.iter(_W + "p"):
         if control_checkpoint is not None:
             control_checkpoint()
@@ -91,23 +91,23 @@ def import_docx_book(source: bytes, *, source_name: str, control_checkpoint=None
             continue
         style = paragraph.find("./" + _W + "pPr/" + _W + "pStyle")
         heading = style.get(_W + "val", "") if style is not None else ""
+        # A DOCX paragraph is an explicit Word semantic block, NOT Markdown.
+        # Feeding literal Word prose into a Markdown importer could reinterpret
+        # a plain \`\`\`fen / \`\`\`pgn paragraph as a chess Position/Game.
+        if len(blocks) >= 10_000:
+            raise ValueError("DOCX has too many readable paragraphs")
         if heading in ("Heading1", "heading 1"):
-            lines.append("# " + text)
+            blocks.append(Heading(text=text, level=1))
         elif heading in ("Heading2", "heading 2"):
-            lines.append("## " + text)
+            blocks.append(Heading(text=text, level=2))
         else:
-            lines.append(text)
-        lines.append("")
-    if not lines:
+            blocks.append(Paragraph(text=text))
+    if not blocks:
         raise ValueError("DOCX has no accessible paragraph text")
-    semantic = import_text_book(
-        ("\n".join(lines).rstrip() + "\n").encode("utf-8"),
-        source_name=source_name,
-        source_format=BookTextFormat.MARKDOWN,
-        control_checkpoint=control_checkpoint,
-    )
+    if control_checkpoint is not None:
+        control_checkpoint()
     return DocxBookImportResult(
         book_key="docx-sha256:" + sha256(source).hexdigest(),
-        document=semantic.document,
-        warnings=semantic.warnings,
+        document=BookDocument(title=source_name, source_name=source_name, blocks=blocks),
+        warnings=("DOCX imported as passive Word text and headings only.",),
     )

@@ -8,7 +8,7 @@ import unittest
 from zipfile import ZipFile
 
 from acs.book_docx_import import import_docx_book
-from acs.bookdocument import Heading, Paragraph, Position
+from acs.bookdocument import Game, Heading, Paragraph, Position
 from acs.version2_application import Version2Application
 
 
@@ -54,6 +54,23 @@ class Section40DocxBookIngressTests(unittest.TestCase):
             second = Version2Application.prepare_book_open(path)
             self.assertEqual(first.book_key, imported.book_key)
             self.assertEqual(first.document.as_dict(), second.document.as_dict())
+
+    def test_plain_word_prose_with_markdown_fences_never_invents_chess_semantics(self):
+        """DOCX plaintext must not accidentally become an explicit Markdown FEN/PGN fence."""
+        extra = (
+            b'<w:p><w:r><w:t>```fen</w:t></w:r></w:p>'
+            b'<w:p><w:r><w:t>8/8/8/8/8/8/8/K6k w - - 0 1</w:t></w:r></w:p>'
+            b'<w:p><w:r><w:t>```</w:t></w:r></w:p>'
+            b'<w:p><w:r><w:t># Plain Word heading-looking prose</w:t></w:r></w:p>'
+        )
+        raw = _archive(document=_WORD_XML.replace(b'</w:body>', extra + b'</w:body>'))
+        imported = import_docx_book(raw, source_name="plain-word.docx")
+        self.assertEqual(len([b for b in imported.document.blocks if isinstance(b, Heading)]), 2)
+        self.assertEqual(len([b for b in imported.document.blocks if isinstance(b, Position)]), 0)
+        self.assertEqual(len([b for b in imported.document.blocks if isinstance(b, Game)]), 0)
+        self.assertTrue(any(b.text == "```fen" for b in imported.document.blocks if isinstance(b, Paragraph)))
+        self.assertTrue(any(b.text.startswith("# Plain Word") for b in imported.document.blocks if isinstance(b, Paragraph)))
+        self.assertEqual(imported.document.validate_structure(), [])
 
     def test_rejects_traversal_and_unsafe_macro_member(self):
         for extra in ({"../outside.txt": b"ignored"}, {"word/vbaProject.bin": b"macro"}):
