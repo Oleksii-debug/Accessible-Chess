@@ -1,0 +1,104 @@
+name: Section 44 premium service surfaces
+
+on:
+  push:
+    branches:
+      - section44/premium-service-surface-closure-20261009
+    paths:
+      - "web/design_system.css"
+      - "web/index.html"
+      - "web/accessible_chess_web.*"
+      - "web/accessible_chess_subscription.*"
+      - "acs/web_client_*.py"
+      - "acs/subscription_*.py"
+      - "tests/test_section34_web_client.py"
+      - "tests/test_section35_subscription_closure.py"
+      - "tests/js/section44_web_online_premium_contract_test.js"
+      - "web/full_product_*.js"
+      - "web/version2_final_product_bootstrap.js"
+      - "web/version2_release_bootstrap.js"
+      - "tests/js/library_surface_dom_test.js"
+      - "tests/js/section44_premium_service_surfaces_contract_test.js"
+      - ".github/workflows/section44-premium-service-surfaces.yml"
+  pull_request:
+    paths:
+      - "web/design_system.css"
+      - "web/index.html"
+      - "web/accessible_chess_web.*"
+      - "web/accessible_chess_subscription.*"
+      - "acs/web_client_*.py"
+      - "acs/subscription_*.py"
+      - "tests/test_section34_web_client.py"
+      - "tests/test_section35_subscription_closure.py"
+      - "tests/js/section44_web_online_premium_contract_test.js"
+      - "web/full_product_*.js"
+      - "web/version2_final_product_bootstrap.js"
+      - "web/version2_release_bootstrap.js"
+      - "tests/js/library_surface_dom_test.js"
+      - "tests/js/section44_premium_service_surfaces_contract_test.js"
+      - ".github/workflows/section44-premium-service-surfaces.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  real-service-surface-qualification:
+    name: Real service surface and DOM keyboard (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Verify source SHA and reject whitespace errors
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          git diff --check HEAD
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Check shipped source syntax
+        shell: bash
+        run: |
+          node --check tests/js/section44_premium_service_surfaces_contract_test.js
+          node --check tests/js/section44_web_online_premium_contract_test.js
+          node --check web/version2_release_bootstrap.js
+          for file in web/full_product_books_training.js web/full_product_library.js web/full_product_education.js web/full_product_teacher.js web/full_product_classroom.js web/full_product_pgn.js web/version2_final_product_bootstrap.js; do
+            node --check "$file"
+          done
+      - name: Validate premium skin and canonical services
+        run: node tests/js/section44_premium_service_surfaces_contract_test.js
+      - name: Existing Books/Training keyboard and semantic DOM regression
+        run: node tests/js/books_training_surface_dom_test.js
+      - name: Existing Library keyboard and semantic DOM regression
+        run: node tests/js/library_surface_dom_test.js
+      - name: Existing Classroom and Education keyboard and semantic DOM regressions
+        shell: bash
+        run: |
+          node tests/js/classroom_surface_dom_test.js
+          node tests/js/education_surface_dom_test.js
+      - name: Existing Teacher keyboard, board and semantic DOM regression
+        run: node tests/js/teacher_surface_dom_test.js
+      - name: Existing PGN keyboard, tree and semantic DOM regressions
+        shell: bash
+        run: |
+          node tests/js/pgn_surface_dom_test.js
+          node tests/js/pgn_tree_keyboard_dom_test.js
+      - name: Real route bootstrap DOM/keyboard regression
+        run: node tests/js/version2_release_bootstrap_dom_test.js
+
+      - name: Prove restored first-party Web and subscription route CSS
+        run: >-
+          python -m unittest -v
+          tests.test_section34_web_client
+          tests.test_section35_subscription_closure
+          tests.test_entitlements
+          tests.test_section33_online_social_closure
+      - name: Qualify real Web/Online/Spectator and plan UI premium styles
+        run: node tests/js/section44_web_online_premium_contract_test.js

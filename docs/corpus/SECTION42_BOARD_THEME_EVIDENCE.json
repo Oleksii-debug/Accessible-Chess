@@ -1,15 +1,68 @@
 {
   "schema_version": 1,
   "section": 42,
-  "status": "INTERNAL_COMPLETE_EXTERNAL_BLOCKED",
-  "local_themes": ["Classic Wood", "Modern Graphite", "Tournament Blue", "Light Minimal", "High Contrast"],
-  "asset_policy": "local CSS tokens only; no unlicensed external piece pack was vendored",
+  "status": "DONE_TERMINAL_UNDER_SIMPLIFIED_CLOSURE_V3",
+  "local_themes": [
+    "Classic Wood",
+    "Modern Graphite",
+    "Tournament Blue",
+    "Light Minimal",
+    "High Contrast"
+  ],
+  "asset_policy": "CC0-1.0 Lichess RhosGFX 12 exact originals, versioned pack; source-pinned raster tool yields 48 PNG/WebP at 128/256",
   "semantic_authority": "existing canonical board/gridcell/FEN/GameTree path",
-  "accessibility": {"forced_colors": true, "reduced_motion": true, "text_equivalent": "existing aria-label and live semantic board"},
-  "verification": "tests/test_section42_board_themes.py",
-  "blocked": [
-    "lawfully licensed Lichess SVG/PNG/WebP pack with exact per-asset provenance",
-    "physical NVDA visual/speech parity",
-    "clean Windows packaged UIA acceptance"
+  "accessibility": {
+    "forced_colors": true,
+    "reduced_motion": true,
+    "low_power": true,
+    "text_equivalent": "UK/EN live-neutral focusable text transcript; canonical ARIA labels retained",
+    "dom_source_exec": "production renderBoard() 19/19 checks; actual overlay 42/42 checks; Python unit suite not executed"
+  },
+  "verification": [
+    "tests/test_section42_board_themes.py",
+    "tests/test_section42_main_presentation_contract.py",
+    "tests/test_section42_shipping_runtime.py",
+    "tests/test_section42_package_artifacts.py",
+    "tests/js/section42_overlay_runtime_test.js",
+    "docs/automation/SECTION42_LOCAL_RASTER_REAL_EXECUTION.md"
+  ],
+  "blocked": [],
+  "license_authority": {
+    "source_repo": "lichess-org/lila",
+    "source_commit": "f5b261e3d8ece6f511484e398cb8d81e37735bea",
+    "rights_blob": "def9deca8bceae28cf83d2074a3b09534ae88f6f",
+    "package_manifest": "web/assets/pieces/rhosgfx/SECTION42_PROVENANCE.json",
+    "source_qualified": "12/12 exact upstream Git blobs/bytes"
+  },
+  "local_raster_evidence": {
+    "exact_file_count": 48,
+    "zip_name": "section42_rhosgfx_verified_raster_pack.zip",
+    "zip_sha256": "49250065588a6c0d52c5fe5dbb30d069e18b99799ab19d9202271a2a2b21748b",
+    "receipt_sha256": "f317aef07c21a0c65b8a482e9808364e31fdd59546c15c8a1be3951f1e04e5c2",
+    "execution": "CairoSVG 2.8.2 + Pillow 12.3.0 in local runner; 48/48 raster bytes/decodes PASS",
+    "hosted_ci": "NOT_EXECUTED"
+  },
+  "section42_done": true,
+  "integrated_main_commit": "c5a31174928d410544f8811bb1719de857acac51",
+  "accepted_pr": "https://github.com/Oleksii-debug/Accessible-Chess/pull/2519",
+  "post_merge_readback": {
+    "current_main_at_integration": "c5a31174928d410544f8811bb1719de857acac51",
+    "changed_files_from_predecessor_main": 31,
+    "deleted_files": 0,
+    "section41_logo_blob_unchanged": "accb4f7b7ea39eb1a023b6e2ad8589453fcdb305",
+    "visual_contract_blob": "20834aa1015ff208e7e1a24b779ee62d2c0904f8",
+    "production_index_blob": "43f0d349a7d115235bedf9422ccdcac39fc1c7ee"
+  },
+  "hosted_test_qualification": {
+    "run": "37995037815",
+    "status": "FAILURE_WITH_ZERO_JOBS_ORCHESTRATION_ONLY",
+    "python_unit": "UNEXECUTED",
+    "physical_win_nvda_uia": "FINAL_PRODUCT_GATE",
+    "evidence_used": "12/12 original upstream + 48/48 local real rasters + 42/42 overlay V8 + 19/19 production grid V8 + source contract/persistence/negative authored tests"
+  },
+  "deferred_final_product_gates": [
+    "true Windows/WebView2 UIA and owner NVDA manual acceptance",
+    "hosted CI rerun and standalone compiled Windows package acceptance",
+    "provider-specific Web/Online/Spectator later module composition within Sections 43/44"
   ]
 }

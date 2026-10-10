@@ -37,9 +37,9 @@ dialog{max-width:min(70rem,95vw);max-height:90vh;overflow:auto}dialog::backdrop{
 <section aria-labelledby="h-engine"><h2 id="h-engine">Аналіз Stockfish</h2><div id="engine-status" class="block" aria-live="off"></div><div class="row"><button id="engine-toggle" type="button">Увімкнути Stockfish</button><button id="analysis-restart" type="button">Перезапустити аналіз</button><button id="analysis-lock" type="button" aria-pressed="false">Зафіксувати ціль</button></div><fieldset><legend id="analysis-settings-legend">Параметри аналізу</legend><div class="row"><label id="analysis-multipv-label" for="analysis-multipv">Кількість варіантів</label><select id="analysis-multipv"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5" selected>5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option><option value="9">9</option><option value="10">10</option></select><label id="analysis-depth-label" for="analysis-depth">Глибина</label><input id="analysis-depth" type="number" min="1" max="40" step="1" value="16"><button id="analysis-apply" type="button">Застосувати</button></div></fieldset><h3 id="analysis-lines-heading">Варіанти</h3><ol id="analysis-lines" aria-labelledby="analysis-lines-heading"></ol><div id="analysis-exploration-status" class="block" aria-live="off"></div><div class="row"><button id="analysis-prev-pv" type="button">Попередній варіант</button><button id="analysis-next-pv" type="button">Наступний варіант</button><button id="analysis-read" type="button">Прочитати вибраний</button><button id="analysis-explore" type="button">Тимчасово переглянути</button><button id="analysis-explore-prev" type="button">Попередній хід PV</button><button id="analysis-explore-next" type="button">Наступний хід PV</button><button id="analysis-return" type="button">Повернутися до джерела</button><button id="analysis-insert-move" type="button">Вставити хід</button><button id="analysis-insert-line" type="button">Вставити варіант</button></div></section>
 <section id="media-player-region" aria-labelledby="h-media"><h2 id="h-media">Відео та навчальні матеріали</h2><div id="media-source-controls"><div class="row"><label id="video-source-url-label" for="video-source-url">Посилання YouTube</label><input id="video-source-url" type="url" inputmode="url" autocomplete="url" placeholder="https://www.youtube.com/watch?v=…"><button id="video-load-youtube" type="button">Відкрити YouTube</button></div><div class="row"><label id="video-file-label" for="video-file">Імпорт локальних відео</label><input id="video-file" type="file" accept="video/*" multiple><span id="video-file-hint">Файли залишаються на цьому пристрої.</span></div><div class="row"><label id="video-session-label" for="video-session-select">Відео в черзі</label><select id="video-session-select"></select><button id="video-prepare" type="button" disabled>Підготувати розпізнавання</button><button id="video-prepare-cancel" type="button" disabled>Скасувати підготовку</button></div></div><div id="video-status" class="block" role="status" aria-live="off">Відео не вибрано.</div><div id="video-prepare-status" class="block" role="status" aria-live="off">Черга підготовки порожня.</div><div id="video-player-region"><div id="youtube-player" title="YouTube player" hidden></div><video id="local-video" controls preload="metadata" playsinline hidden></video><video id="video-prepare-worker" preload="auto" muted hidden aria-hidden="true"></video><fieldset id="video-playback-settings"><legend id="video-playback-settings-legend">Відтворення та розпізнавання</legend><div class="row"><button id="video-seek-back" type="button" disabled>Назад на 10 секунд</button><button id="video-seek-forward" type="button" disabled>Вперед на 10 секунд</button><label id="video-speed-label" for="video-playback-speed">Швидкість</label><select id="video-playback-speed"><option value="0.5">0,5×</option><option value="0.75">0,75×</option><option value="1" selected>1×</option><option value="1.25">1,25×</option><option value="1.5">1,5×</option><option value="2">2×</option></select><label id="video-quality-label" for="video-recognition-quality">Якість розпізнавання</label><select id="video-recognition-quality"><option value="auto" selected>Автоматично</option><option value="16">Збалансована</option><option value="24">Висока</option><option value="32">Максимальна</option></select></div><div class="row"><label id="video-seek-label" for="video-seek">Позиція відео</label><input id="video-seek" type="range" min="0" max="0" step="0.1" value="0" disabled><output id="video-time-display" for="video-seek">0:00 / 0:00</output></div><p id="video-quality-hint">Відео і звук відтворюються з оригінального файла. Вища якість розпізнавання використовує детальніший кадр і більше ресурсів.</p></fieldset><fieldset id="video-history-mode"><legend id="video-history-mode-legend">Перехід по списку ходів</legend><label><input type="radio" name="video-history-mode" value="hold" checked> <span id="video-history-hold-label">Не перемотувати відео</span></label><label><input type="radio" name="video-history-mode" value="follow"> <span id="video-history-follow-label">Перемотувати відео разом із ходами</span></label></fieldset><div class="row"><button id="video-sync-start" type="button" disabled>Синхронізувати фігури</button><button id="video-sync-stop" type="button" disabled>Зупинити синхронізацію</button><button id="video-capture-frame" type="button" disabled>Захопити поточний кадр</button><span id="video-frame-timecode" class="block" role="status" aria-live="off">Кадр не захоплено.</span></div><div id="video-sync-status" class="block" role="status" aria-live="off">Синхронізацію не запущено.</div><canvas id="video-frame-canvas" aria-hidden="true" hidden></canvas><canvas id="video-sync-canvas" aria-hidden="true" hidden></canvas></div></section>
 <section id="ai-agent-region" aria-labelledby="h-ai-agent"><h2 id="h-ai-agent">AI-агент і провайдери</h2><p id="ai-agent-description">Виберіть хмарний провайдер, локальний Ollama або режим без AI. Ключі зберігаються тільки у змінних середовища.</p><div class="row"><label id="ai-provider-label" for="ai-provider-select">Провайдер</label><select id="ai-provider-select"></select><button id="ai-provider-refresh" type="button">Оновити профілі</button></div><fieldset><legend id="ai-provider-editor-legend">Редактор профілю</legend><div class="row"><label id="ai-protocol-label" for="ai-protocol">Протокол</label><select id="ai-protocol"><option value="openai-chat">OpenAI-compatible HTTPS</option><option value="ollama-chat">Ollama localhost</option><option value="none">Без AI</option></select><label id="ai-base-url-label" for="ai-base-url">Endpoint</label><input id="ai-base-url" type="url"><label id="ai-model-label" for="ai-model">Модель</label><input id="ai-model" type="text"><label id="ai-key-env-label" for="ai-key-env">Змінна ключа</label><input id="ai-key-env" type="text" autocomplete="off"><label id="ai-timeout-label" for="ai-timeout">Очікування, секунд</label><input id="ai-timeout" type="number" min="1" max="600" step="1" value="30"><button id="ai-provider-save" type="button">Зберегти профіль</button></div></fieldset><fieldset><legend id="ai-conversation-legend">Розмова з агентом</legend><label id="ai-prompt-label" for="ai-prompt">Запит</label><textarea id="ai-prompt" spellcheck="true"></textarea><div class="row"><button id="ai-listen" type="button">Слухати мікрофон</button><button id="ai-stop-listening" type="button" disabled>Зупинити слухання</button><button id="ai-send" type="button">Надіслати агенту</button><button id="ai-ask-position" type="button">Пояснити поточну позицію</button><button id="ai-clear-conversation" type="button">Очистити розмову</button></div><div class="row"><label><input id="ai-speak-response" type="checkbox" checked> <span id="ai-speak-response-label">Озвучувати відповіді агента</span></label><label id="ai-speech-rate-label" for="ai-speech-rate">Швидкість голосу</label><select id="ai-speech-rate"><option value="0.75">0,75×</option><option value="1" selected>1×</option><option value="1.25">1,25×</option><option value="1.5">1,5×</option></select><button id="ai-stop-speaking" type="button" disabled>Зупинити озвучення</button></div><p id="ai-voice-privacy-hint">Мікрофон вмикається лише після натискання. Розпізнавання Edge може передавати голос службі Microsoft; локальна модель отримує вже розпізнаний текст.</p><div id="ai-voice-status" class="block" role="status" aria-live="off">Перевіряю голосові можливості.</div></fieldset><div id="ai-agent-status" class="block" role="status" aria-live="off"></div></section>
-<section aria-labelledby="h-board"><h2 id="h-board">Дошка</h2><button id="board-launcher" type="button">Увійти на дошку</button><div id="board-application" role="application" aria-label="Шахова дошка" hidden><div id="board-grid" role="grid" aria-label="64 поля шахової дошки" aria-rowcount="8" aria-colcount="8"></div></div></section>
+<section aria-labelledby="h-board"><h2 id="h-board">Дошка</h2><button id="board-launcher" type="button">Увійти на дошку</button><div id="board-application" role="application" aria-label="Шахова дошка" hidden><div id="board-grid" role="grid" aria-label="64 поля шахової дошки" aria-rowcount="8" aria-colcount="8"></div><p class="ac42-board-annotation-summary" tabindex="0" aria-live="off"></p></div></section>
 <section aria-labelledby="h-actions"><h2 id="h-actions">Дії</h2><div class="row"><button id="new-game" type="button">Нова партія</button><button id="undo" type="button">Скасувати хід</button><button id="redo" type="button">Повторити хід</button><button id="white-turn" type="button">Хід білих</button><button id="black-turn" type="button">Хід чорних</button></div><section aria-labelledby="h-engine-play"><h3 id="h-engine-play">Гра проти Stockfish</h3><div id="engine-play-status" class="block" aria-live="off"></div><div id="engine-play-clocks" class="block" aria-live="off"></div><div class="row"><button id="engine-play-open" type="button">Нова гра проти Stockfish</button><button id="engine-play-stop" type="button">Зупинити</button><button id="engine-play-takeback" type="button">Повернути ходи</button><button id="engine-play-draw" type="button">Запропонувати нічию</button><button id="engine-play-resign" type="button">Здатися</button><button id="engine-play-retry" type="button">Спробувати хід Stockfish ще раз</button></div></section></section>
-<section aria-labelledby="h-settings"><h2 id="h-settings">Налаштування</h2><div class="row"><label id="language-label" for="language-select">Мова</label><select id="language-select"><option value="uk">Українська</option><option value="en">English</option></select><button id="open-keymap" type="button">Клавіатура і команди</button></div><fieldset><legend id="visual-settings-legend">Візуальний профіль платформи</legend><div class="row"><label id="visual-profile-label" for="visual-profile">Профіль</label><select id="visual-profile"><option value="classic">Classic</option><option value="studio">Studio Dark</option><option value="tournament">Tournament</option><option value="low-vision">Low Vision</option><option value="minimal">Minimal</option></select><label id="visual-theme-label" for="visual-theme">Тема</label><select id="visual-theme"><option value="system">Системна</option><option value="light">Світла</option><option value="dark">Темна</option><option value="contrast">Високий контраст</option></select><label id="visual-board-label" for="visual-board-theme">Дошка</label><select id="visual-board-theme"><option value="wood">Classic Wood</option><option value="graphite">Modern Graphite</option><option value="blue">Tournament Blue</option><option value="minimal">Light Minimal</option><option value="high-contrast">High Contrast</option></select><label id="visual-density-label" for="visual-density">Щільність</label><select id="visual-density"><option value="comfortable">Комфортна</option><option value="compact">Компактна</option><option value="spacious">Простора</option></select></div><div class="row"><button id="visual-apply" type="button">Застосувати</button><button id="visual-cancel" type="button">Скасувати зміни</button><button id="visual-reset" type="button">За замовчуванням</button></div><div id="visual-settings-status" role="status" aria-live="off"></div></fieldset></section>
+<section aria-labelledby="h-settings"><h2 id="h-settings">Налаштування</h2><div class="row"><label id="language-label" for="language-select">Мова</label><select id="language-select"><option value="uk">Українська</option><option value="en">English</option></select><button id="open-keymap" type="button">Клавіатура і команди</button></div><fieldset><legend id="visual-settings-legend">Візуальний профіль платформи</legend><div class="row"><label id="visual-profile-label" for="visual-profile">Профіль</label><select id="visual-profile"><option value="classic">Classic</option><option value="studio">Studio Dark</option><option value="tournament">Tournament</option><option value="low-vision">Low Vision</option><option value="minimal">Minimal</option></select><label id="visual-theme-label" for="visual-theme">Тема</label><select id="visual-theme"><option value="system">Системна</option><option value="light">Світла</option><option value="dark">Темна</option><option value="contrast">Високий контраст</option></select><label id="visual-board-label" for="visual-board-theme">Дошка</label><select id="visual-board-theme"><option value="wood">Classic Wood</option><option value="graphite">Modern Graphite</option><option value="blue">Tournament Blue</option><option value="minimal">Light Minimal</option><option value="high-contrast">High Contrast</option></select><label id="visual-density-label" for="visual-density">Щільність</label><select id="visual-density"><option value="comfortable">Комфортна</option><option value="compact">Компактна</option><option value="spacious">Простора</option></select></div><div class="row"><button id="visual-apply" type="button">Застосувати</button><button id="visual-cancel" type="button">Скасувати зміни</button><button id="visual-reset" type="button">За замовчуванням</button></div><div id="visual-settings-status" role="status" aria-live="off"></div><div class="row"><label for="visual-transfer-json" id="visual-transfer-label">Перенесення візуального профілю JSON вручну</label><textarea id="visual-transfer-json" rows="3" maxlength="4096" spellcheck="false" aria-describedby="visual-transfer-status"></textarea></div><div class="row"><button id="visual-transfer-export" type="button">Підготувати для копіювання</button><button id="visual-transfer-import" type="button">Імпортувати вставлений профіль</button></div><div id="visual-transfer-status" role="status" aria-live="polite">Профіль переноситься тільки явною командою. Автоматичної синхронізації немає.</div></fieldset><fieldset id="section42-board-controls" aria-labelledby="section42-board-legend"><legend id="section42-board-legend">Шахівниця та фігури</legend><div class="row"><label id="section42-pieces-label" for="section42-piece-style">Фігури</label><select id="section42-piece-style"><option value="unicode">Класичні символи</option><option value="rhosgfx">RhosGFX (CC0)</option><option value="letters">Літери</option></select><label id="section42-scale-label" for="section42-board-scale">Масштаб</label><select id="section42-board-scale"><option value="75">75%</option><option value="100">100%</option><option value="125">125%</option><option value="150">150%</option><option value="175">175%</option><option value="200">200%</option></select><label id="section42-orientation-label" for="section42-board-orientation">Орієнтація</label><select id="section42-board-orientation"><option value="white">Білі знизу</option><option value="black">Чорні знизу</option></select><label id="section42-coordinates-label" for="section42-board-coordinates">Координати</label><select id="section42-board-coordinates"><option value="off">Приховати</option><option value="edges">Крайні поля</option><option value="every_square">Усі поля</option></select></div><div class="row"><label><input type="checkbox" id="section42-board-fit"> <span id="section42-fit-label">Вписати у вікно</span></label><label><input type="checkbox" id="section42-board-presentation"> <span id="section42-presentation-label">Велика дошка</span></label><label><input type="checkbox" id="section42-board-animate"> <span id="section42-animate-label">Анімація ходів</span></label><label><input type="checkbox" id="section42-board-low-power"> <span id="section42-low-power-label">Економія ресурсів</span></label><label><input type="checkbox" id="section42-board-last"> <span id="section42-last-label">Останній хід</span></label></div><button type="button" id="section42-board-apply">Застосувати до дошки</button><button type="button" id="section42-board-cancel">Скасувати зміни</button><div id="section42-board-status" role="status" aria-live="off"></div></fieldset></section>
 <section aria-labelledby="h-help"><h2 id="h-help">Довідка</h2><button id="open-help" type="button">Відкрити довідку</button></section>
 </main>
 <dialog id="keymap-dialog" aria-labelledby="h-keyboard" aria-describedby="key-recovery-status"><h2 id="h-keyboard">Клавіатура і команди</h2><div id="key-recovery-status" class="block" role="status" aria-live="off" hidden></div><div class="row"><label id="key-search-label" for="key-search">Пошук</label><input id="key-search" type="search"><label id="key-context-label" for="key-context">Розділ</label><select id="key-context"><option value="">Усі</option></select></div><div class="row"><button id="key-reset-context" type="button">Відновити розділ</button><button id="key-reset-all" type="button">Відновити всі</button><button id="key-export" type="button">Експорт</button><label id="key-import-label" for="key-import">Імпорт</label><input id="key-import" type="file" accept="application/json"></div><div id="key-conflict-summary"></div><ul id="key-list" class="binding-list"></ul><button id="close-keymap" type="button">Закрити</button></dialog>
@@ -48,6 +48,7 @@ dialog{max-width:min(70rem,95vw);max-height:90vh;overflow:auto}dialog::backdrop{
 <script src="youtube_iframe_adapter.js"></script>
 <script src="video_board_sync.js"></script>
 <script src="ai_voice.js"></script>
+<script src="board_overlay_renderer.js"></script>
 <script>
 let state=null,boardIndex=56,announceTimer=null,announcementQueue=[],announcementPublishing=false,lastAnnouncement='',lastAnnouncementAt=0,lastAnnouncementEvent=null,recentAnnouncements=[],rememberedAnnouncementEvents=new Set(),rememberedAnnouncementEventOrder=[],announcementEventSequence=0,keymapBase=null,keymap=[],keymapReady=false,capture=null,centralKeymap=false;
 const el=id=>document.getElementById(id),setText=(id,text)=>{const n=el(id),value=String(text||'');if(n&&n.textContent!==value)n.textContent=value},api=()=>window.pywebview&&window.pywebview.api;
@@ -96,8 +97,148 @@ function analysisLineText(line){const en=document.documentElement.lang==='en',pv
 function setAnalysisMutationLock(locked){['move-input','move-submit','fen-input','fen-load','position-input','position-turn','position-load','empty-board','new-game','undo','redo','white-turn','black-turn','history-prev','history-next','history-input','history-go','engine-play-open'].forEach(id=>{const n=el(id);if(n)n.disabled=!!locked})}
 function renderAnalysis(s){const a=s&&s.analysis||{},lines=a.lines||[],enabled=!!a.enabled,selected=Number(a.selectedPv||1),exploring=!!a.exploring,list=el('analysis-lines'),en=document.documentElement.lang==='en';setText('engine-toggle',enabled?(en?'Disable Stockfish':'Вимкнути Stockfish'):(en?'Enable Stockfish':'Увімкнути Stockfish'));el('analysis-restart').disabled=!enabled;el('analysis-lock').disabled=!enabled;el('analysis-lock').setAttribute('aria-pressed',a.targetLocked?'true':'false');setText('analysis-lock',a.targetLocked?(en?'Follow current position':'Стежити за поточною позицією'):(en?'Lock target':'Зафіксувати ціль'));if(document.activeElement!==el('analysis-multipv'))el('analysis-multipv').value=String(a.multipv||5);if(document.activeElement!==el('analysis-depth'))el('analysis-depth').value=String(a.depth||16);lines.forEach((line,i)=>{let li=list.children[i],button;if(!li){li=document.createElement('li');button=document.createElement('button');button.type='button';button.addEventListener('click',()=>apiAction('select_analysis_pv',Number(button.dataset.pv)));li.appendChild(button);list.appendChild(li)}else button=li.firstElementChild;button.disabled=false;button.dataset.pv=String(line.multipv);const lineText=analysisLineText(line);if(button.textContent!==lineText)button.textContent=lineText;button.setAttribute('aria-pressed',line.multipv===selected?'true':'false')});for(let i=list.children.length-1;i>=lines.length;i--){const extra=list.children[i];if(extra.contains(document.activeElement)){const button=extra.firstElementChild;button.disabled=true;button.removeAttribute('data-pv');button.textContent=en?'This variation is no longer available.':'Цей варіант більше недоступний.'}else extra.remove()}const hasLines=enabled&&lines.length>0;['analysis-prev-pv','analysis-next-pv','analysis-read','analysis-explore','analysis-insert-move','analysis-insert-line'].forEach(id=>el(id).disabled=!hasLines);el('analysis-return').disabled=!exploring;el('analysis-explore-prev').disabled=!exploring||Number(a.explorationPly)<=1;el('analysis-explore-next').disabled=!exploring||Number(a.explorationPly)>=Number(a.explorationLength);setText('analysis-exploration-status',exploring?(en?`Temporary view: move ${a.explorationPly} of ${a.explorationLength}. The main line is unchanged.`:`Тимчасовий перегляд: хід ${a.explorationPly} з ${a.explorationLength}. Основну лінію не змінено.`):(a.targetLocked?(en?'The target is locked; board changes do not switch it.':'Ціль зафіксовано; зміни на дошці її не перемикають.'):(en?'Analysis follows the current position.':'Аналіз стежить за поточною позицією.')));setAnalysisMutationLock(exploring)}
 function renderVideoHistory(s){if(!videoHistoryNavigationRequested)return;videoHistoryNavigationRequested=false;const follow=document.querySelector('input[name="video-history-mode"]:checked')?.value==='follow',video=el('local-video'),sync=s&&s.videoSync;if(!follow||!video||video.hidden||!sync||!sync.prepared)return;const target=Number(sync.timecode||0);if(Number.isFinite(target))video.currentTime=Math.max(0,Math.min(Number(video.duration||target),target))}
-function render(s){if(!s)return;state=s;setText('game-info',s.gameInfo);setText('moves',s.moves);setText('white-pieces',s.whitePieces);setText('black-pieces',s.blackPieces);setText('game-status',s.gameStatus);setText('last-move',s.lastMove);setText('engine-status',s.engineStatus);setText('history-status',s.reviewStatus);el('fen-input').value=s.fen||'';applyUiLanguage(s.lang||'uk');renderBoard(s.board||[]);renderEngineGame(s);renderAnalysis(s);renderVideoHistory(s)}
-function renderBoard(cells){const grid=el('board-grid');grid.textContent='';cells.forEach((cell,i)=>{const node=document.createElement('div');node.id='sq-'+cell.square;node.setAttribute('role','gridcell');node.setAttribute('tabindex',i===boardIndex?'0':'-1');node.setAttribute('aria-label',cell.label);node.setAttribute('aria-selected',cell.selected?'true':'false');node.setAttribute('aria-rowindex',String(Math.floor(i/8)+1));node.setAttribute('aria-colindex',String((i%8)+1));node.dataset.square=cell.square;node.textContent=cell.square;node.addEventListener('focus',()=>boardIndex=i);node.addEventListener('keydown',onBoardKey);grid.appendChild(node)})}
+function render(s){if(!s)return;state=s;setText('game-info',s.gameInfo);setText('moves',s.moves);setText('white-pieces',s.whitePieces);setText('black-pieces',s.blackPieces);setText('game-status',s.gameStatus);setText('last-move',s.lastMove);setText('engine-status',s.engineStatus);setText('history-status',s.reviewStatus);el('fen-input').value=s.fen||'';applyUiLanguage(s.lang||'uk');ac42BoardLanguage(s.lang==='en');renderBoard(s.board||[]);renderEngineGame(s);renderAnalysis(s);renderVideoHistory(s)}
+
+const ac42Glyphs={K:'♔',Q:'♕',R:'♖',B:'♗',N:'♘',P:'♙',k:'♚',q:'♛',r:'♜',b:'♝',n:'♞',p:'♟'};
+const ac42OptionControls={
+  pieceTheme:'section42-piece-style',scalePercent:'section42-board-scale',
+  orientation:'section42-board-orientation',coordinateMode:'section42-board-coordinates',
+  fitToWindow:'section42-board-fit',presentationMode:'section42-board-presentation',
+  animateMoves:'section42-board-animate',lowPowerMode:'section42-board-low-power',
+  showLastMove:'section42-board-last'
+};
+const ac42BooleanOptions=new Set(['fitToWindow','presentationMode','animateMoves','lowPowerMode','showLastMove']);
+function ac42SettingsFromUi(){
+  const raw={};
+  for(const [key,id] of Object.entries(ac42OptionControls)){
+    const node=el(id);
+    raw[key]=ac42BooleanOptions.has(key)?!!node.checked:(key==='scalePercent'?Number(node.value):node.value);
+  }
+  return raw;
+}
+function ac42SyncControls(preferences){
+  if(!preferences||typeof preferences!=='object')return;
+  for(const [key,id] of Object.entries(ac42OptionControls)){
+    const node=el(id);
+    if(!node||document.activeElement===node)continue;
+    if(ac42BooleanOptions.has(key))node.checked=preferences[key]===true;
+    else if(preferences[key]!==undefined)node.value=String(preferences[key]);
+  }
+}
+function ac42BoardLanguage(en){
+  for(const [id,uk,english] of [
+    ['section42-board-legend','Шахівниця та фігури','Chessboard and pieces'],
+    ['section42-pieces-label','Фігури','Pieces'],
+    ['section42-scale-label','Масштаб','Scale'],
+    ['section42-orientation-label','Орієнтація','Orientation'],
+    ['section42-coordinates-label','Координати','Coordinates'],
+    ['section42-fit-label','Вписати у вікно','Fit to window'],
+    ['section42-presentation-label','Велика дошка','Large presentation board'],
+    ['section42-animate-label','Анімація ходів','Move animation'],
+    ['section42-low-power-label','Економія ресурсів','Low power'],
+    ['section42-last-label','Останній хід','Last move'],
+    ['section42-board-apply','Застосувати до дошки','Apply to board'],
+    ['section42-board-cancel','Скасувати зміни','Cancel changes'],
+  ])setText(id,en?english:uk);
+}
+function ac42WireControls(){
+  const apply=el('section42-board-apply'),cancel=el('section42-board-cancel');
+  if(!apply||!cancel)return;
+  apply.addEventListener('click',async()=>{
+    const a=api();
+    if(!a||typeof a.visual_board_apply!=='function')return;
+    try{
+      const response=await a.visual_board_apply(ac42SettingsFromUi());
+      if(response&&response.ok){
+        render(response);
+        setText('section42-board-status',response.announcement);
+        announceUserAction(response.announcement);
+      }else{
+        setText('section42-board-status',response&&response.announcement||'Board appearance not applied.');
+      }
+    }catch(_){setText('section42-board-status','Board appearance not applied.')}
+  });
+  cancel.addEventListener('click',()=>{
+    const pref=state&&state.visualBoard&&state.visualBoard.preferences;
+    ac42SyncControls(pref);
+  });
+}
+
+function renderBoard(cells){
+  const grid=el('board-grid');
+  const visual=state&&state.visualBoard&&state.visualBoard.surface==='ordinary_play'?state.visualBoard:null;
+  const prefs=visual&&visual.preferences||{};
+  const decorated=visual&&Array.isArray(visual.cells)&&visual.cells.length===64?
+    new Map(visual.cells.map(cell=>[cell.square,cell])):new Map();
+  const previousPieces=new Map([...grid.querySelectorAll('[role="gridcell"]')].map(n=>[n.dataset.square,n.dataset.piece||'']));
+  const focused=document.activeElement&&document.activeElement.closest&&document.activeElement.closest('#board-grid')===grid?
+    document.activeElement.dataset.square:null;
+  const ordered=prefs.orientation==='black'?[...cells].reverse():cells;
+  const percent=[75,100,125,150,175,200].includes(prefs.scalePercent)?prefs.scalePercent:100;
+  grid.dataset.power=prefs.lowPowerMode===true?'low':'normal';
+  grid.dataset.motion=prefs.animateMoves===true&&prefs.lowPowerMode!==true?'on':'off';
+  grid.dataset.coordinates=['off','edges','every_square'].includes(prefs.coordinateMode)?prefs.coordinateMode:'edges';
+  grid.dataset.orientation=prefs.orientation==='black'?'black':'white';
+  grid.style.maxWidth=prefs.fitToWindow===true?'min(100%,calc(100dvh - 7rem))':
+    (prefs.presentationMode===true?'min(98vw,85rem)':String(52*percent/100)+'rem');
+  grid.textContent='';
+  ordered.forEach((cell,i)=>{
+    const node=document.createElement('div');
+    node.id='sq-'+cell.square;
+    node.setAttribute('role','gridcell');
+    node.setAttribute('tabindex',i===boardIndex?'0':'-1');
+    node.setAttribute('aria-label',cell.label);
+    node.setAttribute('aria-selected',cell.selected?'true':'false');
+    node.setAttribute('aria-rowindex',String(Math.floor(i/8)+1));
+    node.setAttribute('aria-colindex',String((i%8)+1));
+    node.dataset.square=cell.square;
+    node.dataset.boardShade=(Math.floor(i/8)+i%8)%2?'dark':'light';
+    const art=decorated.get(cell.square),piece=art&&/^[KQRBNPkqrbnp]$/.test(art.piece)?art.piece:'';
+    node.dataset.piece=piece;
+    const showCoordinate=prefs.coordinateMode==='every_square'||
+      (prefs.coordinateMode!=='off'&&(i%8===0||Math.floor(i/8)===7));
+    node.textContent=showCoordinate?cell.square:'';
+    if(visual&&prefs.showLastMove!==false&&visual.lastMove&&
+       (cell.square===visual.lastMove.from||cell.square===visual.lastMove.to))
+       node.dataset.lastMove='true';
+    if(visual&&Array.isArray(visual.legalTargets)&&visual.legalTargets.includes(cell.square))
+       node.dataset.legal='true';
+    if(piece){
+      const icon=document.createElement('span');
+      icon.className='ac42-piece-icon';
+      icon.setAttribute('aria-hidden','true');
+      const backup=document.createElement('span');
+      backup.className='ac42-piece-fallback';
+      backup.textContent=prefs.pieceTheme==='letters'?piece:ac42Glyphs[piece];
+      if(prefs.pieceTheme==='rhosgfx'){
+        const image=document.createElement('img');
+        const safeName=(piece===piece.toUpperCase()?'w':'b')+piece.toUpperCase()+'.svg';
+        image.className='ac42-piece-art';
+        image.alt='';
+        image.setAttribute('aria-hidden','true');
+        image.draggable=false;
+        image.addEventListener('error',()=>image.remove());
+        image.src='assets/pieces/rhosgfx/'+safeName;
+        icon.appendChild(image);
+      }
+      icon.appendChild(backup);
+      node.appendChild(icon);
+    }
+    if(grid.dataset.motion==='on'&&previousPieces.has(cell.square)&&previousPieces.get(cell.square)!==piece)
+      node.dataset.ac42Animate='true';
+    node.addEventListener('focus',()=>boardIndex=i);
+    node.addEventListener('keydown',onBoardKey);
+    grid.appendChild(node);
+  });
+  const overlay=globalThis.AccessibleChessBoardOverlay;
+  if(overlay&&typeof overlay.project==='function')overlay.project(grid,ordered,visual);
+  if(focused){const back=ordered.findIndex(cell=>cell.square===focused);if(back>=0){
+    const item=grid.querySelectorAll('[role="gridcell"]')[back];
+    boardIndex=back;grid.querySelectorAll('[role="gridcell"]').forEach((n,i)=>n.tabIndex=i===back?0:-1);
+    if(item)item.focus();
+  }}
+  ac42SyncControls(prefs);
+}
 function enterBoard(){el('board-application').hidden=false;const cells=el('board-grid').querySelectorAll('[role=gridcell]');if(cells[boardIndex])cells[boardIndex].focus()}
 function exitBoard(){el('board-application').hidden=true;el('board-launcher').focus()}
 function focusBoardIndex(i){const cells=[...el('board-grid').querySelectorAll('[role=gridcell]')];if(!cells.length)return;boardIndex=Math.max(0,Math.min(63,i));cells.forEach((n,j)=>n.tabIndex=j===boardIndex?0:-1);cells[boardIndex].focus()}
@@ -148,7 +289,272 @@ wireMediaFrameCapture();
 wireVideoBoardSync();
 wireAi();
 wireVisualProfile();
+ac42WireControls();
 window.addEventListener('pywebviewready',async()=>{await refreshState();await loadKeymap();await loadVisualProfile();setInterval(refreshAnalysis,700)});
+// Section 43: layout-only preferences. No second chess state, command registry,
+// screen-reader announcement loop, remote requests or changes to the native menu.
+(function installAccessibleWorkspaceControls(){
+  "use strict";
+  const root=document.getElementById("main-content");
+  if(!root||document.getElementById("ac43-workspace-controls"))return;
+  const KEY="accessible-chess.workspace-layout.v1";
+  const headings={
+    "h-board":1,"h-moves":1,"h-game-info":1,"h-engine":1,"h-input":1,
+    "h-actions":1,"h-status":1,"h-white":1,"h-black":1,
+    "h-last":1,"h-settings":1,"h-help":1,
+    "h-media":1,"h-ai-agent":1,"h-engine-play":1
+  };
+  const SIZES=["auto","medium","large"];
+  const labels=(uk,en)=>document.documentElement.lang==="en"?en:uk;
+  function normalize(data){
+    if(!data||data.version!==1||typeof data!=="object"||Array.isArray(data))data={};
+    const collapsed=Array.isArray(data.collapsed)?
+      data.collapsed.filter(id=>Object.prototype.hasOwnProperty.call(headings,id)).slice(0,12):[];
+    const sizes=data.sizes&&typeof data.sizes==="object"&&!Array.isArray(data.sizes)?data.sizes:{};
+    return {
+      version:1,collapsed:[...new Set(collapsed)],
+      sizes:Object.fromEntries(Object.keys(headings).map(id=>[id,SIZES.includes(sizes[id])?sizes[id]:"auto"])),
+      density:data.density==="compact"?"compact":"comfortable",
+      layout:data.layout==="single"?"single":"auto"
+    };
+  }
+  function read(){
+    let data=null;
+    try{const value=localStorage.getItem(KEY);if(value&&value.length<=2048)data=JSON.parse(value)}catch(_){}
+    return normalize(data);
+  }
+  const state=read();
+  const entries=[];
+  const nativeBridge=()=>{
+    if(typeof window==="undefined")return null;
+    return window.pywebview&&window.pywebview.api||null;
+  };
+  let nativeHydrationStarted=false;
+  let changedSinceHydrate=false;
+  let nativeWrites=Promise.resolve();
+  let nativeSaveFailureAnnounced=false;
+  function nativeSaveStatus(ok){
+    if(ok){nativeSaveFailureAnnounced=false;return;}
+    if(nativeSaveFailureAnnounced)return;
+    nativeSaveFailureAnnounced=true;
+    if(typeof announceUserAction==="function")announceUserAction(
+      document.documentElement.lang==="en"?
+      "Workspace layout could not be saved to Windows settings.":
+      "Не вдалося зберегти макет у налаштуваннях Windows."
+    );
+  }
+  function queueNativeWrite(){
+    const api=nativeBridge();
+    if(!api||typeof api.save_presentation_layout!=="function")return;
+    const payload=JSON.parse(JSON.stringify(state));
+    nativeWrites=nativeWrites.then(()=>Promise.resolve(
+      api.save_presentation_layout("workspace",payload)
+    ).then(result=>nativeSaveStatus(!!(result&&result.ok===true))))
+    .catch(()=>nativeSaveStatus(false));
+  }
+  function persist(){
+    changedSinceHydrate=true;
+    try{localStorage.setItem(KEY,JSON.stringify(state))}catch(_){}
+    queueNativeWrite();
+  }
+  function collapsed(panel,yes){
+    const section=panel.section;
+    if(yes&&section.contains(document.activeElement)&&document.activeElement!==panel.toggle){
+      panel.toggle.focus({preventScroll:true});
+    }
+    for(const child of Array.from(section.children)){
+      if(child===panel.heading)continue;
+      if(yes&&!child.hidden){
+        child.dataset.ac43Hidden="true";child.hidden=true;
+      }else if(!yes&&child.dataset.ac43Hidden==="true"){
+        child.hidden=false;delete child.dataset.ac43Hidden;
+      }
+    }
+    section.dataset.ac43Collapsed=yes?"true":"false";
+    panel.toggle.setAttribute("aria-expanded",yes?"false":"true");
+    state.collapsed=state.collapsed.filter(id=>id!==panel.heading.id);
+    if(yes)state.collapsed.push(panel.heading.id);
+    panel.toggle.textContent=yes?labels("Розгорнути","Expand"):labels("Згорнути","Collapse");
+    panel.toggle.setAttribute("aria-label",
+      panel.heading.dataset.ac43Heading+" — "+panel.toggle.textContent);
+  }
+  function setSize(panel,size){
+    const resolved=SIZES.includes(size)?size:"auto";
+    const value=resolved==="auto"?"auto":resolved==="medium"?"12rem":"22rem";
+    panel.section.style.setProperty("--ac43-panel-size",value);
+    state.sizes[panel.heading.id]=resolved;
+    panel.size.setAttribute("aria-label",panel.heading.dataset.ac43Heading+" — "+
+      labels("Висота панелі: ","Panel height: ")+
+      (resolved==="auto"?labels("авто","auto"):resolved==="medium"?
+        labels("середня","medium"):labels("велика","large")));
+    panel.size.textContent=labels("Висота","Height");
+  }
+  for(const id of Object.keys(headings)){
+    const heading=document.getElementById(id);
+    if(!heading||!root.contains(heading))continue;
+    const section=heading.parentElement;
+    if(!section||section.tagName!=="SECTION")continue;
+    if(!section.id)section.id="ac43-panel-"+id;
+    const title=heading.textContent.trim();
+    heading.dataset.ac43Heading=title;
+    const actions=document.createElement("span");
+    actions.className="ac43-panel-actions";
+    const toggle=document.createElement("button");
+    toggle.type="button";
+    toggle.setAttribute("aria-controls",section.id);
+    const size=document.createElement("button");
+    size.type="button";
+    const panel={heading,section,toggle,size,actions};
+    toggle.addEventListener("click",()=>{
+      collapsed(panel,section.dataset.ac43Collapsed!=="true");persist();
+    });
+    size.addEventListener("click",()=>{
+      const n=(SIZES.indexOf(state.sizes[id])+1)%SIZES.length;
+      setSize(panel,SIZES[n]);persist();
+    });
+    actions.append(toggle,size);
+    heading.appendChild(actions);
+    entries.push(panel);
+    setSize(panel,state.sizes[id]);
+    collapsed(panel,state.collapsed.includes(id));
+  }
+  const toolbar=document.createElement("div");
+  toolbar.id="ac43-workspace-controls";
+  toolbar.setAttribute("role","group");
+  toolbar.setAttribute("aria-label",labels("Налаштування робочої області","Workspace layout"));
+  function selection(id,caption,options,current,onChange){
+    const label=document.createElement("label");
+    label.htmlFor=id;label.textContent=caption;
+    const input=document.createElement("select");
+    input.id=id;
+    for(const [value,uk,en] of options){
+      const option=document.createElement("option");
+      option.value=value;option.textContent=labels(uk,en);input.appendChild(option);
+    }
+    input.value=current;
+    input.addEventListener("change",()=>onChange(input.value));
+    toolbar.append(label,input);
+  }
+  function apply(){
+    document.documentElement.dataset.ac43Density=state.density;
+    document.documentElement.dataset.ac43Layout=state.layout;
+  }
+  selection("ac43-density",labels("Щільність","Density"),
+    [["comfortable","Звичайна","Comfortable"],["compact","Компактна","Compact"]],
+    state.density,value=>{state.density=value;apply();persist();});
+  selection("ac43-layout",labels("Колонки","Columns"),
+    [["auto","Автоматично","Automatic"],["single","Одна колонка","Single column"]],
+    state.layout,value=>{state.layout=value;apply();persist();});
+  const reset=document.createElement("button");
+  reset.type="button";reset.id="ac43-reset";
+  reset.textContent=labels("Відновити макет","Restore layout");
+  reset.addEventListener("click",()=>{
+    state.collapsed=[];state.density="comfortable";state.layout="auto";
+    for(const panel of entries){
+      collapsed(panel,false);setSize(panel,"auto");
+    }
+    document.getElementById("ac43-density").value=state.density;
+    document.getElementById("ac43-layout").value=state.layout;
+    apply();persist();reset.focus({preventScroll:true});
+  });
+  toolbar.appendChild(reset);
+  root.insertBefore(toolbar,root.firstChild);
+  apply();
+  function hydrateNative(){
+    if(nativeHydrationStarted)return;
+    const api=nativeBridge();
+    if(!api||typeof api.get_presentation_layout!=="function")return;
+    nativeHydrationStarted=true;
+    if(changedSinceHydrate){queueNativeWrite();return;}
+    Promise.resolve(api.get_presentation_layout("workspace")).then(result=>{
+      if(changedSinceHydrate||!result||result.ok!==true||!result.layout)return;
+      const next=normalize(result.layout);
+      state.collapsed=next.collapsed;
+      state.sizes=next.sizes;
+      state.density=next.density;
+      state.layout=next.layout;
+      for(const panel of entries){
+        collapsed(panel,state.collapsed.includes(panel.heading.id));
+        setSize(panel,state.sizes[panel.heading.id]);
+      }
+      document.getElementById("ac43-density").value=state.density;
+      document.getElementById("ac43-layout").value=state.layout;
+      apply();
+    }).catch(()=>{});
+  }
+  if(typeof window!=="undefined"&&typeof window.addEventListener==="function"){
+    window.addEventListener("pywebviewready",hydrateNative);
+    if(nativeBridge())hydrateNative();
+  }
+  // Existing language renderers replace heading.textContent during UI updates.
+  // Reattach the SAME buttons and refresh labels without duplicate event owners.
+  if(typeof MutationObserver==="function"){
+    function refreshPanelHeading(panel){
+      if(panel.actions.parentElement!==panel.heading){
+        panel.heading.appendChild(panel.actions);
+      }
+      const text=Array.from(panel.heading.childNodes||[])
+        .filter(node=>node.nodeType===3).map(node=>node.textContent||"").join("").trim();
+      if(text)panel.heading.dataset.ac43Heading=text;
+      const yes=panel.section.dataset.ac43Collapsed==="true";
+      panel.toggle.textContent=yes?labels("Розгорнути","Expand"):labels("Згорнути","Collapse");
+      panel.toggle.setAttribute("aria-label",panel.heading.dataset.ac43Heading+" — "+panel.toggle.textContent);
+      setSize(panel,state.sizes[panel.heading.id]);
+    }
+    function refreshWorkspaceLanguage(){
+      toolbar.setAttribute("aria-label",labels("Налаштування робочої області","Workspace layout"));
+      const densityLabel=toolbar.querySelector('label[for="ac43-density"]');
+      const columnsLabel=toolbar.querySelector('label[for="ac43-layout"]');
+      if(densityLabel)densityLabel.textContent=labels("Щільність","Density");
+      if(columnsLabel)columnsLabel.textContent=labels("Колонки","Columns");
+      const densityInput=document.getElementById("ac43-density");
+      if(densityInput&&densityInput.options.length===2){
+        densityInput.options[0].textContent=labels("Звичайна","Comfortable");
+        densityInput.options[1].textContent=labels("Компактна","Compact");
+      }
+      const layoutInput=document.getElementById("ac43-layout");
+      if(layoutInput&&layoutInput.options.length===2){
+        layoutInput.options[0].textContent=labels("Автоматично","Automatic");
+        layoutInput.options[1].textContent=labels("Одна колонка","Single column");
+      }
+      reset.textContent=labels("Відновити макет","Restore layout");
+      for(const panel of entries)refreshPanelHeading(panel);
+    }
+    const localeObserver=new MutationObserver(refreshWorkspaceLanguage);
+    localeObserver.observe(document.documentElement,{attributes:true,attributeFilter:["lang"]});
+    for(const panel of entries){
+      const headingObserver=new MutationObserver(()=>refreshPanelHeading(panel));
+      headingObserver.observe(panel.heading,{childList:true});
+    }
+  }
+})();
+
+
+// Section 43: explicit focus return for existing accessible dialogs.
+// Preserve an already-established external focus (e.g., after starting a game).
+(function installSection43DialogFocusReturn(){
+  "use strict";
+  for(const [dialogId, openerId] of [
+    ["keymap-dialog","open-keymap"],
+    ["help-dialog","open-help"],
+    ["engine-game-dialog","engine-play-open"]
+  ]){
+    const dialog=document.getElementById(dialogId);
+    const opener=document.getElementById(openerId);
+    if(!dialog||!opener)return;
+    dialog.addEventListener("close",()=>{
+      const active=document.activeElement;
+      if(active && active!==document.body && !dialog.contains(active))return;
+      if(!opener.hidden && !opener.disabled && typeof opener.focus==="function"){
+        opener.focus({preventScroll:true});
+      }
+    });
+  }
+})();
+
+
 </script>
+<script src="visual_profile_transfer.js"></script>
+<script src="section45_design_studio.js"></script>
 </body>
 </html>
