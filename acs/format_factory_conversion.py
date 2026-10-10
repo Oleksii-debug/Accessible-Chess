@@ -12,6 +12,7 @@ from hashlib import sha256
 import re
 
 from .bookdocument import BookDocument
+from .format_factory_chess_audit import FactoryChessAudit, audit_factory_book_chess
 from .format_factory_export import FactoryExportResult, export_factory_preview
 from .format_factory_epub import export_factory_epub3_preview
 from .format_factory_docx import export_factory_docx_preview
@@ -32,6 +33,7 @@ class FactoryConversionResult:
     selected_block_count: int
     outputs: tuple[FactoryExportResult, ...]
     source_warnings: tuple[str, ...]
+    chess_audit: FactoryChessAudit | None = None
     public_release_approved: bool = False
 
 
@@ -127,6 +129,9 @@ def convert_factory_book_private(
         raise FactoryConversionError("Source identity mismatch after import")
     try:
         selected = _resolve_selection(imported.document, policy.selection, chapter_heading_level=chapter_heading_level)
+        chess_audit = audit_factory_book_chess(selected)
+        if not chess_audit.structure_complete:
+            raise FactoryConversionError("Selected chess content failed canonical legality audit")
         rendered = tuple(
             export_factory_epub3_preview(
                 selected, source_sha256=source_digest, modified_utc=epub_modified_utc,
@@ -154,4 +159,5 @@ def convert_factory_book_private(
         selected_block_count=len(selected.blocks),
         outputs=rendered,
         source_warnings=imported.warnings,
+        chess_audit=chess_audit,
     )
