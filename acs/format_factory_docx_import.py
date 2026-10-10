@@ -10,6 +10,7 @@ It uses no filesystem access, external relationship resolution, network or model
 from html import escape
 from io import BytesIO
 from pathlib import PurePosixPath
+from xml.parsers import expat
 from xml.etree import ElementTree as ET
 from zipfile import BadZipFile, ZipFile
 
@@ -28,13 +29,26 @@ class FactoryDocxImportError(ValueError):
 
 
 def _xml(data: bytes, purpose: str) -> ET.Element:
+    # Raw byte searches alone miss DOCTYPE/ENTITY in UTF-16 XML. Expat
+    # recognizes the declared encoding and refuses DTDs *before* any
+    # internal entity may be expanded by the canonical ElementTree reader.
     if len(data) > _MAX_XML_BYTES or b"<!DOCTYPE" in data.upper() or b"<!ENTITY" in data.upper():
         raise FactoryDocxImportError(f"DOCX {purpose} is unsafe or too large")
     try:
-        return ET.fromstring(data)
-    except (ET.ParseError, ValueError, UnicodeError) as exc:
-        raise FactoryDocxImportError(f"DOCX {purpose} XML is malformed") from exc
+        gate = expat.ParserCreate()
 
+        def refuse_declaration(*_args: object) -> None:
+            raise FactoryDocxImportError(f"DOCX {purpose} contains forbidden XML declarations")
+
+        gate.StartDoctypeDeclHandler = refuse_declaration
+        gate.EntityDeclHandler = refuse_declaration
+        gate.ExternalEntityRefHandler = refuse_declaration
+        gate.Parse(data, True)
+        return ET.fromstring(data)
+    except FactoryDocxImportError:
+        raise
+    except (expat.ExpatError, ET.ParseError, ValueError, UnicodeError) as exc:
+        raise FactoryDocxImportError(f"DOCX {purpose} XML is malformed") from exc
 
 def _read(archive: ZipFile, name: str) -> bytes:
     try:
