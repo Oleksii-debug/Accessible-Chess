@@ -82,7 +82,13 @@ def _sniff_zip(source: bytes) -> str:
             total = 0
             seen: set[str] = set()
             for member in infos:
-                name = member.filename
+                # On Windows, ZipInfo.filename silently rewrites archive
+                # backslashes to forward slashes; NULs also get truncated.
+                # Validate original archive header names BEFORE normalization.
+                # orig_filename preserves the decoded untrusted raw name.
+                name = member.orig_filename
+                if member.filename != name:
+                    raise FactoryIntakeError("Archive member name was silently normalized")
                 if (not name or "\x00" in name or "\\" in name or
                     name.startswith("/") or re.match(r"^[A-Za-z]:", name) or
                     any(p in ("", ".", "..") for p in name.rstrip("/").split("/"))):
