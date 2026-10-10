@@ -1,0 +1,51 @@
+{
+  "schema": "accessible-chess-section38-terminal-receipt-v1",
+  "section": 38,
+  "status": "DONE_TERMINAL",
+  "accepted_candidate_sha": "1d1481fc45e54b98a4821e2e8a0e3cd6ea56a517",
+  "canonical_main_before_final_integration_sha": "d679e30464b192d95c9b563a28793e1ce35d43fc",
+  "source_ingress": {
+    "source_pr": 2517,
+    "source_candidate_sha": "69b233061bb6fa5544bc3de740d40852a963af7f",
+    "source_dual_os_run": 38010829671,
+    "integration_pr": 2541,
+    "integration_candidate_sha": "443cbba0c8b3bbf442ff3ae4533e5d1fb5dc000e",
+    "integration_merge_sha": "4e96d414abebda580bed46d45f8e91182b45a51f",
+    "integration_dual_os_run": 38011119187
+  },
+  "final_convergence": {
+    "pull_request": 2516,
+    "book_board_dual_os_run": 38012159724,
+    "library_search_dual_os_run": 38012159851,
+    "external_source_run": 38012248490,
+    "local_focused_tests_passed": 125,
+    "local_external_fixture_tests_skipped": 3,
+    "selftest": "PASS"
+  },
+  "subsections": {
+    "38.1": "DONE",
+    "38.2": "DONE_WITH_EXPLICIT_PARTIAL_AND_UNSUPPORTED_FORMATS",
+    "38.3": "DONE",
+    "38.4": "DONE_WITH_TRUTHFUL_PARTIAL_BLOCKED_UNSUPPORTED_RESULTS",
+    "38.5": "DONE_PROTECTED",
+    "38.6": "DONE"
+  },
+  "external_observation": {
+    "libcbh_original_families": 3,
+    "libcbh_registered_companions": 33,
+    "mit_cbvault_product_backend": false,
+    "northwest_chess_original_pair_observed": true,
+    "northwest_chess_pgn_games_observed": 47,
+    "northwest_chess_cbv_qualification": "BLOCKED_FAIL_CLOSED",
+    "external_payloads_shipped": false
+  },
+  "unsupported_or_unavailable": [
+    "CBF+CBI",
+    "2CBH",
+    "CBONE",
+    "native PDF semantic import",
+    "independent lawful third-party DOCX/PDF semantic pair"
+  ],
+  "human_nvda_verified": false,
+  "terminal_lock": true
+}
