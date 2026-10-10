@@ -182,9 +182,32 @@ def _run_external_pgn(binary: Path, source: Path) -> bytes:
                                 counts = (parsed["records"], parsed["games"], parsed["failures"])
                         except (UnicodeError, ValueError, IndexError, TypeError):
                             pass
+                        # If upstream aborts before its machine JSON receipt,
+                        # preserve only a fixed vocabulary of harmless failure
+                        # classes. In particular, NEVER forward original file
+                        # paths, arbitrary stderr text or copyrighted payload.
+                        safe_words = {
+                            b"archive", b"bounds", b"corrupt", b"database",
+                            b"decode", b"empty", b"end", b"file", b"format",
+                            b"header", b"index", b"invalid", b"magic",
+                            b"missing", b"mmap", b"moves", b"open",
+                            b"range", b"read", b"record", b"size",
+                            b"small", b"truncated", b"unexpected",
+                            b"unsupported", b"version", b"write",
+                        }
+                        selected = set()
+                        if counts is None:
+                            for diagnostic_line in raw_report.splitlines()[-12:]:
+                                if diagnostic_line.lstrip().lower().startswith(b"error:"):
+                                    selected.update(
+                                        re.findall(rb"[a-z]{3,16}", diagnostic_line.lower())
+                                    )
+                        category = ",".join(sorted(
+                            word.decode("ascii") for word in selected & safe_words
+                        )) or "opaque"
                         details = (
                             f"; records={counts[0]}, games={counts[1]}, failures={counts[2]}"
-                            if counts is not None else "; no trusted JSON diagnostics"
+                            if counts is not None else f"; safe_error_tokens={category}"
                         )
                         raise LawfulCorpusError(
                             f"MIT cbvault export failed closed (exit={process.returncode}{details})"
