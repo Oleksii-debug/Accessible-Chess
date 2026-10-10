@@ -108,5 +108,73 @@ class Section54DocxIngressTests(unittest.TestCase):
                     import_factory_book(data, source_name="lesson.docx")
 
 
+    def test_utf16_docx_dtd_rejected_in_each_xml_part(self) -> None:
+        # DOCTYPE encoded as UTF-16 is invisible to raw b"<!DOCTYPE" checks.
+        # An internal entity would be expanded by an unguarded ET.fromstring.
+        base = word_docx('<w:p><w:r><w:t>Safe text.</w:t></w:r></w:p>')
+        with ZipFile(BytesIO(base), "r") as archive:
+            clean_parts = {name: archive.read(name) for name in archive.namelist()}
+        xml_cases = {
+            "[Content_Types].xml": (
+                "Types",
+                f'<Types xmlns="{CT}"><Override PartName="/word/document.xml" '
+                f'ContentType="{MAIN}"/></Types>',
+            ),
+            "word/document.xml": (
+                "w:document",
+                f'<w:document xmlns:w="{W}"><w:body><w:p><w:r>'
+                '<w:t>&injected;</w:t></w:r></w:p></w:body></w:document>',
+            ),
+            "word/_rels/document.xml.rels": (
+                "Relationships",
+                '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>',
+            ),
+            "docProps/core.xml": (
+                "cp:coreProperties",
+                '<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" '
+                'xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>&injected;</dc:title></cp:coreProperties>',
+            ),
+        }
+        for encoding in ("utf-16-le", "utf-16-be"):
+            for part, (root, body) in xml_cases.items():
+                with self.subTest(encoding=encoding, part=part):
+                    xml = (
+                        '<?xml version="1.0" encoding="UTF-16"?>'
+                        f'<!DOCTYPE {root} [<!ENTITY injected "UNTRUSTED_ENTITY_TEXT">]>'
+                        + body
+                    )
+                    raw = (b"\\xff\\xfe" if encoding == "utf-16-le" else b"\\xfe\\xff") + xml.encode(encoding)
+                    parts = dict(clean_parts)
+                    parts[part] = raw
+                    packed = BytesIO()
+                    with ZipFile(packed, "w", compression=ZIP_DEFLATED) as archive:
+                        for name, payload in parts.items():
+                            archive.writestr(name, payload)
+                    with self.assertRaises(FactoryIntakeError) as raised:
+                        import_factory_book(packed.getvalue(), source_name="unsafe.docx")
+                    self.assertNotIn("UNTRUSTED_ENTITY_TEXT", str(raised.exception))
+
+    def test_utf16_docx_without_doctype_remains_readable(self) -> None:
+        for encoding, bom in (("utf-16-le", b"\\xff\\xfe"), ("utf-16-be", b"\\xfe\\xff")):
+            with self.subTest(encoding=encoding):
+                document = (
+                    '<?xml version="1.0" encoding="UTF-16"?>'
+                    f'<w:document xmlns:w="{W}"><w:body>'
+                    '<w:p><w:r><w:t>Safe UTF-16 chess prose.</w:t></w:r></w:p>'
+                    '</w:body></w:document>'
+                )
+                original = word_docx('<w:p><w:r><w:t>Placeholder.</w:t></w:r></w:p>')
+                parts = {}
+                with ZipFile(BytesIO(original), "r") as archive:
+                    parts = {name: archive.read(name) for name in archive.namelist()}
+                parts["word/document.xml"] = bom + document.encode(encoding)
+                output = BytesIO()
+                with ZipFile(output, "w", compression=ZIP_DEFLATED) as archive:
+                    for name, raw in parts.items():
+                        archive.writestr(name, raw)
+                imported = import_factory_book(output.getvalue(), source_name="safe.docx")
+                self.assertEqual(imported.document.blocks[0].text, "Safe UTF-16 chess prose.")
+
+
 if __name__ == "__main__":
     unittest.main()
