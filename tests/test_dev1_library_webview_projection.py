@@ -641,7 +641,7 @@ class LibraryWebAssetTests(unittest.TestCase):
 
         self.assertEqual("error", failed.kind)
         self.assertEqual(UILanguage.EN, projection.language)
-        self.assertIn("Alpha", presenter.view().rows[0].label)
+        self.assertEqual(before["rows"][0]["label"], presenter.view().rows[0].label)
         after = projection.snapshot()
         self.assertEqual(before["document"], after["document"])
         self.assertEqual(before["heading"], after["heading"])
