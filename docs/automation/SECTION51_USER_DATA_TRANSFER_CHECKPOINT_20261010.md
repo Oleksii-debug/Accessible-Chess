@@ -71,3 +71,25 @@ Queued is not green. Do not merge or mark Section 51 DONE based on source
 presence alone. Additional acceptance must cover app-level export/import
 accessibility, cross-version release matrix, clean-machine Windows and owner
 NVDA checks.
+
+## Native Windows keyboard export (new candidate, not yet NVDA-accepted)
+
+Use the native **File / Файл** menu and choose **Create complete backup and
+exit / Створити повну копію даних і вийти**. The program first invokes its
+ordinary guarded shutdown; the snapshot is created **only after** all
+application and engine writers have closed successfully. A Windows-native
+message announces the exact snapshot folder after successful validation.
+If application shutdown fails, the owner backup is not initiated. If backup
+validation fails, the native dialog announces failure rather than success.
+
+This is deliberately an opt-in V2 Windows menu item: isolated/legacy menu
+composition and all established route actions remain unchanged. The owner can
+read the native dialog with Windows accessibility services; **real NVDA
+verification on the packaged build is still outstanding**. The snapshot is
+stored in the profile's sibling `*.upgrade-backups` directory. Users must copy
+the complete hierarchy to separately protected storage themselves. The native
+menu does not yet provide restore/import selection.
+
+Extra regression gate: `tests/test_section51_windows_owner_backup_menu.py`
+(4 cases), as well as retained `tests.test_version2_release_ui` and
+`tests.test_version2_windows_composition_profile`.
