@@ -78,6 +78,12 @@ class KeymapAwareAccessibleChessAPI(_BaseKeymapAwareAccessibleChessAPI):
             return None
 
     def make_move(self, text: str) -> dict[str, Any]:
+        # Never mutate canonical state while the user is inspecting a temporary
+        # Stockfish variation. The frozen keymap core already enforces this;
+        # the current release facade must preserve the same boundary.
+        blocked = self._temporary_exploration_error()
+        if blocked is not None:
+            return blocked
         # Canonical null moves are a notation/import pseudo-move, not a legal
         # end-user gameplay action. Keep the frozen Stage1 core and canonical
         # Board replay semantics intact while fencing ordinary Move Entry.
@@ -105,7 +111,9 @@ class KeymapAwareAccessibleChessAPI(_BaseKeymapAwareAccessibleChessAPI):
         # state behind. Use the canonical release transaction for ordinary
         # legal moves; aliases above still route through the keymap action table.
         result = _webapp.AccessibleChessAPI.make_move(self, text)
-        if result.get("ok") is True:
+        if result.get("ok") is True and not self.analysis_ui.target_locked:
+            # An explicitly locked Stockfish target is not a board-reset
+            # request: following a played move must not unlock or retarget it.
             self._reanchor_analysis_after_reset()
         return result
 
