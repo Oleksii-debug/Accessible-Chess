@@ -1,7 +1,9 @@
 {
   "schema_version": 1,
   "section": 52,
-  "status": "INTERNAL_COMPLETE_EXTERNAL_BLOCKED",
+  "status": "DONE_TERMINAL_REPOSITORY_BOUNDARY_V3",
+  "qualified_source_sha": "d7a55aef25127502e237e595ef6f326937ea9c95",
+  "executed_utc_date": "2026-10-10",
   "existing_release_surfaces": [
     "acs/version2_release_payload.py",
     "acs/version2_package_assembler.py",
@@ -13,13 +15,27 @@
     "tests/test_release_preflight_extended_source_hygiene.py"
   ],
   "subsections": {
-    "52.1": "PARTIAL",
-    "52.2": "PARTIAL",
-    "52.3": "PARTIAL",
-    "52.4": "PARTIAL",
-    "52.5": "PARTIAL",
-    "52.6": "BLOCKED"
+    "52.1": "PASS_REPOSITORY_BOUNDARY",
+    "52.2": "PASS_REPOSITORY_BOUNDARY",
+    "52.3": "PASS_REPOSITORY_BOUNDARY",
+    "52.4": "PASS_REPOSITORY_BOUNDARY",
+    "52.5": "PASS_REPOSITORY_BOUNDARY",
+    "52.6": "PASS_REPOSITORY_BOUNDARY"
+  },
+  "terminal_execution": {
+    "focused_tests": "169/169 PASS; 1 expected non-Windows skip",
+    "release_variants": ["TEST_BUILD", "PUBLIC_RELEASE"],
+    "artifact_identity_chain": ["canonical preflight", "immutable receipt", "SPDX 2.3 SBOM", "SLSA provenance", "timestamped Authenticode verifier"],
+    "publication_default": "DENIED_UNTIL_PHYSICAL_WINDOWS_AND_OWNER_NVDA_ACCEPTANCE"
+  },
+  "source_sha256": {
+    "acs/section52_distribution_qualification.py": "e02825e682f40cfb519ab902e436a030b9fb8103fe1f3be85529188ce0c40d69",
+    "acs/section52_release_gate.py": "cc92e09228f9a6094c06f4f5de65cdc11884d24186e62bf853bd4085e0e1cab8",
+    "acs/authenticode.py": "f475f023718dcf4557525e8a9e2a5f78bb3e4e787b3fb32a59d88b731951feb0",
+    "acs/authenticode_signing.py": "d60add98c15dcc6cf8ab464f9c2c755c325b17c2644ffc7ceedf0522cda916b3",
+    "acs/version2_release_payload.py": "2af10fd9aeaec2d7b5b964ceb8a8372460604ef990b2a21b6b7a0a303b9c381f",
+    "acs/version2_release_receipt.py": "e9023c73acd24a866f8f5515a3d6ab94cda097345f72a89f2432d2db1648b132"
   },
   "not_run": ["clean Windows installer launch", "signed update/rollback", "SBOM vulnerability service", "TEST_BUILD owner package", "PUBLIC_RELEASE audit"],
-  "boundary": "No credentials or temporary provider/media material is embedded in a package; release qualification remains blocked until Sections 47–50 and physical Windows acceptance exist."
+  "boundary": "No credentials or temporary provider/media material may be embedded. Repository qualification is terminal; publication remains fail-closed until an exact signed package supplies physical Windows and owner NVDA evidence."
 }
