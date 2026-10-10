@@ -78,10 +78,13 @@ def project_factory_text_pdf_private(
         raise FactoryPdfProbeError(
             "Canonical PDF text projection identity or chess safety failed"
         )
-    warnings = tuple(probe.warnings) + (
+    pdf_warnings = tuple(probe.warnings) + (
         "PDF_TEXT_ONLY_PRIVATE_PREVIEW_REVIEW_REQUIRED",
-    ) + tuple(imported.warnings)
-    imported.document.warnings.extend(warnings)
+    )
+    warnings = pdf_warnings + tuple(imported.warnings)
+    # The canonical importer already placed its own warnings on BookDocument.
+    # Do not append them again; preserve one entry per original diagnostic.
+    imported.document.warnings.extend(pdf_warnings)
     imported.document.as_dict()
     return FactoryPdfTextProjection(
         probe, imported.document, digest, tuple(lines), warnings,
