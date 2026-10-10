@@ -82,7 +82,7 @@ message announces the exact snapshot folder after successful validation.
 If application shutdown fails, the owner backup is not initiated. If backup
 validation fails, the native dialog announces failure rather than success.
 
-This is deliberately an opt-in V2 Windows menu item: isolated/legacy menu
+This is deliberately an opt-in V2 and shipping Final Product Windows menu item: isolated/legacy menu
 composition and all established route actions remain unchanged. The owner can
 read the native dialog with Windows accessibility services; **real NVDA
 verification on the packaged build is still outstanding**. The snapshot is
@@ -91,5 +91,5 @@ the complete hierarchy to separately protected storage themselves. The native
 menu does not yet provide restore/import selection.
 
 Extra regression gate: `tests/test_section51_windows_owner_backup_menu.py`
-(4 cases), as well as retained `tests.test_version2_release_ui` and
+(5 cases), as well as retained `tests.test_version2_release_ui` and
 `tests.test_version2_windows_composition_profile`.
