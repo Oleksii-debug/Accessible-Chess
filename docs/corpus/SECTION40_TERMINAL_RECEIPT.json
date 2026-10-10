@@ -1,0 +1,95 @@
+{
+  "schema": "accessible-chess-section-terminal-closure-v1",
+  "section": 40,
+  "status": "DONE_TERMINAL",
+  "accepted_at": "2026-10-10",
+  "canonical_pr": 2545,
+  "qualified_code_candidate": "58d82eaea2221206d534116e3563d0053b04ae75",
+  "current_main_integration": "bfe94904c3b4bb8ab66108455483b1a934612d5d",
+  "integration_parent": "a985d94c3eb71073fe31df71634316f232b7327c",
+  "candidate_to_integration": {
+    "ahead_by": 1,
+    "behind_by": 0,
+    "changed_files": 0,
+    "scope": "integration parent to merge"
+  },
+  "qualification": {
+    "section40_offline_library": {
+      "run_id": 38046483879,
+      "conclusion": "success",
+      "os": {
+        "ubuntu-24.04": {
+          "job_id": 114196950975,
+          "tests": 120,
+          "steps_passed": 19
+        },
+        "windows-2025": {
+          "job_id": 114196950981,
+          "tests": 120,
+          "steps_passed": 19
+        }
+      },
+      "artifacts": [
+        {
+          "id": 11668160012,
+          "name": "section40-offline-corpus-ubuntu-24.04",
+          "digest": "sha256:14765f1789061c64f87eba0605477a227dbcd7c2f7914f4c07a39086a680e6a1"
+        },
+        {
+          "id": 11666574835,
+          "name": "section40-offline-corpus-windows-2025",
+          "digest": "sha256:0230798fed8e9edaecb48f3db223ea20d1f2471e2f13e8b9f1a27d0186393219"
+        }
+      ]
+    },
+    "canonical_real_books": {
+      "run_id": 38046483834,
+      "conclusion": "success",
+      "os": {
+        "ubuntu-24.04": {
+          "job_id": 114196950383,
+          "tests": 45
+        },
+        "windows-2025": {
+          "job_id": 114196950512,
+          "tests": 45
+        }
+      }
+    },
+    "tests_per_os": 165,
+    "total_test_executions": 330
+  },
+  "acceptance": {
+    "40.1": "DONE",
+    "40.2": "DONE_PROTECTED_REUSED",
+    "40.3": "DONE",
+    "40.4": "DONE",
+    "40.5": "DONE_PROTECTED_REUSED",
+    "40.6": "DONE"
+  },
+  "verified_counts": {
+    "stockfish_games": 512,
+    "annotated_original_games": 4,
+    "historical_reti_studies": 1,
+    "added_library_games": 517,
+    "bilingual_native_books": 10,
+    "bilingual_lessons_per_book": 12,
+    "advanced_cc0_puzzles": 16,
+    "extreme_cc0_puzzles": 4
+  },
+  "boundaries": {
+    "test_collection_separate_from_public_release": true,
+    "existing_owner_library_preserved": true,
+    "network_required_for_prepared_content": false,
+    "uncleared_third_party_bytes_in_public_release": false,
+    "unsupported_formats_not_claimed": true,
+    "physical_nvda": "FINAL_WHOLE_PRODUCT_GATE"
+  },
+  "regressions_repaired": [
+    "legacy Books item-count assertion preserved the original 24-booklet invariant while accepting four qualified new sources",
+    "detached Training revision rollback",
+    "Section42 and Section45 package-resource completeness",
+    "Windows CRLF transformation of SHA-pinned Section42 licensed originals"
+  ],
+  "terminal_lock": "Do not reopen without a concrete regression, invalid evidence, changed acceptance contract, or later integration break."
+}

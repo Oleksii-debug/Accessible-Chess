@@ -1,12 +1,8 @@
 {
   "blocked": [
-    "lawful Ukrainian third-party literature",
-    "PDF",
-    "DOCX",
-    "CBF+CBI",
-    "2CBH",
-    "CBONE",
-    "clean Windows packaged owner acceptance"
+    "NONBLOCKING/UNSUPPORTED: CBF+CBI, complete 2CBH and CBONE originals are not included or claimed",
+    "NONBLOCKING/RIGHTS: uncleared third-party bytes stay TEST_ONLY or are represented by external source links",
+    "FINAL_PRODUCT_GATE: physical compiled Windows EXE/NVDA owner acceptance is not a Section-level v3 blocker"
   ],
   "collection_policy": "TEST_COLLECTION is isolated and reloadable; PUBLIC_RELEASE contains links/notices, not uncleared third-party bytes.",
   "entries": [
@@ -138,5 +134,15 @@
       "chessit-cotswold-2023-cbv"
     ]
   },
-  "status": "INTERNAL_COMPLETE_EXTERNAL_BLOCKED"
+  "status": "DONE_TERMINAL",
+  "terminal_closure": {
+    "candidate": "58d82eaea2221206d534116e3563d0053b04ae75",
+    "integration": "bfe94904c3b4bb8ab66108455483b1a934612d5d",
+    "pull_request": 2545,
+    "dual_os_runs": [
+      38046483879,
+      38046483834
+    ],
+    "receipt": "docs/corpus/SECTION40_TERMINAL_RECEIPT.json"
+  }
 }
