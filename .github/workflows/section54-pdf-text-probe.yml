@@ -1,0 +1,37 @@
+name: Section 54 PDF text probe (non-release)
+
+on:
+  pull_request:
+    paths:
+      - 'acs/format_factory_pdf_probe.py'
+      - 'acs/format_factory_pdf_projection.py'
+      - 'tests/test_section54_factory_pdf_probe.py'
+      - 'tests/test_section54_factory_pdf_projection.py'
+      - '.github/workflows/section54-pdf-text-probe.yml'
+  push:
+    branches:
+      - 'work/section54-pdf-text-probe-20261010'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pdf-probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install pinned optional PDF parser (test only)
+        run: python -m pip install pypdf==5.9.0
+      - name: Syntax and imports
+        run: python -m compileall -q acs/format_factory_pdf_probe.py acs/format_factory_pdf_projection.py tests/test_section54_factory_pdf_probe.py tests/test_section54_factory_pdf_projection.py
+      - name: Canonical intake + isolated PDF probe qualification
+        run: python -m unittest discover -s tests -p 'test_section54_factory_pdf*.py' -v
