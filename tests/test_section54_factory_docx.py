@@ -43,10 +43,11 @@ class FactoryDocxPreviewTests(unittest.TestCase):
             self.assertIn('w:numId w:val="2"', xml)
             self.assertIn("Content &amp; &lt;tag&gt;", xml)
             self.assertNotIn("<tag>", xml)
+            self.assertIn('w:lang w:val="en"', zf.read("word/styles.xml").decode())
 
     def test_same_edition_bytes_repeat_but_selected_contents_change_identity(self) -> None:
-        left = BookDocument(title="Study", blocks=[Paragraph(text="A")])
-        right = BookDocument(title="Study", blocks=[Paragraph(text="B")])
+        left = BookDocument(title="Study", language="en", blocks=[Paragraph(text="A")])
+        right = BookDocument(title="Study", language="en", blocks=[Paragraph(text="B")])
         a = export_factory_docx_preview(left, source_sha256=SOURCE, modified_utc=DATE)
         b = export_factory_docx_preview(left, source_sha256=SOURCE, modified_utc=DATE)
         c = export_factory_docx_preview(right, source_sha256=SOURCE, modified_utc=DATE)
@@ -55,7 +56,7 @@ class FactoryDocxPreviewTests(unittest.TestCase):
             self.assertNotEqual(aa.read("docProps/core.xml"), cc.read("docProps/core.xml"))
 
     def test_diagram_graphic_loss_requires_owner_approval(self) -> None:
-        doc = BookDocument(title="Board", blocks=[Diagram(fen=FEN, alt_text="Starting chessboard")])
+        doc = BookDocument(title="Board", language="en", blocks=[Diagram(fen=FEN, alt_text="Starting chessboard")])
         with self.assertRaises(FactoryExportError):
             export_factory_docx_preview(doc, source_sha256=SOURCE, modified_utc=DATE)
         result = export_factory_docx_preview(
@@ -68,7 +69,7 @@ class FactoryDocxPreviewTests(unittest.TestCase):
             self.assertIn("Starting chessboard", xml)
 
     def test_ordered_list_custom_start_not_silently_lost(self) -> None:
-        doc = BookDocument(title="List", blocks=[ListBlock(items=["Example"], ordered=True, start=7)])
+        doc = BookDocument(title="List", language="en", blocks=[ListBlock(items=["Example"], ordered=True, start=7)])
         with self.assertRaises(FactoryExportError):
             export_factory_docx_preview(doc, source_sha256=SOURCE, modified_utc=DATE)
         result = export_factory_docx_preview(
@@ -77,17 +78,22 @@ class FactoryDocxPreviewTests(unittest.TestCase):
         self.assertIn("ORDERED_LIST_START_NOT_PRESERVED", result.losses)
 
     def test_game_reference_without_pgn_rejected(self) -> None:
-        doc = BookDocument(title="Games", blocks=[Game(game_id=2)])
+        doc = BookDocument(title="Games", language="en", blocks=[Game(game_id=2)])
         with self.assertRaises(FactoryExportError):
             export_factory_docx_preview(doc, source_sha256=SOURCE, modified_utc=DATE)
 
     def test_invalid_xml_character_fails_closed(self) -> None:
-        doc = BookDocument(title="Book", blocks=[Paragraph(text="Body" + chr(1))])
+        doc = BookDocument(title="Book", language="en", blocks=[Paragraph(text="Body" + chr(1))])
+        with self.assertRaises(FactoryExportError):
+            export_factory_docx_preview(doc, source_sha256=SOURCE, modified_utc=DATE)
+
+    def test_missing_reading_language_is_blocked(self) -> None:
+        doc = BookDocument(title="Book", blocks=[Paragraph(text="Unqualified language.")])
         with self.assertRaises(FactoryExportError):
             export_factory_docx_preview(doc, source_sha256=SOURCE, modified_utc=DATE)
 
     def test_timestamp_and_source_identity_required(self) -> None:
-        doc = BookDocument(title="Book", blocks=[])
+        doc = BookDocument(title="Book", language="en", blocks=[])
         with self.assertRaises(FactoryExportError):
             export_factory_docx_preview(doc, source_sha256=SOURCE, modified_utc="")
         with self.assertRaises(FactoryExportError):
