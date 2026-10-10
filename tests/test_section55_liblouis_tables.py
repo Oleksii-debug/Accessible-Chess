@@ -29,6 +29,37 @@ class TestSection55TableClosure(unittest.TestCase):
             changed = scan_local_liblouis_table_closure(main)
             self.assertNotEqual(first.closure_sha256, changed.closure_sha256)
 
+    def test_unicode_whitespace_in_include_directive_fails_closed(self):
+        # Python regex \\s and str.strip() recognize these characters,
+        # but the external Liblouis parser's lexical equivalence is unproven.
+        # Do not silently certify a different include dependency graph.
+        variants = (
+            "include\\u00a0child.cti",   # NO-BREAK SPACE
+            "include\\u2003child.cti",   # EM SPACE
+            "include\\u202fchild.cti",   # NARROW NO-BREAK SPACE
+            "\\u00a0include child.cti",  # leading NBSP
+            "include child.cti\\u2003",  # trailing EM SPACE
+        )
+        for directive in variants:
+            with self.subTest(directive=repr(directive)), tempfile.TemporaryDirectory() as tmp:
+                base = Path(tmp)
+                (base / "child.cti").write_text("# legitimate\\n", encoding="utf-8")
+                main = base / "main.ctb"
+                main.write_text(directive + "\\n", encoding="utf-8")
+                with self.assertRaisesRegex(BrailleFactoryError, "Unicode whitespace"):
+                    scan_local_liblouis_table_closure(main)
+
+    def test_canonical_ascii_spaces_and_tabs_in_include_directive_work(self):
+        for directive in ("include child.cti", "include\\tchild.cti"):
+            with self.subTest(directive=repr(directive)), tempfile.TemporaryDirectory() as tmp:
+                base = Path(tmp)
+                (base / "child.cti").write_text("# legitimate\\n", encoding="utf-8")
+                main = base / "main.ctb"
+                main.write_text(directive + "\\n", encoding="utf-8")
+                self.assertEqual(
+                    len(scan_local_liblouis_table_closure(main).files), 2
+                )
+
     def test_raw_include_path_aliases_fail_before_path_normalization(self):
         # pathlib.Path collapses './' and repeated separators, hiding distinct
         # input spellings that an external Liblouis resolver might interpret
