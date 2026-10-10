@@ -30,7 +30,13 @@ def _archive(*, document: bytes = _WORD_XML, name: str = "word/document.xml",
              extra: dict[str, bytes] | None = None) -> bytes:
     buf = BytesIO()
     with ZipFile(buf, "w") as z:
-        z.writestr("[Content_Types].xml", b"<Types/>")
+        z.writestr(
+            "[Content_Types].xml",
+            b'<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+            b'<Override PartName="/word/document.xml" '
+            b'ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
+            b'</Types>',
+        )
         z.writestr(name, document)
         for key, value in (extra or {}).items():
             z.writestr(key, value)
