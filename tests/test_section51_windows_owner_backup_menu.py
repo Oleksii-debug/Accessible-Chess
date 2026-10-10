@@ -65,6 +65,34 @@ class Section51NativeOwnerBackupTests(unittest.TestCase):
         self.assertEqual(enabled.activate(backup), None)
         self.assertEqual(calls, ["requested"])
 
+    def test_shipping_final_product_menu_wires_the_same_backup_host(self):
+        from acs.version2_final_product_profile import (
+            FinalProductNativeMenuController,
+            build_final_product_router,
+            build_final_product_shell,
+            build_final_product_webview_adapter,
+        )
+
+        shell = build_final_product_shell()
+        router = build_final_product_router(shell, lambda _a, _p: None)
+        adapter = build_final_product_webview_adapter(shell, router)
+        notified = []
+        controller = FinalProductNativeMenuController(
+            adapter,
+            lambda _value: None,
+            exit_callback=lambda: None,
+            owner_export_callback=lambda: notified.append("requested"),
+        )
+        menu = next(item for item in controller.spec() if item.menu_id == "file")
+        entries = [
+            item for item in menu.items
+            if item.host_command == "owner.export_all"
+        ]
+        self.assertEqual(len(entries), 1)
+        self.assertIn("копію", entries[0].label)
+        self.assertIsNone(controller.activate(entries[0]))
+        self.assertEqual(notified, ["requested"])
+
     def test_export_command_requires_callable_host_callback(self):
         with self.assertRaises(TypeError):
             self._menu(owner_export_callback="not callable")
