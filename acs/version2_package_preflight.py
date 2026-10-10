@@ -190,6 +190,7 @@ _REQUIRED_WEB_FILES = (
     "AccessibleChess/web/index.html",
     "AccessibleChess/web/design_system.css",
     "AccessibleChess/web/board_themes.css",
+    "AccessibleChess/web/visual_profile_transfer.js",
     "AccessibleChess/web/youtube_iframe_adapter.js",
     "AccessibleChess/web/video_board_sync.js",
     "AccessibleChess/web/ai_voice.js",
@@ -1693,6 +1694,116 @@ def _validate_required_runtime_resources(
             relative,
             label="packaged Version 2 web resource",
         )
+
+    # Section 41: a packed canonical Web UI that references reviewed MIT assets
+    # must contain those exact bytes. Old packages with no such references retain
+    # their prior compatibility boundary.
+    packed_index = _read_stable_bytes_file(
+        root / "AccessibleChess/web/index.html",
+        label="packaged canonical Web UI",
+        max_bytes=min(limits.max_text_scan_bytes, 2 * 1024 * 1024),
+    )
+    design_ref = b'href="assets/accessible_chess_design.css"'
+    core_ref = b'href="assets/tabler-core/accessibility.css"'
+    icon_ref = b'src="assets/tabler/chess-rook.svg"'
+    if any(ref in packed_index for ref in (design_ref, core_ref, icon_ref)):
+        if not all(ref in packed_index for ref in (design_ref, core_ref, icon_ref)):
+            _fail("Section 41 canonical UI has an incomplete MIT asset binding")
+        # Exact source Git blob identities are independent of mutable SHA256SUMS
+        # so an attacker cannot legitimize altered SVG/CSS by rewriting checksums.
+        pinned_assets = {
+            "web/assets/accessible_chess_design.css": "30b4580623cc4ceb947fdec1f9b7ab7d2f5bcdb3",
+            "web/assets/tabler-core/LICENSE": "aa69649cde83c2d6517ec2498a9c10f5bb3bf54c",
+            "web/assets/tabler-core/SECTION41_CORE_PROVENANCE.json": "1e0225f937e46bcc6669213d1fe181a5cc145902",
+            "web/assets/tabler-core/accessibility.css": "0fe8f69f90411731513c9926827fb609bf51b267",
+            "web/assets/tabler/LICENSE": "3e82379dab3fe93d9ee22251949604ed63ddea39",
+            "web/assets/tabler/SECTION41_PROVENANCE.json": "f2c3f00cfec4f214c39930ebdb2bd8d42891cc7d",
+            "web/assets/tabler/adjustments.svg": "ef63f0fb0065937722a5ffd59cc5355b96b38045",
+            "web/assets/tabler/chess-rook.svg": "accb4f7b7ea39eb1a023b6e2ad8589453fcdb305",
+        }
+        for name, expected_blob in pinned_assets.items():
+            relative = "AccessibleChess/" + name
+            asset = _require_package_file(
+                root, inventory, relative, label="Section 41 pinned offline asset",
+            )
+            content = _read_stable_bytes_file(
+                asset, label="Section 41 pinned offline asset", max_bytes=128 * 1024,
+            )
+            actual = hashlib.sha1(
+                b"blob " + str(len(content)).encode("ascii") + b"\0" + content
+            ).hexdigest()
+            if actual != expected_blob:
+                _fail("Section 41 packaged asset has mismatched MIT provenance")
+            if name.endswith(".css") and (
+                b"@import" in content.lower() or b"url(http" in content.lower()
+                or b"expression(" in content.lower()
+            ):
+                _fail("Section 41 packaged CSS has a remote/unsafe dependency")
+
+    # A linked professional design studio is a real runtime resource.
+    # Missing/substituted JS fails closed even with rewritten package checksums.
+    studio_link = b'<script src="section45_design_studio.js"></script>'
+    if b"section45_design_studio.js" in packed_index:
+        if packed_index.count(studio_link) != 1:
+            _fail("packaged Section 45 studio JS is not linked exactly once")
+        relative = "AccessibleChess/web/section45_design_studio.js"
+        script = _require_package_file(
+            root, inventory, relative, label="packaged Section 45 local design studio",
+        )
+        studio = _read_stable_bytes_file(
+            script, label="packaged Section 45 local script",
+            max_bytes=128 * 1024,
+        )
+        if (b"get_design_studio_state" not in studio
+            or b"save_design_studio_state" not in studio
+            or b"aria-expanded" not in studio):
+            _fail("packaged Section 45 studio has lost native bridge semantics")
+
+    # Section 42: a shipping UI using the CC0 RhosGFX piece pack must
+    # include all 12 exact original source files plus license/provenance.
+    # A rewritten package checksum manifest must never legitimize tampering.
+    if b"assets/pieces/rhosgfx/" in packed_index:
+        section42_base = "AccessibleChess/web/assets/pieces/rhosgfx/"
+        section42_pieces = {
+            "wK.svg": "a21a5ebbf3fb4923abfd4cbd2e27a1b7e65e6ea2",
+            "wQ.svg": "c0af0ab868e5532eb6e471b300be14a4ea695af2",
+            "wR.svg": "ba3d4e319796699e2ff2aacc7b1a8639a7771edd",
+            "wB.svg": "16fc2ea40277d52a6cd0ab36e292834671283406",
+            "wN.svg": "9650e7496606543f9f9ceca488c89af26f33b5e5",
+            "wP.svg": "ceb32e2aa286bac4aa5581aa230d87088d9c0cdf",
+            "bK.svg": "a726621988e47742852743ecc3c0d75a6f2ad80e",
+            "bQ.svg": "cb352ffd1a3741bf72254ef39a9baa1571f622b2",
+            "bR.svg": "5ce91a9f86301141aba7a540c4356a2138410208",
+            "bB.svg": "b2aeb13166399342d5fba9f38d773f7bf6b43301",
+            "bN.svg": "0bf9be862a0a65241aaa5afc0aae5a5a38b55e54",
+            "bP.svg": "e97fce610f9e2dc35c14061e6e28d4a1f1da005d",
+        }
+        section42_evidence = {
+            "SECTION42_PROVENANCE.json": "55b27fa30df76af2cb68642198b4e10653b3cff5",
+            "SOURCE_COPYING.md": "def9deca8bceae28cf83d2074a3b09534ae88f6f",
+        }
+        for name, expected in {**section42_pieces, **section42_evidence}.items():
+            art = _require_package_file(
+                root, inventory, section42_base + name,
+                label="Section 42 licensed original artwork",
+            )
+            content = _read_stable_bytes_file(
+                art, label="Section 42 licensed original artwork",
+                max_bytes=128 * 1024,
+            )
+            blob = hashlib.sha1(
+                b"blob " + str(len(content)).encode("ascii") + bytes([0]) + content
+            ).hexdigest()
+            if blob != expected:
+                _fail("Section 42 packaged CC0 artwork/provenance mismatch")
+            if name.endswith(".svg") and (
+                b"<svg" not in content.lower()
+                or any(token in content.lower() for token in (
+                    b"<script", b"<foreignobject", b"<!entity",
+                    b"url(http", b"<iframe",
+                ))
+            ):
+                _fail("Section 42 packaged SVG contains unsafe active content")
 
     stockfish = _require_package_file(
         root,

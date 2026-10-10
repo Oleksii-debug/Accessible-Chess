@@ -8,6 +8,7 @@ WebView integration script.  The QA-owned strict Windows harness is untouched.
 """
 
 from pathlib import Path
+import json
 import tempfile
 from typing import Any
 
@@ -32,6 +33,14 @@ class Stage1ReleaseAccessibleChessAPI(_core.Stage1ReleaseAccessibleChessAPI):
         )
         return state
 
+    @staticmethod
+    def _settings_persistence_available(settings: object | None) -> bool:
+        if settings is None:
+            return False
+        if getattr(settings, "_baseline_known", True) is not True:
+            return False
+        return getattr(settings, "_write_blocked_reason", None) is None
+
     def get_move_feedback_settings(self) -> dict[str, Any]:
         settings = getattr(self, "_settings", None)
         return {"ok": True, "enabled": settings.get("announce_move_errors", False) is True
@@ -47,6 +56,147 @@ class Stage1ReleaseAccessibleChessAPI(_core.Stage1ReleaseAccessibleChessAPI):
             _core._LOG.exception("Could not persist move feedback preference")
             return {**self.get_move_feedback_settings(), "ok": False}
         return self.get_move_feedback_settings()
+
+    # Section 43: presentation-only preferences share the same atomic,
+    # upgrade-locked Settings writer as the already-shipped native UI.  The
+    # Edge/WebView2 private profile is NOT a durable persistence authority.
+    _PRESENTATION_LAYOUT_KEYS = {
+        "workspace": "workspace_layout_json",
+        "product": "product_layout_json",
+    }
+    _WORKSPACE_PANEL_IDS = frozenset({
+        "h-board", "h-moves", "h-game-info", "h-engine", "h-input",
+        "h-actions", "h-status", "h-white", "h-black", "h-last",
+        "h-settings", "h-help", "h-media", "h-ai-agent", "h-engine-play",
+    })
+    _PRODUCT_LAYOUT_ROUTES = frozenset({
+        "pgn", "library", "books", "training", "teacher", "classes",
+    })
+
+    @classmethod
+    def _valid_presentation_layout(cls, kind: object, value: object) -> dict[str, Any] | None:
+        if type(kind) is not str or kind not in cls._PRESENTATION_LAYOUT_KEYS:
+            return None
+        if type(value) is not dict or type(value.get("version")) is not int or value["version"] != 1:
+            return None
+        if kind == "workspace":
+            if set(value) != {"version", "collapsed", "sizes", "density", "layout"}:
+                return None
+            collapsed = value.get("collapsed")
+            sizes = value.get("sizes")
+            if (
+                type(collapsed) is not list or len(collapsed) > 15
+                or any(type(item) is not str or item not in cls._WORKSPACE_PANEL_IDS for item in collapsed)
+                or len(set(collapsed)) != len(collapsed)
+                or type(sizes) is not dict or len(sizes) > 15
+                or any(
+                    type(name) is not str or name not in cls._WORKSPACE_PANEL_IDS
+                    or type(size) is not str or size not in {"auto", "medium", "large"}
+                    for name, size in sizes.items()
+                )
+                or type(value.get("density")) is not str
+                or value["density"] not in {"comfortable", "compact"}
+                or type(value.get("layout")) is not str
+                or value["layout"] not in {"auto", "single"}
+            ):
+                return None
+            return {
+                "version": 1, "collapsed": list(collapsed), "sizes": dict(sizes),
+                "density": value["density"], "layout": value["layout"],
+            }
+        if set(value) not in ({"version", "routes"}, {"version", "routes", "panels"}):
+            return None
+        routes = value.get("routes")
+        panels = value.get("panels", {})
+        if (
+            type(routes) is not dict or len(routes) > 6
+            or any(
+                type(name) is not str or name not in cls._PRODUCT_LAYOUT_ROUTES
+                or type(mode) is not str or mode not in {"comfortable", "compact", "reading"}
+                for name, mode in routes.items()
+            )
+            or type(panels) is not dict or len(panels) > 6
+            or any(
+                type(name) is not str or name not in cls._PRODUCT_LAYOUT_ROUTES
+                or type(panel) is not dict or set(panel) != {"collapsed", "size"}
+                or type(panel["collapsed"]) is not bool
+                or type(panel["size"]) is not str
+                or panel["size"] not in {"auto", "medium", "large"}
+                for name, panel in panels.items()
+            )
+        ):
+            return None
+        return {
+            "version": 1, "routes": dict(routes),
+            "panels": {name: dict(panel) for name, panel in panels.items()},
+        }
+
+    def get_presentation_layout(self, kind: str) -> dict[str, Any]:
+        if type(kind) is not str or kind not in self._PRESENTATION_LAYOUT_KEYS:
+            return {"ok": False}
+        settings = getattr(self, "_settings", None)
+        if not (settings is not None and getattr(settings, "_baseline_known", False) and getattr(settings, "_write_blocked_reason", None) is None):
+            return {"ok": False}
+        try:
+            raw = settings.get(self._PRESENTATION_LAYOUT_KEYS[kind], "")
+            if type(raw) is not str or len(raw) > 2048:
+                return {"ok": False}
+            value = self._valid_presentation_layout(kind, json.loads(raw))
+        except (ValueError, TypeError, KeyError):
+            return {"ok": False}
+        return {"ok": True, "layout": value} if value is not None else {"ok": False}
+
+    def save_presentation_layout(self, kind: str, layout: object) -> dict[str, Any]:
+        value = self._valid_presentation_layout(kind, layout)
+        settings = getattr(self, "_settings", None)
+        if value is None or not (settings is not None and getattr(settings, "_baseline_known", False) and getattr(settings, "_write_blocked_reason", None) is None):
+            return {"ok": False}
+        try:
+            serialized = json.dumps(value, separators=(",", ":"), ensure_ascii=True, sort_keys=True)
+            if len(serialized) > 2048:
+                return {"ok": False}
+            settings.set(self._PRESENTATION_LAYOUT_KEYS[kind], serialized)
+        except Exception:
+            _core._LOG.exception("Could not persist bounded UI layout preference")
+            return {"ok": False}
+        return {"ok": True, "layout": value}
+
+    def get_design_studio_state(self) -> dict[str, Any]:
+        from .section45_design_profiles import PRESETS, read_store
+
+        settings = getattr(self, "_settings", None)
+        if not self._settings_persistence_available(settings):
+            return {"ok": False, "reason": "settings_unavailable"}
+        # Do not rewrite an unreadable or corrupt existing private settings
+        # file with guessed defaults; retain the bytes for explicit recovery.
+        if str(getattr(settings, "warning", "")).startswith("settings recovery:"):
+            return {"ok": False, "reason": "settings_corrupt_requires_recovery"}
+        try:
+            raw = settings.get("design_profiles_json")
+            store = read_store(raw)
+            from hashlib import sha256
+            revision = sha256(raw.encode("utf-8")).hexdigest()
+            return {"ok": True, "store": store, "revision": revision, "presets": PRESETS}
+        except (ValueError, TypeError, AttributeError):
+            return {"ok": False, "reason": "invalid_saved_profiles"}
+
+    def save_design_studio_state(
+        self, store: object, expected_revision: object
+    ) -> dict[str, Any]:
+        from .section45_design_profiles import serialize_store
+
+        previous = self.get_design_studio_state()
+        if not previous.get("ok"):
+            return previous
+        if type(expected_revision) is not str or expected_revision != previous["revision"]:
+            return {"ok": False, "reason": "stale_revision", "conflict": True}
+        try:
+            encoded = serialize_store(store)
+            self._settings.set("design_profiles_json", encoded)
+        except Exception:
+            _core._LOG.exception("Design studio settings could not be saved")
+            return {"ok": False, "reason": "save_failed"}
+        return self.get_design_studio_state()
 
     @staticmethod
     def _binding_context(value: object) -> str:

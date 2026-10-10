@@ -1,0 +1,44 @@
+name: Section 39 shipping original-source qualification
+
+on:
+  pull_request:
+    paths:
+      - "tools/section39_external_book_semantic.py"
+      - "tools/section39_external_position_semantic.py"
+      - "acs/epd.py"
+      - "tools/section39_stockfish_original_chess960_epd_qualification.py"
+      - "tests/test_section39_external_book_semantic.py"
+      - "tests/test_section39_external_position_semantic.py"
+      - "tests/test_section39_stockfish_original_chess960_epd_qualification.py"
+      - "tools/section39_real_official_gutenberg_epub_html.py"
+      - "tests/test_section39_real_official_gutenberg_epub_html.py"
+      - ".github/workflows/section39-shipping-original-source.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  original-source-contracts:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout exact PR candidate
+        uses: actions/checkout@v4
+      - name: Python environment
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Compile original-source qualification modules
+        run: >-
+          python -m compileall -q
+          acs/epd.py
+          tools/section39_external_book_semantic.py
+          tools/section39_external_position_semantic.py
+          tools/section39_stockfish_original_chess960_epd_qualification.py
+          tools/section39_real_official_gutenberg_epub_html.py
+      - name: Section 39 original-source regression discovery
+        run: python -m unittest discover -v -s tests -p 'test_section39*.py'
