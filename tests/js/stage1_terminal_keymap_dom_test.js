@@ -316,6 +316,7 @@ function chordFor(event) {
         }),
         eventChord: chordFor,
         announce(message) { captureAnnouncements.push(message); },
+        announceUserAction(message) { captureAnnouncements.push(message); },
         document: {
             documentElement: {lang: 'en'},
             addEventListener(type, listener) {
@@ -386,6 +387,7 @@ function chordFor(event) {
         renderKeymap() {},
         renderHelp() {},
         announce(message) { recoveryAnnouncements.push(message); },
+        announceUserAction(message) { recoveryAnnouncements.push(message); },
         api() {
             return {
                 async keymap_snapshot() {

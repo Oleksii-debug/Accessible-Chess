@@ -112,14 +112,26 @@ def _require_private_directory(info: os.stat_result, label: str) -> None:
         raise SettingsError(f"{label} must be one private directory")
 
 
-def _same_file_version(first: os.stat_result, second: os.stat_result) -> bool:
+def _same_file_version(
+    first: os.stat_result,
+    second: os.stat_result,
+    *,
+    cross_interface: bool = False,
+) -> bool:
     return (
         _same_file_identity(first, second)
         and int(first.st_size) == int(second.st_size)
         and int(getattr(first, "st_mtime_ns", 0))
         == int(getattr(second, "st_mtime_ns", 0))
-        and int(getattr(first, "st_ctime_ns", 0))
-        == int(getattr(second, "st_ctime_ns", 0))
+        and (
+            # On Windows, pathname stat and open-handle fstat expose different
+            # ctime clocks (creation time versus last-change time).  Identity,
+            # size and mtime still bind the two interfaces; same-interface
+            # comparisons below continue to require stable ctime as well.
+            (cross_interface and os.name == "nt")
+            or int(getattr(first, "st_ctime_ns", 0))
+            == int(getattr(second, "st_ctime_ns", 0))
+        )
     )
 
 
@@ -194,7 +206,7 @@ def _read_private_settings_snapshot(
         if not _same_file_identity(parent_before, parent_after):
             raise SettingsError("settings directory changed while reading")
         _require_private_regular(current, "settings file")
-        if not _same_file_version(after, current):
+        if not _same_file_version(after, current, cross_interface=True):
             raise SettingsError("settings file changed while reading")
         payload = b"".join(chunks)
     finally:

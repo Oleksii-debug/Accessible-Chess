@@ -182,6 +182,40 @@ class LibraryImportWebViewProjection:
         self._source_reading: tuple[int, int, int] | None = None
         self._book_source_report: tuple[str, int] | None = None
 
+    def _capture_presentation_state(self) -> tuple[object, ...]:
+        """Freeze only UI projection state before an import event batch.
+
+        Import database operations and worker/observer mailboxes retain their
+        own authority; these immutable values are purely presentational.
+        """
+        return (
+            self._language,
+            self._phase,
+            self._processed_games,
+            self._total_games,
+            self._warning_count,
+            self._attempt_id,
+            self._message,
+            self._source_reading,
+            self._book_source_report,
+        )
+
+    def _restore_presentation_state(self, checkpoint: tuple[object, ...]) -> None:
+        """Roll back a failed leased import event batch without losing UI state."""
+        if type(checkpoint) is not tuple or len(checkpoint) != 9:
+            raise TypeError("invalid library import presentation checkpoint")
+        (
+            self._language,
+            self._phase,
+            self._processed_games,
+            self._total_games,
+            self._warning_count,
+            self._attempt_id,
+            self._message,
+            self._source_reading,
+            self._book_source_report,
+        ) = checkpoint
+
     @property
     def phase(self) -> LibraryImportPhase:
         return self._phase

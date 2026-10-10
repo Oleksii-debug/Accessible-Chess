@@ -17,24 +17,28 @@ WINDOWS_COMPOSITION = (ROOT / ".github" / "workflows" / "version2-windows-compos
 class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
     def test_navigation_buttons_keep_concise_native_names(self) -> None:
         self.assertIn('const button = documentRef.createElement("button")', BOOTSTRAP)
-        self.assertIn('button.textContent = String(item.label || item.route_id || "")', BOOTSTRAP)
+        self.assertIn('button.textContent = label', BOOTSTRAP)
         self.assertIn('button.setAttribute("aria-current", "page")', BOOTSTRAP)
         self.assertNotIn("aria-describedby", BOOTSTRAP)
         self.assertNotIn('button.id + "-description"', BOOTSTRAP)
 
     def test_v2_navigation_is_a_named_landmark_in_both_languages(self) -> None:
         self.assertIn('const nav = documentRef.createElement("nav")', BOOTSTRAP)
-        self.assertIn('nav.setAttribute("aria-label", uiText(', BOOTSTRAP)
+        self.assertIn('nav.setAttribute(', BOOTSTRAP)
+        self.assertIn('uiTextFor(language, "Розділи Accessible Chess", "Accessible Chess sections")', BOOTSTRAP)
         self.assertIn('"Розділи Accessible Chess"', BOOTSTRAP)
         self.assertIn('"Accessible Chess sections"', BOOTSTRAP)
-        self.assertIn('navHeading.textContent = uiText("Розділи", "Sections")', BOOTSTRAP)
+        self.assertIn('navHeading.textContent = uiTextFor(language, "Розділи", "Sections")', BOOTSTRAP)
 
     def test_document_language_is_set_before_navigation_is_rendered(self) -> None:
-        language = '    documentRef.documentElement.lang = currentLanguage;'
-        navigation_call = '    renderNavigation(snapshot);'
-        self.assertIn(language, BOOTSTRAP)
-        self.assertIn(navigation_call, BOOTSTRAP)
-        self.assertLess(BOOTSTRAP.index(language), BOOTSTRAP.index(navigation_call))
+        commit_start = BOOTSTRAP.index('  function commitShellChrome(')
+        commit_end = BOOTSTRAP.index('  function renderProductSurface(', commit_start)
+        commit = BOOTSTRAP[commit_start:commit_end]
+        language = 'documentRef.documentElement.lang = language;'
+        navigation_call = 'navList.replaceChildren(navigationState.fragment);'
+        self.assertIn(language, commit)
+        self.assertIn(navigation_call, commit)
+        self.assertLess(commit.index(language), commit.index(navigation_call))
 
     def test_workspace_does_not_create_a_second_live_region(self) -> None:
         self.assertIn('workspace.setAttribute("aria-live", "off")', BOOTSTRAP)
@@ -44,15 +48,14 @@ class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
     def test_product_routes_keep_a_real_main_landmark(self) -> None:
         self.assertIn('const workspace = documentRef.createElement("main")', BOOTSTRAP)
         self.assertNotIn('const workspace = documentRef.createElement("section")', BOOTSTRAP)
-        product_start = BOOTSTRAP.index('  function renderProductSurface(')
-        product_end = BOOTSTRAP.index('  function render(snapshot, restoreFocus)', product_start)
+        product_start = BOOTSTRAP.index('  function render(snapshot, restoreFocus, preserveUnchanged)')
+        product_end = BOOTSTRAP.index('  function snapshotShellPublicationToken(', product_start)
         product = BOOTSTRAP[product_start:product_end]
         self.assertIn('originalMain.hidden = true;', product)
         self.assertIn('workspace.hidden = false;', product)
         self.assertLess(product.index('originalMain.hidden = true;'), product.index('workspace.hidden = false;'))
-        stage1_restore = BOOTSTRAP[product_end:]
-        self.assertIn('workspace.hidden = true;', stage1_restore)
-        self.assertIn('originalMain.hidden = false;', stage1_restore)
+        self.assertIn('workspace.hidden = true;', product)
+        self.assertIn('originalMain.hidden = false;', product)
 
     def test_fallback_status_text_follows_document_language(self) -> None:
         for english in (
@@ -71,7 +74,8 @@ class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
         self.assertIn('<input id="move-input" type="text"', HTML)
         self.assertIn('function restoreStage1Focus(routeId, requestedFocus)', BOOTSTRAP)
         self.assertIn('if (focusById(requestedFocus)) return true;', BOOTSTRAP)
-        self.assertIn('return focusById(stage1Focus[routeId] || "");', BOOTSTRAP)
+        self.assertIn('if (focusById(stage1Focus[routeId] || "")) return true;', BOOTSTRAP)
+        self.assertIn('return focusById("v2-nav-" + routeId);', BOOTSTRAP)
         self.assertIn('return documentRef.activeElement === target;', BOOTSTRAP)
         self.assertIn('refresh(true).catch(function () {', BOOTSTRAP)
         self.assertNotIn('refresh(false).catch(function () {', BOOTSTRAP)
@@ -80,10 +84,8 @@ class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
         self.assertIn('default_focus_id="training-answer"', SHELL)
         self.assertNotIn('default_focus_id="training-prompt"', SHELL)
         self.assertIn('input.id = "training-answer";', TRAINING_SURFACE)
-        self.assertIn(
-            'const focus = requestedFocus === "training-prompt" ? "training-answer" : requestedFocus;',
-            BOOTSTRAP,
-        )
+        self.assertIn('requestedFocus === "training-prompt"', BOOTSTRAP)
+        self.assertIn('? "training-answer"', BOOTSTRAP)
 
     def test_focus_targets_under_hidden_routes_are_never_programmatically_focused(self) -> None:
         self.assertIn('function hiddenByAncestor(target)', BOOTSTRAP)
@@ -97,38 +99,38 @@ class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
         self.assertIn('"dom_id": f"book-block-{block.index}"', BOOK_PROJECTION)
         self.assertIn('"focus_target": snapshot["block"]["dom_id"]', BOOK_PROJECTION)
         self.assertIn('function productSurfaceFocusTarget(snapshot, routeId)', BOOTSTRAP)
-        self.assertIn('return String(snapshot.pgn.focus_target || "");', BOOTSTRAP)
-        self.assertIn('return String(block.dom_id || "");', BOOTSTRAP)
+        self.assertIn('return validFocusId(snapshot.pgn.focus_target) ? snapshot.pgn.focus_target : "";', BOOTSTRAP)
+        self.assertIn('return validFocusId(block.dom_id) ? block.dom_id : "";', BOOTSTRAP)
         self.assertIn('function restoreProductFocus(snapshot, routeId, requestedFocus)', BOOTSTRAP)
         self.assertIn('if (active && workspace.contains(active)) return true;', BOOTSTRAP)
         self.assertIn('if (focusById(productSurfaceFocusTarget(snapshot, routeId))) return true;', BOOTSTRAP)
         self.assertIn('if (focusById(requestedFocus)) return true;', BOOTSTRAP)
         self.assertIn('return focusById("v2-nav-" + routeId);', BOOTSTRAP)
-        self.assertIn('renderProductSurface(snapshot, routeId, requestedFocus, restoreFocus, heading);', BOOTSTRAP)
-        self.assertIn('if (restoreFocus) restoreProductFocus(snapshot, routeId, requestedFocus);', BOOTSTRAP)
+        self.assertIn('const productFocus = renderProductSurface(', BOOTSTRAP)
+        self.assertIn('restoreProductFocus(snapshot, routeId, productFocus);', BOOTSTRAP)
 
     def test_empty_product_routes_have_heading_and_focusable_status(self) -> None:
         self.assertIn('routeId === "pgn" || routeId === "library" || routeId === "books"', BOOTSTRAP)
         self.assertIn('return "v2-" + routeId + "-empty-status";', BOOTSTRAP)
-        self.assertIn('function renderEmptyProduct(routeId, heading)', BOOTSTRAP)
+        self.assertIn('function renderEmptyProduct(routeId, heading, language)', BOOTSTRAP)
         self.assertIn('const title = documentRef.createElement("h2");', BOOTSTRAP)
         self.assertIn('routeId === "library"', BOOTSTRAP)
-        self.assertIn('uiText("Бібліотека", "Library")', BOOTSTRAP)
-        self.assertIn('uiText("Бібліотека ще не готова до перегляду.", "The Library is not ready to browse yet.")', BOOTSTRAP)
+        self.assertIn('uiTextFor(language, "Бібліотека", "Library")', BOOTSTRAP)
+        self.assertIn('uiTextFor(language, "Бібліотека ще не готова до перегляду.", "The Library is not ready to browse yet.")', BOOTSTRAP)
         self.assertIn('status.id = emptyStatusId(routeId);', BOOTSTRAP)
         self.assertIn('status.tabIndex = -1;', BOOTSTRAP)
         self.assertIn('workspace.replaceChildren(title, status);', BOOTSTRAP)
         library_start = BOOTSTRAP.index('    if (routeId === "library") {')
         library_end = BOOTSTRAP.index('    if (routeId === "books") {', library_start)
         library = BOOTSTRAP[library_start:library_end]
-        self.assertIn('renderEmptyProduct(routeId, heading);', library)
+        self.assertIn('renderEmptyProduct(routeId, heading, language);', library)
         self.assertIn(
             'const requestedFocus = validFocusId(screen.focus_target)',
             BOOTSTRAP,
         )
         self.assertIn('? screen.focus_target', BOOTSTRAP)
         self.assertNotIn('const requestedFocus = String(screen.focus_target || "");', BOOTSTRAP)
-        self.assertIn('const heading = String(screen.heading || "");', BOOTSTRAP)
+        self.assertIn('const heading = boundedText(screen.heading, MAX_SCREEN_HEADING);', BOOTSTRAP)
 
     def test_global_navigation_focus_does_not_overwrite_route_local_history(self) -> None:
         focus_start = BOOTSTRAP.index('  documentRef.addEventListener("focusin"')
@@ -160,7 +162,7 @@ class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
         drain = BOOTSTRAP[drain_start:drain_end]
         self.assertIn('let needsRefresh = false;', drain)
         self.assertIn('const refreshRequired = applyQueuedEvent(event, orderedStage1Refreshes);', drain)
-        self.assertIn('if (!refreshRequired) return;', drain)
+        self.assertIn('if (refreshRequired) needsRefresh = true;', drain)
 
     def test_status_only_events_announce_without_rebuilding_the_active_surface(self) -> None:
         apply_start = BOOTSTRAP.index('  function applyQueuedEvent(event, orderedStage1Refreshes)')
@@ -201,7 +203,7 @@ class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
         self.assertIn('return repaintBarrier.then(function () {', drain)
         self.assertIn('return needsRefresh ? refresh(true) : undefined;', drain)
 
-    def test_native_event_batch_restores_final_route_then_visible_explicit_focus(self) -> None:
+    def test_native_event_batch_restores_focus_only_from_canonical_snapshot(self) -> None:
         self.assertIn('<button id="board-launcher" type="button">', HTML)
         drain_start = BOOTSTRAP.index('  function drainEvents()')
         drain_end = BOOTSTRAP.index('  documentRef.addEventListener("focusin"', drain_start)
@@ -211,16 +213,9 @@ class Version2ReleaseAccessibilityContractTests(unittest.TestCase):
             'events.length > MAX_NATIVE_EVENT_BATCH',
             drain,
         )
-        self.assertIn('let queuedFocusTarget = "";', drain)
-        self.assertIn('const candidate = payload.focus_target;', drain)
-        self.assertIn('if (validFocusId(candidate)) queuedFocusTarget = candidate;', drain)
-        self.assertNotIn('if (candidate) queuedFocusTarget = candidate;', drain)
         self.assertIn('return needsRefresh ? refresh(true) : undefined;', drain)
-        self.assertIn('if (needsRefresh && queuedFocusTarget) focusById(queuedFocusTarget);', drain)
-        self.assertLess(
-            drain.index('return needsRefresh ? refresh(true) : undefined;'),
-            drain.index('if (needsRefresh && queuedFocusTarget) focusById(queuedFocusTarget);'),
-        )
+        self.assertNotIn('queuedFocusTarget', drain)
+        self.assertNotIn('focusById(payload.focus_target)', drain)
 
     def test_windows_composition_executes_behavioral_v2_bootstrap_smoke(self) -> None:
         test_path = "tests/js/version2_release_bootstrap_dom_test.js"

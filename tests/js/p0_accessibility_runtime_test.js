@@ -136,8 +136,19 @@ assert.strictEqual(
     "selected",
     20
   ),
+  -1,
+  "selection restore must fail closed when duplicate text has no semantic context"
+);
+assert.strictEqual(
+  fakeWindow.AccessibleChessP0Runtime.nearestSelectionStart(
+    "alpha selected omega selected end",
+    "selected",
+    20,
+    "alpha selected omega ",
+    " end"
+  ),
   21,
-  "selection restore must prefer the nearest surviving occurrence"
+  "selection restore must use retained semantic context to identify the surviving occurrence"
 );
 
 async function run() {
