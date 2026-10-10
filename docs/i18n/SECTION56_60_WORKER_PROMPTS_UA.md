@@ -1,4 +1,6 @@
-# Accessible Chess — five copy-ready worker prompts for Sections 56–60
+# Accessible Chess — five copy-ready worker prompts for Sections 56–60; Section61 final build only AFTER these are DONE
+
+**CURRENT OFFICIAL COUNT 61 PARENT SECTIONS (1–61), 52/61 DONE, 9/61 NOT DONE. New Section61 is future final integrated compiled release only AFTER every Section1–60 truly DONE; not a license to start earlier. This changes NO 56–60 gate or language roster.**
 
 **PROMPT SPECIFICATION ONLY.** Do not execute any of these before all Sections 0–55 terminal DONE. Each prompt targets one and only one continent. Owner-authorized later DONE runs are evidence-based linguistic audits; never reopen unaffected work.
 
