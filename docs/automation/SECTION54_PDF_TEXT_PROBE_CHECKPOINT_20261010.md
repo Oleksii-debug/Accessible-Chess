@@ -33,15 +33,14 @@ Board, Stockfish, Sections 0–53 or Section 55.
 - `acs/format_factory_pdf_projection.py` reuses the existing `import_text_book(..., source_format='txt')` to create the ONE canonical `BookDocument` from ALL extracted pages without inventing headings, games, FEN, or diagrams.
 - Blank/unreadable pages block the entire projection, rather than omitting pages. A page-to-projected-line map and separate original-PDF SHA256 and projected-text SHA256 are retained.
 - Output is a private `REVIEW_REQUIRED` preview only, with provenance/reading-order/chess/rights warnings. This is not full PDF ingress or a publishing path.
-- `tests/test_section54_factory_pdf_projection.py` adds five executable canonical-integration/negative scenarios; their real-repository Windows/Ubuntu outcomes are **NOT YET CONFIRMED** while exact-head CI is pending.
+- `tests/test_section54_factory_pdf_projection.py` adds six executable canonical-integration/negative scenarios (including duplicated-importer-warning regression); their real-repository Windows/Ubuntu outcomes are **NOT YET CONFIRMED** while exact-head CI is pending.
 
 ## Evidence and open gates
 
-Ten local tests were run successfully on Python 3.11-compatible syntax
+Sixteen isolated local tests were run successfully on Python 3.11-compatible syntax
 using the installed `pypdf 5.9.0` library, including an actual generated
 PDF text-page extraction, encrypted-PDF rejection, page-count rejection,
-source spoof rejection, fabricated approval rejection and private error redaction. **Local tests used a
-temporary minimal canonical-intake stub**, not the real checkout (GitHub DNS
+source spoof rejection, fabricated approval rejection and private error redaction. **Local tests used temporary minimal canonical-intake and BookDocument importer stubs**, not the real checkout (GitHub DNS
 is unavailable in the working container); therefore these are focused unit
 smokes only, NOT real repository integration or acceptance. The committed
 test imports the real parent-branch canonical factory intake and should be
