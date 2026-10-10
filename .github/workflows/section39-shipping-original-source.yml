@@ -37,5 +37,7 @@ jobs:
           tools/section39_pgn_semantic_signature.py
           tools/section39_new_section37_annotated_pgn_qualification.py
           tools/section39_reti_historical_bilingual_study.py
+          tools/section39_format_contract.py
+          tools/section39_ci_evidence_aggregate.py
       - name: Section 39 original-source regression discovery
         run: python -m unittest discover -v -s tests -p 'test_section39*.py'
