@@ -1,5 +1,9 @@
 # AGENTS.md
 
+## Owner closure-status reconciliation — 2026-10-10 (binding)
+
+**FIRST READ:** the `CANONICAL CURRENT SECTION STATUS` table at the top of `SEQUENTIAL_CLOSURE_STATE.md` and the current Drive plan's leading `АКТУАЛЬНИЙ РЕЄСТР СТАТУСІВ`. Treat older PARTIAL/OPEN text for previously terminal sections as audit history, not instructions. In particular **Sections 47, 48 and 49 are TERMINAL DONE — WORKER LOCKED** under the owner plan and SECTION_CLOSURE_IMMUTABILITY.md, and their original implementation entered main via PR #2506. Do not launch work on these sections or reimplement their accepted source. Current whole-parent unfinished set: **40, 46, 50–55**; preserve already DONE individual subscopes. Only a documented actual regression/invalid evidence/changed contract/broken integration can reopen a terminal lock. Do not claim physical Windows/NVDA or provider-live evidence without executed proof. Preserve the one-section-per-run law below.
+
 ## HIGHEST-PRIORITY OWNER DIRECTIVE — 2026-10-09: PRESERVE PAID/VERIFIED WORK, ONE SECTION PER RUN
 
 **MANDATORY: [SECTION_CLOSURE_IMMUTABILITY.md](SECTION_CLOSURE_IMMUTABILITY.md) in `main` is binding for every autonomous worker and integrator.** Read it in full before any branch, file, PR, test-baseline, integration or status mutation. This owner directive overrides any conflicting older “start next Section in same run”, multi-Section batch, broad reconvergence, or rework-for-activity instructions. It does not override essential security, safety, test, licensing, evidence-integrity or truthful DONE requirements.
