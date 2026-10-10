@@ -1,8 +1,8 @@
 # Accessible Chess — immutable completed work and one-section execution
 
-## OWNER NUMBERING OVERRIDE — Section 55 unified, official Sections 1–60 (2026-10-10)
+## OWNER NUMBERING OVERRIDE — Section55 unified; Section61 future final release (2026-10-10)
 
-Owner explicitly requires **exactly 60 official parent Sections, numbered 1–60**. Legacy Section 0 is a separate completed foundation, excluded from the official parent total. Section 55 consists of original Braille 55.1–55.16 AND approved added subsections 55.17 accounts/auth, 55.18 lossless updates, 55.19 lawful diagnostics/analytics and 55.20 professional site/licensing/legal. Each child has its own acceptance/DONE evidence, but never a separate parent count. On current accepted status, Sections 1–52 DONE and 53,54,55,56,57,58,59,60 NOT DONE = **52/60 DONE; 8/60 open**. Preserve all earlier DONE. Sections 56–60 activate only after all 1–55 (including 55.17–55.20) and foundation 0 terminal DONE. Earlier 55.1–55.16-only acceptance remains specific to the Braille child workstream, not sufficient for parent 55 terminal DONE.
+Owner officially requires **exactly 61 parent Sections numbered 1–61**; historical foundation Section0 is completed and excluded from this count. Section55 remains ONE parent containing chess Braille 55.1–55.16, accounts 55.17, lossless updates 55.18, diagnostics/privacy 55.19 and site/licensing 55.20. As of this amendment 52/61 DONE, 9/61 NOT DONE (53–61). **Section61 is SPECIFICATION ONLY, WAITING_PREDECESSORS, no code/build/QA/release work permitted until ALL official Sections1–60 plus baseline0 are terminal DONE in canonical GitHub main and Google Drive with exact-SHA acceptance, including 77 professionally verified languages and all required Section55 items.** Reopening older DONE requires demonstrated defect and formal narrow REOPEN. Earlier 60-parent count is superseded for current status; 56–60 numbering remains unchanged. Full acceptance in docs/SECTION61_FINAL_PRODUCT_RELEASE_ENGINEERING.md.
 
 
 ## Narrow owner exception for proven post-DONE localization defects — 2026-10-10
