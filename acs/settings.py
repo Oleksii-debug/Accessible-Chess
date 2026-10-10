@@ -47,7 +47,7 @@ DEFAULTS: dict[str, Any] = {
     "sound_low_time_variant": "1",
     "video_sessions_json": "{}",
     "ai_profiles_json": "{}",
-    "design_profiles_json": '{"version":1,"selected":"Classic","profiles":{}}',
+    "design_profiles_json": '{"profiles":{},"selected":"Classic","version":1}',
     "visual_profile_json": "{\"board_theme\":\"wood\",\"density\":\"comfortable\",\"profile\":\"classic\",\"theme\":\"system\"}",
     "visual_board_preferences_json": "{\"animateMoves\":false,\"coordinateMode\":\"edges\",\"fitToWindow\":false,\"lowPowerMode\":false,\"orientation\":\"white\",\"pieceTheme\":\"unicode\",\"presentationMode\":false,\"scalePercent\":100,\"showLastMove\":true}",
 }

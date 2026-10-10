@@ -84,7 +84,10 @@ class NVDAP0ContractTests(unittest.TestCase):
         self.assertEqual(grid_attrs.get("role"), "grid")
         self.assertEqual(grid_attrs.get("aria-rowcount"), "8")
         self.assertEqual(grid_attrs.get("aria-colcount"), "8")
-        self.assertNotIn("<canvas", self.html.lower())
+        for canvas_id in ("video-frame-canvas", "video-sync-canvas"):
+            canvas_tag, canvas_attrs = self.probe.attrs_by_id[canvas_id]
+            self.assertEqual(canvas_tag, "canvas")
+            self.assertEqual(canvas_attrs.get("aria-hidden"), "true")
 
     def test_python_board_contract_has_64_unique_logical_squares(self):
         api = AccessibleChessAPI("uk")

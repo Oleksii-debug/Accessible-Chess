@@ -108,6 +108,7 @@ a{color:var(--ac41-link);text-underline-offset:.16em}
 
 /* Teacher/coach arrows and highlights are inert visual decorations. */
 #board-grid{position:relative}
+#board-grid[role=grid] > [role=row]{display:contents}
 #board-grid[role=grid] [role=gridcell][data-ac42-highlight=true]::after{
   content:"";position:absolute;inset:4px;z-index:1;border:4px solid var(--ac42-highlight-color);
   border-radius:.2rem;pointer-events:none
@@ -144,11 +145,12 @@ body{font-size:calc(1rem * var(--ac45-font-scale))}
   background:var(--ac41-surface);color:var(--ac41-ink);
   min-width:0;overflow-wrap:anywhere
 }
-#ac45-studio h3{margin-top:.3rem}
+#ac45-studio h3{margin-top:.3rem;color:inherit}
 #ac45-toggle,#ac45-studio button,#ac45-studio select,#ac45-studio input{
-  max-width:100%;min-height:2.75rem
+  box-sizing:border-box;max-width:100%;min-width:0;min-height:2.75rem;
+  overflow-wrap:anywhere
 }
-#ac45-panel{padding:var(--ac41-space-2)}
+#ac45-panel{box-sizing:border-box;min-width:0;padding:var(--ac41-space-2)}
 #ac45-panel[hidden]{display:none!important}
 #ac45-panel fieldset{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,15rem),1fr));
   gap:var(--ac41-space-3)}
@@ -171,8 +173,8 @@ body{font-size:calc(1rem * var(--ac45-font-scale))}
 #ac45-preview[data-board="high_contrast"]{border-style:double;border-width:4px}
 #ac45-status{min-height:1.5rem;white-space:pre-wrap}
 #ac45-status[data-error="true"]{font-weight:700}
-#ac45-name{display:block;margin-block:var(--ac41-space-2);width:min(30rem,100%)}
-#ac45-import{display:block;margin-block:var(--ac41-space-2);width:min(30rem,100%)}
+#ac45-name{display:block;margin-block:var(--ac41-space-2);min-width:0;width:min(30rem,100%)}
+#ac45-import{display:block;margin-block:var(--ac41-space-2);min-width:0;width:min(30rem,100%)}
 :root[data-ac45-density="compact"] #ac45-studio{
   padding:var(--ac41-space-2)
 }
