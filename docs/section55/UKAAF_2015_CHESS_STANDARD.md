@@ -50,6 +50,14 @@ The catalog records six-dot positions only. It does not implement raised-paper t
 
 The pure encode_ukaaf2015_simple_san function covers examples from UKAAF 2015 3.2–3.6 (Rf4, d5, cxd5, Rxf4+, f5+, Nce5, Nb1c3) and the documented mate suffix. This lexical mapper is not a rules engine. It must only be called for SAN tokens independently proven legal by the existing canonical PGN/Board layer. It deliberately rejects castling, pawn promotion, annotation NAG, descriptive notation, numbered game records and punctuation variants pending fuller professional qualification.
 
+## Canonical PGN legality bridge — narrow mainline only
+
+The encode_ukaaf2015_canonical_mainline_pgn(pgn) function now accepts one bounded, warning-free game through the existing STRICT parse_pgn_text boundary, then applies every move through chesscore.Board.push_text and codes the **Board-generated canonical SAN** using the limited lexical UKAAF mapper. It records before/after FEN on each move and never implements its own chess rules.
+
+It refuses all unsupported annotations, NAGs, comments, alternate lines, multiple games, castling notation, promotions and any move that the canonical Board cannot legally play. The structured result is explicitly NOT a typeset Braille game score, not paginated, not a variation-tree certificate, and not professional proof of UKAAF 4.x paragraph layout.
+
+Tests use short legal algebraic games, illegal move sequences, contradictory/multiple PGN input and otherwise legal but not-yet-qualified special moves. Full chess-game conversion and 2015 text-layout approval remain open.
+
 ## Still required
 
 Complete UKAAF 2015 3.x move notation, variations and textual analysis; UKAAF 4.x/5.2/6 layout and tactile diagrams; OCR/provenance; official proofreader and British chess-Braille expert approval; actual library/reader context; real embosser/BRF/eBraille; legal sample corpus; broad roundtrip and negative corpus; full Section 55 release and institutional quality gates.
