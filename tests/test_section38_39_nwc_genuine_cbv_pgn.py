@@ -159,6 +159,39 @@ class NorthwestChessSourceOnlyTests(unittest.TestCase):
                 child.wait.assert_called_once()
                 self.assertFalse(target.exists())
 
+    def test_genuine_publisher_bytes_are_hash_recorded_but_blocked_on_unpack_error(self):
+        genuine_pgn = b'[Event "Historical"]\n[Result "*"]\n\n1. e4 e5 *\n'
+        genuine_cbv = b"publisher archive with original metadata"
+        with (
+            patch.object(nw, "_bounded_file_digest", return_value=("a" * 64, 100)),
+            patch.object(nw, "_catalog_source_pair", return_value=(
+                {"download_url": nw.CBV_URL},
+                {"download_url": nw.PGN_URL},
+            )),
+            patch.object(nw, "_read_publisher_source", side_effect=[
+                genuine_pgn, genuine_cbv,
+            ]) as downloader,
+            patch.object(nw, "_extract_with_mit",
+                         side_effect=LawfulCorpusError("original unpacker refused")) as unpack,
+        ):
+            result = nw.qualify_original_publisher_pair(
+                binary=Path("external-test-only-backend"),
+                expected_binary_sha256="a" * 64,
+            )
+        self.assertEqual(downloader.call_count, 2)
+        unpack.assert_called_once()
+        self.assertEqual(result["qualification"], "BLOCKED")
+        self.assertEqual(result["blocked_reason"], "MIT_EXTERNAL_CBV_UNPACK_FAILED_CLOSED")
+        self.assertEqual(result["observed_source_pgn_sha256"], hashlib.sha256(genuine_pgn).hexdigest())
+        self.assertEqual(result["observed_source_cbv_sha256"], hashlib.sha256(genuine_cbv).hexdigest())
+        self.assertEqual(result["pgn_expected_games"], 1)
+        self.assertIsNone(result["cbv_decoder_actual_games"])
+        self.assertIsNone(result["actual_acsdb_imported_games"])
+        self.assertFalse(result["full_semantic_game_tree_match"])
+        self.assertFalse(result["acsdb_restart_full_semantic_match"])
+        self.assertFalse(result["section38_terminal_done"])
+        self.assertFalse(result["original_files_redistributed"])
+
     def test_original_pgn_and_original_cbv_are_distinct_source_bytes(self):
         # This is a negative *metadata* test, not a substitute for downloading
         # actual CBV and PGN or their independent oracle.
