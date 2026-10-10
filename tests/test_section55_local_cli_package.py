@@ -231,5 +231,45 @@ class Section55LocalCLITests(unittest.TestCase):
                     run(args)
             self.assertFalse(args.output_folder.exists())
 
+    def test_optional_html_is_independently_rerendered_from_original_json(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            args = self.args(root)
+            args.emit_html = True
+            with patch.dict("sys.modules", {"louis": SyntheticLouis("louis")}):
+                self.assertEqual(run(args), 0)
+            html_file = args.output_folder / "chess-book-unverified.html"
+            content = html_file.read_bytes()
+            self.assertIn(b"UNVERIFIED", content)
+            report = json.loads((args.output_folder / "quality-report.json").read_text("utf-8"))
+            self.assertEqual(sha256(content).hexdigest(), report["manifest"]["output_html_sha256"])
+            self.assertIs(report["manifest"]["html_print_ready"], False)
+            verified = verify_provisional_bundle(
+                args.output_folder, args.book_json, table_file=args.table_file,
+            )
+            self.assertEqual(verified.output_html_sha256, sha256(content).hexdigest())
+            html_file.write_bytes(content + b"<script>unsafe</script>")
+            with self.assertRaises(BrailleFactoryError):
+                verify_provisional_bundle(args.output_folder, args.book_json)
+
+    def test_markdown_title_override_survives_html_source_revalidation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            args = self.args(root)
+            md = root / "owned.md"
+            md.write_text("# Chapter\n\nA white king and a black king.\n", encoding="utf-8")
+            args.book_json = None
+            args.source_file = md
+            args.book_title = "My Owned Chess Book"
+            args.emit_html = True
+            with patch.dict("sys.modules", {"louis": SyntheticLouis("louis")}):
+                self.assertEqual(run(args), 0)
+            verified = verify_provisional_bundle(
+                args.output_folder, md, table_file=args.table_file,
+            )
+            self.assertIsNotNone(verified.output_html_sha256)
+            self.assertIn(b"My Owned Chess Book",
+                          (args.output_folder / "chess-book-unverified.html").read_bytes())
+
 if __name__ == "__main__":
     unittest.main()
