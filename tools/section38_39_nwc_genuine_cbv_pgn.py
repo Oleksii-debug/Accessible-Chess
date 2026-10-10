@@ -150,37 +150,65 @@ def _extract_with_mit(binary: Path, archive: Path, outdir: Path) -> None:
                 raise LawfulCorpusError("original CBV extraction exceeds budget")
         return len(members), expanded
 
-    try:
-        process = subprocess.Popen(
-            [os.fspath(binary), "archive", "extract",
-             os.fspath(archive), os.fspath(outdir)],
-            cwd=os.fspath(binary.parent), stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            shell=False, start_new_session=(os.name != "nt"),
-        )
-    except OSError as exc:
-        raise LawfulCorpusError("MIT original CBV executable cannot start") from exc
-    deadline = time.monotonic() + 120
-    try:
-        while process.poll() is None:
-            if time.monotonic() > deadline:
-                raise LawfulCorpusError("MIT original CBV extraction timed out")
+    # Single-threaded upstream reporting mode describes every skipped member.
+    # Keep stdout/stderr in bounded temporary files so neither untrusted file
+    # names nor attacker-controlled archive error text enter user logs.
+    with tempfile.TemporaryFile() as stdout_report, tempfile.TemporaryFile() as stderr_report:
+        try:
+            process = subprocess.Popen(
+                [os.fspath(binary), "archive", "extract",
+                 os.fspath(archive), os.fspath(outdir),
+                 "--threads", "1", "--json"],
+                cwd=os.fspath(binary.parent), stdin=subprocess.DEVNULL,
+                stdout=stdout_report, stderr=stderr_report,
+                shell=False, start_new_session=(os.name != "nt"),
+            )
+        except OSError as exc:
+            raise LawfulCorpusError("MIT original CBV executable cannot start") from exc
+        deadline = time.monotonic() + 120
+        try:
+            while process.poll() is None:
+                if time.monotonic() > deadline:
+                    raise LawfulCorpusError("MIT original CBV extraction timed out")
+                inventory()
+                if (os.fstat(stdout_report.fileno()).st_size > 1024 * 1024
+                        or os.fstat(stderr_report.fileno()).st_size > 1024 * 1024):
+                    raise LawfulCorpusError("MIT CBV extraction report exceeds budget")
+                time.sleep(0.05)
             inventory()
-            time.sleep(0.05)
-        if process.returncode != 0:
-            raise LawfulCorpusError("MIT CBV decoder refused real publisher original")
-        inventory()
-        if not outdir.is_dir() or outdir.is_symlink():
-            raise LawfulCorpusError("MIT CBV decoder produced no regular destination")
-        if not any(
-            x.suffix.lower() == ".cbh"
-            for x in outdir.rglob("*") if x.is_file() and not x.is_symlink()
-        ):
-            raise LawfulCorpusError("genuine CBV archive lacks classic CBH source")
-    finally:
-        if process.poll() is None:
-            process.kill()
-        process.wait(timeout=10)
+            if (os.fstat(stdout_report.fileno()).st_size > 1024 * 1024
+                    or os.fstat(stderr_report.fileno()).st_size > 1024 * 1024):
+                raise LawfulCorpusError("MIT CBV extraction report exceeds budget")
+            if process.returncode != 0:
+                stdout_report.seek(0)
+                raw = stdout_report.read(1024 * 1024 + 1)
+                counters = ""
+                try:
+                    report = json.loads(raw)
+                    if (type(report) is dict
+                            and type(report.get("written")) is int
+                            and 0 <= report["written"] <= 150
+                            and type(report.get("skipped")) is list
+                            and len(report["skipped"]) <= 150):
+                        counters = (f"; written={report['written']}; "
+                                    f"skipped={len(report['skipped'])}")
+                except (ValueError, UnicodeError, TypeError):
+                    pass
+                raise LawfulCorpusError(
+                    f"MIT CBV decoder refused real publisher original "
+                    f"(exit={process.returncode}{counters})"
+                )
+            if not outdir.is_dir() or outdir.is_symlink():
+                raise LawfulCorpusError("MIT CBV decoder produced no regular destination")
+            if not any(
+                x.suffix.lower() == ".cbh"
+                for x in outdir.rglob("*") if x.is_file() and not x.is_symlink()
+            ):
+                raise LawfulCorpusError("genuine CBV archive lacks classic CBH source")
+        finally:
+            if process.poll() is None:
+                process.kill()
+            process.wait(timeout=10)
 
 
 def _catalog_source_pair() -> tuple[dict, dict]:
