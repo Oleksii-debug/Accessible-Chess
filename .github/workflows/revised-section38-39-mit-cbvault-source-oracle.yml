@@ -105,6 +105,32 @@ jobs:
         run: |
           python -m py_compile tools/section38_39_mit_cbvault_oracle.py
           python -m tools.section38_39_mit_cbvault_oracle
+      - name: Diagnose original MIT decoder rejection without publishing source files
+        if: failure()
+        working-directory: product
+        shell: python
+        env:
+          ACS_ORACLE_BACKEND: ${{ github.workspace }}/external/cbvault/target/release/cbvault
+          ACS_ORACLE_SOURCE: ${{ github.workspace }}/upstream/libcbh
+        run: |
+          import hashlib, os, pathlib, re, subprocess, tempfile
+          binary = os.environ["ACS_ORACLE_BACKEND"]
+          original = pathlib.Path(os.environ["ACS_ORACLE_SOURCE"]) / "gtest"
+          cases = (("annotation", "Annotation/TestBase.cbh"), ("variations", "WithVariations/WithVariations.cbh"), ("setup", "UnusualStart/UnusualStartBytes.cbh"))
+          for label, relative in cases:
+              with tempfile.TemporaryDirectory() as temp:
+                  for action, argv in (("info", ["info", str(original / relative), "--json"]), ("pgn", ["pgn", str(original / relative), str(pathlib.Path(temp) / "probe.pgn"), "--json"])):
+                      try:
+                          proc = subprocess.run([binary, *argv], capture_output=True, timeout=20, check=False)
+                          raw = proc.stderr[:1600]
+                          lines = raw.decode("utf-8", errors="replace").splitlines()
+                          # All inputs are the three public, SHA-pinned upstream fixtures.
+                          # Redact path-looking tokens and bound error text.
+                          summary = lines[-1] if lines else "no stderr"
+                          summary = re.sub(r"(?:[A-Za-z]:)?[/\\][^ ,;()]*", "[PATH]", summary)[:240]
+                          print(f"{label}/{action}: exit={proc.returncode}; stderr_sha256={hashlib.sha256(raw).hexdigest()}; diagnostic={summary}")
+                      except (OSError, subprocess.TimeoutExpired) as exc:
+                          print(f"{label}/{action}: diagnostic probe unavailable: {type(exc).__name__}")
       - name: Enforce zero silent game/variation loss on original CBH source
         working-directory: product
         shell: python
