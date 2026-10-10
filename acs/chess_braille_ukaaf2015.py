@@ -15,6 +15,10 @@ FEN parsing/validation comes entirely from the existing canonical Board.
 """
 
 from dataclasses import dataclass
+from hashlib import sha256
+import json
+from .bookdocument import BookDocument
+from .chess_braille_factory import _canonical_lines
 from .chesscore import Board
 from .chess_braille_factory import BrailleFactoryError
 
@@ -235,3 +239,60 @@ def encode_ukaaf2015_simple_san(san: str) -> UnverifiedUKAAFMove:
     if any(not "\u2800" <= char <= "\u283f" for char in cells):
         raise BrailleFactoryError("Chess algebraic code attempted non-six-dot output")
     return UnverifiedUKAAFMove(san=san, cells=cells)
+
+
+@dataclass(frozen=True, slots=True)
+class UnverifiedUKAAFDiagramCatalog:
+    """Unsigned local source-linked diagram inventory; not publication-ready."""
+    data: bytes
+    sha256: str
+    count: int
+    status: str = "UNVERIFIED_REQUIRES_DECISION"
+    layout_qualified: bool = False
+
+
+def build_ukaaf2015_diagram_catalog(document: BookDocument) -> UnverifiedUKAAFDiagramCatalog:
+    """Export only explicitly canonical chess Position/Diagram/Exercise nodes.
+
+    The algorithm reuses BookDocument semantic validation and chesscore.Board
+    instead of inferring diagrams from arbitrary text or introducing rules.
+    """
+    if not isinstance(document, BookDocument):
+        raise BrailleFactoryError("An independently validated BookDocument is required")
+    _, source_digest = _canonical_lines(document)
+    canonical = BookDocument.from_dict(document.as_dict())
+    items = []
+    for index, block in enumerate(canonical.blocks, start=1):
+        data = block.as_dict()
+        if data["kind"] not in ("Position", "Diagram", "Exercise"):
+            continue
+        qualified = encode_ukaaf2015_position(data["fen"])
+        items.append({
+            "block_index": index,
+            "block_kind": data["kind"],
+            "canonical_fen": qualified.canonical_fen,
+            "braille_position_cells": qualified.position_cells,
+            "roundtrip_placement": decode_ukaaf2015_position_cells(qualified.position_cells),
+            "layout_qualified": False,
+        })
+    if not items:
+        raise BrailleFactoryError("No explicit canonical chess positions available for UKAAF catalog")
+    payload = {
+        "schema_version": 1,
+        "source_book_sha256": source_digest,
+        "standard": STANDARD_ID,
+        "source_reference": _STANDARD_SOURCE,
+        "notation_scope": "UKAAF-2015-section-5.1-position-cells-only",
+        "layout_qualified": False,
+        "print_ready": False,
+        "status": "UNVERIFIED_REQUIRES_DECISION",
+        "diagram_count": len(items),
+        "diagrams": items,
+    }
+    encoded = (json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")) +
+               "\n").encode("utf-8")
+    if len(encoded) > 16 * 1024 * 1024:
+        raise BrailleFactoryError("UKAAF position inventory exceeds private output limit")
+    return UnverifiedUKAAFDiagramCatalog(
+        data=encoded, sha256=sha256(encoded).hexdigest(), count=len(items),
+    )
