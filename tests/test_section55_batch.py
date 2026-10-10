@@ -8,7 +8,7 @@ import types
 import unittest
 from unittest.mock import patch
 
-from acs.bookdocument import BookDocument, Paragraph
+from acs.bookdocument import BookDocument, Paragraph, Position
 from acs.chess_braille_factory import BrailleFactoryError
 from tools.section55_batch import process_batch
 
@@ -82,6 +82,27 @@ class TestSection55LocalBatch(unittest.TestCase):
                 self.assertIn(b"Original accessible book text", data)
                 self.assertEqual(process_batch(manifest, root, max_per_run=1), (0, 0))
                 html_path.write_bytes(data + b"altered")
+                with self.assertRaises(BrailleFactoryError):
+                    process_batch(manifest, root, max_per_run=1)
+
+    def test_ukaaf_diagram_catalog_is_resumable_and_corruption_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest = setup_queue(root, count=1)
+            raw = json.loads(manifest.read_text("utf-8"))
+            raw["jobs"][0]["emit_ukaaf_diagrams"] = True
+            raw["jobs"][0]["cells_per_line"] = 80
+            manifest.write_text(json.dumps(raw), encoding="utf-8")
+            (root / "input.json").write_text(json.dumps(BookDocument(
+                title="Private sample chess position",
+                blocks=[Position(fen="4k3/8/8/8/8/8/8/4K3 w - - 0 1")],
+            ).as_dict()), encoding="utf-8")
+            with patch.dict("sys.modules", {"louis": FakeLouis("louis")}):
+                self.assertEqual(process_batch(manifest, root, max_per_run=1), (1, 0))
+                path = root / "book-1" / "chess-diagrams-ukaaf2015-unverified.json"
+                self.assertTrue(path.is_file())
+                self.assertEqual(process_batch(manifest, root, max_per_run=1), (0, 0))
+                path.write_bytes(path.read_bytes() + b"tamper")
                 with self.assertRaises(BrailleFactoryError):
                     process_batch(manifest, root, max_per_run=1)
 
