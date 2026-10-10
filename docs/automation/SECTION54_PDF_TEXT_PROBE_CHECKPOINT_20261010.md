@@ -28,6 +28,13 @@ Board, Stockfish, Sections 0–53 or Section 55.
   acceptance gate. Do not wire this preview probe to arbitrary user files
   as a production-trusted PDF feature before memory and parser sandbox review.
 
+## Additive canonical text-only projection
+
+- `acs/format_factory_pdf_projection.py` reuses the existing `import_text_book(..., source_format='txt')` to create the ONE canonical `BookDocument` from ALL extracted pages without inventing headings, games, FEN, or diagrams.
+- Blank/unreadable pages block the entire projection, rather than omitting pages. A page-to-projected-line map and separate original-PDF SHA256 and projected-text SHA256 are retained.
+- Output is a private `REVIEW_REQUIRED` preview only, with provenance/reading-order/chess/rights warnings. This is not full PDF ingress or a publishing path.
+- `tests/test_section54_factory_pdf_projection.py` adds five executable canonical-integration/negative scenarios; their real-repository Windows/Ubuntu outcomes are **NOT YET CONFIRMED** while exact-head CI is pending.
+
 ## Evidence and open gates
 
 Ten local tests were run successfully on Python 3.11-compatible syntax
