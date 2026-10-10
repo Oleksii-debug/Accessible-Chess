@@ -239,10 +239,16 @@ class Version2NativeMenuController(FullProductNativeMenuController):
         self._owner_export_callback = owner_export_callback
 
     def spec(self) -> tuple[NativeTopMenuSpec, ...]:
-        menus = build_version2_menu_spec(
-            self._adapter.registry,
-            language=self._adapter.shell.language,
+        return self._with_owner_export_menu(
+            build_version2_menu_spec(
+                self._adapter.registry,
+                language=self._adapter.shell.language,
+            )
         )
+
+    def _with_owner_export_menu(
+        self, menus: tuple[NativeTopMenuSpec, ...]
+    ) -> tuple[NativeTopMenuSpec, ...]:
         if self._owner_export_callback is None:
             return menus
         language = self._adapter.shell.language
