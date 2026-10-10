@@ -202,6 +202,22 @@ def import_factory_book(
 ) -> FactoryImportedBook:
     """Call accepted BookDocument ingress; leave PGN rules to canonical owners."""
     receipt = inspect_factory_source(source, source_name=source_name)
+    if receipt.detected_format == "docx" and not receipt.extension_mismatch:
+        # The status remains PARTIAL: only an explicitly loss-gated text-only
+        # subset is admitted, and the original DOCX receipt is retained.
+        from .format_factory_docx_import import (
+            FactoryDocxImportError, import_docx_paragraph_book,
+        )
+        try:
+            doc, warnings = import_docx_paragraph_book(
+                source, source_name=receipt.source_name,
+                title=title, author=author, language=language,
+            )
+        except FactoryDocxImportError as exc:
+            raise FactoryIntakeError("DOCX source needs semantic review") from exc
+        return FactoryImportedBook(
+            receipt, doc, "acs.format_factory_docx_import", warnings,
+        )
     if not receipt.can_import_as_book:
         raise FactoryIntakeError("Source is not qualified for semantic Book import")
     common = dict(

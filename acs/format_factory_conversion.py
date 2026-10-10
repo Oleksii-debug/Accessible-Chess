@@ -149,6 +149,8 @@ def convert_factory_book_private(
         raise FactoryConversionError("Canonical source import failed or is unsupported") from exc
     if imported.source.sha256 != source_digest:
         raise FactoryConversionError("Source identity mismatch after import")
+    if imported.source.detected_format == "docx" and not allow_semantic_loss:
+        raise FactoryConversionError("Text-only DOCX subset requires explicit semantic loss consent")
     try:
         selected = _resolve_selection(imported.document, policy.selection, chapter_heading_level=chapter_heading_level)
         chess_audit = audit_factory_book_chess(selected)
