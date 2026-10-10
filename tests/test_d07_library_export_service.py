@@ -326,7 +326,8 @@ class LibraryExportServiceTests(unittest.TestCase):
             )
             reviewed = self.service.expected_destination_sha256(destination)
             self.assertIsNotNone(reviewed)
-            real_replace = os.replace
+            from acs.pgn_service import _replace_published_path
+            real_replace = _replace_published_path
             replace_calls = 0
 
             def racing_replace(src, dst):
@@ -339,7 +340,7 @@ class LibraryExportServiceTests(unittest.TestCase):
                     )
                 return real_replace(src, dst)
 
-            with patch("acs.pgn_service.os.replace", side_effect=racing_replace):
+            with patch("acs.pgn_service._replace_published_path", side_effect=racing_replace):
                 with self.assertRaises(PgnConcurrentWriteError):
                     self.service.export_to(
                         destination,
