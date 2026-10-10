@@ -9,7 +9,7 @@ import unittest
 from unittest.mock import patch
 from hashlib import sha256
 
-from acs.bookdocument import BookDocument, Paragraph
+from acs.bookdocument import BookDocument, Paragraph, Position
 from tools.section55_braille_pef import make_parser, run
 from acs.chess_braille_factory import BrailleFactoryError
 from acs.chess_braille_bundle import verify_provisional_bundle
@@ -270,6 +270,57 @@ class Section55LocalCLITests(unittest.TestCase):
             self.assertIsNotNone(verified.output_html_sha256)
             self.assertIn(b"My Owned Chess Book",
                           (args.output_folder / "chess-book-unverified.html").read_bytes())
+
+    def test_explicit_ukaaf2015_diagrams_are_source_bound_and_not_print_ready(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            args = self.args(root)
+            args.emit_ukaaf_diagrams = True
+            args.cells_per_line = 80
+            args.book_json.write_text(json.dumps(BookDocument(
+                title="Owned sample chess position",
+                blocks=[Position(fen="4k3/8/8/8/8/8/8/4K3 w - - 0 1")],
+            ).as_dict()), encoding="utf-8")
+            with patch.dict("sys.modules", {"louis": SyntheticLouis("louis")}):
+                self.assertEqual(run(args), 0)
+            path = args.output_folder / "chess-diagrams-ukaaf2015-unverified.json"
+            parsed = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(parsed["diagram_count"], 1)
+            self.assertIs(parsed["layout_qualified"], False)
+            report_path = args.output_folder / "quality-report.json"
+            report = json.loads(report_path.read_text("utf-8"))
+            self.assertIs(report["manifest"]["ukaaf_print_ready"], False)
+            self.assertEqual(sha256(path.read_bytes()).hexdigest(),
+                             report["manifest"]["ukaaf_diagram_catalog_sha256"])
+            verified = verify_provisional_bundle(args.output_folder, args.book_json,
+                                                  table_file=args.table_file)
+            self.assertEqual(verified.output_ukaaf_sha256,
+                             report["manifest"]["ukaaf_diagram_catalog_sha256"])
+            # Updating the file AND its reported SHA is still detected by
+            # independent re-rendering of the original canonical BookDocument.
+            parsed["diagrams"][0]["braille_position_cells"] = "⠁"
+            altered = (json.dumps(parsed, ensure_ascii=False) + "\n").encode("utf-8")
+            path.write_bytes(altered)
+            report["manifest"]["ukaaf_diagram_catalog_sha256"] = sha256(altered).hexdigest()
+            report_path.write_text(json.dumps(report), encoding="utf-8")
+            with self.assertRaises(BrailleFactoryError):
+                verify_provisional_bundle(args.output_folder, args.book_json)
+
+    def test_ukaaf_catalog_refuses_wrong_language_and_missing_positions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            args = self.args(root)
+            args.emit_ukaaf_diagrams = True
+            args.language = "sk"
+            with patch.dict("sys.modules", {"louis": SyntheticLouis("louis")}):
+                with self.assertRaises(BrailleFactoryError):
+                    run(args)
+            self.assertFalse(args.output_folder.exists())
+            args.language = "en"
+            with patch.dict("sys.modules", {"louis": SyntheticLouis("louis")}):
+                with self.assertRaises(BrailleFactoryError):
+                    run(args)
+            self.assertFalse(args.output_folder.exists())
 
 if __name__ == "__main__":
     unittest.main()
