@@ -1532,5 +1532,20 @@
     "post_done_audit": "On new explicit launch when all target continent's language subsections are DONE, execute per-key contextual linguistic review, not repeat implementation. If a demonstrated error is found, record exact evidence and formally REOPEN only affected language subsection, repair narrowly, rerun qualified independent review and regression/integration tests, then reclose with GitHub and Drive readback. Do not rewrite unaffected DONE work.",
     "scope_gate": "Sections 1–55 DONE, including 55.17–55.20, and historical foundation Section 0 DONE."
   },
-  "official_parent_count": 60
+  "official_parent_count": 61,
+  "parent_section_range": "1–61",
+  "section61": {
+    "label": "FINAL_ALL_MODULES_ALL_LANGUAGES_BUILD_AND_RELEASE",
+    "status": "WAITING_PREDECESSORS_NOT_DONE_SPECIFICATION_ONLY",
+    "acceptance": "docs/SECTION61_FINAL_PRODUCT_RELEASE_ENGINEERING.md",
+    "may_start_only_after": "ALL Sections1–60 terminal DONE on accepted GitHub main AND canonical Drive, including ALL 77 distinct languages / 82 choices / 55.1–55.20, with historical foundation0 also DONE",
+    "may_not_start_early": [
+      "implementation",
+      "compilation",
+      "integration",
+      "release QA",
+      "release delivery",
+      "Section61 DONE"
+    ]
+  }
 }
