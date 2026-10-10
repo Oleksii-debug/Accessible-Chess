@@ -40,7 +40,7 @@ class FactoryDocxPreviewTests(unittest.TestCase):
                 ET.fromstring(zf.read(filename))
             xml = zf.read("word/document.xml").decode()
             self.assertIn('w:val="Heading2"', xml)
-            self.assertIn('w:numId w:val="2"', xml)
+            self.assertIn('w:numId w:val="1"', xml)
             self.assertIn("Content &amp; &lt;tag&gt;", xml)
             self.assertNotIn("<tag>", xml)
             self.assertIn('w:lang w:val="en"', zf.read("word/styles.xml").decode())
@@ -68,14 +68,21 @@ class FactoryDocxPreviewTests(unittest.TestCase):
             self.assertIn(FEN, xml)
             self.assertIn("Starting chessboard", xml)
 
-    def test_ordered_list_custom_start_not_silently_lost(self) -> None:
-        doc = BookDocument(title="List", language="en", blocks=[ListBlock(items=["Example"], ordered=True, start=7)])
-        with self.assertRaises(FactoryExportError):
-            export_factory_docx_preview(doc, source_sha256=SOURCE, modified_utc=DATE)
-        result = export_factory_docx_preview(
-            doc, source_sha256=SOURCE, modified_utc=DATE, allow_semantic_loss=True
-        )
-        self.assertIn("ORDERED_LIST_START_NOT_PRESERVED", result.losses)
+    def test_each_ordered_list_preserves_its_start_without_shared_counter(self) -> None:
+        doc = BookDocument(title="List", language="en", blocks=[
+            ListBlock(items=["Seven"], ordered=True, start=7),
+            Paragraph(text="A separating paragraph"),
+            ListBlock(items=["One"], ordered=True, start=1),
+        ])
+        result = export_factory_docx_preview(doc, source_sha256=SOURCE, modified_utc=DATE)
+        self.assertEqual(result.losses, ())
+        with ZipFile(BytesIO(result.output_bytes)) as zf:
+            document_xml = zf.read("word/document.xml").decode()
+            numbers = zf.read("word/numbering.xml").decode()
+            self.assertIn('w:numId w:val="1"', document_xml)
+            self.assertIn('w:numId w:val="2"', document_xml)
+            self.assertIn('w:startOverride w:val="7"', numbers)
+            self.assertIn('w:startOverride w:val="1"', numbers)
 
     def test_game_reference_without_pgn_rejected(self) -> None:
         doc = BookDocument(title="Games", language="en", blocks=[Game(game_id=2)])
