@@ -94,7 +94,7 @@ class FactoryPrivateConversionTests(unittest.TestCase):
             )
 
     def test_unimplemented_formats_and_external_calls_refuse(self) -> None:
-        for p in (policy(CHAPTER_BOOK, formats=("html", "docx")),
+        for p in (policy(CHAPTER_BOOK, formats=("html", "tagged_pdf")),
                   policy(CHAPTER_BOOK, allowed_external_search=True),
                   policy(CHAPTER_BOOK, allowed_external_ai=True, provider_id="provider",
                          model_id="model", max_input_tokens=30, max_output_tokens=20)):
@@ -131,6 +131,23 @@ class FactoryPrivateConversionTests(unittest.TestCase):
         with ZipFile(BytesIO(result.outputs[1].output_bytes)) as archive:
             self.assertIn(b"First chapter", archive.read("OEBPS/nav.xhtml"))
             self.assertIn(b"Second unique text.", archive.read("OEBPS/book.xhtml"))
+        self.assertFalse(result.public_release_approved)
+
+    def test_docx_private_pipeline_requires_timestamp_and_has_semantic_paragraphs(self) -> None:
+        from io import BytesIO
+        from zipfile import ZipFile
+        p = policy(CHAPTER_BOOK, formats=("html", "docx"))
+        with self.assertRaises(FactoryConversionError):
+            convert_factory_book_private(
+                CHAPTER_BOOK, source_name="chapters.md", policy=p, source_language="en",
+            )
+        result = convert_factory_book_private(
+            CHAPTER_BOOK, source_name="chapters.md", policy=p, source_language="en",
+            docx_modified_utc="2026-10-10T00:00:00Z",
+        )
+        self.assertEqual([out.output_format for out in result.outputs], ["html", "docx"])
+        with ZipFile(BytesIO(result.outputs[1].output_bytes)) as archive:
+            self.assertIn(b"First unique text.", archive.read("word/document.xml"))
         self.assertFalse(result.public_release_approved)
 
     def test_private_html_source_prevents_script_injection(self) -> None:
