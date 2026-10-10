@@ -38,7 +38,7 @@ class FactoryPdfProbe:
     page_count: int
     pages: tuple[FactoryPdfPage, ...]
     warnings: tuple[str, ...]
-    review_status: str = "REVIEW_REQUIRED"
+    review_status: str = field(default="REVIEW_REQUIRED", init=False)
     public_release_approved: bool = field(default=False, init=False)
 
 
