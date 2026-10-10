@@ -164,3 +164,74 @@ def encode_ukaaf2015_position(fen: str) -> UnverifiedUKAAFDiagram:
     return UnverifiedUKAAFDiagram(
         position_cells=encoded, canonical_fen=canonical, placement=placement,
     )
+
+
+@dataclass(frozen=True, slots=True)
+class UnverifiedUKAAFMove:
+    """One narrow algebraic chess-move coding result, not a legal move proof."""
+    san: str
+    cells: str
+    standard: str = STANDARD_ID
+    status: str = "UNVERIFIED_REQUIRES_DECISION"
+    move_legality_proven: bool = False
+    layout_qualified: bool = False
+
+
+_SIMPLE_SAN_PATTERN = __import__("re").compile(
+    r"^(?P<piece>[KQRBN]?)(?P<disamb>(?:[a-h][1-8]?|[1-8])?)"
+    r"(?P<capture>x?)(?P<file>[a-h])(?P<rank>[1-8])"
+    r"(?P<suffix>[+#]?)$"
+)
+_GRADE1_FILES = {
+    "a": "\u2801", "b": "\u2803", "c": "\u2809", "d": "\u2819",
+    "e": "\u2811", "f": "\u280b", "g": "\u281b", "h": "\u2813",
+}
+
+
+def encode_ukaaf2015_simple_san(san: str) -> UnverifiedUKAAFMove:
+    """Lexical UKAAF 2015 3.2–3.6 subset; no chess legality is inferred.
+
+    Only the caller's parser-validated SAN tokens may be fed here when used
+    for production. Complex SAN (castling, promotion, NAG, game number,
+    variations, e.p. markers) requires a separate qualified implementation.
+    """
+    if type(san) is not str or not 2 <= len(san) <= 12:
+        raise BrailleFactoryError("Unsupported bounded chess SAN token")
+    match = _SIMPLE_SAN_PATTERN.fullmatch(san)
+    if not match:
+        raise BrailleFactoryError("SAN notation falls outside proven UKAAF algebraic subset")
+    piece = match["piece"]
+    disambiguation = match["disamb"]
+    capture = match["capture"] == "x"
+    destination = match["file"] + match["rank"]
+    suffix = match["suffix"]
+    if not piece and disambiguation and not capture:
+        raise BrailleFactoryError("An unmarked pawn origin would create chess-notation ambiguity")
+    if not piece and capture and (
+            len(disambiguation) != 1 or disambiguation not in _GRADE1_FILES):
+        raise BrailleFactoryError("Pawn captures require one canonical source file")
+    if piece and disambiguation:
+        if len(disambiguation) > 2 or (
+                len(disambiguation) == 2 and
+                not (disambiguation[0] in _GRADE1_FILES and disambiguation[1] in "12345678")):
+            raise BrailleFactoryError("Piece disambiguation is outside proven code subset")
+    if not piece and capture and not disambiguation:
+        raise BrailleFactoryError("Pawn capture is missing source-file evidence")
+    cells = (_WHITE[piece] if piece else "")
+    for char in disambiguation:
+        cells += (_GRADE1_FILES[char] if char in _GRADE1_FILES
+                  else _LOWER_NUMBERS[char])
+    # UKAAF 2015 3.4: capture dots 56, check dots 45, both dots 456;
+    # 3.6 permits the same check indicator for a pawn before its target.
+    if capture and suffix == "+":
+        cells += "\u2838"  # ⠸ dots 456
+    elif capture:
+        cells += "\u2830"  # ⠰ dots 56
+    elif suffix == "+":
+        cells += "\u2818"  # ⠘ dots 45
+    cells += _GRADE1_FILES[destination[0]] + _LOWER_NUMBERS[destination[1]]
+    if suffix == "#":
+        cells += "\u281c\u280d"  # ⠜⠍, 2.2 "mate"
+    if any(not "\u2800" <= char <= "\u283f" for char in cells):
+        raise BrailleFactoryError("Chess algebraic code attempted non-six-dot output")
+    return UnverifiedUKAAFMove(san=san, cells=cells)
