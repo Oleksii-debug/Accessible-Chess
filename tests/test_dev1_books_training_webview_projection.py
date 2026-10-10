@@ -99,7 +99,7 @@ class BookProjectionTests(unittest.TestCase):
             )
         with self.assertRaisesRegex(ValueError, "position presence"):
             self.projection._snapshot_from_block(
-                replace(block, kind="Position", role="group", position_fen=None)
+                replace(block, kind="Position", role="group", position_fen=None, heading_level=None)
             )
 
     def test_snapshot_rejects_book_block_subclass_before_attribute_hooks(self) -> None:
@@ -367,7 +367,7 @@ class BookProjectionTests(unittest.TestCase):
                 side_effect=AssertionError("redaction must not scan raw oversize text"),
             ) as redact,
         ):
-            with self.assertRaisesRegex(ValueError, "visible-text budget"):
+            with self.assertRaisesRegex(ValueError, "raw text budget"):
                 self.projection._snapshot_from_block(
                     replace(paragraph, text="xxxxx")
                 )
@@ -471,7 +471,7 @@ class BookProjectionTests(unittest.TestCase):
         with patch("acs.book_webview_projection._MAX_BOOK_BLOCK_VISIBLE_CHARS", 4):
             with self.assertRaisesRegex(ValueError, "visible-text budget"):
                 self.projection._snapshot_from_block(
-                    replace(paragraph, text="😀😀😀")
+                    replace(paragraph, text="😀😀😀", title="", source_anchor="", warning="", heading_path=())
                 )
 
     def test_snapshot_list_aggregate_budget_matches_webview_utf16_units(self) -> None:
@@ -485,6 +485,11 @@ class BookProjectionTests(unittest.TestCase):
                         role="list",
                         heading_level=None,
                         list_items=("😀", "😀", "a"),
+                        title="",
+                        text="",
+                        source_anchor="",
+                        warning="",
+                        heading_path=(),
                         list_ordered=False,
                         list_start=None,
                     )
@@ -1056,6 +1061,9 @@ class TrainingProjectionTests(unittest.TestCase):
                     frozenset({"e4"}),
                     explanation="x" * 1201,
                 ),
+                # The first answer must remain an accepted intermediate step:
+                # a completed exercise displays completion feedback instead.
+                ExerciseStep(frozenset({"e5"})),
             ),
             title="Rollback explanation",
         )
