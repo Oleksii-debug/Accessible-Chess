@@ -19,6 +19,7 @@ from hashlib import sha256
 import json
 from .bookdocument import BookDocument
 from .chess_braille_factory import _canonical_lines
+from .pgn_roundtrip import parse_pgn_text
 from .chesscore import Board
 from .chess_braille_factory import BrailleFactoryError
 
@@ -295,4 +296,78 @@ def build_ukaaf2015_diagram_catalog(document: BookDocument) -> UnverifiedUKAAFDi
         raise BrailleFactoryError("UKAAF position inventory exceeds private output limit")
     return UnverifiedUKAAFDiagramCatalog(
         data=encoded, sha256=sha256(encoded).hexdigest(), count=len(items),
+    )
+
+
+MAX_SIMPLE_PGN_CHARS = 100_000
+MAX_SIMPLE_MAINLINE_PLIES = 512
+
+
+@dataclass(frozen=True, slots=True)
+class CanonicalUKAAFMainlineMove:
+    ply_index: int
+    canonical_san: str
+    braille_cells: str
+    before_fen: str
+    after_fen: str
+
+
+@dataclass(frozen=True, slots=True)
+class UnverifiedUKAAFMainline:
+    """Canonical-Board-validated simple move sequence, not printed game layout."""
+    moves: tuple[CanonicalUKAAFMainlineMove, ...]
+    start_fen: str
+    end_fen: str
+    standard: str = STANDARD_ID
+    status: str = "UNVERIFIED_REQUIRES_DECISION"
+    variation_proof: bool = False
+    layout_qualified: bool = False
+
+
+def encode_ukaaf2015_canonical_mainline_pgn(pgn: str) -> UnverifiedUKAAFMainline:
+    """Proof-gate UKAAF subset via existing STRICT PGN and legal Board moves.
+
+    Intentional scope: one game, one mainline, <=512 legal SAN moves with NO
+    variation, NAG, commentary or unsupported chess-code symbols. This relies
+    exclusively on existing PGN/Board rules; nothing is inferred from text.
+    """
+    if type(pgn) is not str or not 0 < len(pgn) <= MAX_SIMPLE_PGN_CHARS:
+        raise BrailleFactoryError("UKAAF mainline PGN is empty or outside supported budget")
+    try:
+        parsed = parse_pgn_text(pgn, strict=True)
+    except (ValueError, RecursionError) as exc:
+        raise BrailleFactoryError("Unqualified chess PGN cannot enter UKAAF mainline proof") from exc
+    if len(parsed) != 1 or parsed[0].warnings:
+        raise BrailleFactoryError("One warning-free PGN game is required")
+    game = parsed[0]
+    if (game.line.leading_comments or game.line.trailing_comments or
+            not game.line.moves or len(game.line.moves) > MAX_SIMPLE_MAINLINE_PLIES):
+        raise BrailleFactoryError("UKAAF source contains unsupported game commentary or move count")
+    setup = game.tags.get("SetUp")
+    fen_header = game.tags.get("FEN")
+    if setup not in (None, "0", "1") or (setup == "1") != (fen_header is not None):
+        raise BrailleFactoryError("Custom chess FEN setup requires explicit consistent SetUp=1")
+    try:
+        board = Board(fen_header) if fen_header else Board()
+    except ValueError as exc:
+        raise BrailleFactoryError("Game FEN header cannot be validated") from exc
+    beginning = board.fen()
+    output: list[CanonicalUKAAFMainlineMove] = []
+    for i, node in enumerate(game.line.moves, start=1):
+        if node.nags or node.comments_before or node.comments_after or node.variations:
+            raise BrailleFactoryError("Commentary/NAG/variations require full qualified chess Braille layout")
+        before = board.fen()
+        try:
+            canonical_san = board.push_text(node.san)
+        except ValueError as exc:
+            raise BrailleFactoryError("PGN move failed canonical chess legality proof") from exc
+        # Only the canonical Board-generated SAN is rendered. Caller text
+        # cannot force a subtly different chess interpretation or promotion.
+        cells = encode_ukaaf2015_simple_san(canonical_san).cells
+        output.append(CanonicalUKAAFMainlineMove(
+            ply_index=i, canonical_san=canonical_san, braille_cells=cells,
+            before_fen=before, after_fen=board.fen(),
+        ))
+    return UnverifiedUKAAFMainline(
+        moves=tuple(output), start_fen=beginning, end_fen=board.fen(),
     )
