@@ -58,8 +58,8 @@ class BoundedZipMemberTests(unittest.TestCase):
                 # when constructing a new member. Restore the exact hostile
                 # raw archive name in both local and central headers before
                 # testing the *reader*'s rejection of that original name.
-                if "\\\\" in bad:
-                    normalized = bad.replace("\\\\", "/").encode("utf-8")
+                if "\\" in bad:
+                    normalized = bad.replace("\\", "/").encode("utf-8")
                     original = bad.encode("utf-8")
                     raw_archive = self.archive.read_bytes()
                     self.assertIn(normalized, raw_archive)
