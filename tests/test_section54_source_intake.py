@@ -126,10 +126,19 @@ class Section54SourceIntakeTests(unittest.TestCase):
     def test_traversal_and_duplicate_archive_names_rejected(self) -> None:
         for entries in (
             {"../outside.txt": b"x"}, {"/root/file": b"x"},
-            {"C:/private": b"x"}, {"bad\\member": b"x"},
+            {"C:/private": b"x"},
         ):
             with self.assertRaises(FactoryIntakeError):
                 inspect_factory_source(make_zip(entries), source_name="bad.zip")
+        # On Windows ZipInfo converts backslashes into forward slashes while
+        # WRITING. Mutate both ZIP filename headers after writing a valid
+        # same-length entry so the input really contains an unsafe backslash
+        # on BOTH Windows and Linux (not a platform-specific safe path).
+        unsafe = make_zip({"bad/member": b"x"})
+        self.assertEqual(unsafe.count(b"bad/member"), 2)
+        unsafe = unsafe.replace(b"bad/member", b"bad\\member")
+        with self.assertRaises(FactoryIntakeError):
+            inspect_factory_source(unsafe, source_name="backslash.zip")
         dest = BytesIO()
         with ZipFile(dest, "w") as archive:
             archive.writestr("A.txt", "first")
