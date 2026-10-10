@@ -1,0 +1,36 @@
+name: Section 39 authentic CBH and DOCX source QA
+
+on:
+  pull_request:
+    paths:
+      - "tools/section39_real_cbh_oracle_receipt.py"
+      - "tools/section39_real_chess_docx_interoperability.py"
+      - "tests/test_section39_real_cbh_oracle_receipt.py"
+      - "tests/test_section39_real_chess_docx_interoperability.py"
+      - ".github/workflows/section39-cbh-docx-oracle.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  real-source-cbh-docx-contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Compile original accepted qualification modules
+        run: >-
+          python -m compileall -q
+          tools/section39_real_cbh_oracle_receipt.py
+          tools/section39_real_chess_docx_interoperability.py
+      - name: Original pinned CBH no-fake-pass/oracle contract
+        run: python -m unittest discover -v -s tests -p 'test_section39_real_cbh_oracle_receipt.py'
+      - name: Real original Capablanca source-derived DOCX interoperability
+        run: python -m unittest discover -v -s tests -p 'test_section39_real_chess_docx_interoperability.py'
