@@ -67,6 +67,24 @@ class TestSection55LocalBatch(unittest.TestCase):
             journal = json.loads((root / ".section55-batch-journal.json").read_text("utf-8"))
             self.assertEqual(set(journal["completed"]), {"book-1", "book-2"})
 
+    def test_optional_html_is_fingerprinted_and_crash_replayed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            manifest = setup_queue(root, count=1)
+            raw = json.loads(manifest.read_text("utf-8"))
+            raw["jobs"][0]["emit_html"] = True
+            manifest.write_text(json.dumps(raw), encoding="utf-8")
+            with patch.dict("sys.modules", {"louis": FakeLouis("louis")}):
+                self.assertEqual(process_batch(manifest, root, max_per_run=1), (1, 0))
+                html_path = root / "book-1" / "chess-book-unverified.html"
+                self.assertTrue(html_path.is_file())
+                data = html_path.read_bytes()
+                self.assertIn(b"Original accessible book text", data)
+                self.assertEqual(process_batch(manifest, root, max_per_run=1), (0, 0))
+                html_path.write_bytes(data + b"altered")
+                with self.assertRaises(BrailleFactoryError):
+                    process_batch(manifest, root, max_per_run=1)
+
     def test_crash_after_publish_before_journal_replays_verified_result(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
