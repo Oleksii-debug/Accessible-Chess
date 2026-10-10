@@ -139,8 +139,9 @@ def _sniff_text(source: bytes) -> str:
         except UnicodeDecodeError:
             return "unknown"
     sample = value[:8192]
-    if (not sample.strip() or "\x00" in sample or
-        any(ord(c) < 32 and c not in "\t\r\n\f" for c in sample)):
+    # Sample only for format recognition. Validate all decoded bytes: a binary
+    # suffix beyond 8192 characters must never be admitted as a text book.
+    if not sample.strip() or re.search(r"[\x00-\x08\x0b\x0e-\x1f\x7f]", value):
         return "unknown"
     stripped = sample.lstrip().lower()
     # Valid XHTML starts with an XML declaration, while HTML book fragments can
