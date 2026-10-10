@@ -142,7 +142,7 @@ class StarterBooksTrainingReleaseTests(unittest.TestCase):
                     self.assertEqual(
                         {
                             "advanced-lichess-16-original",
-                            "extreme-lichess-4-original",
+                            "extreme-lichess-4-3000-plus",
                             "historical-reti-1921-original-study",
                             "section37-advanced-twelve-bilingual-source-workbook",
                         },
