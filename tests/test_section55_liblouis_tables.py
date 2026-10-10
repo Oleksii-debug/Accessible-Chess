@@ -139,6 +139,35 @@ class TestSection55TableClosure(unittest.TestCase):
             closure = scan_local_liblouis_table_closure(main)
             self.assertEqual(len(closure.files), 2)
 
+    def test_win32_reserved_names_and_ambiguous_components_fail_closed(self):
+        # These names may exist as ordinary files on Linux but represent
+        # Windows devices, aliases or forbidden Win32 path characters.
+        # Reject BEFORE a filesystem lookup, including on Windows runners.
+        invalid = (
+            "CON.cti", "prn.cti", "sub/AUX.cti", "NUL.cti",
+            "COM1.cti", "com9.cti", "COM¹.cti", "LPT².cti",
+            "sub/aux/child.cti", "child.cti.", "bad?.cti",
+            "bad*.cti", "bad|.cti", 'bad".cti',
+        )
+        for operand in invalid:
+            with self.subTest(operand=operand), tempfile.TemporaryDirectory() as tmp:
+                main = Path(tmp) / "main.ctb"
+                main.write_text(f"include {operand}\\n", encoding="utf-8")
+                with self.assertRaisesRegex(BrailleFactoryError, "Nonportable Windows"):
+                    scan_local_liblouis_table_closure(main)
+
+    def test_portable_unicode_table_component_remains_supported(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            (base / "échecs.cti").write_text("# valid table\\n", encoding="utf-8")
+            main = base / "main.ctb"
+            main.write_text("include échecs.cti\\n", encoding="utf-8")
+            closure = scan_local_liblouis_table_closure(main)
+            self.assertEqual(
+                tuple(name for name, _ in closure.files),
+                ("main.ctb", "échecs.cti"),
+            )
+
     def test_absolute_and_traversal_include_fail_closed(self):
         for operand in ("../unsafe.ctb", "/other/unsafe.ctb", "dir/../unsafe.ctb"):
             with self.subTest(operand=operand), tempfile.TemporaryDirectory() as tmp:
