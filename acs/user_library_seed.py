@@ -141,6 +141,38 @@ def _same_file_snapshot(first: os.stat_result, second: os.stat_result) -> bool:
     return first_change is not None and first_change == second_change
 
 
+def _same_path_to_open_handle_snapshot(
+    pathname: os.stat_result, opened: os.stat_result,
+) -> bool:
+    """Bind a direct pathname to its opened descriptor on Windows and POSIX.
+
+    CPython Windows pathname stat and descriptor fstat may expose *different
+    meanings* for st_ctime_ns (creation time versus filesystem change time).
+    Comparing those heterogeneous ctime values can reject an unchanged file.
+    Instead cross-check exact nonzero file identity, size and mtime on Windows,
+    while separately enforcing the full mtime/ctime snapshot on path->path and
+    descriptor->descriptor comparisons throughout this read. Never accept a
+    missing identity, absent metadata, or unstable same-origin snapshot.
+    """
+    if not _same_file_identity(pathname, opened):
+        return False
+    if getattr(pathname, "st_size", None) != getattr(opened, "st_size", None):
+        return False
+    path_change = _stable_change_metadata(pathname)
+    handle_change = _stable_change_metadata(opened)
+    if path_change is None or handle_change is None:
+        return False
+    if os.name == "nt":
+        path_inode = getattr(pathname, "st_ino", None)
+        handle_inode = getattr(opened, "st_ino", None)
+        return (
+            type(path_inode) is int and path_inode > 0
+            and type(handle_inode) is int and handle_inode > 0
+            and path_change[0] == handle_change[0]
+        )
+    return path_change == handle_change
+
+
 def _read_stable_regular_file(
     path: Path,
     *,
@@ -171,7 +203,7 @@ def _read_stable_regular_file(
             if (
                 not stat.S_ISREG(opened_before.st_mode)
                 or _is_reparse(opened_before)
-                or not _same_file_snapshot(before, opened_before)
+                or not _same_path_to_open_handle_snapshot(before, opened_before)
             ):
                 raise UserLibrarySeedError(changed_message)
             payload = handle.read(before.st_size + 1)
@@ -186,6 +218,7 @@ def _read_stable_regular_file(
         len(payload) != before.st_size
         or not _same_file_snapshot(opened_before, opened_after)
         or not _same_file_snapshot(before, after)
+        or not _same_path_to_open_handle_snapshot(after, opened_after)
     ):
         raise UserLibrarySeedError(changed_message)
     return payload
