@@ -123,8 +123,11 @@ class FactoryEvidenceTests(unittest.TestCase):
             FactoryMetadataClaim("title", "Bad\nInjected", "USER_ASSERTION", "user", _SHA)
         with self.assertRaises(FactoryEvidenceError):
             FactoryPageReference(True, "1", "page:1", _SHA)
+        wrong_page = FactoryPageReference(1, "1", "page:1", _OTHER_SHA)
         with self.assertRaises(FactoryEvidenceError):
-            FactoryPageReference(1, "1", "page:1", _OTHER_SHA)
+            inspect_factory_source_evidence(
+                _SOURCE, source_name="book.md", pages=(wrong_page,)
+            )
         with self.assertRaises(FactoryEvidenceError):
             inspect_factory_source_evidence(
                 _SOURCE, source_name="book.md", claims=[ ]
