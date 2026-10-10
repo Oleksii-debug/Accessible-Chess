@@ -51,6 +51,10 @@ class PdfProbeTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             FactoryPdfProbe("0" * 64, 10, 1, (), (),
                             public_release_approved=True)
+        # The status is an evidence boundary, not a caller-supplied verdict.
+        with self.assertRaises(TypeError):
+            FactoryPdfProbe("0" * 64, 10, 1, (), (),
+                            review_status="PROVEN")
 
 
     def test_real_pdf_text_is_extracted_but_never_proven(self):
