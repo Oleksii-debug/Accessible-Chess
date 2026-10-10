@@ -283,7 +283,34 @@ def qualify_mit_cbvault(
         expected_bytes = oracle.read_bytes()
         original_expected = tuple(parse_pgn_text(
             expected_bytes.decode("utf-8-sig", errors="strict"), strict=False))
-        exported_bytes = _run_external_pgn(backend_binary, cbh)
+        if not original_expected:
+            raise LawfulCorpusError("genuine CBH independent original oracle is empty")
+        try:
+            exported_bytes = _run_external_pgn(backend_binary, cbh)
+        except LawfulCorpusError as exc:
+            # A partial MIT export is an observed, non-qualifying result, not
+            # permission to discard the original family or call it PASS.
+            # Continue to test the other genuine CBH families and retain an
+            # honest, source-SHA-bound original fixture receipt.
+            result_rows.append({
+                "source_id": row["id"],
+                "source_original_upstream_git_sha": UPSTREAM_COMMIT,
+                "source_oracle_sha256": hashlib.sha256(expected_bytes).hexdigest(),
+                "expected_games": len(original_expected),
+                "observed_games": None,
+                "full_source_game_tree_match": False,
+                "expected_recovery_warning_count": sum(len(g.warnings) for g in original_expected),
+                "decoded_recovery_warning_count": None,
+                "all_original_header_comment_nag_variation_metadata_preserved": False,
+                "actual_pgn_sha256": None,
+                "actual_pgn_bytes": None,
+                "format": "cbh",
+                "scope": "independent external MIT decoder CLI against GPL source-only originals",
+                "qualification": "BLOCKED",
+                "blocked_reason": "MIT_EXTERNAL_DECODER_FAILED_CLOSED",
+                "public_release_redistribution": False,
+            })
+            continue
         actual_games = tuple(parse_pgn_text(
             exported_bytes.decode("utf-8-sig", errors="strict"), strict=False))
         if not original_expected or not actual_games:
