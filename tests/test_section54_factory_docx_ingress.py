@@ -62,6 +62,34 @@ class Section54DocxIngressTests(unittest.TestCase):
                 with self.assertRaises(FactoryIntakeError):
                     import_factory_book(data, source_name="lesson.docx")
 
+    def test_docx_preview_is_private_and_requires_loss_consent(self) -> None:
+        from hashlib import sha256
+        from acs.format_factory_conversion import (
+            FactoryConversionError, convert_factory_book_private,
+        )
+        from acs.format_factory_policy import FactoryJobPolicy, FactorySelection
+        data = word_docx('<w:p><w:r><w:t>Simple legal prose.</w:t></w:r></w:p>')
+        p = FactoryJobPolicy(
+            source_sha256=sha256(data).hexdigest(),
+            source_id="verified-simple-docx",
+            selection=FactorySelection("all"),
+            output_formats=("html",),
+            output_language="en",
+        )
+        with self.assertRaises(FactoryConversionError):
+            convert_factory_book_private(
+                data, source_name="simple.docx", policy=p, source_language="en",
+            )
+        result = convert_factory_book_private(
+            data, source_name="simple.docx", policy=p,
+            source_language="en", allow_semantic_loss=True,
+        )
+        self.assertEqual(result.import_format, "docx")
+        self.assertEqual(result.source_sha256, sha256(data).hexdigest())
+        self.assertIn(b"Simple legal prose.", result.outputs[0].output_bytes)
+        self.assertTrue(any("not independently proven" in w for w in result.source_warnings))
+        self.assertFalse(result.public_release_approved)
+
     def test_wrong_content_type_and_malformed_xml_refused(self) -> None:
         p = '<w:p><w:r><w:t>Text.</w:t></w:r></w:p>'
         cases = [
