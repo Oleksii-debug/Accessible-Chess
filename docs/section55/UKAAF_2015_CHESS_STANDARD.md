@@ -9,7 +9,7 @@ https://braillechess.org.uk/wp-content/uploads/2023/08/Braille-Chess-Notation.ht
 
 Reference scope:
 - Section 2.1 identifies pieces in British Braille chess notation, including the king, queen, rook, bishop, knight, and pawn.
-- Section 3 specifies algebraic/descriptive game notation, numbers, disambiguation, capture, check, promotion, castling, commentary and game-analysis conventions. These are NOT fully implemented.
+- Section 3 specifies algebraic/descriptive game notation, numbers, disambiguation, capture, check, promotion, castling, commentary and game-analysis conventions. **A narrow lexical subset of clauses 3.2–3.6 and checkmate in 2.2 is implemented**: ordinary SAN-like piece/pawn destinations, pawn captures, piece disambiguation, checks and mate. Lexical conversion DOES NOT establish chess move legality or complete game-score translation; castling, promotions, annotated moves and full legal variation trees are rejected until independently qualified.
 - Section 4 prescribes formatting for game, analysis, and move paragraphs, including special indentation. This is NOT fully implemented.
 - Section 5.1 specifies Forsyth position glyphs with six-dot piece signs, dot 6 for black figures, lower numeric cells for empty squares and consolidation of consecutive empty ranks. This specific part is implemented as an independently reversible **position-cell serializer** in acs/chess_braille_ukaaf2015.py.
 - Section 5.2 mandates textual label/indentation for diagrams (starts in cell 7), which the current generic PEF paginater DOES NOT implement. Section 6 prescribes chess-problem layout, also NOT implemented.
@@ -37,6 +37,18 @@ These are different contexts. Do NOT treat a generic literary Liblouis pass as a
 - Reverse reading of the generated Braille position expands to exactly 64 squares and must reproduce the original canonical FEN placement. Mismatches refuse emission.
 - Fixed source example and synthetic adverse input are tested, including eight-dot injection, ambiguous separators, missing squares, unsupported characters and FEN failure.
 - Each result explicitly reports UNVERIFIED_REQUIRES_DECISION, layout_qualified=false and tactile_qualified=false.
+
+## Opt-in original-source UKAAF position catalog
+
+Use --emit-ukaaf-diagrams in the local one-book CLI or the Boolean emit_ukaaf_diagrams in the bounded local queue. This option is available only when language is explicitly en or en-GB. The source must include at least one canonical semantic Position, Diagram or Exercise; plain text without a proven FEN fails closed.
+
+The file chess-diagrams-ukaaf2015-unverified.json includes one record per canonical block with a FEN, UKAAF 2015 5.1 position cells and a reconstructed 64-square placement. It is labeled UNVERIFIED. The package report records its SHA-256, source edition and unqualified status. The independent verifier reimports the ORIGINAL book, re-renders every position and matches every byte of the catalog, even if an attacker also changes the catalog SHA field.
+
+The catalog records six-dot positions only. It does not implement raised-paper tactile graphics, 5.2 cell-7 layout, BRF chess-layout encoding or professional print proof. A library operator must not treat it as an embossing instruction.
+
+## Narrow algebraic move formatter
+
+The pure encode_ukaaf2015_simple_san function covers examples from UKAAF 2015 3.2–3.6 (Rf4, d5, cxd5, Rxf4+, f5+, Nce5, Nb1c3) and the documented mate suffix. This lexical mapper is not a rules engine. It must only be called for SAN tokens independently proven legal by the existing canonical PGN/Board layer. It deliberately rejects castling, pawn promotion, annotation NAG, descriptive notation, numbered game records and punctuation variants pending fuller professional qualification.
 
 ## Still required
 
