@@ -135,8 +135,9 @@ jobs:
         working-directory: product
         shell: python
         run: |
-          import json
+          import json, sys
           from pathlib import Path
+          sys.path.insert(0, ".")
           report = json.loads(Path("section38-39-cbvault-mit-external-cbh-qualification.json").read_text())
           from tools.section38_39_mit_cbvault_oracle import validate_external_observation
           counts = validate_external_observation(report)
@@ -157,8 +158,9 @@ jobs:
         working-directory: product
         shell: python
         run: |
-          import json
+          import json, sys
           from pathlib import Path
+          sys.path.insert(0, ".")
           path = Path("section38-39-nw-chess-real-cbv-source-observation.json")
           receipt = json.loads(path.read_text(encoding="utf-8"))
           from tools.section38_39_nwc_genuine_cbv_pgn import validate_publisher_observation
