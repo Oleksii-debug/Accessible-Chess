@@ -19,3 +19,6 @@ tests/real_corpus/advanced_training/lichess_cc0_extreme_3000_3166_original_puzzl
 web/assets/accessible_chess_design.css -text
 web/assets/tabler/** -text
 web/assets/tabler-core/** -text
+
+# Preserve independently SHA-pinned Section42 CC0 piece/provenance bytes.
+web/assets/pieces/rhosgfx/** -text
