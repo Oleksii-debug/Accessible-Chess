@@ -203,6 +203,24 @@ class MITCbvaultNoFalsePassTests(unittest.TestCase):
                 ):
                     m._run_external_pgn(binary, source)
 
+            def aborted_before_structured_report(args, **kwargs):
+                kwargs["stderr"].write(
+                    b"error: /private/source/chessbase_secret.cbh invalid header version\n"
+                )
+                kwargs["stderr"].flush()
+                child = complete_child(args, **kwargs)
+                child.returncode = 1
+                return child
+
+            with patch.object(m.subprocess, "Popen", side_effect=aborted_before_structured_report):
+                with self.assertRaisesRegex(LawfulCorpusError, "safe_error_tokens=") as failure:
+                    m._run_external_pgn(binary, source)
+                self.assertIn("header", str(failure.exception))
+                self.assertIn("invalid", str(failure.exception))
+                self.assertIn("version", str(failure.exception))
+                self.assertNotIn("private", str(failure.exception))
+                self.assertNotIn("chessbase_secret", str(failure.exception))
+
             def directory_attack(args, **kwargs):
                 Path(args[3]).mkdir()
                 return complete_child(args, **kwargs)
