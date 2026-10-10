@@ -54,7 +54,7 @@ def _paragraph(value: str, *, style: str | None = None,
             raise FactoryExportError("Unknown Word paragraph style")
         pr.append(f'<w:pStyle w:val="{style}"/>')
     if num_id is not None:
-        if num_id not in (1, 2) or type(level) is not int or not 0 <= level <= 8:
+        if type(num_id) is not int or not 1 <= num_id <= 100_000 or type(level) is not int or level != 0:
             raise FactoryExportError("Invalid semantic list numbering")
         pr.append(f'<w:numPr><w:ilvl w:val="{level}"/><w:numId w:val="{num_id}"/></w:numPr>')
     properties = f'<w:pPr>{"".join(pr)}</w:pPr>' if pr else ""
@@ -83,7 +83,7 @@ def _styles(language: str) -> str:
             f'</w:rPr></w:rPrDefault></w:docDefaults>{"".join(result)}</w:styles>')
 
 
-def _numbering() -> str:
+def _numbering(list_instances: tuple[tuple[int, bool, int], ...]) -> str:
     abstract = []
     for id_value, marker in ((1, "bullet"), (2, "decimal")):
         glyph = "•" if marker == "bullet" else "%1."
@@ -97,8 +97,11 @@ def _numbering() -> str:
             f'</w:abstractNum>'
         )
     instances = "".join(
-        f'<w:num w:numId="{id_value}"><w:abstractNumId w:val="{id_value}"/></w:num>'
-        for id_value in (1, 2)
+        f'<w:num w:numId="{num_id}">'
+        f'<w:abstractNumId w:val="{2 if ordered else 1}"/>'
+        f'<w:lvlOverride w:ilvl="0"><w:startOverride w:val="{start}"/></w:lvlOverride>'
+        f'</w:num>'
+        for num_id, ordered, start in list_instances
     )
     return (f'<?xml version="1.0" encoding="utf-8"?>'
             f'<w:numbering xmlns:w="{_W}">{"".join(abstract)}{instances}</w:numbering>')
@@ -107,18 +110,21 @@ def _numbering() -> str:
 def _parts(wire: dict[str, object], identity: str, timestamp: str) -> dict[str, str]:
     paragraphs = [_paragraph(wire["title"], style="Title")]
     losses: list[str] = []
+    list_instances: list[tuple[int, bool, int]] = []
     for block in wire["blocks"]:
         kind = block["kind"]
         text, _, previous_loss = _block_lines(block)
         if kind == "Heading":
             paragraphs.append(_paragraph(block["text"], style=f'Heading{block["level"]}'))
         elif kind == "List":
+            # Each semantic list has its own native Word numbering instance.
+            # Reusing one instance across chapters silently carries counters.
+            number_id = len(list_instances) + 1
+            ordered = bool(block.get("ordered", False))
+            start = block.get("start") or 1
+            list_instances.append((number_id, ordered, start))
             for item in block["items"]:
-                paragraphs.append(_paragraph(item, num_id=2 if block.get("ordered", False) else 1))
-            # The list "start" offset may differ from 1: Word number list
-            # cannot claim that value without a custom numbering instance.
-            if block.get("ordered", False) and block.get("start") not in (None, 1):
-                losses.append("ORDERED_LIST_START_NOT_PRESERVED")
+                paragraphs.append(_paragraph(item, num_id=number_id))
         elif kind == "Paragraph":
             paragraphs.append(_paragraph(block["text"]))
         elif kind == "Note":
@@ -180,7 +186,7 @@ def _parts(wire: dict[str, object], identity: str, timestamp: str) -> dict[str, 
         "word/document.xml": document,
         "word/_rels/document.xml.rels": word_rels,
         "word/styles.xml": _styles(wire["language"]),
-        "word/numbering.xml": _numbering(),
+        "word/numbering.xml": _numbering(tuple(list_instances)),
     }, tuple(dict.fromkeys(losses)))
 
 
