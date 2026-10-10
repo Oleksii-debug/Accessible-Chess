@@ -182,10 +182,14 @@ def _localized(language: UILanguage, uk: str, en: str) -> str:
 def _pgn_accessible_move_label(san: str, language: UILanguage) -> str:
     """Project valid SAN through the shared NVDA formatter without losing recovery text."""
     try:
-        return format_accessible_compact_san(
+        spoken = format_accessible_compact_san(
             san,
             "en" if language is UILanguage.EN else "uk",
         )
+        # Keep the canonical SAN selectable/copyable in the tree label while
+        # retaining the existing language-specific spoken rendering for NVDA.
+        # The structured PgnTreeItem.san remains the move identity authority.
+        return san if spoken == san else f"{san} ({spoken})"
     except NotationError:
         prefix = _localized(
             language,
