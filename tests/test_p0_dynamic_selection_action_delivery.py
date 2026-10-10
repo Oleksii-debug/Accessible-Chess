@@ -38,9 +38,15 @@ class P0DynamicSelectionActionDeliveryTests(unittest.TestCase):
     def test_stage1_polling_and_v2_local_mutations_share_the_runtime_guard(self) -> None:
         self.assertIn("setInterval(refreshAnalysis,700)", self.index)
         self.assertIn("setText('engine-status',s.engineStatus)", self.index)
-        self.assertIn('observer.observe(main, { subtree: true, childList: true, characterData: true })', self.runtime)
-        self.assertIn('observer.observe(workspace, { subtree: true, childList: true, characterData: true })', self.runtime)
-        self.assertIn('observer.observe(navigation, { subtree: true, childList: true, characterData: true })', self.runtime)
+        self.assertIn('const observerOptions = {', self.runtime)
+        self.assertIn('subtree: true', self.runtime)
+        self.assertIn('childList: true', self.runtime)
+        self.assertIn('characterData: true', self.runtime)
+        self.assertIn('attributes: true', self.runtime)
+        self.assertIn('attributeFilter: ["hidden", "aria-current"]', self.runtime)
+        self.assertIn('observer.observe(main, observerOptions)', self.runtime)
+        self.assertIn('observer.observe(workspace, observerOptions)', self.runtime)
+        self.assertIn('observer.observe(navigation, observerOptions)', self.runtime)
 
     def test_action_result_delivery_reuses_single_existing_live_region(self) -> None:
         self.assertIn('documentRef.getElementById("live")', self.runtime)

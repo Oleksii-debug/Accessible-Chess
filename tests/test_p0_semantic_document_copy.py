@@ -48,14 +48,20 @@ class SemanticDocumentCopyContractTests(unittest.TestCase):
         ctrl_c_index = handler.index(ctrl_c_guard)
         selection_index = handler.index(selection_guard)
         binding_index = handler.index(binding_resolution)
-        prevent_default_index = handler.index("e.preventDefault();", binding_index)
-        execute_index = handler.index("executeAction(a.actionId)", prevent_default_index)
+        # The current canonical key owner claims only matched shortcuts. Its
+        # shared helper must consume the event after the native-copy guards.
+        self.assertIn(
+            "function claimOwnedKey(e){e.preventDefault();e.stopPropagation()}",
+            self.index,
+        )
+        claim_index = handler.index("claimOwnedKey(e);", binding_index)
+        execute_index = handler.index("executeAction(a.actionId)", claim_index)
 
         self.assertNotIn("preventDefault", handler[:ctrl_c_index])
         self.assertLess(ctrl_c_index, selection_index)
         self.assertLess(selection_index, binding_index)
-        self.assertLess(binding_index, prevent_default_index)
-        self.assertLess(prevent_default_index, execute_index)
+        self.assertLess(binding_index, claim_index)
+        self.assertLess(claim_index, execute_index)
 
     def test_v2_semantic_text_is_explicitly_selectable(self) -> None:
         self.assertIn('selectionStyle.id = "v2-semantic-selection-style"', self.v2_bootstrap)
