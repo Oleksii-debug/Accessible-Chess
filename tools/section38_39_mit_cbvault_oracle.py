@@ -189,7 +189,9 @@ def _run_external_pgn(binary: Path, source: Path) -> bytes:
                         raise LawfulCorpusError(
                             f"MIT cbvault export failed closed (exit={process.returncode}{details})"
                         )
-                    if not 0 < output_bytes <= _MAX_PGN:
+                    if output_bytes > _MAX_PGN:
+                        raise LawfulCorpusError("MIT cbvault output exceeds resource budget")
+                    if output_bytes == 0:
                         raise LawfulCorpusError("MIT cbvault exported no bounded complete PGN")
                     before = output.lstat()
                     with output.open("rb") as stream:
