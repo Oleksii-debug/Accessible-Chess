@@ -21,7 +21,8 @@ Store a local UTF-8 file named queue.json with the following structure, updating
           "rights_confirmed": true,
           "rights_basis": "Authorized reproduction",
           "emit_brf": true,
-          "emit_html": true
+          "emit_html": true,
+          "emit_ukaaf_diagrams": false
         }
       ]
     }
@@ -38,7 +39,7 @@ Use --max-per-run 1 through 4. The queue allows at most 32 declared jobs per imm
 
     /private/output/section55-batch/.section55-batch-journal.json
 
-Each book is published to a unique folder named after its safe job ID. Already-published packages are never overwritten. Journal entries record original-source, PEF, optional BRF and optional offline HTML preview digests, but not source text. The optional emit_html flag defaults to false. A generated HTML preview is reconstructed from the original source during validation and is never print-qualified.
+Each book is published to a unique folder named after its safe job ID. Already-published packages are never overwritten. Journal entries record original-source, PEF, optional BRF and optional offline HTML preview digests, but not source text. The optional emit_html flag defaults to false. The optional emit_ukaaf_diagrams flag also defaults to false and is only valid for an explicitly chosen English UKAAF 2015 profile with a canonical FEN; its separate catalog SHA-256 is included in the crash-replay journal and rechecked against the original source. A generated HTML preview is reconstructed from the original source during validation and is never print-qualified.
 
 ## Recovery and refusal cases
 
