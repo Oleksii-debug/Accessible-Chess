@@ -27,7 +27,11 @@
 
   function en() { return doc.documentElement.lang === "en"; }
   function say(uk, eng) {
-    status.textContent = en() ? eng : uk;
+    const message = en() ? eng : uk;
+    status.textContent = message;
+    if (typeof global.announceUserAction === "function") {
+      global.announceUserAction(message);
+    }
   }
   function validate(value) {
     if (!value || typeof value !== "object" || Array.isArray(value) ||

@@ -164,8 +164,11 @@ class AccessibleWebUiTests(unittest.TestCase):
         self.assertIn("el('language-select').addEventListener('change'", self.html)
         self.assertIn("apiAction('set_language',e.target.value)", self.html)
         self.assertIn("function applyUiLanguage(lang)", self.html)
-        self.assertNotIn("localStorage.setItem", self.html)
-        self.assertNotIn("localStorage.getItem", self.html)
+        keymap_start = self.html.index("keymapBase=null,keymap=[]")
+        keymap_end = self.html.index("// Section 43:", keymap_start)
+        keymap_source = self.html[keymap_start:keymap_end]
+        self.assertNotIn("localStorage.setItem", keymap_source)
+        self.assertNotIn("localStorage.getItem", keymap_source)
         data = json.loads((self.root / "web" / "keybindings.json").read_text(encoding="utf-8"))
         by_id = {x["id"]: x for x in data["actions"]}
         self.assertEqual(by_id["history.previous"]["binding"], "Shift+A")

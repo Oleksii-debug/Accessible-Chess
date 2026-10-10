@@ -73,16 +73,29 @@ function mount(options={}){
   dispatchEvent(event){for(const fn of listeners[event.type]||[])fn(event);},
   confirm:()=>true
  };
- if(options.native) window.pywebview={api:options.native};
  if(options.protocol) window.location={protocol:options.protocol};
  if(options.webview2) window.chrome={webview:{}};
  const globalEvent=class Event{constructor(type){this.type=type;}};
- vm.runInNewContext(script,{
+ const context=vm.createContext({
   document:doc,window,Event:globalEvent,Blob:global.Blob,URL:global.URL,
-  Promise,JSON,Object,Array,console,Set,String,Number
- },{timeout:1500});
+  Promise,console
+ });
+ const realmClone=value=>{
+  context.__bridgePayload=JSON.stringify(value);
+  try{return vm.runInContext("JSON.parse(__bridgePayload)",context);}
+  finally{delete context.__bridgePayload;}
+ };
+ const wrapNative=api=>new Proxy(api,{
+  get(target,key){
+   const member=target[key];
+   if(typeof member!=="function")return member;
+   return async(...args)=>realmClone(await member.apply(target,args));
+  }
+ });
+ if(options.native) window.pywebview={api:wrapNative(options.native)};
+ vm.runInContext(script,context,{timeout:1500});
  const get=id=>doc.getElementById(id);
- return {doc,window,events,store,get,listeners};
+ return {doc,window,events,store,get,listeners,wrapNative};
 }
 async function settle(){for(let i=0;i<12;i++)await Promise.resolve();}
 (async()=>{
@@ -229,7 +242,7 @@ async function settle(){for(let i=0;i<12;i++)await Promise.resolve();}
  late.get("ac45-apply").click();await settle();
  assert.equal(late.store["accessible-chess.design-profiles.v1"],undefined,
    "Late host must not write browser-local preferences");
- late.window.pywebview={api:native};
+ late.window.pywebview={api:late.wrapNative(native)};
  late.window.dispatchEvent({type:"pywebviewready"});await settle();
  assert.equal(late.get("ac45-apply").disabled,false);
  late.get("ac45-profile").value="Tournament";

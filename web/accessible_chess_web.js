@@ -209,7 +209,14 @@ function renderBoard(snapshot) {
     : p.presentationMode === true ? "min(98vw,85rem)" : String(52*scale/100)+"rem";
   const activeIndex = Math.max(0,ordered.findIndex(cell =>
     cell && typeof cell === "object" && String(cell.square || cell.name || "") === focusedSquare));
+  let row = null;
   ordered.forEach((cell, index) => {
+    if (index % 8 === 0) {
+      row = document.createElement("div");
+      row.setAttribute("role", "row");
+      row.setAttribute("aria-rowindex", String(Math.floor(index/8)+1));
+      boardGrid.appendChild(row);
+    }
     const button = document.createElement("button");
     button.type = "button";
     button.setAttribute("role", "gridcell");
@@ -294,14 +301,15 @@ function renderBoard(snapshot) {
         target.focus();
       }
     });
-    boardGrid.appendChild(button);
+    row.appendChild(button);
   });
   const overlayRenderer = globalThis.AccessibleChessBoardOverlay;
   if (overlayRenderer && typeof overlayRenderer.project === "function") {
     overlayRenderer.project(boardGrid, ordered, visual);
   }
-  if (focusedSquare && boardGrid.children[activeIndex]) {
-    boardGrid.children[activeIndex].focus({preventScroll:true});
+  const renderedCells = boardGrid.querySelectorAll('[role="gridcell"]');
+  if (focusedSquare && renderedCells[activeIndex]) {
+    renderedCells[activeIndex].focus({preventScroll:true});
   }
 }
 

@@ -22,11 +22,17 @@ class Node{
  addEventListener(k,fn){this.events[k]=fn;}
  querySelectorAll(s){
   assert.equal(s,'[role="gridcell"]');
-  return this.children.filter(n=>n.attributes.role==="gridcell");
+  const found=[];
+  const visit=node=>{for(const child of node.children){
+   if(child.attributes.role==="gridcell")found.push(child);
+   visit(child);
+  }};
+  visit(this);
+  return found;
  }
  querySelector(s){
   const m=s.match(/^\[data-index="([0-9]+)"\]$/);
-  return m?this.children.find(n=>n.dataset.index===m[1]):null;
+  return m?this.querySelectorAll('[role="gridcell"]').find(n=>n.dataset.index===m[1]):null;
  }
  closest(s){
   if(s!=="#board-grid")return null;
@@ -37,6 +43,7 @@ class Node{
  focus(){document.activeElement=this;}
 }
 const boardGrid=new Node("div"),boardSurface={hidden:true};
+const renderedCells=()=>boardGrid.querySelectorAll('[role="gridcell"]');
 const known=Array.from({length:64},(_,i)=>{
  const square="abcdefgh"[i%8]+String(8-Math.floor(i/8));
  const piece={a1:"R",e1:"K",h1:"R",d1:"Q",a8:"r",e8:"k",d8:"q",h8:"r"}[square]||"";
@@ -56,11 +63,12 @@ const sandbox={
 };
 vm.runInNewContext(source.slice(begin,end)+"\nthis.productionRenderBoard=renderBoard;this.setTestRoute=function(route){currentRoute=route;};",sandbox,{timeout:1000});
 sandbox.productionRenderBoard(snapshot);
-assert.equal(boardGrid.children.length,64);
-assert.equal(boardGrid.children[0].dataset.square,"a8");
+assert.equal(boardGrid.children.length,8,"semantic grid has eight row owners");
+assert.equal(renderedCells().length,64);
+assert.equal(renderedCells()[0].dataset.square,"a8");
 assert.equal(boardGrid.dataset.theme,"classic");
 assert.equal(boardGrid.dataset.pieceTheme,"unicode");
-assert.equal(boardGrid.children[0].children.length,1,"canonical coordinates remain off");
+assert.equal(renderedCells()[0].children.length,1,"canonical coordinates remain off");
 assert.equal(JSON.stringify(snapshot),before);
 window.accessibleChessDesignPreferences={
  theme:"contrast",board_theme:"high_contrast",piece_theme:"letters",
@@ -68,31 +76,31 @@ window.accessibleChessDesignPreferences={
  coordinates:"every_square",orientation:"black",highlight:false,animations:false,sound:true
 };
 sandbox.productionRenderBoard(snapshot);
-assert.equal(boardGrid.children.length,64);
+assert.equal(renderedCells().length,64);
 assert.equal(boardGrid.dataset.theme,"high_contrast");
 assert.equal(boardGrid.dataset.pieceTheme,"letters");
-assert.equal(boardGrid.children[0].dataset.square,"h1");
-assert.equal(boardGrid.children[0].children[0].textContent,"R");
-assert.equal(boardGrid.children[0].attributes["aria-label"],"Canonical square h1");
-assert.equal(boardGrid.children[0].children.length,2,"each square gains visual coordinates");
-assert.equal(boardGrid.children[0].children[1].attributes["aria-hidden"],"true");
+assert.equal(renderedCells()[0].dataset.square,"h1");
+assert.equal(renderedCells()[0].children[0].textContent,"R");
+assert.equal(renderedCells()[0].attributes["aria-label"],"Canonical square h1");
+assert.equal(renderedCells()[0].children.length,2,"each square gains visual coordinates");
+assert.equal(renderedCells()[0].children[1].attributes["aria-hidden"],"true");
 assert.equal(boardGrid.style.maxWidth,"78rem");
-assert.equal(boardGrid.children.some(n=>n.dataset.lastMove==="true"),false);
+assert.equal(renderedCells().some(n=>n.dataset.lastMove==="true"),false);
 assert.equal(JSON.stringify(snapshot),before,"visual preferences never mutate canonical position");
 // Keyboard navigation and preserved focus must survive style redraw.
-const active=boardGrid.children[0];active.focus();
+const active=renderedCells()[0];active.focus();
 window.accessibleChessDesignPreferences={...window.accessibleChessDesignPreferences,
  piece_theme:"rhosgfx",board_theme:"tournament_blue"};
 sandbox.productionRenderBoard(snapshot);
 assert.equal(document.activeElement.dataset.square,"h1");
 assert.equal(boardGrid.dataset.theme,"tournament_blue");
 assert.equal(boardGrid.dataset.pieceTheme,"rhosgfx");
-const rook=boardGrid.children[0].children[0].children[0];
+const rook=renderedCells()[0].children[0].children[0];
 assert.equal(rook.tagName,"IMG");
 assert.ok(rook.src.endsWith("/wR.svg"));
 assert.equal(rook.attributes["aria-hidden"],"true");
 assert.equal(JSON.stringify(snapshot),before);
-const next=boardGrid.children[0].events.keydown;
+const next=renderedCells()[0].events.keydown;
 assert.equal(typeof next,"function");
 let prevented=false;
 next({key:"ArrowRight",preventDefault(){prevented=true;}});
@@ -110,9 +118,9 @@ window.accessibleChessDesignPreferences={
  orientation:"white",board_scale:125,highlight:true,animations:false
 };
 sandbox.productionRenderBoard(restricted);
-assert.ok(boardGrid.children.every(node=>node.children.length===1),
+assert.ok(renderedCells().every(node=>node.children.length===1),
   "teacher-hidden coordinates cannot be reenabled by visual profile");
-assert.equal(boardGrid.children.some(node=>node.dataset.lastMove==="true"),false,
+assert.equal(renderedCells().some(node=>node.dataset.lastMove==="true"),false,
   "teacher-hidden last move cannot be revealed");
 assert.equal(JSON.stringify(restricted),restrictedBefore);
 sandbox.setTestRoute("board");
@@ -124,7 +132,7 @@ window.accessibleChessDesignPreferences={
 sandbox.productionRenderBoard(snapshot);
 assert.equal(boardGrid.dataset.theme,"classic");
 assert.equal(boardGrid.dataset.pieceTheme,"unicode");
-assert.equal(boardGrid.children[0].dataset.square,"a8");
+assert.equal(renderedCells()[0].dataset.square,"a8");
 assert.equal(JSON.stringify(snapshot),before);
 // Exercise the actual Web board render path across the six design presets,
 // four interface themes, three piece sets, six board sizes, both orientations,
@@ -147,15 +155,15 @@ for(const board_theme of presetBoards)
          highlight:true,animations:false,sound:true
        };
        sandbox.productionRenderBoard(snapshot);
-       assert.equal(boardGrid.children.length,64);
+       assert.equal(renderedCells().length,64);
        assert.equal(boardGrid.dataset.theme,board_theme);
        assert.equal(boardGrid.dataset.pieceTheme,piece_theme);
-       assert.equal(boardGrid.children[0].dataset.square,
+       assert.equal(renderedCells()[0].dataset.square,
                     orientation==="white"?"a8":"h1");
-       assert.equal(boardGrid.children[0].getAttribute("aria-label"),
+       assert.equal(renderedCells()[0].getAttribute("aria-label"),
                     "Canonical square "+(orientation==="white"?"a8":"h1"));
        assert.equal(boardGrid.style.maxWidth,String(52*board_scale/100)+"rem");
-       assert.equal(boardGrid.children[0].children.length,2,
+       assert.equal(renderedCells()[0].children.length,2,
                     "all-squares coordinates remain decorative");
        matrixCount++;
       }

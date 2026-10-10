@@ -11,12 +11,13 @@ nav ul{display:flex;flex-wrap:wrap;gap:.4rem;list-style:none;padding:0}
 button,input,select,textarea{font:inherit;padding:.45rem}.route-button[aria-current="page"]{font-weight:700}
 #workspace{border-top:1px solid GrayText;margin-top:1rem;padding-top:1rem}
 .readable{white-space:pre-wrap;overflow-wrap:anywhere}
-.grid{display:grid;grid-template-columns:repeat(8,minmax(2.7rem,1fr));gap:.15rem;max-width:42rem}
-.grid button{min-height:2.7rem}.status{min-height:1.5rem}
+.grid{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:.15rem;max-width:42rem;min-width:0}
+.grid button{min-width:0;min-height:0;aspect-ratio:1;overflow:hidden}.status{min-height:1.5rem}
 progress{width:min(32rem,100%)}
 </style>
 <link rel="stylesheet" href="/assets/accessible_chess_web_design.css">
 <link rel="stylesheet" href="/assets/accessible_chess_design.css">
+<link rel="stylesheet" href="/assets/tabler-core/accessibility.css">
 </head>
 <body class="ac44-web-page">
 <a class="skip" href="#workspace">До основного вмісту</a>
@@ -45,7 +46,7 @@ progress{width:min(32rem,100%)}
 <p id="route-description" class="readable"></p>
 <section aria-labelledby="board-heading" id="board-surface" hidden>
 <h3 id="board-heading">Дошка</h3>
-<div id="board-grid" class="grid" role="grid" aria-label="Шахова дошка"></div>
+<div id="board-grid" class="grid" role="grid" aria-label="Шахова дошка" aria-rowcount="8" aria-colcount="8"></div>
 </section>
 <section aria-labelledby="content-heading">
 <h3 id="content-heading">Вміст</h3>

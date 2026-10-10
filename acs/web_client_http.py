@@ -191,6 +191,10 @@ class AccessibleChessWebAsgi:
                 _trusted_principal(scope)
                 await _respond(send, 200, _asset_bytes("assets/accessible_chess_design.css"), _CSS_TYPE)
                 return
+            if method == "GET" and path == "/assets/tabler-core/accessibility.css":
+                _trusted_principal(scope)
+                await _respond(send, 200, _asset_bytes("assets/tabler-core/accessibility.css"), _CSS_TYPE)
+                return
             if method == "GET" and path == "/assets/board_overlay_renderer.js":
                 _trusted_principal(scope)
                 await _respond(send, 200, _asset_bytes("board_overlay_renderer.js"), _JS_TYPE)
