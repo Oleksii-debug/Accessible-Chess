@@ -40,6 +40,10 @@ class Section54DocxIngressTests(unittest.TestCase):
         self.assertEqual(imported.source.sha256, receipt.sha256)
         self.assertEqual(imported.importer, "acs.format_factory_docx_import")
         self.assertEqual([block.kind for block in imported.document.blocks], ["Heading", "Paragraph"])
+        self.assertEqual(
+            [block.source_anchor for block in imported.document.blocks],
+            ["docx-p-1", "docx-p-2"],
+        )
         self.assertFalse(any(block.kind == "Game" for block in imported.document.blocks))
         self.assertTrue(any("not independently proven" in warning for warning in imported.warnings))
 

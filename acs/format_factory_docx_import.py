@@ -149,7 +149,7 @@ def import_docx_paragraph_book(
             if body is None:
                 raise FactoryDocxImportError("DOCX body is missing")
             blocks: list[str] = []
-            for part in body:
+            for paragraph_index, part in enumerate(body, start=1):
                 if part.tag == _W + "sectPr":
                     if part.findall(".//" + _W + "headerReference") or part.findall(".//" + _W + "footerReference"):
                         raise FactoryDocxImportError("DOCX header/footer content is unqualified")
@@ -161,7 +161,11 @@ def import_docx_paragraph_book(
                 if paragraph is None:
                     continue
                 tag, text = paragraph
-                blocks.append(f"<{tag}>" + escape(text) + f"</{tag}>")
+                # Stable content anchors map to original OOXML body paragraph
+                # ordinals, including any empty paragraphs skipped as text.
+                blocks.append(
+                    f'<{tag} id="docx-p-{paragraph_index}">' + escape(text) + f"</{tag}>"
+                )
                 if len(blocks) > _MAX_PARAGRAPHS:
                     raise FactoryDocxImportError("DOCX contains too many semantic paragraphs")
             if not blocks:
