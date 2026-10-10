@@ -1,0 +1,59 @@
+name: Section 50 Terminal Cross-Product Integration
+
+on:
+  pull_request:
+    paths:
+      - "acs/ai_provider_gateway.py"
+      - "acs/webapp.py"
+      - "acs/version2_release_ui.py"
+      - "web/ai_voice.js"
+      - "web/video_board_sync.js"
+      - "web/youtube_iframe_adapter.js"
+      - "tests/test_section50_terminal_integration.py"
+      - "docs/corpus/SECTION47_VIDEO_SOURCE_CATALOG.json"
+      - "docs/corpus/SECTION48_YOUTUBE_INTEGRATION_EVIDENCE.json"
+      - "docs/corpus/SECTION49_PROVIDER_GATE_EVIDENCE.json"
+      - "docs/corpus/SECTION50_CROSS_PRODUCT_EVIDENCE.json"
+      - ".github/workflows/section50-terminal-integration.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  section50:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Exact source and compile
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          git diff --check HEAD
+          python -m py_compile acs/ai_provider_gateway.py acs/webapp.py acs/version2_release_ui.py tests/test_section50_terminal_integration.py
+      - name: Cross-product and retained Python qualification
+        run: >-
+          python -m unittest -v
+          tests.test_section50_terminal_integration
+          tests.test_ai_provider_gateway
+          tests.test_webapp_ai_bridge
+          tests.test_video_board_sync
+          tests.test_video_preparation_ui
+          tests.test_youtube_iframe_adapter
+      - name: Executable browser-independent media and voice contracts
+        run: |
+          node tests/video_board_sync_executable.js
+          node tests/js/ai_voice_agent_test.js
+          node --check web/youtube_iframe_adapter.js
+          node --check web/video_board_sync.js
+          node --check web/ai_voice.js
