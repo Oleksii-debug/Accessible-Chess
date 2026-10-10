@@ -7,3 +7,9 @@ acs/webapp_keymap_core.py -text
 # Original upstream corpora carry byte-pinned whitespace by design; preserve it.
 # Exclude these external originals from diff --check while checking code normally.
 tests/real_corpus/** -text -whitespace
+
+# Section 41 MIT assets are independently verified by exact Git blob bytes by
+# the Windows package preflight. Git for Windows must not CRLF-transform them.
+web/assets/accessible_chess_design.css -text
+web/assets/tabler/** -text
+web/assets/tabler-core/** -text
