@@ -7,7 +7,7 @@ from pypdf import PdfWriter
 from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 
 from acs.format_factory_pdf_probe import (
-    FactoryPdfProbeError, probe_factory_text_pdf,
+    FactoryPdfProbeError, FactoryPdfProbe, FactoryPdfPage, probe_factory_text_pdf,
     MAX_PDF_SOURCE_BYTES,
 )
 
@@ -45,6 +45,14 @@ def _text_pdf() -> bytes:
 
 
 class PdfProbeTests(unittest.TestCase):
+    def test_review_flags_cannot_be_promoted_by_caller(self):
+        with self.assertRaises(TypeError):
+            FactoryPdfPage(1, "pdf:file-page:1", "unverified", review_status="PROVEN")
+        with self.assertRaises(TypeError):
+            FactoryPdfProbe("0" * 64, 10, 1, (), (),
+                            public_release_approved=True)
+
+
     def test_real_pdf_text_is_extracted_but_never_proven(self):
         source = _text_pdf()
         receipt = probe_factory_text_pdf(source, source_name="text.pdf")
