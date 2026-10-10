@@ -1,0 +1,48 @@
+name: Section 39 exact source-bound format matrix and training
+
+on:
+  pull_request:
+    paths:
+      - "tools/section39_real_format_qualification.py"
+      - "tools/section39_real_section37_advanced_training_qualification.py"
+      - "tools/revised_section38_39_advanced_puzzle_pgn.py"
+      - "tests/test_section39_real_format_qualification.py"
+      - "tests/test_section39_real_section37_advanced_training_qualification.py"
+      - "tests/test_section38_39_advanced_puzzle_pgn.py"
+      - "acs/section40_advanced_licensed_dataset.py"
+      - "acs/section40_extreme_licensed_dataset.py"
+      - "acs/section40_advanced_training_runtime.py"
+      - ".gitattributes"
+      - ".github/workflows/section39-real-format-matrix.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  exact-original-formats:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Compile exact original protected modules
+        run: >-
+          python -m compileall -q
+          tools/section39_real_format_qualification.py
+          tools/revised_section38_39_advanced_puzzle_pgn.py
+          tools/section39_real_section37_advanced_training_qualification.py
+          acs/section40_advanced_licensed_dataset.py
+          acs/section40_extreme_licensed_dataset.py
+          acs/section40_advanced_training_runtime.py
+      - name: Full sixteen-format source-bound matrix
+        run: python -m unittest discover -v -s tests -p 'test_section39_real_format_qualification.py'
+      - name: Genuine original advanced source training
+        run: python -m unittest discover -v -s tests -p 'test_section39_real_section37_advanced_training_qualification.py'
+      - name: Derived expert PGN and atomic Library restore
+        run: python -m unittest discover -v -s tests -p 'test_section38_39_advanced_puzzle_pgn.py'
