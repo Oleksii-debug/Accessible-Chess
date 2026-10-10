@@ -103,6 +103,17 @@ def scan_local_liblouis_table_closure(path: Path) -> LocalTableClosure:
         try:
             for line in content.splitlines():
                 candidate = line.strip()
+                # Python's Unicode strip()/\\s accept NBSP, EM SPACE and
+                # other non-ASCII whitespace that an external Liblouis table
+                # parser has not been proven to interpret as include syntax.
+                # Never inventory an include through that lexical ambiguity.
+                if candidate.lower().startswith("include") and any(
+                    character.isspace() and character not in (" ", "\t")
+                    for character in line
+                ):
+                    raise BrailleFactoryError(
+                        "Ambiguous Unicode whitespace in Liblouis include directive"
+                    )
                 if not candidate or candidate.startswith("#") or candidate.startswith("<"):
                     continue
                 if candidate.split(None, 1)[0].lower() != "include":
