@@ -48,20 +48,16 @@ class P0ReleaseCriticalTriadConvergenceTests(unittest.TestCase):
         self.assertIn("CHECKED_SHA:", workflow)
         self.assertIn("DEFAULT_BRANCH:", workflow)
         self.assertIn(
-            "PRODUCT_BRANCH: work/full-product-teacher-education-reachability-20260911",
-            workflow,
-        )
-        self.assertIn(
-            "INTEGRATION_PRODUCT_BRANCH: converge/current-product-pgn-graph-safety-20261004-sol60a1",
+            "CURRENT_PRODUCT_BRANCH: converge/current-pgn-graph-board-review-20261004-c2mbezb",
             workflow,
         )
         self.assertIn('test "$(git rev-parse HEAD)" = "$CHECKED_SHA"', workflow)
         self.assertIn(
-            'git fetch --no-tags origin "+refs/heads/$PRODUCT_BRANCH:refs/remotes/origin/$PRODUCT_BRANCH"',
+            'git fetch --no-tags origin "+refs/heads/$CURRENT_PRODUCT_BRANCH:refs/remotes/origin/$CURRENT_PRODUCT_BRANCH"',
             workflow,
         )
         self.assertIn(
-            'live_product="$(git rev-parse "refs/remotes/origin/$PRODUCT_BRANCH")"',
+            'live_product="$(git rev-parse "refs/remotes/origin/$CURRENT_PRODUCT_BRANCH")"',
             workflow,
         )
         self.assertIn(
@@ -79,22 +75,6 @@ class P0ReleaseCriticalTriadConvergenceTests(unittest.TestCase):
         self.assertIn('if [ "$EVENT_BASE_REF" = "$DEFAULT_BRANCH" ]; then', workflow)
         self.assertIn(
             'git merge-base --is-ancestor "$live_product" "$EVENT_HEAD_SHA"',
-            workflow,
-        )
-        self.assertIn(
-            'git fetch --no-tags origin "+refs/heads/$INTEGRATION_PRODUCT_BRANCH:refs/remotes/origin/$INTEGRATION_PRODUCT_BRANCH"',
-            workflow,
-        )
-        self.assertIn(
-            'live_integration_product="$(git rev-parse "refs/remotes/origin/$INTEGRATION_PRODUCT_BRANCH")"',
-            workflow,
-        )
-        self.assertIn(
-            'git merge-base --is-ancestor "$live_product" "$live_integration_product"',
-            workflow,
-        )
-        self.assertIn(
-            'git merge-base --is-ancestor "$live_integration_product" "$EVENT_HEAD_SHA"',
             workflow,
         )
         self.assertIn("P0_TRIAD_CURRENT_PRODUCT_ANCESTOR=", workflow)

@@ -36,6 +36,7 @@ class CurrentMainFullProductConvergenceWorkflowTests(unittest.TestCase):
             'git merge-base --is-ancestor "$event_base" "$live_base"',
             'git merge-base --is-ancestor "$live_base" HEAD',
             'test "$(git merge-base "$live_base" HEAD)" = "$live_base"',
+            'git diff --check "$live_base" HEAD',
             "FULL_PRODUCT_LIVE_BASE_ANCESTRY=PASS",
         )
         for fragment in required:

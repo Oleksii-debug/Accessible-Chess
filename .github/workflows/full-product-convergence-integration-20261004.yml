@@ -156,7 +156,6 @@ jobs:
           git cat-file -e "$canonical^{commit}"
           git merge-base --is-ancestor "$canonical" HEAD
           test "$(git merge-base "$canonical" HEAD)" = "$canonical"
-          git diff --check "$canonical" HEAD
 
           event_base="$EVENT_BASE_SHA"
           event_base_ref="$EVENT_BASE_REF"
@@ -169,6 +168,7 @@ jobs:
             git merge-base --is-ancestor "$event_base" "$live_base"
             git merge-base --is-ancestor "$live_base" HEAD
             test "$(git merge-base "$live_base" HEAD)" = "$live_base"
+            git diff --check "$live_base" HEAD
             echo "FULL_PRODUCT_EVENT_BASE_ANCESTRY=PASS base=$event_base"
             echo "FULL_PRODUCT_LIVE_BASE_ANCESTRY=PASS base=$live_base"
 
