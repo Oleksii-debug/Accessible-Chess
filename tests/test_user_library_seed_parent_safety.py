@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+from types import SimpleNamespace
 import tempfile
 import unittest
 from unittest import mock
@@ -331,6 +332,36 @@ class UserLibrarySeedParentSafetyTests(unittest.TestCase):
         second = mock.Mock(st_dev=7, st_ino=11, st_size=10)
         with mock.patch.object(seed_module.os.path, "samestat", return_value=True):
             self.assertFalse(seed_module._same_file_snapshot(first, second))
+
+    def test_windows_path_and_open_handle_change_time_are_separate_clocks(self) -> None:
+        # Windows pathname stat may report creation time for st_ctime_ns
+        # while fstat reports the last-change timestamp. Equal file identity,
+        # size and mtime prove the cross-API binding; each API's own complete
+        # ctime/mtime snapshot must still remain stable before/after the read.
+        path = SimpleNamespace(
+            st_dev=8, st_ino=41, st_size=220, st_mtime_ns=1700000000000000000,
+            st_ctime_ns=1690000000000000000,
+        )
+        handle = SimpleNamespace(
+            st_dev=8, st_ino=41, st_size=220, st_mtime_ns=1700000000000000000,
+            st_ctime_ns=1700000000000000001,
+        )
+        with mock.patch.object(seed_module.os, "name", "nt"):
+            self.assertFalse(seed_module._same_file_snapshot(path, handle))
+            self.assertTrue(seed_module._same_path_to_open_handle_snapshot(path, handle))
+            self.assertFalse(seed_module._same_path_to_open_handle_snapshot(
+                path, SimpleNamespace(**{**vars(handle), "st_mtime_ns": handle.st_mtime_ns + 1}),
+            ))
+            self.assertFalse(seed_module._same_path_to_open_handle_snapshot(
+                path, SimpleNamespace(**{**vars(handle), "st_ino": 42}),
+            ))
+            self.assertFalse(seed_module._same_path_to_open_handle_snapshot(
+                path, SimpleNamespace(**{**vars(handle), "st_ino": 0}),
+            ))
+        with mock.patch.object(seed_module.os, "name", "posix"):
+            self.assertFalse(seed_module._same_path_to_open_handle_snapshot(path, handle))
+
+
 
 
 if __name__ == "__main__":
