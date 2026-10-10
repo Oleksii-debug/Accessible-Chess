@@ -16,6 +16,7 @@ from acs.chess_braille_factory import BrailleFactoryError
 from acs.chess_braille_ukaaf2015 import (
     STANDARD_ID, decode_ukaaf2015_position_cells, encode_ukaaf2015_position,
     encode_ukaaf2015_simple_san, build_ukaaf2015_diagram_catalog,
+    encode_ukaaf2015_canonical_mainline_pgn,
 )
 
 
@@ -156,6 +157,50 @@ class TestUKAAF2015SourceLinkedCatalog(unittest.TestCase):
                     fen="4k3/8/8/8/8/8/8/4K3 w - - 0 1",
                 )], warnings=["Unresolved source ambiguity"],
             ))
+
+
+class TestUKAAF2015CanonicalPGNBridge(unittest.TestCase):
+    def test_short_legal_pgn_moves_are_proven_by_existing_board(self):
+        pgn = "1. e4 e5 2. Nf3 Nc6 *"
+        result = encode_ukaaf2015_canonical_mainline_pgn(pgn)
+        self.assertEqual([move.canonical_san for move in result.moves],
+                         ["e4", "e5", "Nf3", "Nc6"])
+        self.assertEqual([move.braille_cells for move in result.moves],
+                         ["⠑⠲", "⠑⠢", "⠎⠋⠒", "⠎⠉⠖"])
+        self.assertEqual(result.start_fen, Board.START)
+        self.assertEqual(result.moves[0].before_fen, Board.START)
+        self.assertEqual(result.moves[-1].after_fen, result.end_fen)
+        self.assertIs(result.layout_qualified, False)
+        self.assertIs(result.variation_proof, False)
+        self.assertEqual(result.status, "UNVERIFIED_REQUIRES_DECISION")
+
+    def test_illegal_chess_move_is_rejected_by_canonical_board(self):
+        with self.assertRaises(BrailleFactoryError):
+            encode_ukaaf2015_canonical_mainline_pgn("1. e4 e5 2. e5 *")
+
+    def test_unqualified_variations_and_commentary_are_refused(self):
+        examples = (
+            "1. e4 (1. d4) e5 *",
+            "1. e4 {owned analysis} e5 *",
+            "1. e4 $1 e5 *",
+            "1. e4 e5 2. Nf3 Nc6 3. Bc4 Bc5 4. O-O *",
+        )
+        for pgn in examples:
+            with self.subTest(pgn=pgn), self.assertRaises(BrailleFactoryError):
+                encode_ukaaf2015_canonical_mainline_pgn(pgn)
+
+    def test_explicit_promotion_but_unqualified_braille_code_is_refused(self):
+        pgn = (
+            '[SetUp "1"]\n[FEN "4k3/P7/8/8/8/8/8/4K3 w - - 0 1"]\n'
+            '[Result "*"]\n\n1. a8=Q *'
+        )
+        with self.assertRaises(BrailleFactoryError):
+            encode_ukaaf2015_canonical_mainline_pgn(pgn)
+
+    def test_multiple_games_or_oversized_source_cannot_be_misidentified(self):
+        for pgn in ("1. e4 e5 *\n\n1. d4 d5 *", "e" * 100001):
+            with self.subTest(example=pgn[:20]), self.assertRaises(BrailleFactoryError):
+                encode_ukaaf2015_canonical_mainline_pgn(pgn)
 
 if __name__ == "__main__":
     unittest.main()
