@@ -28,9 +28,19 @@ def _read_input(path_text: str) -> tuple[bytes, str]:
         raise ValueError("Source path must be an explicit absolute non-symlink file")
     flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
     try:
+        # Compare pathname identity with the actual opened descriptor, not only
+        # the descriptor with itself. On Windows O_NOFOLLOW is unavailable;
+        # a path may be replaced after the initial non-symlink check.
+        pathname_before = os.lstat(path)
+        if not stat.S_ISREG(pathname_before.st_mode):
+            raise ValueError("Source is not a regular file")
         fd = os.open(path, flags)
         try:
             meta = os.fstat(fd)
+            def identity(item: os.stat_result) -> tuple[int, int, int, int]:
+                return (item.st_dev, item.st_ino, item.st_size, item.st_mtime_ns)
+            if identity(pathname_before) != identity(meta):
+                raise ValueError("Source pathname changed before opening")
             if not stat.S_ISREG(meta.st_mode) or not 0 < meta.st_size <= MAX_FACTORY_SOURCE_BYTES:
                 raise ValueError("Source file is empty, too large, or not a regular file")
             with os.fdopen(fd, "rb", closefd=False) as source:
@@ -40,10 +50,13 @@ def _read_input(path_text: str) -> tuple[bytes, str]:
                 if source.read(1):
                     raise ValueError("Source file grew during read")
             after = os.fstat(fd)
-            if (meta.st_dev, meta.st_ino, meta.st_size, meta.st_mtime_ns) != (
-                after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns
-            ):
+            if identity(meta) != identity(after):
                 raise ValueError("Source changed during read")
+            # Revalidate the pathname after reading, including a path swap
+            # which would not change fstat() on the still-open descriptor.
+            pathname_after = os.lstat(path)
+            if identity(after) != identity(pathname_after):
+                raise ValueError("Source pathname changed during read")
         finally:
             os.close(fd)
     except OSError as exc:
