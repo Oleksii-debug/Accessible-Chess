@@ -9,10 +9,13 @@ No source-specific licensing for full chess books is claimed.
 
 import unittest
 from acs.chesscore import Board
+from acs.bookdocument import BookDocument, Position, Paragraph, Diagram
+from hashlib import sha256
+import json
 from acs.chess_braille_factory import BrailleFactoryError
 from acs.chess_braille_ukaaf2015 import (
     STANDARD_ID, decode_ukaaf2015_position_cells, encode_ukaaf2015_position,
-    encode_ukaaf2015_simple_san,
+    encode_ukaaf2015_simple_san, build_ukaaf2015_diagram_catalog,
 )
 
 
@@ -115,6 +118,44 @@ class TestUKAAF2015AlgebraicSubset(unittest.TestCase):
         second = encode_ukaaf2015_simple_san("Nxf4+")
         self.assertEqual(first, second)
         self.assertTrue(all("\u2800" <= ch <= "\u283f" for ch in first.cells))
+
+
+class TestUKAAF2015SourceLinkedCatalog(unittest.TestCase):
+    def test_canonical_positions_and_diagrams_have_reversible_cells(self):
+        fen = "4k3/8/8/8/8/8/8/4K3 w - - 0 1"
+        book = BookDocument(title="Owned chess guide", blocks=[
+            Paragraph(text="Learn the position."),
+            Position(fen=fen),
+            Diagram(fen=fen, alt_text="Two kings at e1 and e8"),
+        ])
+        result = build_ukaaf2015_diagram_catalog(book)
+        self.assertEqual(result.count, 2)
+        self.assertEqual(result.sha256, sha256(result.data).hexdigest())
+        body = json.loads(result.data.decode("utf-8"))
+        self.assertIs(body["print_ready"], False)
+        self.assertIs(body["layout_qualified"], False)
+        self.assertEqual(body["diagram_count"], 2)
+        self.assertEqual(body["diagrams"][0]["block_index"], 2)
+        self.assertEqual(body["diagrams"][1]["block_index"], 3)
+        self.assertEqual(
+            body["diagrams"][1]["roundtrip_placement"],
+            Board(fen).fen().split()[0],
+        )
+        self.assertEqual(result, build_ukaaf2015_diagram_catalog(book))
+
+    def test_missing_semantic_chess_position_never_invents_a_diagram(self):
+        with self.assertRaises(BrailleFactoryError):
+            build_ukaaf2015_diagram_catalog(
+                BookDocument(title="Text only", blocks=[Paragraph(text="No FEN")])
+            )
+
+    def test_warning_bearing_books_do_not_publish_catalog(self):
+        with self.assertRaises(BrailleFactoryError):
+            build_ukaaf2015_diagram_catalog(BookDocument(
+                title="Unproven", blocks=[Position(
+                    fen="4k3/8/8/8/8/8/8/4K3 w - - 0 1",
+                )], warnings=["Unresolved source ambiguity"],
+            ))
 
 if __name__ == "__main__":
     unittest.main()
