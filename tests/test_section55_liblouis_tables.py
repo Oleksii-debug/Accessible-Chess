@@ -98,13 +98,13 @@ class TestSection55TableClosure(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
             child = base / "child.cti"
-            child.write_text("# canonical\\n", encoding="utf-8")
+            child.write_text("# canonical\n", encoding="utf-8")
             uppercase = base / "CHILD.cti"
             if not uppercase.exists():
-                uppercase.write_text("# other Linux file\\n", encoding="utf-8")
+                uppercase.write_text("# other Linux file\n", encoding="utf-8")
             main = base / "main.ctb"
             main.write_text(
-                "include child.cti\\ninclude CHILD.cti\\n", encoding="utf-8"
+                "include child.cti\ninclude CHILD.cti\n", encoding="utf-8"
             )
             with self.assertRaisesRegex(BrailleFactoryError, "case-insensitive"):
                 scan_local_liblouis_table_closure(main)
@@ -119,11 +119,11 @@ class TestSection55TableClosure(unittest.TestCase):
             upper.mkdir()
             if not lower.exists():
                 lower.mkdir()
-            (upper / "x.cti").write_text("# first\\n", encoding="utf-8")
-            (lower / "y.cti").write_text("# second\\n", encoding="utf-8")
+            (upper / "x.cti").write_text("# first\n", encoding="utf-8")
+            (lower / "y.cti").write_text("# second\n", encoding="utf-8")
             main = base / "main.ctb"
             main.write_text(
-                "include A/x.cti\\ninclude a/y.cti\\n", encoding="utf-8"
+                "include A/x.cti\ninclude a/y.cti\n", encoding="utf-8"
             )
             with self.assertRaisesRegex(BrailleFactoryError, "case-insensitive"):
                 scan_local_liblouis_table_closure(main)
@@ -131,10 +131,10 @@ class TestSection55TableClosure(unittest.TestCase):
     def test_identical_repeated_include_remains_valid(self):
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
-            (base / "child.cti").write_text("# child\\n", encoding="utf-8")
+            (base / "child.cti").write_text("# child\n", encoding="utf-8")
             main = base / "main.ctb"
             main.write_text(
-                "include child.cti\\ninclude child.cti\\n", encoding="utf-8"
+                "include child.cti\ninclude child.cti\n", encoding="utf-8"
             )
             closure = scan_local_liblouis_table_closure(main)
             self.assertEqual(len(closure.files), 2)
