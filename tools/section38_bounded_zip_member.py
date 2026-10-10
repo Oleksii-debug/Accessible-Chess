@@ -45,7 +45,10 @@ def extract_member(archive: Path, member: str, destination: Path, *, max_bytes: 
             if not 1 <= len(entries) <= 4096:
                 raise ValueError("unsafe ZIP member count")
             for entry in entries:
-                name = entry.filename
+                # zipfile normalizes raw backslashes on Windows; the original
+                # central-directory spelling must be checked before accepting
+                # any member, even one not selected for extraction.
+                name = entry.orig_filename
                 path = PurePosixPath(name)
                 if (
                     not name or name.startswith(("/", "\\"))
