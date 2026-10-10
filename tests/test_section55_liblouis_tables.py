@@ -62,6 +62,37 @@ class TestSection55TableClosure(unittest.TestCase):
             with self.assertRaises(BrailleFactoryError):
                 scan_local_liblouis_table_closure(main)
 
+    def test_lf_and_crlf_table_lines_are_supported(self):
+        for sep in (b"\n", b"\r\n"):
+            with self.subTest(separator=sep), tempfile.TemporaryDirectory() as tmp:
+                base = Path(tmp)
+                (base / "child.cti").write_bytes(b"# included" + sep)
+                main = base / "main.ctb"
+                main.write_bytes(b"include child.cti" + sep)
+                closure = scan_local_liblouis_table_closure(main)
+                self.assertEqual(len(closure.files), 2)
+
+    def test_ambiguous_line_separators_and_nul_fail_closed(self):
+        # splitlines() treats these as extra lines even where Liblouis
+        # newline semantics may differ. They must not create hidden includes.
+        for marker in ("\r", "\x00", "\v", "\f", "\x1c", "\x1d",
+                       "\x1e", "\x85", "\u2028", "\u2029"):
+            with self.subTest(marker=repr(marker)), tempfile.TemporaryDirectory() as tmp:
+                main = Path(tmp) / "main.ctb"
+                main.write_bytes(
+                    ("include child.cti" + marker + "# hidden\n").encode("utf-8")
+                )
+                with self.assertRaisesRegex(BrailleFactoryError, "line separator"):
+                    scan_local_liblouis_table_closure(main)
+
+    def test_nonportable_include_path_aliases_fail_closed(self):
+        for operand in (r"sub\child.cti", "C:child.cti", "sub:child.cti"):
+            with self.subTest(operand=operand), tempfile.TemporaryDirectory() as tmp:
+                main = Path(tmp) / "main.ctb"
+                main.write_bytes(("include " + operand + "\n").encode("utf-8"))
+                with self.assertRaisesRegex(BrailleFactoryError, "Unsafe Liblouis include target"):
+                    scan_local_liblouis_table_closure(main)
+
     def test_symlinked_include_directory_within_root_is_rejected(self):
         # A symlink to another directory *inside* the root also creates an
         # ambiguous dependency name; checking only the target file misses it.

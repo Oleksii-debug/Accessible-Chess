@@ -89,6 +89,16 @@ def scan_local_liblouis_table_closure(path: Path) -> LocalTableClosure:
             content = raw.decode("utf-8-sig")
         except UnicodeDecodeError as exc:
             raise BrailleFactoryError("Only explicit UTF-8 local tables can be pinned") from exc
+        # Python splitlines() also treats VT, FF, NEL and Unicode separators
+        # as line breaks.  Liblouis table-line parsing is not certified
+        # equivalent, so reject these ambiguous bytes rather than silently
+        # inventing new include directives.  LF and CRLF remain supported.
+        if ("\r" in content.replace("\r\n", "")
+                or any(marker in content for marker in (
+                    "\x00", "\v", "\f", "\x1c", "\x1d", "\x1e",
+                    "\x85", "\u2028", "\u2029",
+                ))):
+            raise BrailleFactoryError("Unsafe Liblouis table line separator or control")
         visiting.add(relative)
         try:
             for line in content.splitlines():
@@ -102,7 +112,11 @@ def scan_local_liblouis_table_closure(path: Path) -> LocalTableClosure:
                     raise BrailleFactoryError("Ambiguous Liblouis include directive")
                 operand = matched.group(1)
                 subpath = Path(operand)
+                # A backslash or colon can mean a path separator, drive,
+                # or alternate stream on Windows while resolving differently
+                # on POSIX.  Use portable, single-identity include paths.
                 if (subpath.is_absolute() or "," in operand
+                        or "\\" in operand or ":" in operand
                         or any(part in ("", ".", "..") for part in subpath.parts)):
                     raise BrailleFactoryError("Unsafe Liblouis include target")
                 visit(resolved.parent / subpath)
