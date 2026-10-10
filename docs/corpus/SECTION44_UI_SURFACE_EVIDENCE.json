@@ -83,7 +83,29 @@
       "section44": "37999945687 QUEUED"
     },
     "native_python_current": "NOT_RUN",
-    "physical_windows_uia": "NOT_RUN"
+    "physical_windows_uia": "NOT_RUN",
+    "postclosure_dual_os_success": {
+      "fix_pr": 2539,
+      "fix_head_sha": "a6531615d6ded55dd5e81490b13000a9221058f2",
+      "merge_sha": "4fe0d332598cb2a7357d2e9ca093bd9c3097894e",
+      "actions_run_id": 38010734676,
+      "ubuntu": "SUCCESS",
+      "windows": "SUCCESS",
+      "scope": "workflow runner only; original Section33 pytest functions executed under pinned pytest instead of unittest",
+      "original_failure": {
+        "run": 37999945687,
+        "ubuntu": "FAIL",
+        "windows": "FAIL",
+        "root_cause": "unittest attempted to load pytest tests without installed pytest"
+      },
+      "main_workflow_blob_sha": "5c4b6f1c8996cbd56bbd2ff67b99109c1d315bb6",
+      "main_push_run": 38010786595,
+      "main_push_run_status_at_record": "COMPLETED_SUCCESS",
+      "main_push_run_jobs": {
+        "ubuntu": "SUCCESS",
+        "windows": "SUCCESS"
+      }
+    }
   },
   "blocked": [],
   "subsections": {

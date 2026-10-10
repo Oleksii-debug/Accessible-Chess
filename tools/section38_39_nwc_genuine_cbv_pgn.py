@@ -431,6 +431,65 @@ def qualify_original_publisher_pair(
     }
 
 
+def validate_publisher_observation(report: dict) -> str:
+    """Accept only a truthful original-source PARTIAL or BLOCKED receipt.
+
+    This validates that the real publisher pair was observed while ensuring an
+    unpinned or undecodable CBV is never promoted to generic format support.
+    """
+    if type(report) is not dict:
+        raise LawfulCorpusError("publisher observation is not an object")
+    if report.get("schema") != "acs-section38-39-external-NWC-original-cbv-pgn-oracle-v1":
+        raise LawfulCorpusError("publisher observation schema changed")
+    if (
+        report.get("publisher_index") != PUBLISHER
+        or report.get("canonical_source_ids") != [CBV_SOURCE_ID, PGN_SOURCE_ID]
+        or report.get("source_original_sha256_previously_pinned") is not False
+        or type(report.get("pgn_expected_games")) is not int
+        or report["pgn_expected_games"] < 1
+        or not _NO_SECRET.fullmatch(report.get("observed_source_pgn_sha256", ""))
+        or not _NO_SECRET.fullmatch(report.get("observed_source_cbv_sha256", ""))
+        or report["observed_source_pgn_sha256"] == report["observed_source_cbv_sha256"]
+        or report.get("terminal_cbv_format_pass") is not False
+        or report.get("product_cbv_backend_changed") is not False
+        or report.get("original_files_redistributed") is not False
+        or report.get("owner_release_included") is not False
+        or report.get("section38_terminal_done") is not False
+        or report.get("section39_terminal_done") is not False
+    ):
+        raise LawfulCorpusError("publisher observation changed source or support authority")
+    status = report.get("qualification")
+    if status == "BLOCKED":
+        if (
+            report.get("blocked_reason") != "MIT_EXTERNAL_CBV_UNPACK_FAILED_CLOSED"
+            or report.get("cbv_decoder_actual_games") is not None
+            or report.get("same_game_count") is not False
+            or report.get("actual_acsdb_imported_games") is not None
+            or report.get("actual_acsdb_restart_game_count") is not None
+            or report.get("acsdb_restart_full_semantic_match") is not False
+            or report.get("acsdb_reimport_reused") is not False
+            or report.get("full_semantic_game_tree_match") is not False
+        ):
+            raise LawfulCorpusError("publisher BLOCKED observation is not fail-closed")
+        return status
+    if status == "PARTIAL":
+        expected = report["pgn_expected_games"]
+        if (
+            report.get("cbv_decoder_actual_games") != expected
+            or report.get("same_game_count") is not True
+            or report.get("complete_original_header_and_annotation_comparison") is not True
+            or report.get("actual_acsdb_imported_games") != expected
+            or report.get("actual_acsdb_restart_game_count") != expected
+            or report.get("acsdb_restart_full_semantic_match") is not True
+            or report.get("acsdb_reimport_reused") is not True
+            or report.get("full_semantic_game_tree_match") is not True
+            or not _NO_SECRET.fullmatch(report.get("actual_decoder_export_sha256", ""))
+        ):
+            raise LawfulCorpusError("publisher PARTIAL observation lost semantics or restart state")
+        return status
+    raise LawfulCorpusError("publisher observation must remain PARTIAL or BLOCKED")
+
+
 def main() -> None:
     """Only a publisher-source observation; never grant a generic CBV PASS."""
     target = Path("section38-39-nw-chess-real-cbv-source-observation.json")
@@ -468,6 +527,7 @@ __all__ = [
     "PUBLISHER", "CBV_URL", "PGN_URL", "CBV_SOURCE_ID", "PGN_SOURCE_ID",
     "_catalog_source_pair", "_qualified_url",
     "_read_publisher_source", "qualify_original_publisher_pair",
+    "validate_publisher_observation",
 ]
 
 

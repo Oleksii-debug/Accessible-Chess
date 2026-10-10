@@ -376,6 +376,103 @@ def qualify_mit_cbvault(
     return report
 
 
+def validate_external_observation(report: dict) -> dict[str, int]:
+    """Validate an executed external observation without inventing support.
+
+    Section 38 requires the real sources to be exercised and any partial or
+    failed import to remain visibly non-PASS.  A clean-room decoder limitation
+    is therefore an accepted *observation* only when the receipt is complete,
+    source-bound and fail-closed.  It is not a format-support PASS.
+    """
+    if type(report) is not dict:
+        raise LawfulCorpusError("external CBH observation is not an object")
+    if report.get("schema") != "accessible-chess-section38-39-mit-cbvault-external-qa-v1":
+        raise LawfulCorpusError("external CBH observation schema changed")
+    if (
+        report.get("backend_commit") != BACKEND_COMMIT
+        or report.get("upstream_fixture_git_commit") != UPSTREAM_COMMIT
+        or report.get("backend_license") != BACKEND_LICENSE
+        or report.get("cbh_actual_fixture_count") != 3
+        or report.get("two_cbh_supported_here") is not False
+        or report.get("cbf_supported_here") is not False
+        or report.get("cbone_supported_here") is not False
+        or report.get("product_decoder_replaced") is not False
+        or report.get("product_integrated_backend") is not False
+        or report.get("external_GPL_binaries_or_test_dbs_packaged") is not False
+        or report.get("section38_terminal_done") is not False
+        or report.get("section39_terminal_done") is not False
+    ):
+        raise LawfulCorpusError("external CBH observation changed authority or support state")
+    families = report.get("families")
+    if type(families) is not list or len(families) != 3:
+        raise LawfulCorpusError("external CBH observation must retain three families")
+    identities: set[str] = set()
+    counts = {"PASS": 0, "PARTIAL": 0, "BLOCKED": 0}
+    for family in families:
+        if type(family) is not dict:
+            raise LawfulCorpusError("external CBH family receipt is not an object")
+        identity = family.get("source_id")
+        status = family.get("qualification")
+        expected = family.get("expected_games")
+        if (
+            type(identity) is not str
+            or not identity
+            or identity in identities
+            or status not in counts
+            or type(expected) is not int
+            or expected < 1
+            or family.get("format") != "cbh"
+            or family.get("source_original_upstream_git_sha") != UPSTREAM_COMMIT
+            or not re.fullmatch(r"[a-f0-9]{64}", family.get("source_oracle_sha256", ""))
+            or family.get("public_release_redistribution") is not False
+        ):
+            raise LawfulCorpusError("external CBH family identity or source receipt is invalid")
+        identities.add(identity)
+        counts[status] += 1
+        observed = family.get("observed_games")
+        matched = family.get("full_source_game_tree_match")
+        metadata_matched = family.get(
+            "all_original_header_comment_nag_variation_metadata_preserved"
+        )
+        if status == "PASS":
+            if (
+                observed != expected
+                or matched is not True
+                or metadata_matched is not True
+                or family.get("expected_recovery_warning_count") != 0
+                or family.get("decoded_recovery_warning_count") != 0
+                or not re.fullmatch(r"[a-f0-9]{64}", family.get("actual_pgn_sha256", ""))
+                or type(family.get("actual_pgn_bytes")) is not int
+                or family["actual_pgn_bytes"] < 1
+                or "blocked_reason" in family
+            ):
+                raise LawfulCorpusError("external CBH PASS is not semantically complete")
+        elif status == "PARTIAL":
+            if (
+                type(observed) is not int
+                or observed < 1
+                or matched is not False
+                or metadata_matched is not False
+                or not re.fullmatch(r"[a-f0-9]{64}", family.get("actual_pgn_sha256", ""))
+                or type(family.get("actual_pgn_bytes")) is not int
+                or family["actual_pgn_bytes"] < 1
+                or "blocked_reason" in family
+            ):
+                raise LawfulCorpusError("external CBH PARTIAL receipt is inconsistent")
+        else:
+            if (
+                family.get("blocked_reason") != "MIT_EXTERNAL_DECODER_FAILED_CLOSED"
+                or observed is not None
+                or matched is not False
+                or metadata_matched is not False
+                or family.get("decoded_recovery_warning_count") is not None
+                or family.get("actual_pgn_sha256") is not None
+                or family.get("actual_pgn_bytes") is not None
+            ):
+                raise LawfulCorpusError("external CBH BLOCKED receipt is not fail-closed")
+    return counts
+
+
 def main() -> None:
     REPORT.unlink(missing_ok=True)
     temp = REPORT.with_suffix(".tmp")

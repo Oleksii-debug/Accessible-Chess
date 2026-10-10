@@ -165,6 +165,58 @@ class MITCbvaultNoFalsePassTests(unittest.TestCase):
                 self.assertIsNone(item["observed_games"])
                 self.assertFalse(item["full_source_game_tree_match"])
                 self.assertEqual(item["expected_games"], 1)
+            self.assertEqual(
+                m.validate_external_observation(result),
+                {"PASS": 0, "PARTIAL": 0, "BLOCKED": 3},
+            )
+
+    def test_external_observation_validator_rejects_false_pass(self):
+        report = {
+            "schema": "accessible-chess-section38-39-mit-cbvault-external-qa-v1",
+            "backend_commit": m.BACKEND_COMMIT,
+            "backend_license": m.BACKEND_LICENSE,
+            "upstream_fixture_git_commit": m.UPSTREAM_COMMIT,
+            "cbh_actual_fixture_count": 3,
+            "two_cbh_supported_here": False,
+            "cbf_supported_here": False,
+            "cbone_supported_here": False,
+            "product_decoder_replaced": False,
+            "product_integrated_backend": False,
+            "external_GPL_binaries_or_test_dbs_packaged": False,
+            "section38_terminal_done": False,
+            "section39_terminal_done": False,
+            "families": [],
+        }
+        for index in range(3):
+            report["families"].append({
+                "source_id": f"family-{index}",
+                "source_original_upstream_git_sha": m.UPSTREAM_COMMIT,
+                "source_oracle_sha256": "a" * 64,
+                "expected_games": 1,
+                "observed_games": None,
+                "full_source_game_tree_match": False,
+                "expected_recovery_warning_count": 0,
+                "decoded_recovery_warning_count": None,
+                "all_original_header_comment_nag_variation_metadata_preserved": False,
+                "actual_pgn_sha256": None,
+                "actual_pgn_bytes": None,
+                "format": "cbh",
+                "qualification": "BLOCKED",
+                "blocked_reason": "MIT_EXTERNAL_DECODER_FAILED_CLOSED",
+                "public_release_redistribution": False,
+            })
+        self.assertEqual(
+            m.validate_external_observation(report),
+            {"PASS": 0, "PARTIAL": 0, "BLOCKED": 3},
+        )
+        forged = {**report, "families": [dict(item) for item in report["families"]]}
+        forged["families"][0].update({
+            "qualification": "PASS",
+            "observed_games": 1,
+            "full_source_game_tree_match": True,
+        })
+        with self.assertRaises(LawfulCorpusError):
+            m.validate_external_observation(forged)
 
     def test_real_source_mode_does_not_succeed_when_cli_returns_empty(self):
         with tempfile.TemporaryDirectory() as tmp:

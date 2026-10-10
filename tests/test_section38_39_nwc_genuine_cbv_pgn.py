@@ -191,6 +191,12 @@ class NorthwestChessSourceOnlyTests(unittest.TestCase):
         self.assertFalse(result["acsdb_restart_full_semantic_match"])
         self.assertFalse(result["section38_terminal_done"])
         self.assertFalse(result["original_files_redistributed"])
+        self.assertEqual(nw.validate_publisher_observation(result), "BLOCKED")
+
+        forged = dict(result)
+        forged["qualification"] = "PARTIAL"
+        with self.assertRaises(LawfulCorpusError):
+            nw.validate_publisher_observation(forged)
 
     def test_original_pgn_and_original_cbv_are_distinct_source_bytes(self):
         # This is a negative *metadata* test, not a substitute for downloading
