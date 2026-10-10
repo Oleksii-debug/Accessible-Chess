@@ -7,7 +7,7 @@ only returns untrusted page text and explicit REVIEW_REQUIRED evidence. It never
 changes BookDocument, runs OCR, touches the network, or grants publication rights.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from multiprocessing import get_context
 from multiprocessing.connection import Connection
 
@@ -28,7 +28,7 @@ class FactoryPdfPage:
     file_page: int
     anchor: str
     text: str
-    review_status: str = "REVIEW_REQUIRED"
+    review_status: str = field(default="REVIEW_REQUIRED", init=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,7 +39,7 @@ class FactoryPdfProbe:
     pages: tuple[FactoryPdfPage, ...]
     warnings: tuple[str, ...]
     review_status: str = "REVIEW_REQUIRED"
-    public_release_approved: bool = False
+    public_release_approved: bool = field(default=False, init=False)
 
 
 def _bounded_extract(source: bytes) -> tuple[int, list[tuple[int, str]], list[str]]:
