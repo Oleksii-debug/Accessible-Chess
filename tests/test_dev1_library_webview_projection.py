@@ -476,7 +476,9 @@ class LibraryWebViewProjectionTests(unittest.TestCase):
             has_more=False,
         )
         _service, _presenter, projection, _bridge, _calls = self.build(oversized)
-        with self.assertRaisesRegex(ValueError, "browser-safe"):
+        # The canonical search presenter rejects the out-of-range provider ID
+        # before the WebView projection can apply its own browser-safe guard.
+        with self.assertRaisesRegex(ValueError, "library game_id is invalid"):
             projection.search(GameSearchQuery(limit=25))
         with self.assertRaisesRegex(ValueError, "browser-safe"):
             projection.select(maximum + 1)
@@ -493,6 +495,10 @@ class LibraryWebViewProjectionTests(unittest.TestCase):
 
 
 class LibraryWebAssetTests(unittest.TestCase):
+    # Reuse the actual Library presenter/bridge fixture for dynamic security and
+    # rollback cases; static-only tests in this class use source readback.
+    build = LibraryWebViewProjectionTests.build
+
     @classmethod
     def setUpClass(cls) -> None:
         cls.source = (Path(__file__).parents[1] / "web" / "full_product_library.js").read_text(
