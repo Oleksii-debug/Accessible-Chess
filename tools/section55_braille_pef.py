@@ -33,6 +33,7 @@ from acs.chess_braille_bundle import verify_provisional_bundle
 from acs.chess_braille_tables import scan_local_liblouis_table_closure
 from acs.chess_braille_brf import NABCC_DISPLAY_TABLE, pef_to_provisional_brf
 from acs.chess_braille_html import render_local_braille_html
+from acs.chess_braille_ukaaf2015 import build_ukaaf2015_diagram_catalog, STANDARD_ID as UKAAF_STANDARD
 from acs.chess_braille_factory import (
     BrailleFactoryError, BrailleProfile, LiblouisTranslator, prepare_chess_book_pef,
 )
@@ -67,6 +68,7 @@ def make_parser() -> argparse.ArgumentParser:
     p.add_argument("--output-folder", type=Path, required=True)
     p.add_argument("--emit-brf", action="store_true", help="Also write unverified NABCC BRF (requires explicit selected display map)")
     p.add_argument("--emit-html", action="store_true", help="Also write unverified keyboard-navigable local HTML preview")
+    p.add_argument("--emit-ukaaf-diagrams", action="store_true", help="Also write source-linked British UKAAF 2015 chess diagram cells (NOT print ready)")
     p.add_argument("--display-table", choices=[NABCC_DISPLAY_TABLE], help="Explicit provisional BRF display mapping")
     return p
 
@@ -134,6 +136,9 @@ def run(args: argparse.Namespace) -> int:
         raise BrailleFactoryError("BRF display mapping was selected without --emit-brf")
     brf = pef_to_provisional_brf(result, display_table=args.display_table) if args.emit_brf else None
     html_preview = render_local_braille_html(document, result) if args.emit_html else None
+    if args.emit_ukaaf_diagrams and args.language.lower() not in ("en", "en-gb"):
+        raise BrailleFactoryError("UKAAF 2015 is a British English chess-code profile; another language needs independent qualification")
+    catalog = build_ukaaf2015_diagram_catalog(document) if args.emit_ukaaf_diagrams else None
     if bounded_read(source_path, source_limit) != original_source:
         raise BrailleFactoryError("Source book changed during preparation; no output published")
     if bounded_read(args.table_file, MAX_TABLE_BYTES) != table_data:
@@ -162,10 +167,20 @@ def run(args: argparse.Namespace) -> int:
             (temporary / "chess-book-unverified.brf").write_bytes(brf.data)
         if html_preview is not None:
             (temporary / "chess-book-unverified.html").write_bytes(html_preview.data)
+        if catalog is not None:
+            (temporary / "chess-diagrams-ukaaf2015-unverified.json").write_bytes(catalog.data)
         report = {
             "manifest": {**result.manifest,
                 "original_source_sha256": sha256(original_source).hexdigest(),
                 "original_source_size_bytes": len(original_source),
+                **({
+                    "ukaaf_diagram_catalog_sha256": catalog.sha256,
+                    "ukaaf_diagram_standard": UKAAF_STANDARD,
+                    "ukaaf_diagram_count": catalog.count,
+                    "ukaaf_layout_qualified": False,
+                    "ukaaf_print_ready": False,
+                    "source_title_override": args.book_title if args.source_file is not None else None,
+                } if catalog is not None else {}),
                 **({
                     "output_html_sha256": html_preview.sha256,
                     "html_print_ready": False,
@@ -195,7 +210,7 @@ def run(args: argparse.Namespace) -> int:
             raise BrailleFactoryError("Output folder was created concurrently; refusing overwrite") from exc
         installed: list[Path] = []
         try:
-            for name in ("chess-book-unverified.pef", "chess-book-unverified.brf", "chess-book-unverified.html", "quality-report.json"):
+            for name in ("chess-book-unverified.pef", "chess-book-unverified.brf", "chess-book-unverified.html", "chess-diagrams-ukaaf2015-unverified.json", "quality-report.json"):
                 entry = temporary / name
                 if entry.exists():
                     published = target / name
@@ -212,7 +227,7 @@ def run(args: argparse.Namespace) -> int:
         if temporary.exists():
             shutil.rmtree(temporary)
     print("SECTION 55: UNVERIFIED_REQUIRES_DECISION")
-    print("PEF" + (" and BRF" if brf is not None else "") + (" and local HTML preview" if html_preview is not None else "") + " and quality report prepared locally; print readiness NOT established.")
+    print("PEF" + (" and BRF" if brf is not None else "") + (" and local HTML preview" if html_preview is not None else "") + (" and UKAAF position catalog" if catalog is not None else "") + " and quality report prepared locally; print readiness NOT established.")
     return 0
 
 
