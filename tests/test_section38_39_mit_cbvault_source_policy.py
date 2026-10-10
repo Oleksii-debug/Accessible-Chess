@@ -127,7 +127,7 @@ class MITCbvaultNoFalsePassTests(unittest.TestCase):
                 folder.mkdir(parents=True)
                 (folder / (stem + ".cbh")).write_bytes(b"fixture")
                 (folder / "original.pgn").write_text(
-                    '[Event "Original"]\\n[Result "*"]\\n\\n1. e4 e5 *\\n',
+                    '[Event "Original"]\n[Result "*"]\n\n1. e4 e5 *\n',
                     encoding="utf-8",
                 )
                 entries.append({
