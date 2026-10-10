@@ -45,6 +45,17 @@ class FactoryChessAuditTests(unittest.TestCase):
         self.assertFalse(report.structure_complete)
         self.assertFalse(report.ready_for_publication)
 
+    def test_one_illegal_branch_blocks_a_mainline_that_is_legal(self) -> None:
+        doc = BookDocument(title="Bad alternative", blocks=[
+            game("1. e4 (1. d4 d5 2. Bh5) e5 *"),
+        ])
+        report = audit_factory_book_chess(doc)
+        self.assertEqual(report.chess_blocks, 1)
+        self.assertEqual(report.invalid_chess_blocks, 1)
+        self.assertEqual(report.blocks[0].status, "INVALID_CHESS_STRUCTURE")
+        self.assertTrue(report.blocks[0].issue_codes)
+        self.assertFalse(report.ready_for_publication)
+
     def test_unsupported_game_variant_fails_closed(self) -> None:
         doc = BookDocument(title="Different rules", blocks=[
             game('1. e4 *', '[Variant "Chess960"]\n'),
