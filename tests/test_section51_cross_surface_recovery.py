@@ -221,16 +221,23 @@ class Section51CrossSurfaceRecoveryTests(unittest.TestCase):
     def test_future_library_schema_blocks_downgrade_and_preserves_all_user_bytes(self):
         with tempfile.TemporaryDirectory() as td:
             root, durable = self._fixture(Path(td))
-            with sqlite3.connect(root / "library.acsdb") as connection:
+            connection = sqlite3.connect(root / "library.acsdb")
+            try:
                 connection.execute("PRAGMA user_version=999")
+                connection.commit()
+            finally:
+                connection.close()
             settings_before = (root / "settings.json").read_bytes()
             with self.assertRaises(Version2UpgradeError):
                 Version2UpgradeCoordinator(UserDataLayout(root)).run()
             self.assertEqual((root / "settings.json").read_bytes(), settings_before)
             self._assert_durable(root, durable)
-            with sqlite3.connect(root / "library.acsdb") as connection:
+            connection = sqlite3.connect(root / "library.acsdb")
+            try:
                 self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 999)
                 self.assertEqual(connection.execute("SELECT COUNT(*) FROM sources").fetchone()[0], 1)
+            finally:
+                connection.close()
 
     def test_future_settings_schema_blocks_downgrade_without_touching_user_data(self):
         with tempfile.TemporaryDirectory() as td:
