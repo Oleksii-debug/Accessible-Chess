@@ -15,8 +15,8 @@ function indexFunction(name) {
 
 assert.match(
     html,
-    /id="key-recovery-status" class="block" role="status" aria-live="polite" aria-atomic="true" hidden/,
-    'keymap recovery guidance must be persistent visible/selectable dialog content'
+    /id="key-recovery-status" class="block" role="status" aria-live="off" hidden/,
+    'keymap recovery guidance must be persistent visible/selectable dialog content without a duplicate live region'
 );
 assert.match(
     html,

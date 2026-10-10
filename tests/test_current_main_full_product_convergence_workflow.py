@@ -526,8 +526,9 @@ class CurrentMainFullProductConvergenceWorkflowTests(unittest.TestCase):
         self.assertIn("BOOKDOCUMENT_TOPOLOGY=BOUNDED_OWNER_SUCCESSOR", bookdocument)
         self.assertIn("BOOKDOCUMENT_TOPOLOGY=WHOLE_PRODUCT_COMPOSITION", bookdocument)
         self.assertIn("[ \"$base_ref\" = 'main' ]", bookdocument)
-        self.assertIn("71a4ac74de61de10967284b7a1908534b5384259", bookdocument)
-        self.assertIn("f8abeb20819df2776e82d1bf5f9007fc12cb31d6", bookdocument)
+        self.assertIn("00d89fd48e4e60389ef7298958500d2a29d956ce", bookdocument)
+        self.assertIn("23249894e2e7d9c3b2c0602515188000ea846a41", bookdocument)
+        self.assertIn("425b075b8ee0c0c6bb5228fadf2fc37f9f8a82d8", bookdocument)
 
         self.assertIn("PGN_POSITION_TOPOLOGY=BOUNDED_OWNER_SUCCESSOR", pgn_position)
         self.assertIn("PGN_POSITION_TOPOLOGY=WHOLE_PRODUCT_COMPOSITION", pgn_position)
