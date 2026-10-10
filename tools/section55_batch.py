@@ -33,6 +33,7 @@ _COMMON = {
     "id", "book_json", "source_file", "book_title", "table_file",
     "table_version", "language", "device_model", "cells_per_line",
     "lines_per_page", "rights_confirmed", "rights_basis", "emit_brf",
+    "emit_html",
 }
 _REQUIRED = {
     "id", "table_file", "table_version", "language", "device_model",
@@ -84,7 +85,8 @@ def _validated_jobs(raw: bytes) -> tuple[str, list[dict]]:
             type(job["book_title"]) is not str or not job["book_title"].strip()
         ):
             raise BrailleFactoryError("Batch source title must be meaningful text")
-        if job["rights_confirmed"] is not True or type(job["emit_brf"]) is not bool:
+        if (job["rights_confirmed"] is not True or type(job["emit_brf"]) is not bool
+                or type(job.get("emit_html", False)) is not bool):
             raise BrailleFactoryError("Explicit rights and output-format flags are required")
         if (type(job["cells_per_line"]) is not int or
                 type(job["lines_per_page"]) is not int):
@@ -142,6 +144,7 @@ def _args_for(job: dict, output: Path) -> argparse.Namespace:
         rights_basis=job["rights_basis"],
         output_folder=output,
         emit_brf=job["emit_brf"],
+        emit_html=job.get("emit_html", False),
         display_table="en-us-brf.dis" if job["emit_brf"] else None,
     )
 
@@ -169,10 +172,13 @@ def process_batch(queue_file: Path, output_root: Path, *, max_per_run: int) -> t
             raise BrailleFactoryError("Batch journal contains job IDs outside the pinned queue")
         for entry in journal["completed"].values():
             if (type(entry) is not dict or set(entry) != {
-                    "source_sha256", "pef_sha256", "brf_sha256"}
+                    "source_sha256", "pef_sha256", "brf_sha256", "html_sha256"}
                     or any(type(entry[key]) is not str or
                            not re.fullmatch(r"[0-9a-f]{64}", entry[key])
                            for key in ("source_sha256", "pef_sha256"))
+                    or (entry["html_sha256"] is not None and (
+                        type(entry["html_sha256"]) is not str or
+                        not re.fullmatch(r"[0-9a-f]{64}", entry["html_sha256"])))
                     or (entry["brf_sha256"] is not None and (
                         type(entry["brf_sha256"]) is not str or
                         not re.fullmatch(r"[0-9a-f]{64}", entry["brf_sha256"])))):
@@ -193,6 +199,7 @@ def process_batch(queue_file: Path, output_root: Path, *, max_per_run: int) -> t
                     "source_sha256": check.source_sha256,
                     "pef_sha256": check.output_pef_sha256,
                     "brf_sha256": check.output_brf_sha256,
+                    "html_sha256": check.output_html_sha256,
                 }
                 prior = journal["completed"].get(key)
                 if prior is not None and prior != current:
