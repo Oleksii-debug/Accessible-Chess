@@ -15,16 +15,19 @@ from .chess_braille_brf import NABCC_DISPLAY_TABLE, pef_to_provisional_brf
 from .chess_braille_factory import BrailleFactoryError, BraillePreparation
 from .chess_braille_tables import scan_local_liblouis_table_closure
 from .chess_braille_html import render_local_braille_html
+from .chess_braille_ukaaf2015 import build_ukaaf2015_diagram_catalog, STANDARD_ID as UKAAF_STANDARD
 from .bookdocument import BookDocument
 from .book_text_import import import_text_book
 
 PEF_FILE = "chess-book-unverified.pef"
 BRF_FILE = "chess-book-unverified.brf"
 HTML_FILE = "chess-book-unverified.html"
+UKAAF_FILE = "chess-diagrams-ukaaf2015-unverified.json"
 REPORT_FILE = "quality-report.json"
 MAX_PEF_SIZE = 32 * 1024 * 1024
 MAX_BRF_SIZE = 32 * 1024 * 1024
 MAX_HTML_SIZE = 32 * 1024 * 1024
+MAX_UKAAF_SIZE = 16 * 1024 * 1024
 MAX_REPORT_SIZE = 64 * 1024
 MAX_SOURCE_SIZE = 32 * 1024 * 1024
 
@@ -36,6 +39,7 @@ class ProvisionalBundleCheck:
     source_sha256: str
     pages: int
     output_html_sha256: str | None = None
+    output_ukaaf_sha256: str | None = None
     internal_consistency: bool = True
     qualified_print_ready: bool = False
     table_inventory_verified: bool = False
@@ -71,12 +75,9 @@ def verify_provisional_bundle(folder: Path, source_file: Path, *,
     if folder.is_symlink() or not folder.is_dir():
         raise BrailleFactoryError("Package directory does not exist or is a link")
     entries = {entry.name for entry in folder.iterdir()}
-    if not entries in (
-        {PEF_FILE, REPORT_FILE},
-        {PEF_FILE, BRF_FILE, REPORT_FILE},
-        {PEF_FILE, HTML_FILE, REPORT_FILE},
-        {PEF_FILE, BRF_FILE, HTML_FILE, REPORT_FILE},
-    ):
+    mandatory = {PEF_FILE, REPORT_FILE}
+    permitted = mandatory | {BRF_FILE, HTML_FILE, UKAAF_FILE}
+    if not mandatory <= entries or not entries <= permitted:
         raise BrailleFactoryError("The provisional package contains missing or unexpected entries")
     raw_report = _read_regular_file(folder / REPORT_FILE, MAX_REPORT_SIZE)
     try:
@@ -145,8 +146,42 @@ def verify_provisional_bundle(folder: Path, source_file: Path, *,
         reproduced_html = render_local_braille_html(original_document, preparation)
         if reproduced_html.data != html_bytes:
             raise BrailleFactoryError("HTML preview does not round-trip from original semantic source and PEF")
-    elif any(key in manifest for key in ("output_html_sha256", "html_print_ready", "source_title_override")):
+    elif any(key in manifest for key in ("output_html_sha256", "html_print_ready")):
         raise BrailleFactoryError("HTML preview claimed but file missing")
+    output_ukaaf: str | None = None
+    if UKAAF_FILE in entries:
+        if (manifest.get("ukaaf_layout_qualified") is not False or
+                manifest.get("ukaaf_print_ready") is not False or
+                manifest.get("ukaaf_diagram_standard") != UKAAF_STANDARD):
+            raise BrailleFactoryError("UKAAF chess catalog lacks explicitly unqualified profile")
+        encoded_catalog = _read_regular_file(folder / UKAAF_FILE, MAX_UKAAF_SIZE)
+        output_ukaaf = _expect_hash(encoded_catalog, manifest.get("ukaaf_diagram_catalog_sha256"), "ukaaf_diagram_catalog_sha256")
+        if source_file.suffix.lower() == ".json":
+            try:
+                source_mapping = json.loads(source.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise BrailleFactoryError("Original canonical chess JSON could not be parsed") from exc
+            chess_document = BookDocument.from_dict(source_mapping)
+        elif source_file.suffix.lower() in {".md", ".txt"}:
+            imported = import_text_book(
+                source, source_name=source_file.name,
+                source_format="markdown" if source_file.suffix.lower() == ".md" else "txt",
+                title=manifest.get("source_title_override"),
+                language=manifest.get("language"),
+            )
+            if imported.warnings:
+                raise BrailleFactoryError("Original UKAAF chess source has unresolved warnings")
+            chess_document = imported.document
+        else:
+            raise BrailleFactoryError("Unsupported original source for UKAAF catalog")
+        expected_catalog = build_ukaaf2015_diagram_catalog(chess_document)
+        if (expected_catalog.data != encoded_catalog or
+                expected_catalog.count != manifest.get("ukaaf_diagram_count")):
+            raise BrailleFactoryError("UKAAF 2015 catalog does not reproduce from original chess book")
+    elif any(key in manifest for key in (
+            "ukaaf_diagram_catalog_sha256", "ukaaf_diagram_standard",
+            "ukaaf_diagram_count", "ukaaf_layout_qualified", "ukaaf_print_ready")):
+        raise BrailleFactoryError("UKAAF catalog claimed but corresponding file absent")
     table_checked = False
     if table_file is not None:
         closure = scan_local_liblouis_table_closure(table_file)
@@ -164,6 +199,7 @@ def verify_provisional_bundle(folder: Path, source_file: Path, *,
         output_brf_sha256=output_brf,
         source_sha256=source_sha,
         output_html_sha256=output_html,
+        output_ukaaf_sha256=output_ukaaf,
         pages=reproduced_brf.pages,
         table_inventory_verified=table_checked,
     )
