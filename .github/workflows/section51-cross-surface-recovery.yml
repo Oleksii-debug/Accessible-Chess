@@ -8,6 +8,10 @@ on:
     paths:
       - 'tests/test_section51_cross_surface_recovery.py'
       - 'tests/test_section51_owner_data_transfer.py'
+      - 'tests/test_section51_windows_owner_backup_menu.py'
+      - 'acs/version2_profile.py'
+      - 'acs/version2_release_ui.py'
+      - 'acs/full_product_native_menu.py'
       - 'acs/user_data_transfer.py'
       - '.github/workflows/section51-cross-surface-recovery.yml'
       - 'acs/version2_upgrade.py'
@@ -48,9 +52,9 @@ jobs:
         with:
           python-version: '3.12.10'
       - name: Compile exact test
-        run: python -m compileall -q acs/user_data_transfer.py tests/test_section51_cross_surface_recovery.py tests/test_section51_owner_data_transfer.py
+        run: python -m compileall -q acs/user_data_transfer.py acs/version2_profile.py acs/version2_release_ui.py acs/full_product_native_menu.py tests/test_section51_cross_surface_recovery.py tests/test_section51_owner_data_transfer.py tests/test_section51_windows_owner_backup_menu.py
       - name: Cross-surface data preservation, migration and rollback
-        run: python -m unittest -v tests.test_section51_cross_surface_recovery tests.test_section51_owner_data_transfer
+        run: python -m unittest -v tests.test_section51_cross_surface_recovery tests.test_section51_owner_data_transfer tests.test_section51_windows_owner_backup_menu tests.test_version2_release_ui tests.test_version2_windows_composition_profile
       - name: Retained upgrade correctness and tamper-recovery contracts
         run: >-
           python -m unittest -v
