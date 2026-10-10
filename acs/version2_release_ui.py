@@ -12,6 +12,8 @@ live in this module.
 from collections.abc import Mapping
 from dataclasses import asdict
 from functools import wraps
+import os
+from pathlib import Path
 import threading
 from typing import Any, Callable
 
@@ -702,6 +704,7 @@ def run_version2_release_window(
 
     application_closed = False
     startup_errors: list[BaseException] = []
+    owner_export_root: Path | None = None
 
     def close_application(*_args: Any) -> bool:
         nonlocal application_closed
@@ -749,6 +752,20 @@ def run_version2_release_window(
             if callable(destroy):
                 destroy()
 
+        def request_owner_backup_and_exit() -> None:
+            nonlocal owner_export_root
+            if application is None:
+                raise RuntimeError("owner backup needs a composed application")
+            progress_path = getattr(
+                getattr(application, "progress_store", None), "path", None
+            )
+            if progress_path is None:
+                raise RuntimeError("canonical user-data profile is unavailable")
+            owner_export_root = Path(progress_path).parent
+            # Only request the snapshot here. Writers must first be closed
+            # through the same native FormClosing guard as ordinary Exit.
+            exit_application()
+
         native_files: Any | None = None
 
         def window_closing_without_destructive_shutdown(*_args: Any) -> bool:
@@ -776,6 +793,7 @@ def run_version2_release_window(
                 application.adapter,
                 application.native_command,
                 exit_callback=exit_application,
+                owner_export_callback=request_owner_backup_and_exit,
                 current_focus_provider=lambda: getattr(application, "_focus", ""),
                 focus_restore=lambda token: setattr(application, "_focus", token),
             )
@@ -875,6 +893,39 @@ def run_version2_release_window(
         raise primary_error
     if cleanup_error is not None:
         raise cleanup_error
+
+    if owner_export_root is not None:
+        # Data writers and the engine have fully shut down. Only now can the
+        # canonical cross-surface snapshot be consistent and verified.
+        from .user_data_transfer import UserDataTransferError, export_owner_profile
+        from .version2_upgrade import UserDataLayout
+
+        lang = getattr(getattr(application, "shell", None), "language", UILanguage.UA)
+        try:
+            snapshot = export_owner_profile(UserDataLayout(owner_export_root))
+        except UserDataTransferError:
+            if os.name == "nt":
+                import clr  # type: ignore
+                clr.AddReference("System.Windows.Forms")
+                from System.Windows.Forms import MessageBox  # type: ignore
+                MessageBox.Show(
+                    "Backup failed. No verified complete snapshot was published."
+                    if lang is UILanguage.EN
+                    else "Резервну копію не створено. Перевірку цілісності не завершено.",
+                    "Accessible Chess",
+                )
+            raise
+        if os.name == "nt":
+            import clr  # type: ignore
+            clr.AddReference("System.Windows.Forms")
+            from System.Windows.Forms import MessageBox  # type: ignore
+            message = (
+                "Complete user-data backup saved. Store a separate copy safely at:\\n"
+                if lang is UILanguage.EN
+                else "Повну копію даних створено. Збережіть окремий примірник за адресою:\\n"
+            )
+            MessageBox.Show(message + str(snapshot), "Accessible Chess")
+
 
 
 __all__ = [
