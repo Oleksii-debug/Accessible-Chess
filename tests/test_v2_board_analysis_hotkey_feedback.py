@@ -187,8 +187,8 @@ class Version2BoardAnalysisHotkeyFeedbackTests(unittest.TestCase):
                 "analysis.lock_target": (False, "Ціль аналізу недоступна."),
                 "analysis.explore_pv": (False, "Варіант недоступний."),
                 "analysis.return": (False, "Не вдалося відновити вихідну позицію аналізу."),
-                "analysis.insert_move": (False, "Варіант недоступний."),
-                "analysis.insert_line": (False, "Варіант недоступний."),
+                "analysis.insert_move": (False, "Не вдалося безпечно вставити варіант Stockfish."),
+                "analysis.insert_line": (False, "Не вдалося безпечно вставити варіант Stockfish."),
                 "analysis.restart": (False, "Stockfish недоступний."),
             },
             "en": {
@@ -202,8 +202,8 @@ class Version2BoardAnalysisHotkeyFeedbackTests(unittest.TestCase):
                 "analysis.lock_target": (False, "Analysis target is unavailable."),
                 "analysis.explore_pv": (False, "Variation unavailable."),
                 "analysis.return": (False, "The analysis source position could not be restored."),
-                "analysis.insert_move": (False, "Variation unavailable."),
-                "analysis.insert_line": (False, "Variation unavailable."),
+                "analysis.insert_move": (False, "The Stockfish variation could not be inserted safely."),
+                "analysis.insert_line": (False, "The Stockfish variation could not be inserted safely."),
                 "analysis.restart": (False, "Stockfish unavailable."),
             },
         }

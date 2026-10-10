@@ -53,7 +53,7 @@ class Stage1PackagedFocusOriginContractTests(unittest.TestCase):
 
     def test_packaged_move_edit_never_leaves_its_initial_dom_parent_or_identity(self) -> None:
         text = self.bootstrap
-        self.assertIn('<label for="move-input">Хід</label>', self.html)
+        self.assertIn('<label id="move-input-label" for="move-input">Хід</label>', self.html)
         self.assertIn('<input id="move-input" type="text"', self.html)
         self.assertIn("function installMoveEntryIdentity()", text)
         self.assertIn("input.addEventListener('focusin', rememberMoveInputFocus)", text)
@@ -75,7 +75,7 @@ class Stage1PackagedFocusOriginContractTests(unittest.TestCase):
         self.assertIn("stage1MoveUiaSemanticsReady", text)
         self.assertIn("? {input: 'Move', submit: 'Make move'}", text)
         self.assertIn(": {input: 'Хід', submit: 'Зробити хід'}", text)
-        self.assertIn('<label for="move-input">Хід</label>', self.html)
+        self.assertIn('<label id="move-input-label" for="move-input">Хід</label>', self.html)
         move_markup = self.html.split('<input id="move-input"', 1)[1].split('>', 1)[0]
         self.assertNotIn("aria-describedby", move_markup)
 
@@ -127,7 +127,8 @@ class Stage1PackagedFocusOriginContractTests(unittest.TestCase):
         self.assertIn("cell.setAttribute('aria-label', stableBoardAccessibleName(cell))", text)
         self.assertIn("cell.setAttribute('data-accessible-square', square)", text)
         self.assertIn("stage1BoardUiaSemanticsReady", text)
-        self.assertIn("queueMicrotask(() => stabilizeBoardUiaSemantics(grid))", text)
+        self.assertIn("queueMicrotask(() => {", text)
+        self.assertIn("stabilizeBoardUiaSemantics(grid)", text)
 
     def test_board_origin_is_semantic_state_not_active_element_only(self) -> None:
         text = self.bootstrap
@@ -160,7 +161,10 @@ class Stage1PackagedFocusOriginContractTests(unittest.TestCase):
         self.assertEqual(text.count("submit.removeEventListener('click', baseSubmit)"), 1)
         self.assertEqual(text.count("submit.addEventListener('click', wrappedSubmit)"), 1)
         self.assertNotIn("keydown", body)
-        self.assertIn("if(e.key==='Enter'){e.preventDefault();submitMove()}", self.html)
+        self.assertIn("el('move-input').addEventListener('keydown'", self.html)
+        self.assertIn("candidate!=='move.submit'", self.html)
+        self.assertIn("resolveBinding(chord,'move_entry','move-entry')", self.html)
+        self.assertIn("executeAction(a.actionId)", self.html)
 
     def test_uia_invoke_has_bounded_settled_focus_convergence(self) -> None:
         text = self.bootstrap
@@ -209,10 +213,13 @@ class Stage1PackagedFocusOriginContractTests(unittest.TestCase):
 
     def test_copy_selection_and_document_shortcuts_are_not_newly_hijacked(self) -> None:
         text = self.bootstrap
-        self.assertNotIn("document.addEventListener('keydown'", text)
-        self.assertNotIn("window.addEventListener('keydown'", text)
-        self.assertNotIn("event.key === 'c'", text)
-        self.assertNotIn("event.key === 'a'", text)
+        start = text.index("function installSemanticFocusBoundary()")
+        end = text.index("function restoreBoardSquare", start)
+        focus_boundary = text[start:end]
+        self.assertNotIn("document.addEventListener('keydown'", focus_boundary)
+        self.assertNotIn("window.addEventListener('keydown'", focus_boundary)
+        self.assertNotIn("event.key === 'c'", focus_boundary)
+        self.assertNotIn("event.key === 'a'", focus_boundary)
 
     def test_rerender_recovery_and_submit_recovery_share_same_board_context(self) -> None:
         text = self.bootstrap
@@ -227,7 +234,9 @@ class Stage1PackagedFocusOriginContractTests(unittest.TestCase):
         self.assertIn("async function submitMove()", self.html)
         self.assertIn("if(r&&r.ok){input.value='';input.focus()}else{input.focus();input.select()}", self.html)
         self.assertIn("el('move-submit').addEventListener('click',submitMove)", self.html)
-        self.assertIn("if(e.key==='Enter'){e.preventDefault();submitMove()}", self.html)
+        self.assertIn("candidate!=='move.submit'", self.html)
+        self.assertIn("resolveBinding(chord,'move_entry','move-entry')", self.html)
+        self.assertIn("executeAction(a.actionId)", self.html)
         self.assertIn("input.addEventListener('focusin', rememberMoveInputFocus)", self.bootstrap)
 
 

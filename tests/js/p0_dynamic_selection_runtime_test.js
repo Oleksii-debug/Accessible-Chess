@@ -678,7 +678,25 @@ function proveStage1AnalysisListRerender() {
 }
 
 function emptyPgnSnapshot(message) {
-  return { status: "empty", empty_message: message };
+  return {
+    document: { lang: "en", landmark: "main" },
+    status: "empty",
+    empty_message: message,
+    error_message: "The action could not be completed.",
+    game: {},
+    tree: [],
+    actions: [],
+    comment_editor: {
+      enabled: false,
+      value: "",
+      message: "",
+      title: "PGN comment",
+      label: "Comment text",
+      save_label: "Save",
+      cancel_label: "Cancel"
+    },
+    focus_target: ""
+  };
 }
 
 function provePgnLocalRerender() {
