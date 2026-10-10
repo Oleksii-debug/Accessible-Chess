@@ -409,10 +409,16 @@ def _remove_private_staging_file(
         current = _safe_receipt_lstat(path)
     except Version2ReleaseReceiptError:
         return
+    try:
+        same_created_object = bool(os.path.samestat(expected_identity, current))
+    except (AttributeError, OSError):
+        left = (getattr(expected_identity, "st_dev", None), getattr(expected_identity, "st_ino", None))
+        right = (getattr(current, "st_dev", None), getattr(current, "st_ino", None))
+        same_created_object = all(value not in (None, 0) for value in (*left, *right)) and left == right
     if (
         not stat.S_ISREG(current.st_mode)
         or _is_reparse(current)
-        or not _same_file_identity(expected_identity, current)
+        or not same_created_object
     ):
         return
     try:

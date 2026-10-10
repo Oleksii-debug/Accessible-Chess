@@ -89,6 +89,7 @@ _REQUIRED_WEB_FILES = (
     Path("web") / "index.html",
     Path("web") / "design_system.css",
     Path("web") / "board_themes.css",
+    Path("web") / "visual_profile_transfer.js",
     Path("web") / "youtube_iframe_adapter.js",
     Path("web") / "video_board_sync.js",
     Path("web") / "ai_voice.js",
