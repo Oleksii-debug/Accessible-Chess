@@ -62,6 +62,24 @@ class TestSection55TableClosure(unittest.TestCase):
             with self.assertRaises(BrailleFactoryError):
                 scan_local_liblouis_table_closure(main)
 
+    def test_symlinked_include_directory_within_root_is_rejected(self):
+        # A symlink to another directory *inside* the root also creates an
+        # ambiguous dependency name; checking only the target file misses it.
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            real = base / "real"
+            real.mkdir()
+            (real / "child.cti").write_text("# pinned\n", encoding="utf-8")
+            alias = base / "alias"
+            try:
+                alias.symlink_to(real, target_is_directory=True)
+            except (OSError, NotImplementedError):
+                self.skipTest("Directory symlinks need OS permissions")
+            main = base / "main.ctb"
+            main.write_text("include alias/child.cti\n", encoding="utf-8")
+            with self.assertRaisesRegex(BrailleFactoryError, "Symlink"):
+                scan_local_liblouis_table_closure(main)
+
     def test_symlink_inside_pinned_folder_is_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
