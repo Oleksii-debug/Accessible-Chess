@@ -920,9 +920,9 @@ def run_version2_release_window(
             clr.AddReference("System.Windows.Forms")
             from System.Windows.Forms import MessageBox  # type: ignore
             message = (
-                "Complete user-data backup saved. Store a separate copy safely at:\\n"
+                "Complete user-data backup saved. Store a separate copy safely at:\n"
                 if lang is UILanguage.EN
-                else "Повну копію даних створено. Збережіть окремий примірник за адресою:\\n"
+                else "Повну копію даних створено. Збережіть окремий примірник за адресою:\n"
             )
             MessageBox.Show(message + str(snapshot), "Accessible Chess")
 
