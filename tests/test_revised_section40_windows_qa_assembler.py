@@ -38,6 +38,23 @@ def _prepared_fixture(work: Path) -> tuple[Path, Path]:
     for relative in (
         "web/index.html",
         "web/section45_design_studio.js",
+        # The current packaged index also references the accepted Section 42
+        # CC0 RhosGFX set.  The real package preflight intentionally requires
+        # all original bytes plus their provenance and license evidence.
+        "web/assets/pieces/rhosgfx/wK.svg",
+        "web/assets/pieces/rhosgfx/wQ.svg",
+        "web/assets/pieces/rhosgfx/wR.svg",
+        "web/assets/pieces/rhosgfx/wB.svg",
+        "web/assets/pieces/rhosgfx/wN.svg",
+        "web/assets/pieces/rhosgfx/wP.svg",
+        "web/assets/pieces/rhosgfx/bK.svg",
+        "web/assets/pieces/rhosgfx/bQ.svg",
+        "web/assets/pieces/rhosgfx/bR.svg",
+        "web/assets/pieces/rhosgfx/bB.svg",
+        "web/assets/pieces/rhosgfx/bN.svg",
+        "web/assets/pieces/rhosgfx/bP.svg",
+        "web/assets/pieces/rhosgfx/SECTION42_PROVENANCE.json",
+        "web/assets/pieces/rhosgfx/SOURCE_COPYING.md",
         "web/assets/accessible_chess_design.css",
         "web/assets/tabler/chess-rook.svg",
         "web/assets/tabler/adjustments.svg",
