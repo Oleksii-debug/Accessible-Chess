@@ -15,6 +15,7 @@ on:
       - 'acs/format_factory_docx.py'
       - 'acs/format_factory_chess_audit.py'
       - 'tests/test_section54_factory_chess_audit.py'
+      - 'tests/test_section54_factory_chess_audit_integration.py'
       - 'tests/test_section54_source_intake.py'
       - 'tests/test_section54_factory_pgn_book.py'
       - 'tests/test_section54_factory_tokens.py'
@@ -37,6 +38,7 @@ on:
       - 'acs/format_factory_export.py'
       - 'acs/format_factory_chess_audit.py'
       - 'tests/test_section54_factory_chess_audit.py'
+      - 'tests/test_section54_factory_chess_audit_integration.py'
       - 'tests/test_section54_source_intake.py'
       - 'tests/test_section54_factory_pgn_book.py'
       - 'tests/test_section54_factory_tokens.py'
@@ -65,7 +67,7 @@ jobs:
         with:
           python-version: '3.11'
       - name: Compile exact Python sources
-        run: python -m py_compile acs/format_factory_chess_audit.py tests/test_section54_factory_chess_audit.py acs/format_factory_intake.py acs/format_factory_pgn_book.py acs/format_factory_tokens.py acs/format_factory_policy.py acs/format_factory_queue.py acs/format_factory_export.py acs/format_factory_conversion.py acs/format_factory_epub.py acs/format_factory_docx.py tests/test_section54_source_intake.py tests/test_section54_factory_pgn_book.py tests/test_section54_factory_tokens.py tests/test_section54_factory_policy.py tests/test_section54_factory_queue.py tests/test_section54_factory_export.py tests/test_section54_factory_conversion.py tests/test_section54_factory_epub.py tests/test_section54_factory_docx.py
+        run: python -m py_compile acs/format_factory_chess_audit.py tests/test_section54_factory_chess_audit.py tests/test_section54_factory_chess_audit_integration.py acs/format_factory_intake.py acs/format_factory_pgn_book.py acs/format_factory_tokens.py acs/format_factory_policy.py acs/format_factory_queue.py acs/format_factory_export.py acs/format_factory_conversion.py acs/format_factory_epub.py acs/format_factory_docx.py tests/test_section54_source_intake.py tests/test_section54_factory_pgn_book.py tests/test_section54_factory_tokens.py tests/test_section54_factory_policy.py tests/test_section54_factory_queue.py tests/test_section54_factory_export.py tests/test_section54_factory_conversion.py tests/test_section54_factory_epub.py tests/test_section54_factory_docx.py
       - name: Execute Section 54 unit and negative tests
         run: python -m unittest discover -s tests -p 'test_section54_*.py' -v
       - name: Check and execute accessible policy form DOM tests
