@@ -99,3 +99,11 @@ All results are UNVERIFIED_REQUIRES_DECISION; no print-ready certification is al
 - Important mismatch: separate Liblouis en-chess.ctb subtable encodes chess Unicode figurines with dot 7, so it CANNOT be silently flattened into this six-dot UKAAF profile. This boundary is explicit and must be independently qualified.
 - Before this wave, earlier targeted Section 55 CI on Windows/Ubuntu was SUCCESS for source sha da7cf628c868a4b5a522ea62cb34e69488e4e439. Later source/standards/head checks must be read by exact current sha, not inferred. Source draft PR branch was merged with then-current main via safe disjoint-file two-parent commit 51f2ebbc3c8b738eb6cb944bac9784cf7a7e7bdd (19 owned files preserved, no file overlap).
 - **Terminal status still 0/16 DONE, NOT DONE.** UKAAF chess move code is incomplete, special chess layout/printed diagrams unimplemented, real Liblouis and device not qualified, official sample corpus/rights and blind-reader acceptance missing, eBraille/OCR/product release integration still open.
+
+## Seventh continuation checkpoint — STRICT PGN legality guard before UKAAF move coding
+
+- Added encode_ukaaf2015_canonical_mainline_pgn(pgn) as a bounded legal chess proof boundary: one STRICT parser-confirmed PGN, one mainline of at most 512 moves, no unresolved warnings/comments/NAG/variations; canonical chesscore.Board validates exact legal moves and computes authoritative SAN and before/after FEN, then only supported UKAAF algebraic subset is mapped.
+- Unsupported but otherwise potentially legal castling, promotions and special printed annotations explicitly fail closed until formally qualified. This code NEVER invents chess rules or claims full published game layout.
+- Added tests for legal e4/e5/Nf3/Nc6 sequence and expected six-dot UKAAF move cells; illegal repeated pawn move; variation/comment/NAG rejection; unsupported castling/promotion; oversized/multiple game rejection, exact FEN state.
+- Docs updated: docs/section55/UKAAF_2015_CHESS_STANDARD.md. This is partial UKAAF clauses 3.2–3.6, not complete Part 55.4 or UKAAF 4.x formatting.
+- Latest exact-source scoped Windows and Ubuntu CI were still QUEUED at observation; earlier dual-OS source da7cf628 PASS remains distinct. Terminal completion still **0/16 DONE**. No move to another section permitted yet.
