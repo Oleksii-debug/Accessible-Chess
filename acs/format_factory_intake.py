@@ -156,7 +156,14 @@ def _sniff_text(source: bytes) -> str:
         html_start,
     ):
         return "html"
-    if re.match(r'^\s*\[(Event|Site|Date|Round|White|Black|Result|FEN|SetUp)\s+"', sample):
+    # Supplemental PGN tags can occur before Event in actual game collections.
+    # This is only a bounded signature; canonical PGN still validates all games.
+    if re.match(
+        r'^\s*\[(?:Event|Site|Date|Round|White|Black|Result|FEN|SetUp|'
+        r'ECO|Opening|Variation|WhiteElo|BlackElo|Annotator|PlyCount|'
+        r'UTCDate|UTCTime|TimeControl|Termination|EventDate)\s+"',
+        sample,
+    ):
         return "pgn"
     if re.search(r"(?m)(?:^\s*#{1,6}\s+\S|^\s*\x60{3}(?:pgn|fen|chess))", sample):
         return "markdown"

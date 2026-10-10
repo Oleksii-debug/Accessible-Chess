@@ -187,6 +187,27 @@ class Section54SourceIntakeTests(unittest.TestCase):
         self.assertEqual(result.source_name, "book.txt")
         self.assertEqual(result.sha256, sha256(data).hexdigest())
 
+    def test_supplemental_first_tag_pgn_uses_canonical_parser(self) -> None:
+        for leading in ('[ECO "C20"]', '[WhiteElo "2100"]', '[Annotator "Coach"]'):
+            with self.subTest(leading=leading):
+                data = (
+                    leading + '\n[Event "Study"]\n[White "A"]\n'
+                    '[Black "B"]\n[Result "*"]\n\n1. e4 e5 *\n'
+                ).encode("utf-8")
+                receipt = inspect_factory_source(data, source_name="study.pgn")
+                self.assertEqual(receipt.detected_format, "pgn")
+                self.assertFalse(receipt.extension_mismatch)
+                imported = import_factory_book(data, source_name="study.pgn")
+                self.assertEqual(imported.importer, "acs.format_factory_pgn_book")
+                self.assertEqual(len(imported.document.blocks), 1)
+        invalid = b'[Title "Not a chess game"]\nProse.'
+        self.assertNotEqual(
+            inspect_factory_source(invalid, source_name="fake.pgn").detected_format,
+            "pgn",
+        )
+        with self.assertRaises(FactoryIntakeError):
+            import_factory_book(invalid, source_name="fake.pgn")
+
     def test_pgn_chessbase_and_binary_do_not_create_books(self) -> None:
         data = b'[Event "Game"]\n[White "A"]\n[Black "B"]\n\n1. e4 *'
         receipt = inspect_factory_source(data, source_name="games.pgn")
